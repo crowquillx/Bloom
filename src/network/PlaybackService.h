@@ -84,7 +84,7 @@ public:
     Q_INVOKABLE void getMediaSegments(const QString &itemId, const QString &fileId);
     
     // Trickplay - Get thumbnail tile information for seek preview
-    Q_INVOKABLE void getTrickplayInfo(const QString &itemId);
+    Q_INVOKABLE void getTrickplayInfo(const QString &itemId, const QString &fileId = QString());
     Q_INVOKABLE QString getTrickplayTileUrl(const QString &itemId, int width, int tileIndex);
     
     // Playback Reporting (with track selection support)

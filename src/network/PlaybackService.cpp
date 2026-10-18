@@ -1194,7 +1194,7 @@ void PlaybackService::finishMediaSegments(const QString &itemId, const QList<Med
     emit mediaSegmentsLoaded(itemId, segments);
 }
 
-void PlaybackService::getTrickplayInfo(const QString &itemId)
+void PlaybackService::getTrickplayInfo(const QString &itemId, const QString &fileId)
 {
     if (!m_authService || !m_authService->isAuthenticated()) {
         qCDebug(lcPlayback) << "getTrickplayInfo: Not authenticated, skipping";
@@ -1203,9 +1203,34 @@ void PlaybackService::getTrickplayInfo(const QString &itemId)
     }
 
     if (m_authService->activeProviderKind() == ProviderKind::Silo) {
-        // Trickplay is not part of the advertised native contract. Do not
-        // probe Jellyfin metadata routes for native sessions.
-        emit trickplayInfoLoaded(itemId, QMap<int, TrickplayTileInfo>());
+        const IPlaybackProvider *provider = m_authService->playbackProvider();
+        if (!provider) { emit trickplayInfoLoaded(itemId, {}); return; }
+        const quint64 generation = beginRequest(QStringLiteral("trickplay"), itemId, QString());
+        const auto finish = [this, itemId, generation](const TrickplayTileInfoMap &info) {
+            if (isCurrentRequest(QStringLiteral("trickplay"), itemId, QString(), generation)) emit trickplayInfoLoaded(itemId, info);
+            endRequest(QStringLiteral("trickplay"), itemId, QString(), generation);
+        };
+        const PlaybackProviderContext context = providerContext();
+        const Bloom::MediaRef media{activeConnectionId(m_authService, m_configManager), itemId};
+        loadPlaybackCapabilities(provider, context, [=, this](bool allowed) {
+            if (!allowed || !isCurrentRequest(QStringLiteral("trickplay"), itemId, QString(), generation)) { finish({}); return; }
+            const auto watch = provider->createPlaybackInfoRequest(context, media, {});
+            if (!watch.isValid()) { finish({}); return; }
+            sendRequestWithRetry(watch.endpoint,
+                [this, watch]() { return sendProviderRequest(watch.endpoint, watch.method, watch.body); },
+                [=, this](QNetworkReply *reply) {
+                    if (!isCurrentRequest(QStringLiteral("trickplay"), itemId, QString(), generation)) { finish({}); return; }
+                    provider->parsePlaybackInfoResponse(context, media, QJsonDocument::fromJson(reply->readAll()).object());
+                    const auto request = provider->createTrickplayInfoRequest(context, media, fileId);
+                    if (!request.isValid()) { finish({}); return; }
+                    sendRequestWithRetry(request.endpoint,
+                        [this, request]() { return sendProviderRequest(request.endpoint, request.method, request.body); },
+                        [=, this](QNetworkReply *result) {
+                            if (!isCurrentRequest(QStringLiteral("trickplay"), itemId, QString(), generation)) { finish({}); return; }
+                            finish(provider->parseTrickplayInfoResponse(context, media, QJsonDocument::fromJson(result->readAll()).object(), fileId));
+                        }, [finish](const NetworkError &) { finish({}); }, 0, true, RetrySafety::Idempotent);
+                }, [finish](const NetworkError &) { finish({}); }, 0, true, RetrySafety::Idempotent);
+        });
         return;
     }
 

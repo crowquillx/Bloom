@@ -34,9 +34,7 @@ public:
 
     TrickplayTileInfoMap mapTrickplayInfo(const QJsonObject &wireItem) const override
     {
-        Q_UNUSED(wireItem)
-        // The pinned native API has no trickplay route or tile contract.
-        return {};
+        return SiloModelMapper::trickplayInfo(wireItem);
     }
 
     QList<MediaSegmentInfo> mapIntroSkipperSegments(
@@ -196,6 +194,8 @@ private:
         capabilities |= ProviderCapability::Playback;
         capabilities |= ProviderCapability::PlaybackReporting;
         capabilities |= ProviderCapability::MediaSegments;
+        capabilities |= ProviderCapability::ThemeSongs;
+        capabilities |= ProviderCapability::Trickplay;
         return capabilities;
     }
 

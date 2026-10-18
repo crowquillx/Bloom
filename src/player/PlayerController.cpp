@@ -2910,7 +2910,7 @@ void PlayerController::applyPlaybackSegment(int index, bool reportSegmentStart)
     const QString activeItemId = segment.value(QStringLiteral("itemId")).toString();
     if (!activeItemId.isEmpty()) {
         m_playbackService->getMediaSegments(activeItemId, m_mediaSourceId);
-        m_playbackService->getTrickplayInfo(activeItemId);
+        m_playbackService->getTrickplayInfo(activeItemId, m_mediaSourceId);
     }
 
     if (reportSegmentStart) {
@@ -3454,7 +3454,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         if (!itemId.isEmpty()) {
             m_libraryService->getChapters(itemId);
             m_playbackService->getMediaSegments(itemId, m_mediaSourceId);
-            m_playbackService->getTrickplayInfo(itemId);
+            m_playbackService->getTrickplayInfo(itemId, m_mediaSourceId);
         }
 
         // If we have a start position, queue it as a seek target.

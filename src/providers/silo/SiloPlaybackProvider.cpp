@@ -22,7 +22,7 @@ bool isHttpUrl(const QUrl &url)
     }
     const QString scheme = url.scheme().toLower();
     return (scheme == QStringLiteral("http") || scheme == QStringLiteral("https"))
-        && !url.host().isEmpty();
+        && !url.host().isEmpty() && url.userInfo().isEmpty();
 }
 
 QString relativeOrAbsoluteUrl(const QUrl &serverUrl, const QString &wireUrl)
@@ -199,13 +199,15 @@ bool SiloPlaybackProvider::acceptCapabilities(const PlaybackProviderContext &con
 {
     const QString key = scopeKey(context);
     m_installations.remove(key);
+    m_previewScopes.remove(key);
     if (wire.value("state").toString() != QStringLiteral("available")
         || !wire.value("allowed").toBool()
         || !wire.value("protocol_versions").toArray().contains(3)
         || !wire.value("features").toArray().contains(QStringLiteral("playback_plan_v3"))
         || !wire.value("deliveries").toArray().contains(QStringLiteral("original_http"))
         || wire.value("installation_id").toString().isEmpty()) return false;
-    if (m_installations.size() >= 32) m_installations.clear();
+    if (m_installations.size() >= 32) { m_installations.clear(); m_previewScopes.clear(); }
+    if (wire.value("features").toArray().contains(QStringLiteral("trickplay_v1"))) m_previewScopes.insert(key);
     m_installations.insert(key, wire.value("installation_id").toString());
     return true;
 }
@@ -217,9 +219,55 @@ Bloom::PlaybackDescriptor SiloPlaybackProvider::createDescriptor(
     return {};
 }
 
-QUrl SiloPlaybackProvider::createTrickplayTileUrl(const PlaybackProviderContext &, const QString &, int, int) const
+PlaybackInfoRequest SiloPlaybackProvider::createTrickplayInfoRequest(
+    const PlaybackProviderContext &context, const Bloom::MediaRef &media, const QString &fileId) const
 {
-    return {};
+    PlaybackInfoRequest request;
+    const QString key = scopeKey(context) + QLatin1Char('/') + media.itemId;
+    m_previews.remove(key);
+    if (!m_previewScopes.contains(scopeKey(context)) || fileId.isEmpty()
+        || !m_previewFiles.value(key).contains(fileId)) return request;
+    QUrl url(QStringLiteral("/api/v2/watch/%1/trickplay")
+        .arg(QString::fromLatin1(QUrl::toPercentEncoding(media.itemId))));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("file_id"), fileId);
+    url.setQuery(query);
+    request.endpoint = url.toString(QUrl::FullyEncoded);
+    return request;
+}
+
+TrickplayTileInfoMap SiloPlaybackProvider::parseTrickplayInfoResponse(
+    const PlaybackProviderContext &context, const Bloom::MediaRef &media,
+    const QJsonObject &wire, const QString &fileId) const
+{
+    const QString key = scopeKey(context) + QLatin1Char('/') + media.itemId;
+    m_previews.remove(key);
+    if (wire.value("file_id").toString() != fileId) return {};
+    const auto mapped = SiloModelMapper::trickplayInfo(wire);
+    const QDateTime expiry = QDateTime::fromString(wire.value("expires_at").toString(), Qt::ISODateWithMs);
+    if (mapped.isEmpty() || !expiry.isValid() || expiry <= QDateTime::currentDateTimeUtc()) return {};
+    const QJsonArray sheets = wire.value("sheets").toArray();
+    QList<QUrl> urls(sheets.size());
+    QSet<int> seen;
+    for (const auto &entry : sheets) {
+        const QJsonObject sheet = entry.toObject();
+        const int index = sheet.value("index").toInt(-1);
+        const QUrl url(relativeOrAbsoluteUrl(context.serverUrl, sheet.value("url").toString()));
+        if (index < 0 || index >= urls.size() || seen.contains(index) || !isHttpUrl(url)) return {};
+        seen.insert(index); urls[index] = url;
+    }
+    if (m_previews.size() >= 32) m_previews.clear();
+    m_previews.insert(key, {mapped.first().width, urls, expiry});
+    return mapped;
+}
+
+QUrl SiloPlaybackProvider::createTrickplayTileUrl(
+    const PlaybackProviderContext &context, const QString &itemId, int width, int tileIndex) const
+{
+    const auto it = m_previews.constFind(scopeKey(context) + QLatin1Char('/') + itemId);
+    if (it == m_previews.cend() || it->width != width || tileIndex < 0 || tileIndex >= it->sheets.size()
+        || it->expiresAt <= QDateTime::currentDateTimeUtc()) return {};
+    return it->sheets.at(tileIndex);
 }
 
 PlaybackInfoRequest SiloPlaybackProvider::createPlaybackInfoRequest(
@@ -232,9 +280,16 @@ PlaybackInfoRequest SiloPlaybackProvider::createPlaybackInfoRequest(
 }
 
 PlaybackInfoParseResult SiloPlaybackProvider::parsePlaybackInfoResponse(
-    const PlaybackProviderContext &, const Bloom::MediaRef &, const QJsonObject &wire,
+    const PlaybackProviderContext &context, const Bloom::MediaRef &media, const QJsonObject &wire,
     const QVariantMap &) const
 {
+    if (m_previewFiles.size() >= 64) m_previewFiles.clear();
+    QSet<QString> files;
+    for (const auto &entry : wire.value("versions").toArray()) {
+        const QJsonObject version = entry.toObject();
+        if (version.value("trickplay_available").toBool()) files.insert(version.value("file_id").toString());
+    }
+    m_previewFiles.insert(scopeKey(context) + QLatin1Char('/') + media.itemId, files);
     PlaybackInfoParseResult result;
     result.response = SiloModelMapper::playbackInfo(wire);
     result.valid = !result.response.mediaSources.isEmpty();

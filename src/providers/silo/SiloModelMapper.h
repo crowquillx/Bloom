@@ -13,6 +13,7 @@
 class SiloModelMapper
 {
 public:
+    static TrickplayTileInfoMap trickplayInfo(const QJsonObject &wire);
     static qint64 secondsToMilliseconds(double seconds);
     static PlaybackInfoResponse playbackInfo(const QJsonObject &wireItem);
     static PlaybackInfoResponse playbackInfoFromVersions(const QJsonArray &wireVersions);

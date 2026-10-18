@@ -48,6 +48,8 @@ QJsonObject capabilitiesObject(ProviderCapabilities capabilities)
     add(ProviderCapability::Profiles, "profiles");
     add(ProviderCapability::ProfilePin, "profile_pin");
     add(ProviderCapability::AuthSessions, "auth_sessions");
+    add(ProviderCapability::ThemeSongs, "theme_songs");
+    add(ProviderCapability::Trickplay, "trickplay");
     add(ProviderCapability::Catalog, "catalog");
     add(ProviderCapability::NativeState, "native_state");
     add(ProviderCapability::MediaSegments, "media_segments");

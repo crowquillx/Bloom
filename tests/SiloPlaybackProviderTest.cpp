@@ -63,6 +63,7 @@ private slots:
     void replansAudioWithDurableRequestIdentity();
     void sequencesReportsAndFinalizesStop();
     void isolatesAccountsAndConnections();
+    void mapsTrickplayWithVersionAndExpiryGuards();
 };
 
 void SiloPlaybackProviderTest::gatesStartOnCapabilitiesAndProfile()
@@ -199,6 +200,42 @@ void SiloPlaybackProviderTest::isolatesAccountsAndConnections()
     PlaybackReport report; report.media = media(); report.media.connectionId = QStringLiteral("another-connection");
     report.playbackSessionId = QStringLiteral("session-42");
     QVERIFY(!provider.createReportRequest(report).isValid());
+}
+
+void SiloPlaybackProviderTest::mapsTrickplayWithVersionAndExpiryGuards()
+{
+    SiloPlaybackProvider provider;
+    auto caps = capability(); caps["features"] = QJsonArray{"playback_plan_v3", "trickplay_v1"};
+    QVERIFY(provider.acceptCapabilities(context(), caps));
+    const auto watch = QJsonObject{{"versions", QJsonArray{
+        QJsonObject{{"file_id", "opaque/file-1"}, {"trickplay_available", true}},
+        QJsonObject{{"file_id", "file-2"}, {"trickplay_available", false}}}}};
+    QVERIFY(provider.parsePlaybackInfoResponse(context(), media(), watch).valid);
+    const auto request = provider.createTrickplayInfoRequest(context(), media(), QStringLiteral("opaque/file-1"));
+    QCOMPARE(request.endpoint, QStringLiteral("/api/v2/watch/item-42/trickplay?file_id=opaque/file-1"));
+    QVERIFY(!provider.createTrickplayInfoRequest(context(), media(), QStringLiteral("file-2")).isValid());
+    QJsonObject previews{{"file_id", "opaque/file-1"}, {"interval_ms", 10000},
+        {"thumbnail_width", 300}, {"thumbnail_height", 169}, {"tile_columns", 10}, {"tile_rows", 10},
+        {"thumbnail_count", 120}, {"expires_at", QDateTime::currentDateTimeUtc().addSecs(60).toString(Qt::ISODateWithMs)},
+        {"sheets", QJsonArray{QJsonObject{{"index", 1}, {"url", "/sheet-1.jpg?token=opaque%2Bvalue"}},
+            QJsonObject{{"index", 0}, {"url", "/sheet-0.jpg?token=opaque%2Fvalue"}}}}};
+    const auto mapped = provider.parseTrickplayInfoResponse(context(), media(), previews, QStringLiteral("opaque/file-1"));
+    QCOMPARE(mapped.size(), 1);
+    QCOMPARE(mapped.first().width, 300);
+    QCOMPARE(mapped.first().interval, 10000);
+    QCOMPARE(mapped.first().getTileIndex(101), 1);
+    QCOMPARE(provider.createTrickplayTileUrl(context(), media().itemId, 300, 0).toEncoded(),
+        QByteArrayLiteral("https://silo.example.test/sheet-0.jpg?token=opaque%2Fvalue"));
+    QVERIFY(provider.createTrickplayTileUrl(context(), media().itemId, 300, 2).isEmpty());
+    auto other = context(); other.accountId = QStringLiteral("another-account");
+    QVERIFY(provider.createTrickplayTileUrl(other, media().itemId, 300, 0).isEmpty());
+    QVERIFY(provider.parseTrickplayInfoResponse(context(), media(), previews, QStringLiteral("file-2")).isEmpty());
+    previews["tile_columns"] = 2147483647;
+    QVERIFY(provider.parseTrickplayInfoResponse(context(), media(), previews, QStringLiteral("opaque/file-1")).isEmpty());
+    QVERIFY(provider.createTrickplayTileUrl(context(), media().itemId, 300, 0).isEmpty());
+    previews["tile_columns"] = 10;
+    previews["expires_at"] = QDateTime::currentDateTimeUtc().addSecs(-1).toString(Qt::ISODateWithMs);
+    QVERIFY(provider.parseTrickplayInfoResponse(context(), media(), previews, QStringLiteral("opaque/file-1")).isEmpty());
 }
 
 QTEST_GUILESS_MAIN(SiloPlaybackProviderTest)

@@ -476,3 +476,9 @@ Silo theme audio
 - Theme metadata comes from the detail response's `themes` set. Bloom checks `/api/v2/catalog/themes/capabilities` before requesting a grant for the first theme. Grants use the set's `owner_id`, which can differ from the detail item ID.
 - The grant URL is an expiring credential. Bloom keeps it in memory, resolves it against the server origin, and passes it to `ThemeSongManager`. It does not build an audio URL from an item ID.
 - Converted delivery is progressive AAC in audio-only MP4. Bloom disables media-player looping for Silo grants and requests a fresh grant at each loop. It fetches grant audio once without ranges into a buffer, with a 16 MiB limit and a 45-second deadline, before giving a seekable device to QtMultimedia. QtMultimedia cannot make additional network requests or replay a converted URL. Expired grants and unknown delivery values fail closed.
+
+Silo seek previews
+- `/api/v2/watch/{id}` supplies consolidated versions, tracks, source duration, chapters, and per-version `trickplay_available` state.
+- Bloom requests `/api/v2/watch/{id}/trickplay?file_id=...` only when the playback capability advertises `trickplay_v1` and the selected watch version has published previews.
+- The adapter maps thumbnail size, sheet grid, interval in milliseconds, and thumbnail count. Sheet URLs remain opaque and expire at `expires_at`. A bounded in-memory cache keeps them separate by server, account, profile, and item. Missing or expired sheets produce no preview URL.
+- PlayerController passes the current file ID on every item or multipart transition. Jellyfin preview requests retain their existing route and mapping.

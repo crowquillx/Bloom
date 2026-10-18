@@ -432,7 +432,7 @@ void ProviderCatalogTest::siloCanonicalIdentityVersionsMultipartAndStateUseMilli
         {QStringLiteral("title"), QStringLiteral("Example")},
         {QStringLiteral("provider_ids"), QJsonObject{
              {QStringLiteral("imdb_id"), QStringLiteral("tt1234567")},
-             {QStringLiteral("Tmdb"), 7654}
+             {QStringLiteral("Tmdb"), QStringLiteral("7654")}
          }},
         {QStringLiteral("user_data"), QJsonObject{
              {QStringLiteral("played"), false},
@@ -757,6 +757,7 @@ void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
     SiloCatalogProvider provider;
     ProviderCatalogQuery parentOnlyQuery;
     parentOnlyQuery.parentId = QStringLiteral("series/one");
+    parentOnlyQuery.includeItemTypes = {QStringLiteral("Season")};
     const ProviderCatalogRequest seasonsRequest =
         provider.createRequest(ProviderCatalogOperation::Items, parentOnlyQuery);
     QVERIFY(seasonsRequest.supported);
