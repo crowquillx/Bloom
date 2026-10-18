@@ -94,7 +94,7 @@ void SiloPlaybackProviderTest::legacyStartRequestUsesEnvelopeAndCapabilities()
 
     QVERIFY(request.isValid());
     QCOMPARE(request.method, QStringLiteral("POST"));
-    QCOMPARE(request.endpoint, QStringLiteral("/api/v1/playback/start"));
+    QCOMPARE(request.endpoint, QStringLiteral("/api/v2/playback/start"));
     QCOMPARE(request.body.value(QStringLiteral("file_id")).toInteger(), qint64(99));
     QCOMPARE(request.body.value(QStringLiteral("profile_id")).toString(), QStringLiteral("profile-7"));
     QCOMPARE(request.body.value(QStringLiteral("audio_track_index")).toInteger(), qint64(2));
@@ -249,7 +249,7 @@ void SiloPlaybackProviderTest::createsAudioSwitchRequestWithNativeRouteAndBody()
         context(), QStringLiteral("session/one?x=2"), 7, 12345);
     QVERIFY(request.isValid());
     QCOMPARE(request.method, QStringLiteral("PATCH"));
-    QCOMPARE(request.endpoint, QStringLiteral("/api/v1/playback/session%2Fone%3Fx%3D2/audio"));
+    QCOMPARE(request.endpoint, QStringLiteral("/api/v2/playback/session%2Fone%3Fx%3D2/audio"));
     QCOMPARE(request.body.value(QStringLiteral("audio_track_index")).toInteger(), qint64(7));
     QCOMPARE(request.body.value(QStringLiteral("position")).toDouble(), 12.345);
 
@@ -268,7 +268,7 @@ void SiloPlaybackProviderTest::createsProgressAndStopReports()
     QVERIFY(progressRequest.isValid());
     QCOMPARE(progressRequest.method, QStringLiteral("POST"));
     QCOMPARE(progressRequest.endpoint,
-             QStringLiteral("/api/v1/playback/session%2Fone%3Fx%3D2/progress"));
+             QStringLiteral("/api/v2/playback/session%2Fone%3Fx%3D2/progress"));
     QCOMPARE(progressRequest.body.value(QStringLiteral("seconds")).toDouble(), 3.456);
     QVERIFY(!progressRequest.body.contains(QStringLiteral("position")));
     QCOMPARE(progressRequest.body.value(QStringLiteral("is_paused")).toBool(), false);
@@ -294,7 +294,7 @@ void SiloPlaybackProviderTest::createsProgressAndStopReports()
     const PlaybackReportRequest stopRequest = provider.createReportRequest(progress);
     QVERIFY(stopRequest.isValid());
     QCOMPARE(stopRequest.method, QStringLiteral("DELETE"));
-    QCOMPARE(stopRequest.endpoint, QStringLiteral("/api/v1/playback/session%2Fone%3Fx%3D2"));
+    QCOMPARE(stopRequest.endpoint, QStringLiteral("/api/v2/playback/session%2Fone%3Fx%3D2"));
     QVERIFY(stopRequest.body.isEmpty());
     QVERIFY(!stopRequest.deferSessionExpiry);
     QVERIFY(!provider.createReportRequest({}).isValid());

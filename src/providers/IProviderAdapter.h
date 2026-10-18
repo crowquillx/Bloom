@@ -37,6 +37,8 @@ enum class ProviderRoute {
     PlaybackInfo,
     PlaybackCapability,
     Health,
+    Ready,
+    SystemInfo,
     CallerLogout
 };
 

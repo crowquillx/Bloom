@@ -320,14 +320,14 @@ QString refreshEndpoint(const Bloom::ArtworkRef &artwork)
     switch (artwork.ownerKind) {
     case Bloom::ArtworkOwnerKind::Library:
         return artwork.kind == Bloom::ArtworkKind::Primary
-            ? QStringLiteral("/api/v1/user/libraries") : QString();
+            ? QStringLiteral("/api/v2/user/libraries") : QString();
     case Bloom::ArtworkOwnerKind::Person:
         return artwork.kind == Bloom::ArtworkKind::Person
-            ? QStringLiteral("/api/v1/catalog/people/%1").arg(encodedIdentity(artwork.itemId))
+            ? QStringLiteral("/api/v2/catalog/people/%1").arg(encodedIdentity(artwork.itemId))
             : QString();
     case Bloom::ArtworkOwnerKind::Chapter:
         return artwork.kind == Bloom::ArtworkKind::Chapter
-            ? QStringLiteral("/api/v1/catalog/items/%1").arg(encodedIdentity(artwork.itemId))
+            ? QStringLiteral("/api/v2/catalog/items/%1").arg(encodedIdentity(artwork.itemId))
             : QString();
     case Bloom::ArtworkOwnerKind::MediaItem:
         switch (artwork.kind) {
@@ -335,7 +335,7 @@ QString refreshEndpoint(const Bloom::ArtworkRef &artwork)
         case Bloom::ArtworkKind::Thumb:
         case Bloom::ArtworkKind::Backdrop:
         case Bloom::ArtworkKind::Logo:
-            return QStringLiteral("/api/v1/catalog/items/%1")
+            return QStringLiteral("/api/v2/catalog/items/%1")
                 .arg(encodedIdentity(artwork.itemId));
         case Bloom::ArtworkKind::Chapter:
         case Bloom::ArtworkKind::Person:

@@ -33,10 +33,10 @@ public:
             return createCatalogRequest(latest, false);
         }
         case ProviderCatalogOperation::Item:
-            return getWithContentId(QStringLiteral("/api/v1/catalog/items/%1"), query.itemId);
+            return getWithContentId(QStringLiteral("/api/v2/catalog/items/%1"), query.itemId);
         case ProviderCatalogOperation::Chapters:
         case ProviderCatalogOperation::Versions:
-            return getWithContentId(QStringLiteral("/api/v1/catalog/items/%1/versions"),
+            return getWithContentId(QStringLiteral("/api/v2/catalog/items/%1/versions"),
                                     query.itemId);
         case ProviderCatalogOperation::ThemeSongs:
             return unsupported(themeSongsUnsupportedReason());
@@ -59,7 +59,7 @@ public:
                     "Silo similar recommendations support only content_id and limit"));
             }
             ProviderCatalogRequest request = getWithContentId(
-                QStringLiteral("/api/v1/recommendations/similar/%1"), query.itemId);
+                QStringLiteral("/api/v2/recommendations/similar/%1"), query.itemId);
             if (!request.supported) {
                 return request;
             }
@@ -71,12 +71,12 @@ public:
         case ProviderCatalogOperation::SetWatched:
             return mutationWithContentId(query.stateValue ? ProviderHttpMethod::Post
                                                           : ProviderHttpMethod::Delete,
-                                         QStringLiteral("/api/v1/watched/%1"),
+                                         QStringLiteral("/api/v2/watched/%1"),
                                          query.itemId);
         case ProviderCatalogOperation::SetFavorite:
             return mutationWithContentId(query.stateValue ? ProviderHttpMethod::Put
                                                           : ProviderHttpMethod::Delete,
-                                         QStringLiteral("/api/v1/favorites/%1"),
+                                         QStringLiteral("/api/v2/favorites/%1"),
                                          query.itemId);
         case ProviderCatalogOperation::Search:
             if (query.searchTerm.trimmed().isEmpty()) {
@@ -90,7 +90,7 @@ public:
                 return unsupported(QStringLiteral(
                     "Silo's Next Up home section does not accept catalog modifiers"));
             }
-            return get(QStringLiteral("/api/v1/home/sections/system-next-up/items"));
+            return get(QStringLiteral("/api/v2/home/sections/system-next-up/items"));
         case ProviderCatalogOperation::HomeBackdrops:
         case ProviderCatalogOperation::ScreensaverItems:
         case ProviderCatalogOperation::RandomItems:
@@ -504,7 +504,7 @@ private:
                 return unsupported(QStringLiteral(
                     "Silo library discovery does not support catalog modifiers"));
             }
-            return get(QStringLiteral("/api/v1/user/libraries"));
+            return get(QStringLiteral("/api/v2/user/libraries"));
         }
         if (query.parentId.trimmed().compare(
                 QStringLiteral("home"), Qt::CaseInsensitive) == 0) {
@@ -512,7 +512,7 @@ private:
                 return unsupported(QStringLiteral(
                     "Silo home section discovery does not support catalog modifiers"));
             }
-            return get(QStringLiteral("/api/v1/home/sections"));
+            return get(QStringLiteral("/api/v2/home/sections"));
         }
         bool libraryIdOk = false;
         const int libraryId = query.parentId.trimmed().toInt(&libraryIdOk);
@@ -521,7 +521,7 @@ private:
             return unsupported(QStringLiteral(
                 "Silo library section discovery requires only a positive numeric library ID"));
         }
-        return get(QStringLiteral("/api/v1/library/%1/sections").arg(libraryId));
+        return get(QStringLiteral("/api/v2/library/%1/sections").arg(libraryId));
     }
 
     static ProviderCatalogRequest createItemsRequest(const ProviderCatalogQuery &query)
@@ -533,7 +533,7 @@ private:
                 return unsupported(QStringLiteral(
                     "Silo home section items do not support catalog modifiers"));
             }
-            return get(QStringLiteral("/api/v1/home/sections/%1/items")
+            return get(QStringLiteral("/api/v2/home/sections/%1/items")
                            .arg(encodedId(query.itemId)));
         }
         bool sectionLibraryIdOk = false;
@@ -545,7 +545,7 @@ private:
                 return unsupported(QStringLiteral(
                     "Silo library section items do not support catalog modifiers"));
             }
-            return get(QStringLiteral("/api/v1/library/%1/sections/%2/items")
+            return get(QStringLiteral("/api/v2/library/%1/sections/%2/items")
                            .arg(sectionLibraryId)
                            .arg(encodedId(query.itemId)));
         }
@@ -572,15 +572,15 @@ private:
                     const QString route = query.includeItemTypes.isEmpty()
                         || normalizedItemType(query.includeItemTypes.first())
                                == QStringLiteral("season")
-                        ? QStringLiteral("/api/v1/catalog/series/%1/seasons/%2")
-                        : QStringLiteral("/api/v1/catalog/series/%1/seasons/%2/episodes");
+                        ? QStringLiteral("/api/v2/catalog/series/%1/seasons/%2")
+                        : QStringLiteral("/api/v2/catalog/series/%1/seasons/%2/episodes");
                     return get(
                         route.arg(encodedId(query.seriesId), QString::number(seasonNumber)));
                 }
-                return getWithContentId(QStringLiteral("/api/v1/catalog/items/%1/episodes"),
+                return getWithContentId(QStringLiteral("/api/v2/catalog/items/%1/episodes"),
                                         parent);
             }
-            return getWithContentId(QStringLiteral("/api/v1/catalog/series/%1/seasons"),
+            return getWithContentId(QStringLiteral("/api/v2/catalog/series/%1/seasons"),
                                     query.seriesId);
         }
 
@@ -596,16 +596,16 @@ private:
                     "Silo hierarchy routes do not support catalog filters or pagination"));
             }
             if (query.includeItemTypes.isEmpty()) {
-                return getWithContentId(QStringLiteral("/api/v1/catalog/series/%1/seasons"),
+                return getWithContentId(QStringLiteral("/api/v2/catalog/series/%1/seasons"),
                                         query.parentId);
             }
             const QString type = normalizedItemType(query.includeItemTypes.first());
             if (type == QStringLiteral("season")) {
-                return getWithContentId(QStringLiteral("/api/v1/catalog/series/%1/seasons"),
+                return getWithContentId(QStringLiteral("/api/v2/catalog/series/%1/seasons"),
                                         query.parentId);
             }
             if (type == QStringLiteral("episode")) {
-                return getWithContentId(QStringLiteral("/api/v1/catalog/items/%1/episodes"),
+                return getWithContentId(QStringLiteral("/api/v2/catalog/items/%1/episodes"),
                                         query.parentId);
             }
         }
@@ -696,7 +696,7 @@ private:
             ProviderCatalogRequest request;
             request.method = ProviderHttpMethod::Post;
             request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
-            request.relativeEndpoint = QStringLiteral("/api/v1/catalog/query");
+            request.relativeEndpoint = QStringLiteral("/api/v2/catalog/query");
             request.body = QJsonDocument(body).toJson(QJsonDocument::Compact);
             request.extraHeaders.insert(QByteArrayLiteral("Content-Type"),
                                         QByteArrayLiteral("application/json"));
@@ -731,7 +731,7 @@ private:
         appendGroupsForGet(parameters, query);
 
         ProviderCatalogRequest request = get(
-            endpointWithQuery(QStringLiteral("/api/v1/catalog"), parameters));
+            endpointWithQuery(QStringLiteral("/api/v2/catalog"), parameters));
         if (query.useCacheValidation) {
             if (!query.etag.isEmpty()) {
                 request.extraHeaders.insert(QByteArrayLiteral("If-None-Match"), query.etag);
@@ -773,7 +773,7 @@ private:
                                 query.includeHeavyFields ? QStringLiteral("true")
                                                          : QStringLiteral("false"));
 
-        QString endpoint = QStringLiteral("/api/v1/catalog/filters");
+        QString endpoint = QStringLiteral("/api/v2/catalog/filters");
         QString facet = query.filterFacet.trimmed().toLower();
         static const QHash<QString, QString> facetAliases{
             {QStringLiteral("genres"), QStringLiteral("genre")},

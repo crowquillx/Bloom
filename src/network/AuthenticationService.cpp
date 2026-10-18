@@ -521,7 +521,7 @@ void AuthenticationService::authenticate(const QString &serverUrl,
 
 void AuthenticationService::probeProviderAndLogin(const QString &username,
                                                     const QString &password,
-                                                    quint64 generation)
+                                                    quint64 generation, int probeStep)
 {
     IProviderAdapter *silo = providerForKind(ProviderKind::Silo);
     IProviderAdapter *jellyfin = providerForKind(ProviderKind::Jellyfin);
@@ -546,7 +546,9 @@ void AuthenticationService::probeProviderAndLogin(const QString &username,
         fallback();
         return;
     }
-    const auto endpoint = silo->endpointFor(ProviderRoute::Health);
+    const ProviderRoute routes[] = {ProviderRoute::Health, ProviderRoute::Ready,
+                                    ProviderRoute::SystemInfo};
+    const auto endpoint = silo->endpointFor(routes[probeStep]);
     if (!endpoint.has_value()) {
         fallback();
         return;
@@ -561,8 +563,12 @@ void AuthenticationService::probeProviderAndLogin(const QString &username,
         [this, factory, context, endpoint = *endpoint]() {
             return networkManager()->get(factory->createRequest(context, endpoint));
         },
-        [this, silo, username, password, generation, fallback](QNetworkReply *reply) {
+        [this, silo, username, password, generation, fallback, probeStep](QNetworkReply *reply) {
             if (generation != m_stateGeneration) {
+                return;
+            }
+            if (probeStep < 2) {
+                probeProviderAndLogin(username, password, generation, probeStep + 1);
                 return;
             }
             const QJsonObject payload = QJsonDocument::fromJson(reply->readAll()).object();
