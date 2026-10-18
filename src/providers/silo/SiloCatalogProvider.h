@@ -4,6 +4,7 @@
 #include "providers/silo/SiloModelMapper.h"
 
 #include <QJsonDocument>
+#include <QDateTime>
 #include <QUrl>
 #include <QUrlQuery>
 #include <optional>
@@ -39,7 +40,25 @@ public:
             return getWithContentId(QStringLiteral("/api/v2/catalog/items/%1/versions"),
                                     query.itemId);
         case ProviderCatalogOperation::ThemeSongs:
-            return unsupported(themeSongsUnsupportedReason());
+            return getWithContentId(QStringLiteral("/api/v2/catalog/items/%1"), query.itemId);
+        case ProviderCatalogOperation::ThemeSongsCapability:
+            return get(QStringLiteral("/api/v2/catalog/themes/capabilities"));
+        case ProviderCatalogOperation::ThemeSongPlayback: {
+            if (query.themeId.isEmpty()) return unsupported(QStringLiteral("A theme ID is required"));
+            auto request = getWithContentId(QStringLiteral("/api/v2/catalog/items/%1"), query.itemId);
+            request.relativeEndpoint += QStringLiteral("/themes/%1/playback").arg(encodedId(query.themeId));
+            request.method = ProviderHttpMethod::Post;
+            request.retrySafety = ProviderCatalogRetrySafety::Never;
+            request.body = QJsonDocument(QJsonObject{{"accepted_formats", QJsonArray{
+                QJsonObject{{"container", "mp3"}, {"audio_codec", "mp3"}},
+                QJsonObject{{"container", "mp4"}, {"audio_codec", "aac"}},
+                QJsonObject{{"container", "flac"}, {"audio_codec", "flac"}},
+                QJsonObject{{"container", "ogg"}, {"audio_codec", "vorbis"}},
+                QJsonObject{{"container", "opus"}, {"audio_codec", "opus"}},
+                QJsonObject{{"container", "wav"}, {"audio_codec", "pcm"}}
+            }}}).toJson(QJsonDocument::Compact);
+            return request;
+        }
         case ProviderCatalogOperation::SimilarItems: {
             if (query.limit < 0 || query.startIndex != 0
                 || !query.parentId.trimmed().isEmpty()
@@ -113,9 +132,40 @@ public:
         const QByteArray &body,
         const QHash<QByteArray, QByteArray> &responseHeaders) const override
     {
-        if (operation == ProviderCatalogOperation::ThemeSongs) {
+        if (operation == ProviderCatalogOperation::ThemeSongs
+            || operation == ProviderCatalogOperation::ThemeSongsCapability
+            || operation == ProviderCatalogOperation::ThemeSongPlayback) {
             ProviderCatalogResponse response;
-            response.error = themeSongsUnsupportedReason();
+            const auto document = QJsonDocument::fromJson(body);
+            if (!document.isObject()) {
+                response.error = QStringLiteral("Invalid Silo theme response");
+                return response;
+            }
+            const auto object = document.object();
+            if (operation == ProviderCatalogOperation::ThemeSongs) {
+                const auto themes = object.value("themes").toObject();
+                response.rawItems = themes.value("items").toArray();
+                response.capabilityMetadata.insert(QStringLiteral("ownerId"), themes.value("owner_id").toString());
+                response.valid = themes.isEmpty() || (themes.value("items").isArray() && !themes.value("owner_id").toString().isEmpty());
+            } else if (operation == ProviderCatalogOperation::ThemeSongsCapability) {
+                response.capabilityMetadata.insert(QStringLiteral("allowed"),
+                    object.value("state").toString() == QStringLiteral("available") && object.value("allowed").toBool()
+                    && (object.value("delivery").toString() == QStringLiteral("routed")
+                        || object.value("delivery").toString() == QStringLiteral("local_direct_play")));
+                response.valid = object.value("state").isString() && object.value("allowed").isBool();
+                for (auto it = responseHeaders.cbegin(); it != responseHeaders.cend(); ++it) {
+                    if (it.key().compare("ETag", Qt::CaseInsensitive) == 0) response.snapshot.insert(QStringLiteral("etag"), QString::fromUtf8(it.value()));
+                }
+            } else {
+                const QString delivery = object.value("delivery").toString();
+                const QDateTime expiry = QDateTime::fromString(object.value("expires_at").toString(), Qt::ISODateWithMs);
+                response.valid = !object.value("url").toString().isEmpty() && expiry.isValid()
+                    && expiry > QDateTime::currentDateTimeUtc()
+                    && (delivery == QStringLiteral("original") || delivery == QStringLiteral("converted"));
+                response.capabilityMetadata = {{"url", object.value("url").toString()}, {"expiresAt", expiry},
+                    {"requiresFreshGrant", true}};
+            }
+            if (!response.valid) response.error = QStringLiteral("Invalid or expired Silo theme response");
             return response;
         }
 
@@ -145,12 +195,6 @@ private:
         QString op;
         QJsonValue value;
     };
-
-    static QString themeSongsUnsupportedReason()
-    {
-        return QStringLiteral(
-            "Silo's native catalog contract has no theme-song endpoint");
-    }
 
     static ProviderCatalogRequest get(const QString &endpoint)
     {

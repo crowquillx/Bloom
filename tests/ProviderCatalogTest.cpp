@@ -1,6 +1,7 @@
 #include <QtTest/QtTest>
 
 #include <QDate>
+#include <QDateTime>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -32,6 +33,7 @@ private slots:
     void canonicalArtworkAndPlaybackChapterMetadataRemainProviderNeutral();
     void siloEpisodeParentAndBoundedTimes();
     void siloNumericSeasonRoutesAndEnvelopeOperation();
+    void siloThemeMetadataCapabilitiesAndGrants();
 
 };
 
@@ -791,6 +793,50 @@ void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
     request = provider.createRequest(ProviderCatalogOperation::Items, query);
     QVERIFY(!request.supported);
     QVERIFY(!request.unsupportedReason.isEmpty());
+}
+
+void ProviderCatalogTest::siloThemeMetadataCapabilitiesAndGrants()
+{
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery query;
+    query.itemId = QStringLiteral("series/one");
+    auto request = provider.createRequest(ProviderCatalogOperation::ThemeSongs, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/catalog/items/series%2Fone"));
+    const auto themes = provider.parseResponse(ProviderCatalogOperation::ThemeSongs,
+        QByteArrayLiteral(R"({"themes":{"owner_id":"series/one","items":[{"id":"theme-1","title":"Theme","container":"mp3","duration_seconds":29}]},"future_field":true})"));
+    QVERIFY(themes.valid);
+    QCOMPARE(themes.capabilityMetadata.value("ownerId").toString(), query.itemId);
+    QCOMPARE(themes.rawItems.size(), 1);
+    query.themeId = QStringLiteral("theme/one");
+    request = provider.createRequest(ProviderCatalogOperation::ThemeSongPlayback, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Never);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/catalog/items/series%2Fone/themes/theme%2Fone/playback"));
+    QVERIFY(!QJsonDocument::fromJson(request.body).object().value("accepted_formats").toArray().isEmpty());
+    const auto capability = provider.parseResponse(ProviderCatalogOperation::ThemeSongsCapability,
+        QByteArrayLiteral(R"({"state":"available","allowed":true,"delivery":"routed","future_field":true})"),
+        {{"ETag", "opaque-validator"}});
+    QVERIFY(capability.valid);
+    QVERIFY(capability.capabilityMetadata.value("allowed").toBool());
+    QCOMPARE(capability.snapshot.value("etag").toString(), QStringLiteral("opaque-validator"));
+    const auto unknown = provider.parseResponse(ProviderCatalogOperation::ThemeSongsCapability,
+        QByteArrayLiteral(R"({"state":"future_state","allowed":true,"delivery":"routed"})"));
+    QVERIFY(unknown.valid);
+    QVERIFY(!unknown.capabilityMetadata.value("allowed").toBool());
+    QJsonObject grant{{"url", "/audio?token=secret%2Bvalue"}, {"delivery", "converted"},
+        {"expires_at", QDateTime::currentDateTimeUtc().addSecs(60).toString(Qt::ISODateWithMs)},
+        {"content_type", "audio/mp4"}};
+    auto parsed = provider.parseResponse(ProviderCatalogOperation::ThemeSongPlayback, QJsonDocument(grant).toJson());
+    QVERIFY(parsed.valid);
+    QVERIFY(parsed.capabilityMetadata.value("requiresFreshGrant").toBool());
+    QCOMPARE(parsed.capabilityMetadata.value("url").toString(), QStringLiteral("/audio?token=secret%2Bvalue"));
+    grant["delivery"] = "future_delivery";
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::ThemeSongPlayback, QJsonDocument(grant).toJson()).valid);
+    grant["delivery"] = "original";
+    grant["expires_at"] = QDateTime::currentDateTimeUtc().addSecs(-1).toString(Qt::ISODateWithMs);
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::ThemeSongPlayback, QJsonDocument(grant).toJson()).valid);
 }
 
 QTEST_MAIN(ProviderCatalogTest)

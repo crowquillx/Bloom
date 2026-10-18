@@ -31,6 +31,8 @@ enum class ProviderCatalogOperation {
     HeroOverviews,
     Versions,
     ThemeSongs,
+    ThemeSongsCapability,
+    ThemeSongPlayback,
 };
 
 enum class ProviderHttpMethod {
@@ -57,6 +59,7 @@ struct ProviderCatalogQuery {
     QString parentId;
     QString seriesId;
     QString excludeItemId;
+    QString themeId;
     QStringList itemIds;
     QStringList parentIds;
     QStringList seriesIds;

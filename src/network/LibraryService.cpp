@@ -168,6 +168,8 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         m_catalogRequests.clear();
         m_etags.clear();
         m_pageCursors.clear();
+        m_conditionalResponses.clear();
+        ++m_themeRequestGeneration;
         m_lastModified.clear();
         m_inFlightChapterRequests.clear();
     };
@@ -311,6 +313,10 @@ void LibraryService::sendCatalogRequest(
             if (status == 304) {
                 if (notModifiedHandler) {
                     notModifiedHandler();
+                } else if (m_conditionalResponses.contains(providerRequest.relativeEndpoint)) {
+                    if (responseHandler) responseHandler(m_conditionalResponses.value(providerRequest.relativeEndpoint));
+                } else {
+                    emitCatalogError(operationName, tr("The server returned a validator without a cached response."), failureHandler);
                 }
                 return;
             }
@@ -349,6 +355,10 @@ void LibraryService::sendCatalogRequest(
                 }
                 if (!lastModified.isEmpty()) {
                     m_lastModified.insert(providerRequest.relativeEndpoint, lastModified);
+                }
+                if (operation == ProviderCatalogOperation::ThemeSongsCapability) {
+                    if (m_conditionalResponses.size() >= 32) m_conditionalResponses.clear();
+                    m_conditionalResponses.insert(providerRequest.relativeEndpoint, response);
                 }
                 if (responseHandler) {
                     responseHandler(response);
@@ -1035,6 +1045,40 @@ void LibraryService::toggleFavorite(const QString &itemId, bool isFavorite)
 
 void LibraryService::getThemeSongs(const QString &seriesId)
 {
+    const quint64 generation = ++m_themeRequestGeneration;
+    if (m_authService && m_authService->activeProviderKind() == ProviderKind::Silo) {
+        const auto finish = [this, seriesId, generation](const QStringList &urls) {
+            if (generation != m_themeRequestGeneration) return;
+            emit themeSongsLoaded(seriesId, urls);
+            emit themeSongPlaybackLoaded(seriesId, urls, true);
+        };
+        ProviderCatalogQuery capabilityQuery = baseCatalogQuery();
+        capabilityQuery.useCacheValidation = true;
+        sendCatalogRequest(QStringLiteral("getThemeSongsCapability"), ProviderCatalogOperation::ThemeSongsCapability,
+            capabilityQuery, [this, seriesId, generation, finish](const ProviderCatalogResponse &capability) {
+                if (generation != m_themeRequestGeneration) return;
+                if (!capability.capabilityMetadata.value(QStringLiteral("allowed")).toBool()) { finish({}); return; }
+                ProviderCatalogQuery detailQuery = baseCatalogQuery(); detailQuery.itemId = seriesId;
+                sendCatalogRequest(QStringLiteral("getThemeSongs"), ProviderCatalogOperation::ThemeSongs, detailQuery,
+                    [this, generation, finish](const ProviderCatalogResponse &themes) {
+                        if (generation != m_themeRequestGeneration) return;
+                        if (themes.rawItems.isEmpty()) { finish({}); return; }
+                        ProviderCatalogQuery grantQuery = baseCatalogQuery();
+                        grantQuery.itemId = themes.capabilityMetadata.value(QStringLiteral("ownerId")).toString();
+                        grantQuery.themeId = themes.rawItems.first().toObject().value(QStringLiteral("id")).toString();
+                        sendCatalogRequest(QStringLiteral("getThemePlayback"), ProviderCatalogOperation::ThemeSongPlayback,
+                            grantQuery, [this, finish](const ProviderCatalogResponse &grant) {
+                                QUrl origin(m_authService->getServerUrl()); origin.setPath(QStringLiteral("/"));
+                                origin.setQuery(QString()); origin.setFragment(QString());
+                                const QUrl url = origin.resolved(QUrl(grant.capabilityMetadata.value(QStringLiteral("url")).toString()));
+                                if ((url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https"))
+                                    || url.host().isEmpty() || !url.userInfo().isEmpty()) { finish({}); return; }
+                                finish({url.toString(QUrl::FullyEncoded)});
+                            }, [finish](const NetworkError &) { finish({}); });
+                    }, [finish](const NetworkError &) { finish({}); });
+            }, [finish](const NetworkError &) { finish({}); });
+        return;
+    }
     const QString connectionId = activeConnectionId(m_authService);
     ProviderCatalogQuery query = baseCatalogQuery();
     query.itemId = seriesId;
@@ -1054,6 +1098,7 @@ void LibraryService::getThemeSongs(const QString &seriesId)
                 }
             }
             emit themeSongsLoaded(seriesId, urls);
+            emit themeSongPlaybackLoaded(seriesId, urls, false);
         });
 }
 
