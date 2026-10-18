@@ -56,6 +56,7 @@ chmod -R u+w /build
 cmake -S /build -B /build/out -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link,/opt/bloom-mpv/lib" \
     -DBUILD_TESTING=OFF \
     -DBLOOM_BUILD_CHANNEL="$BLOOM_BUILD_CHANNEL" \
     -DBLOOM_BUILD_ID="$BLOOM_BUILD_ID" \
