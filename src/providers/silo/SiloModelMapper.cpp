@@ -12,19 +12,7 @@
 namespace {
 QString identityString(const QJsonValue &value)
 {
-    if (value.isString()) {
-        return value.toString();
-    }
-    if (!value.isDouble()) {
-        return {};
-    }
-    const double number = value.toDouble();
-    constexpr double maximumExactJsonInteger = 9007199254740991.0;
-    if (!std::isfinite(number) || std::trunc(number) != number
-        || std::abs(number) > maximumExactJsonInteger) {
-        return {};
-    }
-    return QString::number(static_cast<qint64>(number));
+    return value.toString();
 }
 
 QStringList stringList(const QJsonValue &value)
@@ -605,29 +593,15 @@ ProviderCatalogResponse SiloModelMapper::catalogResponse(
             QStringLiteral("totalExact"),
             object.value(QStringLiteral("total_exact")).toBool());
     }
-    if (object.value(QStringLiteral("has_more")).isBool()) {
-        result.hasMore = object.value(QStringLiteral("has_more")).toBool();
+    const QJsonObject page = object.value(QStringLiteral("page")).toObject();
+    if (page.value(QStringLiteral("has_more")).isBool()) {
+        result.hasMore = page.value(QStringLiteral("has_more")).toBool();
+        result.nextCursor = page.value(QStringLiteral("next_cursor")).toString();
+        result.windowCursor = object.value(QStringLiteral("window_cursor")).toString();
         result.capabilityMetadata.insert(QStringLiteral("hasMorePresent"), true);
-    } else if (object.value(QStringLiteral("hasMore")).isBool()) {
-        result.hasMore = object.value(QStringLiteral("hasMore")).toBool();
-        result.capabilityMetadata.insert(QStringLiteral("hasMorePresent"), true);
-    }
-    if (object.value(QStringLiteral("snapshot")).isString()) {
-        result.snapshot.insert(QStringLiteral("snapshot"),
-                               object.value(QStringLiteral("snapshot")).toString());
-    } else if (object.value(QStringLiteral("snapshot")).isObject()) {
-        result.snapshot.insert(QStringLiteral("snapshot"),
-                               object.value(QStringLiteral("snapshot")).toObject().toVariantMap());
-    }
-    for (const QString &key : {QStringLiteral("cursor"), QStringLiteral("next_cursor"),
-                               QStringLiteral("nextCursor")}) {
-        if (object.value(key).isString()) {
-            result.snapshot.insert(key, object.value(key).toString());
-        }
-    }
-    for (const QString &key : {QStringLiteral("offset"), QStringLiteral("limit")}) {
-        if (object.value(key).isDouble()) {
-            result.capabilityMetadata.insert(key, jsonInteger(object.value(key)));
+        if (result.hasMore && result.nextCursor.isEmpty()) {
+            result.error = QStringLiteral("Silo returned a continuation without a cursor");
+            return result;
         }
     }
     if (object.value(QStringLiteral("search_diagnostics")).isObject()) {

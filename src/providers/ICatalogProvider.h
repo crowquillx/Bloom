@@ -64,6 +64,8 @@ struct ProviderCatalogQuery {
     int startIndex = 0;
     int limit = 0;
     std::optional<QString> snapshot;
+    QString cursor;
+    QString windowCursor;
     QString searchTerm;
     QStringList genres;
     QStringList tags;
@@ -108,6 +110,8 @@ struct ProviderCatalogResponse {
     QJsonObject rawItem;
     int total = 0;
     bool hasMore = false;
+    QString nextCursor;
+    QString windowCursor;
     QVariantMap snapshot;
     QVariantMap capabilityMetadata;
     QVariantMap filterMetadata;

@@ -938,7 +938,7 @@ void AuthenticationService::loadProfiles(bool finishWhenUnavailable)
                 return;
             }
             const auto mapped = m_providerAdapter->mapProfiles(
-                responseArray(reply->readAll(), QStringLiteral("profiles")));
+                responseArray(reply->readAll(), QStringLiteral("items")));
             if (!mapped.has_value()) {
                 replaceProfiles({});
                 emit loginError(tr("The provider returned an invalid profile list."));
@@ -1145,7 +1145,7 @@ void AuthenticationService::loadAuthSessions()
                 return;
             }
             const auto mapped = m_providerAdapter->mapAuthSessions(
-                responseArray(reply->readAll(), QStringLiteral("sessions")));
+                responseArray(reply->readAll(), QStringLiteral("items")));
             if (!mapped.has_value()) {
                 emit loginError(tr("The provider returned an invalid session list."));
                 return;

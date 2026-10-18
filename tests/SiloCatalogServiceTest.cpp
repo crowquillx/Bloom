@@ -191,22 +191,21 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v2/catalog?source=query&include_technical=true"));
+             QStringLiteral("/api/v2/catalog?source=query"));
 
     request = provider.createRequest(ProviderCatalogOperation::LatestMedia, query);
     QVERIFY(request.supported);
     const QUrlQuery latestParameters{QUrl(request.relativeEndpoint)};
     QCOMPARE(latestParameters.queryItemValue(QStringLiteral("sort")),
-             QStringLiteral("added_at"));
-    QCOMPARE(latestParameters.queryItemValue(QStringLiteral("order")),
-             QStringLiteral("desc"));
+             QStringLiteral("-added_at"));
+    QVERIFY(!latestParameters.hasQueryItem(QStringLiteral("order")));
 
     ProviderCatalogQuery paged;
-    paged.snapshot = QStringLiteral("opaque/snapshot + token");
+    paged.cursor = QStringLiteral("opaque/snapshot + token");
     request = provider.createRequest(ProviderCatalogOperation::Items, paged);
     QVERIFY(request.supported);
     const QUrlQuery pagedParameters(QUrl(request.relativeEndpoint));
-    QCOMPARE(pagedParameters.queryItemValue(QStringLiteral("snapshot")),
+    QCOMPARE(pagedParameters.queryItemValue(QStringLiteral("cursor")),
              QStringLiteral("opaque/snapshot + token"));
 
     query.itemId = QStringLiteral("content/with space");
@@ -473,7 +472,7 @@ void SiloCatalogServiceTest::responsePreservesSnapshotAndPaginationTruth()
     const ProviderCatalogResponse page = provider.parseResponse(
         ProviderCatalogOperation::Items,
         QByteArrayLiteral(
-            R"({"items":[{"content_id":"content-1"},{"content_id":"content-2"}],"total":912,"total_exact":false,"has_more":true,"snapshot":"2026-08-07T11:22:33.123456789Z"})"),
+            R"({"items":[{"content_id":"content-1"},{"content_id":"content-2"}],"total":912,"total_exact":false,"has_more":true,"window_cursor":"window-1","page":{"has_more":true,"next_cursor":"opaque-next"}})"),
         {{QByteArrayLiteral("ETAG"), QByteArrayLiteral("\"silo-page-v1\"")},
          {QByteArrayLiteral("last-modified"),
           QByteArrayLiteral("Fri, 07 Aug 2026 11:22:33 GMT")}});
@@ -491,8 +490,7 @@ void SiloCatalogServiceTest::responsePreservesSnapshotAndPaginationTruth()
     QCOMPARE(page.capabilityMetadata.value(QStringLiteral("totalPresent")).toBool(), true);
     QCOMPARE(page.capabilityMetadata.value(QStringLiteral("totalExact")).toBool(), false);
     QCOMPARE(page.capabilityMetadata.value(QStringLiteral("hasMorePresent")).toBool(), true);
-    QCOMPARE(page.snapshot.value(QStringLiteral("snapshot")).toString(),
-             QStringLiteral("2026-08-07T11:22:33.123456789Z"));
+    QCOMPARE(page.nextCursor, QStringLiteral("opaque-next"));
     QCOMPARE(page.snapshot.value(QStringLiteral("etag")).toByteArray(),
              QByteArrayLiteral("\"silo-page-v1\""));
     QCOMPARE(page.snapshot.value(QStringLiteral("lastModified")).toByteArray(),
@@ -501,7 +499,7 @@ void SiloCatalogServiceTest::responsePreservesSnapshotAndPaginationTruth()
     const ProviderCatalogResponse queryWindow = provider.parseResponse(
         ProviderCatalogOperation::Items,
         QByteArrayLiteral(
-            R"({"items":[{"content_id":"content-3"}],"total":1,"total_exact":false,"has_more":false})"));
+            R"({"items":[{"content_id":"content-3"}],"total":1,"total_exact":false,"page":{"has_more":false}})"));
     QVERIFY(queryWindow.valid);
     QCOMPARE(queryWindow.rawItems.size(), 1);
     const QString nextId = queryWindow.rawItems.first().toObject()
@@ -545,7 +543,7 @@ void SiloCatalogServiceTest::nativeResponseShapesPreserveHomeLibrarySearchAndDet
     const ProviderCatalogResponse library = provider.parseResponse(
         ProviderCatalogOperation::Items,
         QByteArrayLiteral(
-            R"({"items":[{"content_id":"content-1","type":"movie","title":"One"},{"content_id":"content-2","type":"movie","title":"Two"}],"total":2,"total_exact":true,"has_more":false})"));
+            R"({"items":[{"content_id":"content-1","type":"movie","title":"One"},{"content_id":"content-2","type":"movie","title":"Two"}],"total":2,"total_exact":true,"page":{"has_more":false}})"));
     QVERIFY(library.valid);
     QCOMPARE(library.rawItems.size(), 2);
     QCOMPARE(library.rawItems.at(1).toObject().value(QStringLiteral("content_id")).toString(),
@@ -594,14 +592,14 @@ void SiloCatalogServiceTest::immediateCatalogRequestSurvivesAuthenticationComple
     manager.responses = {
         {200,
          QByteArrayLiteral(
-             R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":42,"username":"Alice"}})"),
+             R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"),
          false},
         {200,
          QByteArrayLiteral(
              R"({"profiles":[{"id":"profile-1","name":"Alice","has_pin":false,"is_child":false,"is_primary":true}]})"),
          false},
         {200,
-         QByteArrayLiteral(R"([{"id":1,"name":"Movies"}])"),
+         QByteArrayLiteral(R"([{"id":"1","name":"Movies"}])"),
          false}
     };
     HttpTransport transport(&manager);
@@ -648,7 +646,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     manager.responses = {
         {200,
          QByteArrayLiteral(
-             R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":42,"username":"Alice"}})"),
+             R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"),
          false},
         {200,
          QByteArrayLiteral(
@@ -676,7 +674,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     QVERIFY(viewsSpy.isValid());
 
     manager.responses.append(
-        {200, QByteArrayLiteral(R"([{"id":1,"name":"Old account"}])"), true});
+        {200, QByteArrayLiteral(R"([{"id":"1","name":"Old account"}])"), true});
     const qsizetype oldRequestIndex = manager.requests.size();
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), oldRequestIndex + 1, 1000);
@@ -700,7 +698,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     QCOMPARE(viewsSpy.count(), 0);
 
     manager.responses.append(
-        {200, QByteArrayLiteral(R"([{"id":2,"name":"New account"}])"), true});
+        {200, QByteArrayLiteral(R"([{"id":"2","name":"New account"}])"), true});
     const qsizetype newRequestIndex = manager.requests.size();
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), newRequestIndex + 1, 1000);
@@ -723,7 +721,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
              QStringLiteral("2"));
 
     manager.responses.append(
-        {200, QByteArrayLiteral(R"([{"id":3,"name":"Stale profile"}])"), true});
+        {200, QByteArrayLiteral(R"([{"id":"3","name":"Stale profile"}])"), true});
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), newRequestIndex + 2, 1000);
     QPointer<ControlledReply> staleProfileReply = manager.replies.constLast();
@@ -739,7 +737,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     QCOMPARE(viewsSpy.count(), 1);
 
     manager.responses.append(
-        {200, QByteArrayLiteral(R"([{"id":4,"name":"Current profile"}])"), true});
+        {200, QByteArrayLiteral(R"([{"id":"4","name":"Current profile"}])"), true});
     const qsizetype profileRequestIndex = manager.requests.size();
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), profileRequestIndex + 1, 1000);

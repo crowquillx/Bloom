@@ -320,6 +320,7 @@ private:
     quint64 m_heroRequestGeneration = 0;
 
     // Cache validation state (per provider-owned endpoint).
+    QHash<QString, QHash<int, QString>> m_pageCursors;
     QHash<QString, QString> m_etags;
     QHash<QString, QString> m_lastModified;
 };

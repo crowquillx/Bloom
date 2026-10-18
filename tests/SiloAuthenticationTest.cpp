@@ -111,7 +111,7 @@ protected:
         requests.append({operation, request, body});
         QueuedResponse response{
             500,
-            QByteArrayLiteral(R"({"error":"test_queue_empty","message":"No response queued"})"),
+            QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/test_queue_empty","title":"test_queue_empty","status":400,"detail":"No response queued","instance":"urn:silo:request:test"})"),
             QNetworkReply::UnknownServerError
         };
         if (!responses.isEmpty()) {
@@ -141,7 +141,7 @@ QueuedResponse response(int statusCode, const QByteArray &payload)
 QByteArray successfulLogin()
 {
     return QByteArrayLiteral(
-        R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":42,"username":"Alice"}})");
+        R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}})");
 }
 
 QByteArray singleUnlockedProfile()
@@ -302,7 +302,7 @@ void SiloAuthenticationTest::authenticatorBuildsAndParsesLoginAndRefreshContract
     QCOMPARE(loginBody.value(QStringLiteral("password")).toString(), QStringLiteral("password"));
 
     const ProviderAuthenticationResult loginResult = authenticator.parseLoginResponse(
-        QByteArrayLiteral(R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":42,"username":"Alice"}})"));
+        QByteArrayLiteral(R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"));
     QVERIFY(loginResult.isValid());
     QCOMPARE(loginResult.accessToken, QStringLiteral("access-1"));
     QCOMPARE(loginResult.refreshToken, QStringLiteral("refresh-1"));
@@ -388,10 +388,10 @@ void SiloAuthenticationTest::authenticatorRejectsMalformedAndIncompleteResponses
     SiloAuthenticator authenticator;
     QVERIFY(!authenticator.parseLoginResponse(QByteArrayLiteral("not-json")).isValid());
     QVERIFY(!authenticator.parseLoginResponse(
-                 QByteArrayLiteral(R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":0,"user":{"id":42,"username":"Alice"}})"))
+                 QByteArrayLiteral(R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":0,"user":{"id":"42","username":"Alice"}})"))
                  .isValid());
     QVERIFY(!authenticator.parseLoginResponse(
-                 QByteArrayLiteral(R"({"access_token":"access-1","expires_in":900,"user":{"id":42,"username":"Alice"}})"))
+                 QByteArrayLiteral(R"({"access_token":"access-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"))
                  .isValid());
     QVERIFY(!authenticator.parseProfileLoginResponse(
                  QByteArrayLiteral(R"({"valid":true})"))
@@ -406,13 +406,13 @@ void SiloAuthenticationTest::authenticatorRejectsMalformedAndIncompleteResponses
 
     const SiloAuthenticationError invalidCredentials =
         authenticator.parseErrorResponse(QByteArrayLiteral(
-            R"({"error":"invalid_credentials","message":"Invalid username or password"})"));
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_credentials","title":"invalid_credentials","status":401,"detail":"Invalid username or password","instance":"urn:silo:request:test"})"));
     QVERIFY(invalidCredentials.isValid());
     QCOMPARE(invalidCredentials.failure,
              SiloAuthenticationFailure::InvalidCredentials);
     const SiloAuthenticationError revoked =
         authenticator.parseErrorResponse(QByteArrayLiteral(
-            R"({"error":"session_revoked","message":"Session was revoked"})"));
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/session_revoked","title":"session_revoked","status":401,"detail":"Session was revoked","instance":"urn:silo:request:test"})"));
     QVERIFY(revoked.isValid());
     QVERIFY(revoked.isSessionRevoked());
 }
@@ -560,14 +560,14 @@ void SiloAuthenticationTest::unauthorizedRequestRefreshesAndRetriesExactlyOnce()
     const qsizetype initialRequestCount = manager.requests.size();
     manager.responses.append(response(
         401,
-        QByteArrayLiteral(R"({"error":"invalid_token","message":"Expired"})")));
+        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
     manager.responses.append(response(
         200,
         QByteArrayLiteral(
             R"({"access_token":"access-2","refresh_token":"refresh-2","expires_in":1800})")));
     manager.responses.append(response(
         401,
-        QByteArrayLiteral(R"({"error":"invalid_token","message":"Still unauthorized"})")));
+        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Still unauthorized","instance":"urn:silo:request:test"})")));
 
     int attempts = 0;
     int successes = 0;
@@ -623,10 +623,10 @@ void SiloAuthenticationTest::concurrentUnauthorizedRequestsShareOneRefresh()
     const qsizetype initialRequestCount = manager.requests.size();
     manager.responses.append(response(
         401,
-        QByteArrayLiteral(R"({"error":"invalid_token","message":"Expired"})")));
+        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
     manager.responses.append(response(
         401,
-        QByteArrayLiteral(R"({"error":"invalid_token","message":"Expired"})")));
+        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
     manager.responses.append(response(
         200,
         QByteArrayLiteral(
@@ -699,13 +699,13 @@ void SiloAuthenticationTest::failedSharedRefreshExpiresSessionOnce()
     const qsizetype initialRequestCount = manager.requests.size();
     manager.responses.append(response(
         401,
-        QByteArrayLiteral(R"({"error":"invalid_token","message":"Expired"})")));
+        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
     manager.responses.append(response(
         401,
-        QByteArrayLiteral(R"({"error":"invalid_token","message":"Expired"})")));
+        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
     manager.responses.append(response(
         401,
-        QByteArrayLiteral(R"({"error":"invalid_token","message":"Refresh expired"})")));
+        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Refresh expired","instance":"urn:silo:request:test"})")));
 
     int firstAttempts = 0;
     int secondAttempts = 0;
@@ -869,7 +869,7 @@ void SiloAuthenticationTest::failedSessionLoadPreservesKnownSessions()
     QSignalSpy errorSpy(&service, &AuthenticationService::loginError);
     manager.responses.append(response(
         400,
-        QByteArrayLiteral(R"({"error":"invalid_request","message":"Request rejected"})")));
+        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_request","title":"invalid_request","status":400,"detail":"Request rejected","instance":"urn:silo:request:test"})")));
     service.loadAuthSessions();
     QTRY_COMPARE_WITH_TIMEOUT(errorSpy.size(), 1, 1000);
     QCOMPARE(service.authSessions().size(), 1);
@@ -894,7 +894,7 @@ void SiloAuthenticationTest::refreshWithoutRotationRetainsPreviousToken()
     QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
 
     manager.responses.append(response(
-        401, QByteArrayLiteral(R"({"error":"invalid_token","message":"Expired"})")));
+        401, QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
     manager.responses.append(response(
         200, QByteArrayLiteral(R"({"access_token":"access-2","expires_in":1800})")));
     manager.responses.append(response(200, QByteArrayLiteral(R"({"ok":true})")));
@@ -911,7 +911,7 @@ void SiloAuthenticationTest::refreshWithoutRotationRetainsPreviousToken()
     QTRY_COMPARE_WITH_TIMEOUT(successes, 1, 1000);
 
     manager.responses.append(response(
-        401, QByteArrayLiteral(R"({"error":"invalid_token","message":"Expired"})")));
+        401, QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
     manager.responses.append(response(
         200, QByteArrayLiteral(R"({"access_token":"access-3","expires_in":1800})")));
     manager.responses.append(response(200, QByteArrayLiteral(R"({"ok":true})")));
@@ -985,7 +985,7 @@ void SiloAuthenticationTest::restoreRejectsValidationForAnotherAccount()
     FakeNetworkAccessManager manager;
     manager.responses = {
         response(200, QByteArrayLiteral(
-            R"({"id":43,"username":"Bob","role":"user"})"))
+            R"({"id":"43","username":"Bob","role":"user"})"))
     };
     HttpTransport transport(&manager);
     SiloProviderAdapter adapter;
