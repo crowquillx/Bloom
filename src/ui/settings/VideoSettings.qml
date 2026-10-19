@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import BloomUI
 
@@ -35,32 +34,23 @@ FocusScope {
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
-    // Glass card background
-    Rectangle {
+    GlassPanel {
         anchors.fill: parent
-        radius: Theme.radiusLarge
-        color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.76)
-        border.color: Theme.cardBorder
-        border.width: Theme.borderWidth
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.08) }
-            GradientStop { position: 0.3; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.78) }
-            GradientStop { position: 1.0; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.66) }
-        }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
+        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
         Text {
             text: qsTr("Video")
-            font.pixelSize: Theme.fontSizeTitle
+            font.pixelSize: Theme.fontSizeHeader
             font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
+            font.weight: Theme.fontWeightHeavy
             color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingMedium
+            Layout.bottomMargin: Theme.spacingLarge
+            Layout.leftMargin: Theme.spacingMedium
         }
 
         Flickable {
@@ -90,9 +80,9 @@ FocusScope {
 
             ColumnLayout {
                 id: contentColumn
-                x: Theme.spacingSmall
+                x: Theme.spacingMedium
                 y: Theme.spacingSmall
-                width: flickable.width - 2 * Theme.spacingSmall
+                width: flickable.width - 2 * Theme.spacingMedium
                 spacing: Theme.spacingMedium
 
                 // --- Enable Framerate Matching ---
@@ -157,8 +147,11 @@ FocusScope {
                 SettingsGroupDivider { Layout.fillWidth: true }
 
                 // --- Advanced Section ---
-                Button {
+                ActionButton {
                     id: advancedToggle
+                    variant: "ghost"
+                    text: qsTr("Advanced")
+                    iconGlyph: advancedToggle.advancedExpanded ? Icons.expandLess : Icons.expandMore
                     property bool advancedExpanded: false
                     Layout.alignment: Qt.AlignLeft
                     Layout.topMargin: Theme.spacingSmall
@@ -174,33 +167,7 @@ FocusScope {
                     KeyNavigation.up: hdrToggle
                     KeyNavigation.down: advancedExpanded ? hdrOutputModeCombo : null
 
-                    contentItem: RowLayout {
-                        spacing: Theme.spacingSmall
-                        Text {
-                            text: advancedToggle.advancedExpanded ? "▼" : "▶"
-                            font.family: Theme.fontPrimary
-                            font.pixelSize: Theme.fontSizeSmall
-                            color: advancedToggle.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                        }
-                        Text {
-                            text: qsTr("Advanced")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: advancedToggle.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                        }
-                    }
 
-                    background: Rectangle {
-                        implicitWidth: Math.round(140 * Theme.layoutScale)
-                        implicitHeight: Theme.buttonHeightSmall
-                        radius: Theme.radiusSmall
-                        color: advancedToggle.activeFocus ? Theme.buttonSecondaryBackgroundHover : (advancedToggle.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")
-                        border.color: advancedToggle.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
-                        border.width: advancedToggle.activeFocus ? 2 : Theme.buttonBorderWidth
-
-                        Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                        Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-                    }
 
                     onClicked: advancedExpanded = !advancedExpanded
                     Keys.onReturnPressed: advancedExpanded = !advancedExpanded

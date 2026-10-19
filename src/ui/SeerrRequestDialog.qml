@@ -38,7 +38,8 @@ Dialog {
     anchors.centerIn: parent
     width: Math.round(720 * Theme.layoutScale)
     height: Math.round(860 * Theme.layoutScale)
-    padding: Theme.spacingLarge
+    padding: Theme.dialogPadding
+    topPadding: Theme.spacingLarge
 
     property Item restoreFocusTarget: null
     property string mediaType: ""
@@ -309,26 +310,21 @@ Dialog {
         return false
     }
 
-    background: Rectangle {
-        color: Theme.cardBackground
-        radius: Theme.radiusMedium
-        border.color: Theme.cardBorder
-        border.width: 1
-    }
+    background: DialogSurface {}
+    Overlay.modal: ModalScrim {}
 
-    header: Rectangle {
-        color: "transparent"
-        height: Math.round(64 * Theme.layoutScale)
+    header: Item {
+        implicitHeight: Math.round(64 * Theme.layoutScale) + Theme.dialogPadding
 
         Text {
             text: dialog.title
             font.pixelSize: Theme.fontSizeTitle
             font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
+            font.weight: Theme.fontWeightHeavy
             color: Theme.textPrimary
             anchors.left: parent.left
-            anchors.leftMargin: Theme.spacingLarge
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Theme.dialogPadding
+            anchors.bottom: parent.bottom
         }
     }
 
@@ -484,21 +480,10 @@ Dialog {
                         KeyNavigation.up: rootFolderCombo
                         KeyNavigation.down: !allSeasonsCheck.checked && seasonRepeater.count > 0 ? seasonRepeater.itemAt(0) : cancelButton
 
-                        indicator: Rectangle {
-                            implicitWidth: Math.round(20 * Theme.layoutScale)
-                            implicitHeight: Math.round(20 * Theme.layoutScale)
-                            radius: Theme.radiusSmall
-                            color: allSeasonsCheck.checked ? Theme.buttonPrimaryBackground : Theme.inputBackground
-                            border.color: allSeasonsCheck.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: allSeasonsCheck.activeFocus ? 2 : 1
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: allSeasonsCheck.checked ? "✓" : ""
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.family: Theme.fontPrimary
-                                color: Theme.textPrimary
-                            }
+                        indicator: BloomCheckIndicator { control: allSeasonsCheck }
+                        background: Item {
+                            implicitHeight: Theme.buttonHeightSmall
+                            FocusRing { active: allSeasonsCheck.activeFocus; radius: Theme.radiusSmall }
                         }
 
                         contentItem: Text {
@@ -506,7 +491,7 @@ Dialog {
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: Theme.textPrimary
-                            leftPadding: allSeasonsCheck.indicator.width + Theme.spacingSmall
+                            leftPadding: allSeasonsCheck.indicator.width + Theme.spacingMedium
                             verticalAlignment: Text.AlignVCenter
                         }
 
@@ -579,29 +564,18 @@ Dialog {
                                 font.pixelSize: Theme.fontSizeSmall
                                 font.family: Theme.fontPrimary
 
-                                indicator: Rectangle {
-                                    implicitWidth: Math.round(18 * Theme.layoutScale)
-                                    implicitHeight: Math.round(18 * Theme.layoutScale)
-                                    radius: Theme.radiusSmall
-                                    color: seasonCheck.checked ? Theme.buttonPrimaryBackground : Theme.inputBackground
-                                    border.color: seasonCheck.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                                    border.width: seasonCheck.activeFocus ? 2 : 1
-
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: seasonCheck.checked ? "✓" : ""
-                                        font.pixelSize: Theme.fontSizeCaption
-                                        font.family: Theme.fontPrimary
-                                        color: Theme.textPrimary
-                                    }
+                                indicator: BloomCheckIndicator { control: seasonCheck }
+                                background: Item {
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    FocusRing { active: seasonCheck.activeFocus; radius: Theme.radiusSmall }
                                 }
 
                                 contentItem: Text {
                                     text: seasonCheck.text
-                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.pixelSize: Theme.fontSizeBody
                                     font.family: Theme.fontPrimary
                                     color: Theme.textPrimary
-                                    leftPadding: seasonCheck.indicator.width + Theme.spacingSmall
+                                    leftPadding: seasonCheck.indicator.width + Theme.spacingMedium
                                     verticalAlignment: Text.AlignVCenter
                                 }
 
@@ -669,7 +643,7 @@ Dialog {
                 Text {
                     text: statusText
                     visible: statusText.length > 0
-                    color: statusError ? "#ff6b6b" : Theme.textSecondary
+                    color: statusError ? Theme.errorColor : Theme.textSecondary
                     font.pixelSize: Theme.fontSizeSmall
                     font.family: Theme.fontPrimary
                     wrapMode: Text.WordWrap
@@ -680,7 +654,7 @@ Dialog {
     }
 
     footer: Item {
-        implicitHeight: Theme.buttonHeightSmall + Theme.spacingLarge * 2
+        implicitHeight: Theme.buttonHeightMedium + Theme.dialogPadding + Theme.spacingMedium
         implicitWidth: parent ? parent.width : 400
 
         Keys.onPressed: function(event) {
@@ -691,11 +665,13 @@ Dialog {
 
         RowLayout {
             anchors.fill: parent
-            anchors.margins: Theme.spacingMedium
-            spacing: Theme.spacingSmall
+            anchors.margins: Theme.dialogPadding
+            anchors.topMargin: Theme.spacingMedium
+            spacing: Theme.controlSpacing
 
-            Button {
+            ActionButton {
                 id: cancelButton
+                variant: "secondary"
                 Layout.fillWidth: true
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: true
@@ -706,24 +682,7 @@ Dialog {
                 KeyNavigation.right: requestButton
                 KeyNavigation.down: serverCombo.visible ? serverCombo : null
 
-                contentItem: Text {
-                    text: cancelButton.text
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
 
-                background: Rectangle {
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: cancelButton.down
-                        ? Theme.buttonSecondaryBackgroundPressed
-                        : (cancelButton.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground)
-                    border.color: cancelButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: cancelButton.activeFocus ? 2 : 1
-                }
 
                 Keys.onRightPressed: function(event) {
                     requestButton.forceActiveFocus()
@@ -758,8 +717,9 @@ Dialog {
                 }
             }
 
-            Button {
+            ActionButton {
                 id: requestButton
+                variant: "primary"
                 Layout.fillWidth: true
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: true
@@ -771,26 +731,7 @@ Dialog {
                 KeyNavigation.left: cancelButton
                 KeyNavigation.down: serverCombo.visible ? serverCombo : null
 
-                contentItem: Text {
-                    text: requestButton.text
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: requestButton.enabled ? Theme.textPrimary : Theme.textDisabled
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
 
-                background: Rectangle {
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: requestButton.enabled
-                        ? (requestButton.down
-                           ? Theme.buttonPrimaryBackgroundPressed
-                           : (requestButton.hovered ? Theme.buttonPrimaryBackgroundHover : Theme.buttonPrimaryBackground))
-                        : Theme.buttonSecondaryBackground
-                    border.color: requestButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: requestButton.activeFocus ? 2 : 1
-                }
 
                 Keys.onLeftPressed: function(event) {
                     cancelButton.forceActiveFocus()

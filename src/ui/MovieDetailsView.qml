@@ -148,7 +148,7 @@ FocusScope {
                 Rectangle {
                     anchors.fill: parent
                     radius: Theme.imageRadius
-                    color: Qt.rgba(0.08, 0.08, 0.08, 0.45)
+                    color: Theme.artworkPlaceholder
                     visible: recommendationPosterImage.status !== Image.Ready
 
                     Text {
@@ -165,15 +165,9 @@ FocusScope {
                     height: recommendationPosterImage.paintedHeight
                     anchors.centerIn: parent
 
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: parent.width + border.width * 2
-                        height: parent.height + border.width * 2
-                        radius: Theme.imageRadius + border.width
-                        color: "transparent"
-                        border.width: recommendationCard.isFocused ? Theme.buttonFocusBorderWidth : 0
-                        border.color: Theme.accentPrimary
-                        visible: border.width > 0
+                    FocusRing {
+                        active: recommendationCard.isFocused
+                        radius: Theme.imageRadius
                     }
                 }
             }
@@ -842,11 +836,18 @@ FocusScope {
         Qt.callLater(root.tryRestorePendingReturnState)
     }
 
-    Rectangle {
+    // Full-bleed backdrop: sharp artwork under the floating rail, with a
+    // leading-edge scrim for the hero copy and a floor for the shelves.
+    Item {
         anchors.fill: parent
-        color: "transparent"
+        anchors.leftMargin: -Theme.navRailReservedWidth
         z: -1
         clip: true
+
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.backgroundPrimary
+        }
 
         Image {
             anchors.fill: parent
@@ -857,10 +858,11 @@ FocusScope {
             opacity: status === Image.Ready ? 1.0 : 0.0
             Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
 
-            layer.enabled: true
+            // Poster fallbacks are low resolution; soften them.
+            layer.enabled: backdropUrl === ""
             layer.effect: MultiEffect {
                 blurEnabled: true
-                blur: 0.58
+                blur: 0.8
                 blurMax: 48
             }
         }
@@ -868,45 +870,45 @@ FocusScope {
         Rectangle {
             anchors.fill: parent
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(0.02, 0.02, 0.02, 0.30) }
-                GradientStop { position: 0.38; color: Qt.rgba(0.03, 0.03, 0.03, 0.62) }
-                GradientStop { position: 1.0; color: Qt.rgba(0.02, 0.02, 0.02, 0.93) }
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.90) }
+                GradientStop { position: 0.45; color: Theme.withAlpha(Theme.backgroundPrimary, 0.55) }
+                GradientStop { position: 0.85; color: Theme.withAlpha(Theme.backgroundPrimary, 0.10) }
             }
         }
-    }
-
-    Item {
-        anchors.fill: parent
-        visible: isLoading
-        z: 100
 
         Rectangle {
             anchors.fill: parent
-            color: Qt.rgba(0, 0, 0, 0.34)
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.0) }
+                GradientStop { position: 0.45; color: Theme.withAlpha(Theme.backgroundPrimary, 0.25) }
+                GradientStop { position: 0.75; color: Theme.withAlpha(Theme.backgroundPrimary, 0.82) }
+                GradientStop { position: 1.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.96) }
+            }
         }
 
-        BusyIndicator {
-            anchors.centerIn: parent
-            running: isLoading
-            width: Math.round(64 * Theme.layoutScale)
-            height: Math.round(64 * Theme.layoutScale)
+        // Quiet the artwork as the page scrolls into the shelves.
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.backgroundPrimary
+            opacity: Math.min(0.75, contentFlickable.contentY / Math.max(1, heroPanel.height) * 0.75)
         }
+    }
 
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.verticalCenter
-            anchors.topMargin: Theme.spacingXLarge
-            text: qsTr("Loading movie details...")
-            font.pixelSize: Theme.fontSizeBody
-            font.family: Theme.fontPrimary
-            color: Theme.textSecondary
-        }
+    StateMessage {
+        anchors.centerIn: parent
+        visible: isLoading && movieName === ""
+        z: 100
+        kind: "loading"
+        message: qsTr("Loading movie details…")
     }
 
     Flickable {
         id: contentFlickable
         anchors.fill: parent
-        anchors.margins: Theme.spacingLarge
+        anchors.leftMargin: Theme.pageMarginX
+        anchors.rightMargin: Theme.pageMarginX
+        anchors.topMargin: Theme.pageMarginTop
         contentWidth: width
         contentHeight: contentColumn.implicitHeight + Math.round(180 * Theme.layoutScale)
         clip: true
@@ -920,43 +922,26 @@ FocusScope {
         ColumnLayout {
             id: contentColumn
             width: contentFlickable.width
-            spacing: Theme.spacingXLarge
+            spacing: Theme.sectionSpacing
 
-            Rectangle {
+            GlassPanel {
                 id: heroPanel
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.max(heroPosterHeight + root.heroPanelPadding * 2,
                                                  heroContent.implicitHeight + root.heroPanelPadding * 2)
-                radius: Theme.radiusLarge
-                color: Qt.rgba(0, 0, 0, 0.22)
-                border.width: 1
-                border.color: Qt.rgba(1, 1, 1, 0.10)
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: parent.radius
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.04) }
-                        GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, 0.01) }
-                    }
-                }
 
                 RowLayout {
                     id: heroContent
                     anchors.fill: parent
                     anchors.margins: root.heroPanelPadding
-                    spacing: Theme.spacingXLarge
+                    spacing: Theme.spacingXLarge + Theme.spacingSmall
 
                     Item {
                         Layout.preferredWidth: heroPosterWidth
                         Layout.preferredHeight: heroPosterHeight
 
-                        Rectangle {
+                        Item {
                             anchors.fill: parent
-                            radius: Theme.imageRadius
-                            color: Theme.backgroundSecondary
-                            border.width: 1
-                            border.color: Qt.rgba(1, 1, 1, 0.08)
 
                             Image {
                                 id: heroPosterImage
@@ -982,20 +967,12 @@ FocusScope {
                                 layer.smooth: true
                             }
 
-                            Rectangle {
+                            ArtworkPlaceholder {
                                 anchors.fill: parent
-                                radius: Theme.imageRadius
-                                color: Qt.rgba(0.06, 0.06, 0.06, 0.55)
                                 visible: heroPosterImage.status !== Image.Ready
-                            }
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: Icons.movie
-                                visible: heroPosterImage.status !== Image.Ready
-                                font.family: Theme.fontIcon
-                                font.pixelSize: Math.round(76 * Theme.layoutScale)
-                                color: Theme.textSecondary
+                                loading: heroPosterImage.status === Image.Loading
+                                iconGlyph: Icons.movie
+                                title: movieName
                             }
 
                             Row {
@@ -1028,13 +1005,14 @@ FocusScope {
                             Layout.fillWidth: true
                             Layout.preferredHeight: logoUrl !== "" ? Theme.detailViewLogoHeight : titleFallback.implicitHeight
 
-                            Image {
-                                anchors.horizontalCenter: parent.horizontalCenter
+                            ArtworkLogo {
+                                anchors.left: parent.left
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: Math.min(Theme.seriesLogoMaxWidth, parent.width)
                                 height: parent.height
                                 source: logoUrl
                                 fillMode: Image.PreserveAspectFit
+                                horizontalAlignment: Image.AlignLeft
                                 asynchronous: true
                                 cache: true
                                 visible: logoUrl !== ""
@@ -1049,25 +1027,31 @@ FocusScope {
                                 width: parent.width
                                 text: movieName
                                 visible: logoUrl === ""
-                                font.pixelSize: Theme.fontSizeDisplay
+                                font.pixelSize: Theme.fontSizeHero
                                 font.family: Theme.fontPrimary
-                                font.weight: Font.Black
+                                font.weight: Theme.fontWeightHeavy
                                 color: Theme.textPrimary
                                 wrapMode: Text.WordWrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                                lineHeight: 0.95
                             }
+                        }
+
+                        MetadataLine {
+                            Layout.fillWidth: true
+                            font.pixelSize: Theme.fontSizeBody
+                            items: [productionYear > 0 ? String(productionYear) : "", officialRating,
+                                    formatRuntime(durationMs), calculateEndTime(durationMs), formatCommunityRating()]
                         }
 
                         Flow {
                             Layout.fillWidth: true
-                            spacing: Theme.spacingSmall
-
-                            MetadataChip { text: productionYear > 0 ? String(productionYear) : "" }
-                            MetadataChip { text: officialRating }
-                            MetadataChip { text: formatRuntime(durationMs) }
-                            MetadataChip { text: calculateEndTime(durationMs) }
-                            MetadataChip { text: formatCommunityRating() }
+                            spacing: Theme.spacingMedium
+                            visible: movieRatingsRepeater.count > 0
 
                             Repeater {
+                                id: movieRatingsRepeater
                                 model: root.visibleExternalRatings()
 
                                 RatingMetadataChip {
@@ -1077,115 +1061,58 @@ FocusScope {
                             }
                         }
 
-                        Flow {
+                        MetadataLine {
                             Layout.fillWidth: true
-                            spacing: Theme.spacingSmall
-
-                            Repeater {
-                                model: genres || []
-
-                                MetadataChip {
-                                    required property var modelData
-                                    text: modelData
-                                }
-                            }
+                            separator: "  \u00b7  "
+                            color: Theme.textTertiary
+                            items: genres || []
                         }
 
                         Item {
                             id: overviewContainer
                             Layout.fillWidth: true
-                            Layout.minimumHeight: Math.round(148 * Theme.layoutScale)
                             Layout.preferredHeight: overviewColumn.implicitHeight
 
                             property bool expanded: false
-                            readonly property int collapsedHeight: Math.round(150 * Theme.layoutScale)
-                            property bool hasOverflow: overviewText.implicitHeight > collapsedHeight
+                            readonly property int collapsedLines: 4
+                            property bool hasOverflow: overviewText.truncated || expanded
 
                             ColumnLayout {
                                 id: overviewColumn
-                                anchors.fill: parent
-                                spacing: Math.round(10 * Theme.layoutScale)
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                spacing: Theme.spacingSmall
 
-                                Item {
-                                    id: overviewTextArea
+                                Text {
+                                    id: overviewText
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: overviewContainer.expanded
-                                                            ? overviewText.implicitHeight
-                                                            : Math.min(overviewText.implicitHeight, overviewContainer.collapsedHeight)
-                                    clip: true
-
-                                    Text {
-                                        id: overviewText
-                                        width: parent.width
-                                        text: movieOverview || qsTr("No description available.")
-                                        font.pixelSize: Theme.fontSizeBody
-                                        font.family: Theme.fontPrimary
-                                        font.weight: Font.Medium
-                                        color: Theme.textPrimary
-                                        wrapMode: Text.WordWrap
-                                    }
-
-                                    Rectangle {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.bottom: parent.bottom
-                                        height: Math.round(56 * Theme.layoutScale)
-                                        visible: !overviewContainer.expanded && overviewContainer.hasOverflow
-                                        gradient: Gradient {
-                                            GradientStop { position: 0.0; color: "transparent" }
-                                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.92) }
-                                        }
-                                    }
+                                    text: movieOverview || qsTr("No description available.")
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    color: movieOverview ? Theme.textPrimary : Theme.textSecondary
+                                    opacity: 0.9
+                                    lineHeight: 1.12
+                                    wrapMode: Text.WordWrap
+                                    maximumLineCount: overviewContainer.expanded ? 1000 : overviewContainer.collapsedLines
+                                    elide: Text.ElideRight
                                 }
 
-                                Button {
+                                ActionButton {
                                     id: readMoreButton
+                                    variant: "ghost"
                                     visible: overviewContainer.hasOverflow
                                     Layout.alignment: Qt.AlignLeft
-                                    padding: 0
-                                    implicitHeight: Math.round(34 * Theme.layoutScale)
-                                    implicitWidth: readMoreRow.implicitWidth + Math.round(22 * Theme.layoutScale)
-
-                                    background: Rectangle {
-                                        radius: Theme.radiusMedium
-                                        color: {
-                                            if (readMoreButton.down) return Qt.rgba(1, 1, 1, 0.18)
-                                            if (readMoreButton.hovered || readMoreButton.activeFocus) return Qt.rgba(1, 1, 1, 0.13)
-                                            return Qt.rgba(0, 0, 0, 0.24)
-                                        }
-                                        border.width: readMoreButton.activeFocus ? Theme.buttonFocusBorderWidth : 1
-                                        border.color: readMoreButton.activeFocus ? Theme.buttonSecondaryBorderFocused : Qt.rgba(1, 1, 1, 0.14)
-                                    }
-
-                                    contentItem: Item {
-                                        implicitWidth: readMoreRow.implicitWidth
-                                        implicitHeight: readMoreRow.implicitHeight
-
-                                        RowLayout {
-                                            id: readMoreRow
-                                            anchors.centerIn: parent
-                                            spacing: Math.round(6 * Theme.layoutScale)
-
-                                            Text {
-                                                text: overviewContainer.expanded ? qsTr("Show Less") : qsTr("Read More")
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                font.family: Theme.fontPrimary
-                                                font.weight: Font.Black
-                                                color: Theme.textPrimary
-                                                Layout.alignment: Qt.AlignVCenter
-                                            }
-
-                                            Text {
-                                                text: overviewContainer.expanded ? Icons.expandLess : Icons.expandMore
-                                                font.family: Theme.fontIcon
-                                                font.pixelSize: Theme.fontSizeIcon
-                                                color: Theme.textPrimary
-                                                Layout.alignment: Qt.AlignVCenter
-                                            }
-                                        }
-                                    }
-
+                                    Layout.leftMargin: -Theme.spacingMedium
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    sidePadding: Theme.spacingMedium
+                                    labelPixelSize: Theme.fontSizeSmall
+                                    text: overviewContainer.expanded ? qsTr("Show Less") : qsTr("Read More")
+                                    iconGlyph: overviewContainer.expanded ? Icons.expandLess : Icons.expandMore
                                     onClicked: overviewContainer.expanded = !overviewContainer.expanded
+                                    Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                                    Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                                    Keys.onDownPressed: (event) => { playButton.forceActiveFocus(); event.accepted = true }
+                                    Keys.onUpPressed: (event) => { event.accepted = true }
                                 }
                             }
                         }
@@ -1195,15 +1122,17 @@ FocusScope {
                             Layout.bottomMargin: root.heroActionsBottomSpacing
                             spacing: Theme.spacingMedium
 
-                            Button {
+                            ActionButton {
                                 id: playButton
+                                variant: "primary"
                                 text: positionMs > 0 ? qsTr("Resume") : qsTr("Play")
+                                iconGlyph: Icons.playArrow
+                                busy: playbackInfoLoading
                                 enabled: movieId !== ""
-                                Layout.preferredHeight: Theme.buttonHeightLarge
-                                Layout.preferredWidth: Math.max(Math.round(200 * Theme.layoutScale),
-                                                                playInnerRow.implicitWidth + Math.round(48 * Theme.layoutScale))
+                                implicitHeight: Theme.buttonHeightLarge
+                                Layout.minimumWidth: Math.round(240 * Theme.layoutScale)
 
-                                Accessible.name: text
+                                Accessible.name: positionMs > 0 ? qsTr("Resume") : qsTr("Play")
 
                                 KeyNavigation.right: markWatchedButton
 
@@ -1215,6 +1144,12 @@ FocusScope {
 
                                 Keys.onDownPressed: (event) => {
                                     root.focusFirstLowerSection()
+                                    event.accepted = true
+                                }
+
+                                Keys.onUpPressed: (event) => {
+                                    if (readMoreButton.visible)
+                                        readMoreButton.forceActiveFocus()
                                     event.accepted = true
                                 }
 
@@ -1233,77 +1168,6 @@ FocusScope {
                                 }
 
                                 onClicked: root.startPlaybackWithTracks()
-
-                                background: Rectangle {
-                                    radius: Theme.radiusMedium
-                                    gradient: Gradient {
-                                        GradientStop {
-                                            position: 0.0
-                                            color: !playButton.enabled
-                                                   ? Qt.rgba(0.12, 0.12, 0.12, 0.55)
-                                                   : (playButton.down
-                                                      ? Theme.buttonPrimaryBackgroundPressed
-                                                      : playButton.hovered
-                                                        ? Theme.buttonPrimaryBackgroundHover
-                                                        : Theme.buttonPrimaryBackground)
-                                        }
-                                        GradientStop {
-                                            position: 1.0
-                                            color: !playButton.enabled
-                                                   ? Qt.rgba(0.08, 0.08, 0.08, 0.55)
-                                                   : (playButton.down
-                                                      ? Qt.darker(Theme.buttonPrimaryBackgroundPressed, 1.1)
-                                                      : playButton.hovered
-                                                        ? Qt.darker(Theme.buttonPrimaryBackgroundHover, 1.08)
-                                                        : Qt.darker(Theme.buttonPrimaryBackground, 1.12))
-                                        }
-                                    }
-                                    border.width: playButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                                    border.color: playButton.activeFocus ? Theme.buttonPrimaryBorderFocused : Qt.rgba(1, 1, 1, 0.12)
-
-                                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-                                }
-
-                                contentItem: Item {
-                                    implicitWidth: playInnerRow.implicitWidth
-                                    implicitHeight: playInnerRow.implicitHeight
-
-                                    RowLayout {
-                                        id: playInnerRow
-                                        visible: !playbackInfoLoading
-                                        anchors.centerIn: parent
-                                        spacing: Theme.spacingSmall
-
-                                        Text {
-                                            text: Icons.playArrow
-                                            font.family: Theme.fontIcon
-                                            font.pixelSize: Theme.fontSizeIcon
-                                            color: Theme.textPrimary
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            Layout.alignment: Qt.AlignVCenter
-                                        }
-
-                                        Text {
-                                            text: playButton.text
-                                            font.pixelSize: Theme.fontSizeBody
-                                            font.family: Theme.fontPrimary
-                                            font.weight: Font.Black
-                                            color: Theme.textPrimary
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            Layout.alignment: Qt.AlignVCenter
-                                        }
-                                    }
-                                }
-
-                                BusyIndicator {
-                                    anchors.centerIn: parent
-                                    width: Math.round(28 * Theme.layoutScale)
-                                    height: Math.round(28 * Theme.layoutScale)
-                                    running: visible
-                                    visible: playbackInfoLoading
-                                }
                             }
 
                             SecondaryActionButton {
@@ -1352,7 +1216,7 @@ FocusScope {
                             SecondaryActionButton {
                                 id: contextMenuButton
                                 text: ""
-                                iconGlyph: Icons.moreVert
+                                iconGlyph: Icons.moreHoriz
                                 accessibleLabel: qsTr("More options")
                                 Layout.preferredHeight: Theme.buttonHeightLarge
                                 Layout.preferredWidth: Theme.buttonHeightLarge
@@ -1405,17 +1269,17 @@ FocusScope {
 
                             Rectangle {
                                 Layout.fillWidth: true
-                                height: Math.round(6 * Theme.layoutScale)
-                                radius: Math.round(3 * Theme.layoutScale)
-                                color: Qt.rgba(1, 1, 1, 0.2)
+                                height: Theme.progressHeight
+                                radius: height / 2
+                                color: Theme.progressTrack
 
                                 Rectangle {
                                     anchors.left: parent.left
                                     anchors.top: parent.top
                                     anchors.bottom: parent.bottom
                                     width: durationMs > 0 ? parent.width * Math.min(1, positionMs / durationMs) : 0
-                                    radius: Math.round(3 * Theme.layoutScale)
-                                    color: Theme.accentPrimary
+                                    radius: height / 2
+                                    color: Theme.progressFill
                                 }
                             }
                         }
@@ -1453,7 +1317,7 @@ FocusScope {
                         text: qsTr("Chapters")
                         font.pixelSize: Theme.fontSizeHeader
                         font.family: Theme.fontPrimary
-                        font.weight: Font.Black
+                        font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                     }
 
@@ -1462,9 +1326,7 @@ FocusScope {
                         Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
                         visible: chaptersLoading && chapters.length === 0
                         radius: Theme.radiusMedium
-                        color: Qt.rgba(1, 1, 1, 0.04)
-                        border.width: 1
-                        border.color: Theme.cardBorder
+                        color: Theme.surfaceSunken
                         Row {
                             anchors.fill: parent
                             anchors.margins: Theme.spacingMedium
@@ -1475,7 +1337,7 @@ FocusScope {
                                     width: Math.round(248 * Theme.layoutScale)
                                     height: parent.height
                                     radius: Theme.radiusMedium
-                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                    color: Theme.surfaceInteractive
                                     opacity: 0.72
                                     SequentialAnimation on opacity {
                                         running: Theme.uiAnimationsEnabled && parent.visible
@@ -1521,8 +1383,7 @@ FocusScope {
                                 anchors.fill: parent
                                 radius: Theme.radiusMedium
                                 color: Theme.cardBackground
-                                border.width: chapterDelegate.activeFocus ? Theme.buttonFocusBorderWidth : 0
-                                border.color: Theme.accentPrimary
+                                FocusRing { inset: true; active: chapterDelegate.activeFocus; radius: parent.radius }
                                 ColumnLayout {
                                     anchors.fill: parent
                                     anchors.margins: Theme.spacingSmall
@@ -1562,9 +1423,7 @@ FocusScope {
                         Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
                         visible: !chaptersLoading && chapters.length === 0
                         radius: Theme.radiusMedium
-                        color: Qt.rgba(1, 1, 1, 0.04)
-                        border.width: 1
-                        border.color: Theme.cardBorder
+                        color: Theme.surfaceSunken
                         Text { anchors.centerIn: parent; text: qsTr("No chapters available."); font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: Theme.textSecondary }
                     }
                 }
@@ -1597,7 +1456,7 @@ FocusScope {
                         text: qsTr("Cast & Crew")
                         font.pixelSize: Theme.fontSizeHeader
                         font.family: Theme.fontPrimary
-                        font.weight: Font.Black
+                        font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                     }
 
@@ -1606,9 +1465,7 @@ FocusScope {
                         Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
                         visible: isLoading && castAndCrew.length === 0
                         radius: Theme.radiusMedium
-                        color: Qt.rgba(1, 1, 1, 0.04)
-                        border.width: 1
-                        border.color: Theme.cardBorder
+                        color: Theme.surfaceSunken
                         Row {
                             anchors.fill: parent
                             anchors.margins: Theme.spacingMedium
@@ -1619,7 +1476,7 @@ FocusScope {
                                     width: root.peopleCardWidth
                                     height: root.peopleCardHeight
                                     radius: Theme.radiusMedium
-                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                    color: Theme.surfaceInteractive
                                     opacity: 0.72
                                     SequentialAnimation on opacity {
                                         running: Theme.uiAnimationsEnabled && parent.visible
@@ -1726,9 +1583,7 @@ FocusScope {
                         Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
                         visible: !isLoading && castAndCrew.length === 0
                         radius: Theme.radiusMedium
-                        color: Qt.rgba(1, 1, 1, 0.04)
-                        border.width: 1
-                        border.color: Theme.cardBorder
+                        color: Theme.surfaceSunken
                         Text { anchors.centerIn: parent; text: qsTr("No cast or crew listed."); font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: Theme.textSecondary }
                     }
                 }
@@ -1759,7 +1614,7 @@ FocusScope {
                         text: qsTr("Recommended From Your Library")
                         font.pixelSize: Theme.fontSizeHeader
                         font.family: Theme.fontPrimary
-                        font.weight: Font.Black
+                        font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                     }
 
@@ -1768,9 +1623,7 @@ FocusScope {
                         Layout.preferredHeight: Math.round(120 * Theme.layoutScale)
                         visible: libraryRecommendationsLoading && libraryRecommendations.length === 0
                         radius: Theme.radiusMedium
-                        color: Qt.rgba(1, 1, 1, 0.05)
-                        border.width: 1
-                        border.color: Theme.cardBorder
+                        color: Theme.surfaceSunken
 
                         BusyIndicator {
                             anchors.centerIn: parent
@@ -1880,67 +1733,10 @@ FocusScope {
         }
     }
 
-    Menu {
+    BloomMenu {
         id: contextMenu
 
-        background: Rectangle {
-            implicitWidth: Math.round(280 * Theme.layoutScale)
-            color: Theme.cardBackground
-            radius: Theme.radiusMedium
-            border.color: Theme.cardBorder
-            border.width: 1
 
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                shadowEnabled: true
-                shadowHorizontalOffset: 0
-                shadowVerticalOffset: 4
-                shadowBlur: 0.5
-                shadowColor: "#44000000"
-            }
-        }
-
-        delegate: MenuItem {
-            id: menuItem
-            implicitWidth: Math.round(240 * Theme.layoutScale)
-            implicitHeight: Math.round(40 * Theme.layoutScale)
-
-            arrow: Canvas {
-                x: parent.width - width - Math.round(12 * Theme.layoutScale)
-                y: parent.height / 2 - height / 2
-                width: Math.round(12 * Theme.layoutScale)
-                height: Math.round(12 * Theme.layoutScale)
-                visible: menuItem.subMenu
-                onPaint: {
-                    const ctx = getContext("2d")
-                    ctx.fillStyle = menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
-                    ctx.moveTo(0, 0)
-                    ctx.lineTo(0, height)
-                    ctx.lineTo(width, height / 2)
-                    ctx.closePath()
-                    ctx.fill()
-                }
-            }
-
-            contentItem: Text {
-                text: menuItem.text
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
-                elide: Text.ElideRight
-                verticalAlignment: Text.AlignVCenter
-                leftPadding: Theme.spacingSmall
-                rightPadding: menuItem.arrow.width + Math.round(12 * Theme.layoutScale)
-            }
-
-            background: Rectangle {
-                implicitWidth: Math.round(240 * Theme.layoutScale)
-                implicitHeight: Math.round(40 * Theme.layoutScale)
-                opacity: enabled ? 1 : 0.3
-                color: menuItem.highlighted ? Theme.hoverOverlay : "transparent"
-                radius: Theme.radiusSmall
-            }
-        }
 
         onOpened: {
             currentIndex = 0
@@ -1958,28 +1754,11 @@ FocusScope {
             })
         }
 
-        MenuItem {
+        BloomMenuItem {
             id: watchedMenuItem
             text: isPlayed ? qsTr("Mark as Unwatched") : qsTr("Mark as Watched")
 
-            contentItem: Text {
-                text: watchedMenuItem.text
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: watchedMenuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
-                elide: Text.ElideRight
-                verticalAlignment: Text.AlignVCenter
-                leftPadding: Theme.spacingSmall
-                rightPadding: Theme.spacingSmall
-            }
 
-            background: Rectangle {
-                implicitWidth: Math.round(240 * Theme.layoutScale)
-                implicitHeight: Math.round(40 * Theme.layoutScale)
-                opacity: watchedMenuItem.enabled ? 1 : 0.3
-                color: watchedMenuItem.highlighted ? Theme.hoverOverlay : "transparent"
-                radius: Theme.radiusSmall
-            }
 
             onTriggered: {
                 if (isPlayed) {
@@ -1998,23 +1777,16 @@ FocusScope {
             }
         }
 
-        Menu {
+        BloomMenu {
             id: audioMenu
             title: qsTr("Audio: %1").arg(root.selectedAudioSummary())
             enabled: getAudioStreams().length > 0
 
-            background: Rectangle {
-                implicitWidth: Math.round(280 * Theme.layoutScale)
-                color: Theme.cardBackground
-                radius: Theme.radiusMedium
-                border.color: Theme.cardBorder
-                border.width: 1
-            }
 
             Repeater {
                 model: getAudioStreams()
 
-                MenuItem {
+                BloomMenuItem {
                     id: audioMenuItem
                     required property var modelData
 
@@ -2023,59 +1795,8 @@ FocusScope {
                     checked: modelData.index === selectedAudioIndex
                     indicator: Item {}
 
-                    contentItem: RowLayout {
-                        spacing: Theme.spacingSmall
+                    marked: audioMenuItem.checked
 
-                        Text {
-                            text: audioMenuItem.checked ? "✓" : "  "
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.accentPrimary
-                            Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
-                        }
-
-                        Item {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: scrollingAudioText.height
-                            clip: true
-
-                            Text {
-                                id: scrollingAudioText
-                                text: audioMenuItem.text
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                color: Theme.textPrimary
-
-                                SequentialAnimation on x {
-                                    running: scrollingAudioText.width > parent.width && audioMenuItem.highlighted
-                                    loops: Animation.Infinite
-
-                                    PauseAnimation { duration: 1000 }
-                                    NumberAnimation {
-                                        to: -scrollingAudioText.width + parent.width
-                                        duration: Math.max(1000, (scrollingAudioText.width - parent.width) * 20)
-                                        easing.type: Easing.Linear
-                                    }
-                                    PauseAnimation { duration: 1000 }
-                                    NumberAnimation {
-                                        to: 0
-                                        duration: Math.max(1000, (scrollingAudioText.width - parent.width) * 20)
-                                        easing.type: Easing.Linear
-                                    }
-                                }
-
-                                onXChanged: {
-                                    if (!running && x !== 0) x = 0
-                                }
-                                property bool running: scrollingAudioText.width > parent.width && audioMenuItem.highlighted
-                            }
-                        }
-                    }
-
-                    background: Rectangle {
-                        color: parent.highlighted ? Theme.hoverOverlay : "transparent"
-                        radius: Theme.radiusSmall
-                    }
 
                     onTriggered: {
                         selectedAudioIndex = modelData.index
@@ -2088,48 +1809,19 @@ FocusScope {
             }
         }
 
-        Menu {
+        BloomMenu {
             id: subtitleMenu
             title: qsTr("Subtitles: %1").arg(root.selectedSubtitleSummary())
             enabled: getSubtitleStreams().length > 0 || selectedSubtitleIndex === -1
 
-            background: Rectangle {
-                implicitWidth: Math.round(280 * Theme.layoutScale)
-                color: Theme.cardBackground
-                radius: Theme.radiusMedium
-                border.color: Theme.cardBorder
-                border.width: 1
-            }
 
-            MenuItem {
+            BloomMenuItem {
                 text: qsTr("Off")
                 checkable: true
                 checked: selectedSubtitleIndex === -1
                 indicator: Item {}
 
-                contentItem: RowLayout {
-                    spacing: Theme.spacingSmall
 
-                    Text {
-                        text: parent.checked ? "✓" : "  "
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        color: Theme.accentPrimary
-                        Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
-                    }
-
-                    Text {
-                        text: parent.text
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                    }
-                }
-
-                background: Rectangle {
-                    color: parent.highlighted ? Theme.hoverOverlay : "transparent"
-                    radius: Theme.radiusSmall
-                }
 
                 onTriggered: {
                     selectedSubtitleIndex = -1
@@ -2143,7 +1835,7 @@ FocusScope {
             Repeater {
                 model: getSubtitleStreams()
 
-                MenuItem {
+                BloomMenuItem {
                     id: subtitleMenuItem
                     required property var modelData
 
@@ -2152,59 +1844,8 @@ FocusScope {
                     checked: modelData.index === selectedSubtitleIndex
                     indicator: Item {}
 
-                    contentItem: RowLayout {
-                        spacing: Theme.spacingSmall
+                    marked: subtitleMenuItem.checked
 
-                        Text {
-                            text: subtitleMenuItem.checked ? "✓" : "  "
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.accentPrimary
-                            Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
-                        }
-
-                        Item {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: scrollingSubtitleText.height
-                            clip: true
-
-                            Text {
-                                id: scrollingSubtitleText
-                                text: subtitleMenuItem.text
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                color: Theme.textPrimary
-
-                                SequentialAnimation on x {
-                                    running: scrollingSubtitleText.width > parent.width && subtitleMenuItem.highlighted
-                                    loops: Animation.Infinite
-
-                                    PauseAnimation { duration: 1000 }
-                                    NumberAnimation {
-                                        to: -scrollingSubtitleText.width + parent.width
-                                        duration: Math.max(1000, (scrollingSubtitleText.width - parent.width) * 20)
-                                        easing.type: Easing.Linear
-                                    }
-                                    PauseAnimation { duration: 1000 }
-                                    NumberAnimation {
-                                        to: 0
-                                        duration: Math.max(1000, (scrollingSubtitleText.width - parent.width) * 20)
-                                        easing.type: Easing.Linear
-                                    }
-                                }
-
-                                onXChanged: {
-                                    if (!running && x !== 0) x = 0
-                                }
-                                property bool running: scrollingSubtitleText.width > parent.width && subtitleMenuItem.highlighted
-                            }
-                        }
-                    }
-
-                    background: Rectangle {
-                        color: parent.highlighted ? Theme.hoverOverlay : "transparent"
-                        radius: Theme.radiusSmall
-                    }
 
                     onTriggered: {
                         selectedSubtitleIndex = modelData.index

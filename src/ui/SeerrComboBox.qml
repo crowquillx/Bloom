@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 
 import BloomUI
 
@@ -60,17 +61,18 @@ ComboBox {
         text: control.displayText
         font.pixelSize: Theme.fontSizeBody
         font.family: Theme.fontPrimary
+        font.weight: Theme.fontWeightMedium
         color: control.enabled ? Theme.textPrimary : Theme.textDisabled
         verticalAlignment: Text.AlignVCenter
-        leftPadding: Theme.spacingSmall
-        rightPadding: Theme.spacingXLarge
+        leftPadding: Theme.spacingMedium
+        rightPadding: Theme.spacingXLarge + Theme.spacingMedium
         elide: Text.ElideRight
     }
 
     indicator: Text {
-        text: "▼"
-        font.pixelSize: Theme.fontSizeSmall
-        font.family: Theme.fontPrimary
+        text: Icons.expandMore
+        font.pixelSize: Theme.fontSizeIcon
+        font.family: Theme.fontIcon
         color: Theme.textSecondary
         anchors.right: parent.right
         anchors.rightMargin: Theme.spacingMedium
@@ -78,40 +80,66 @@ ComboBox {
     }
 
     background: Rectangle {
-        implicitHeight: Theme.buttonHeightSmall
-        radius: Theme.radiusSmall
-        color: Theme.inputBackground
-        border.color: control.activeFocus ? Theme.focusBorder : Theme.inputBorder
-        border.width: control.activeFocus ? 2 : 1
-        opacity: control.enabled ? 1.0 : 0.5
+        id: comboBackground
+        implicitHeight: Theme.buttonHeightMedium
+        radius: Theme.radiusControl
+        color: control.hovered || control.activeFocus ? Theme.surfaceInteractiveHover : Theme.surfaceInteractive
+        border.width: Theme.borderWidth
+        border.color: Theme.surfaceBorder
+        opacity: control.enabled ? 1.0 : Theme.disabledOpacity
+
+        FocusRing {
+            active: control.activeFocus || control.popup.visible
+            radius: comboBackground.radius
+        }
     }
 
     delegate: ItemDelegate {
+        id: optionDelegate
         required property var modelData
-        width: control.width
+        required property int index
+        width: control.width - Theme.spacingSmall * 2
+        implicitHeight: Theme.buttonHeightSmall
         enabled: control.enabled
         readonly property bool isCurrent: ListView.isCurrentItem
 
-        contentItem: Text {
-            text: control.resolveOptionText(modelData)
-            color: isCurrent ? Theme.textPrimary : Theme.textSecondary
-            font.pixelSize: Theme.fontSizeBody
-            font.family: Theme.fontPrimary
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
+        contentItem: RowLayout {
+            spacing: Theme.spacingSmall
+            Text {
+                text: control.resolveOptionText(optionDelegate.modelData)
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSizeBody
+                font.family: Theme.fontPrimary
+                font.weight: optionDelegate.index === control.currentIndex ? Theme.fontWeightStrong : Theme.fontWeightRegular
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                Layout.fillWidth: true
+            }
+            Text {
+                visible: optionDelegate.index === control.currentIndex
+                text: Icons.check
+                font.family: Theme.fontIcon
+                font.pixelSize: Theme.fontSizeIcon
+                color: Theme.selectionIndicator
+            }
         }
 
         background: Rectangle {
-            color: isCurrent ? Theme.buttonPrimaryBackground : "transparent"
+            color: optionDelegate.isCurrent ? Theme.surfaceInteractiveHover : "transparent"
             radius: Theme.radiusSmall
+            FocusRing {
+                inset: true
+                active: optionDelegate.isCurrent && control.popup.visible
+                radius: parent.radius
+            }
         }
     }
 
     popup: Popup {
-        y: control.height + 5
+        y: control.height + Theme.spacingSmall
         width: control.width
-        implicitHeight: Math.min(contentItem.implicitHeight, Math.round(280 * Theme.layoutScale))
-        padding: 1
+        implicitHeight: Math.min(contentItem.implicitHeight + padding * 2, Math.round(420 * Theme.layoutScale))
+        padding: Theme.spacingSmall
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
         onOpened: {
@@ -144,12 +172,7 @@ ComboBox {
             Keys.onEscapePressed: control.popup.close()
         }
 
-        background: Rectangle {
-            color: Theme.cardBackground
-            border.color: Theme.focusBorder
-            border.width: 1
-            radius: Theme.radiusSmall
-        }
+        background: DialogSurface { floating: true; radius: Theme.radiusMedium }
     }
 
     Keys.onPressed: function(event) {

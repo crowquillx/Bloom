@@ -51,36 +51,90 @@ scaling table, and the migration note for the removed breakpoints.
 - Keep catalog entries data-shaped: stable IDs, labels, option lists, defaults, and token maps. Avoid theme-specific UI branches so future user-provided themes can use the same shape.
 
 Built-in variants:
+- `Bloom` (default): flavors `Dusk`, `Midnight`, `Dawn` (light); color schemes `Lavender`, `Orchid`, `Rose`, `Peach`, `Sky`, `Mint`; default `Dusk` + `Lavender`. A restrained plum/lavender palette authored for the floating-cinema design. It uses the Catppuccin palette shape, so its resolver is shared.
 - `Jellyfin`: color schemes `Blue`, `Purple`, `Blend`; default `Blue`.
 - `Rosé Pine`: flavors `Main`, `Moon`, `Dawn`; color schemes `Love`, `Gold`, `Rose`, `Pine`, `Foam`, `Iris`; default `Main` + `Foam`.
 - `Catppuccin`: flavors `Latte`, `Frappé`, `Macchiato`, `Mocha`; color schemes `Rosewater`, `Flamingo`, `Pink`, `Mauve`, `Red`, `Maroon`, `Peach`, `Yellow`, `Green`, `Teal`, `Sky`, `Sapphire`, `Blue`, `Lavender`; default `Mocha` + `Mauve`.
 
 ### 1. Typography
-Font sizes scale automatically with `layoutScale`.
-- `fontSizeDisplay`: 42pt (Base) - Hero titles
-- `fontSizeHeader`: 36pt (Base) - Section headers
-- `fontSizeTitle`: 32pt (Base) - Card titles
-- `fontSizeMedium`: 28pt (Base) - Subtitles
-- `fontSizeBody`: 24pt (Base) - Standard text
-- `fontSizeSmall`: 20pt (Base) - Metadata, secondary text
-- `fontSizeCaption`: 16pt (Base) - Tooltips, subtle labels
+Sizes are design units multiplied by `layoutScale`.
+- `fontSizeHero` (72): cardless hero titles when no logo exists
+- `fontSizeDisplay` (48): detail-view titles
+- `fontSizeHeader` (38): page and dialog headers
+- `fontSizeTitle` (32): section headers and card titles
+- `fontSizeMedium` (28): subtitles
+- `fontSizeBody` (24): body text, controls and rail labels
+- `fontSizeSmall` (21): metadata and secondary text
+- `fontSizeCaption` (18): tooltips, eyebrow labels and sublabels
+- Weights: `fontWeightRegular`, `fontWeightMedium`, `fontWeightStrong`, `fontWeightHeavy`. `fontMono` is for mpv arguments.
 
 ### 2. Spacing
-Consistent spacing that scales with the UI.
-- `spacingSmall` (8px): Inside cards, tight groups
-- `spacingMedium` (20px): Between cards, list items
-- `spacingLarge` (32px): Section headers to content
-- `spacingXLarge` (40px): Section separators
-- `paddingLarge` (40px): Screen margins
+- `spacingSmall` (8), `spacingMedium` (20), `spacingLarge` (32), `spacingXLarge` (40)
+- `paddingLarge` / `pageMarginX` (56): horizontal page margin to the right of the rail
+- `pageMarginTop` (48), `sectionSpacing` (56) between shelves, `sectionTitleSpacing` (18) between a header and its content
+- `controlSpacing` (16) between adjacent buttons, `panelPadding` (40) inside glass panels, `dialogPadding` (40)
 
 ### 3. Dimensions
-Standard component sizes.
-- `radiusSmall` (8px), `radiusMedium` (12px), `radiusLarge` (16px)
-- `buttonHeightSmall` (48px), `buttonHeightMedium` (56px), `buttonHeightLarge` (64px)
-- `posterWidth` / `posterHeight` (standard 2:3 ratio)
-- `cardWidthMedium` / `cardHeightMedium` (standard 16:9 ratio)
+- Radii: `radiusSmall` (10), `radiusMedium` / `radiusControl` (16), `radiusLarge` (22), `radiusXLarge` / `radiusDialog` (30), `radiusArtwork` / `imageRadius` (20), `radiusPanel` (32)
+- Buttons: `buttonHeightSmall` (52), `buttonHeightMedium` (60), `buttonHeightLarge` (68), `buttonIconSize` (60)
+- Rail: `navRailInset` (20), `navRailCollapsedWidth` (96), `navRailExpandedWidth` (360), `navRailItemHeight` (72), `navRailReservedWidth` (inset + collapsed width), `iconSizeNav` (34)
+- `posterWidth` / `posterHeight` (2:3), `cardWidthMedium` / `cardHeightMedium` (16:9)
 - `detailViewLogoHeight`: hero logo height for movie and series detail views, with a fixed 1.14 boost
 - `seriesLogoHeight` / `seriesLogoMaxWidth`: generic logo bounds for series and related logo usages
+
+### 4. Semantic Color Tokens
+Every theme resolves to the same semantic roles. New QML should use these roles rather than raw palette or accent colors.
+
+| Role | Tokens | Notes |
+|------|--------|-------|
+| Text | `textPrimary`, `textSecondary`, `textTertiary`, `textOnAccent` | `textTertiary` is for eyebrow labels and hints |
+| Surfaces | `surfaceGlass`, `surfaceGlassStrong`, `surfaceDialog`, `surfaceSunken`, `surfaceBorder`, `surfaceBorderStrong` | Soft glass tinted by the theme's `surfaceTint`; light flavors use higher opacity |
+| Interactive fills | `surfaceInteractive`, `surfaceInteractiveHover`, `surfaceInteractivePressed`, `surfaceInteractiveDisabled` | Neutral fills for rows, chips and secondary controls |
+| Actions | `actionPrimary*`, `actionSecondary*`, `actionDestructive*`, `disabledOpacity` | The primary action is an inverse fill (`textPrimary` on `backgroundPrimary`), so it reads on any artwork and in every theme |
+| Focus | `focusRing`, `focusRingHalo`, `focusRingWidth`, `focusRingGap`, `focusScale` | White ring with a dark halo on dark themes; dark ring with a light halo on light flavors |
+| Selection | `selectionBackground`, `selectionIndicator`, `selectionText`, `selectionIndicatorWidth` | Accent tint and bar; never used to show focus |
+| Status | `errorColor`, `successColor`, `warningColor`, `favoriteColor` | |
+| Progress | `progressTrack`, `progressFill`, `progressTrackOnArtwork`, `progressHeight` | |
+| Scrims | `scrimModal`, `scrimStrong`, `scrimMedium`, `scrimSoft`, `scrimClear` | Derived from `backgroundPrimary`, so light flavors get light scrims |
+| Artwork | `artworkPlaceholder`, `artworkPlaceholderIcon` | Missing or loading art |
+| Rail | `navRailBackground`, `navRailBackgroundCollapsed` | |
+
+Older tokens (`cardBackground`, `buttonPrimaryBackground`, `focusBorder`, `button*BorderFocused`, `chipBackground`, `hoverOverlay`) are kept as aliases of the semantic roles so older components inherit the new look. Do not use them in new code. `Theme.withAlpha(color, alpha)` and `Theme.mix(a, b, t)` derive variants without hardcoding colors.
+
+### Focus vs. Selection
+- **Focus** (where the keyboard or gamepad is) is always the shared `FocusRing`: a high-contrast outline separated by `focusRingGap`, with a halo, so it stays visible over bright or busy artwork. Artwork cards may also scale by `Theme.focusScale`.
+- **Selection** (current page, active tab, chosen option, checked filter) uses `selectionBackground` plus a `selectionIndicator` bar, underline or check mark.
+- A control can be both. Never signal focus with accent color alone.
+- Inside clipped containers such as lists, popups and the rail, use `FocusRing { inset: true }` so the ring is not clipped.
+
+### Shared Components
+Shared building blocks live in `src/ui/` and are registered in the `BloomUI` module:
+
+| Component | Use |
+|-----------|-----|
+| `ActionButton` | Every text/icon button. `variant`: `primary`, `secondary`, `ghost`, `destructive`; `selected` for toggles; `busy` swaps the icon for a spinner while keeping the label; includes its own `FocusRing`. Callers wire Enter/Return. |
+| `FocusRing` | Focus indicator; place it inside a focusable item's background. |
+| `GlassPanel` | Rounded glass surface (`strong`, `bordered`). |
+| `DialogSurface` / `ModalScrim` | `Dialog`/`Popup` background and `Overlay.modal`. |
+| `BloomMenu` / `BloomMenuItem` | Context menus and submenus (`iconGlyph`, `destructive`, `marked`). |
+| `BloomCheckIndicator` | Check box indicator for `CheckBox`/`CheckDelegate`. |
+| `FieldBackground` | Text field and combo box backgrounds with focus and error states. |
+| `SectionHeader` | Page/section/group headers with optional detail text. |
+| `MetadataLine` | Year, runtime and rating text joined by a separator. |
+| `StateMessage` | Loading, empty and error states with an optional focusable action. |
+| `ArtworkPlaceholder` | Missing or loading artwork with an icon and title. |
+| `ArtworkLogo` | Provider title logos; adds a legibility shadow on light themes (white logos over light scrims). |
+| `settings/SettingsRowBackground` | Settings row hover and focus treatment. |
+
+### Navigation Rail
+`Sidebar.qml` is a floating rail inset by `navRailInset` from the window edges. Pages reserve only `navRailReservedWidth` on the left. Full-bleed backdrops extend under the rail with `anchors.leftMargin: -Theme.navRailReservedWidth`.
+
+The rail shows large icons when collapsed. It expands to `navRailExpandedWidth` with labels while keyboard or gamepad focus is inside it, or while pointer-pinned via the logo toggle. Expansion overlays the page with a scrim and never moves, resizes or recrops it.
+
+Entry order: Home, Search, the "My Media" libraries (in the saved order; Shift+Enter reorders), Update available (only when present), Settings, the account entry (sign out), and Exit.
+
+Focus behavior: Left at a page's edge calls `Sidebar.focusRail()`, which lands on the current page's entry. Up/Down move through entries, Right returns focus to the page, Esc/Back closes the rail, and Enter navigates. `NavigationRailTest` covers focus order, expansion without layout shift, focus restoration, reordering, pointer pinning and rail metrics across window shapes.
+
 
 ### Playback Overlay Tokens
 - `playbackOverlayTopTint`
@@ -151,6 +205,9 @@ Migrating from old `dpiScale` system:
 4.  **Verify Animations**: Ensure all generic animations use `Theme.duration*` tokens.
 
 ## Visual Principles
-- **Glassmorphism**: Translucent backgrounds (`backgroundGlass`) with blur (`blurRadius`).
-- **Consistent Radius**: Use `radius*` tokens everywhere.
-- **High Contrast**: Designed for 10-foot experience; text must remain legible at distance.
+- **Floating cinema**: expansive, sharp backdrops behind content, with scrims (`scrim*`) for legibility. Blur is reserved for pages without a hero.
+- **Soft glass**: `GlassPanel` / `surfaceGlass*` for panels and controls; avoid heavy borders.
+- **Rounded artwork**: `radiusArtwork` for posters and thumbnails, `radiusPanel` for panels.
+- **Restrained color**: accent is for selection, progress and small highlights. Primary actions use the inverse fill.
+- **Clear focus**: the `FocusRing` is the only focus signal and must remain visible on every surface.
+- **High contrast and large text**: designed for 10-foot viewing; every theme, including light flavors, must stay readable.

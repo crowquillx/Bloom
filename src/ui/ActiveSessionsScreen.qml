@@ -60,12 +60,19 @@ FocusScope {
     // Background
     Rectangle {
         anchors.fill: parent
-        color: Theme.backgroundPrimary
+        anchors.leftMargin: -Theme.navRailReservedWidth
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Theme.mix(Theme.backgroundPrimary, Theme.accentPrimary, 0.06) }
+            GradientStop { position: 1.0; color: Theme.backgroundSecondary }
+        }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingLarge
+        anchors.leftMargin: Theme.pageMarginX
+        anchors.rightMargin: Theme.pageMarginX
+        anchors.topMargin: Theme.pageMarginTop
+        anchors.bottomMargin: Theme.pageMarginTop
         spacing: Theme.spacingMedium
 
         // Header
@@ -76,9 +83,8 @@ FocusScope {
                 id: backButton
                 text: "\ue92f"  // Back arrow icon
                 font.family: Icons.materialFamily
-                font.pixelSize: Theme.iconSizeMedium
-                Layout.preferredWidth: Theme.iconSizeLarge
-                Layout.preferredHeight: Theme.iconSizeLarge
+                font.pixelSize: Theme.fontSizeIcon
+                toolTipText: qsTr("Back")
 
                 onActivated: root.backRequested()
 
@@ -91,7 +97,8 @@ FocusScope {
                     ? root.sessionService.sessionTypeLabel
                     : qsTr("Playback Sessions")
                 font.pixelSize: Theme.fontSizeHeader
-                font.weight: Font.Bold
+                font.family: Theme.fontPrimary
+                font.weight: Theme.fontWeightHeavy
                 color: Theme.textPrimary
                 Layout.fillWidth: true
             }
@@ -100,9 +107,7 @@ FocusScope {
                 id: refreshButton
                 text: "\ue5d5"  // Refresh icon
                 font.family: Icons.materialFamily
-                font.pixelSize: Theme.iconSizeSmall
-                Layout.preferredWidth: Theme.iconSizeMedium
-                Layout.preferredHeight: Theme.iconSizeMedium
+                font.pixelSize: Theme.fontSizeIcon
                 toolTipText: qsTr("Refresh")
                 enabled: root.sessionService && !root.sessionService.isLoading
 
@@ -119,11 +124,11 @@ FocusScope {
                     ? qsTr("Revoke All Other %1").arg(root.sessionService.sessionTypeLabel)
                     : qsTr("Revoke All Other Playback Sessions")
                 font.pixelSize: Theme.fontSizeBody
-                height: Theme.iconSizeMedium
+                font.family: Theme.fontPrimary
+                destructive: true
                 enabled: root.sessionService && !root.sessionService.isLoading
                     && root.sessionService.sessions.length > 1
                 visible: !root.authenticationMode
-                opacity: enabled ? 1.0 : 0.5
 
                 onActivated: {
                     if (root.sessionService) root.sessionService.revokeAllOtherSessions()
@@ -147,8 +152,8 @@ FocusScope {
             Layout.alignment: Qt.AlignHCenter
             running: root.sessionService && root.sessionService.isLoading
             visible: running
-            Layout.preferredWidth: Theme.iconSizeLarge
-            Layout.preferredHeight: Theme.iconSizeLarge
+            Layout.preferredWidth: Theme.buttonHeightMedium
+            Layout.preferredHeight: Theme.buttonHeightMedium
         }
 
         // Error display
@@ -176,7 +181,7 @@ FocusScope {
             delegate: FocusScope {
                 id: sessionDelegate
                 width: sessionsList.width
-                height: Math.round(80 * Theme.layoutScale)
+                height: Math.round(96 * Theme.layoutScale)
                 property bool isCurrent: root.authenticationMode
                     ? !!model.isCurrent
                     : model.id === (root.sessionService ? root.sessionService.currentSessionId : "")
@@ -191,15 +196,27 @@ FocusScope {
                 Rectangle {
                     anchors.fill: parent
                     z: -1
-                    color: sessionDelegate.highlighted
-                        ? Theme.accentColor
-                        : (isCurrent
-                            ? Qt.rgba(Theme.accentColor.r, Theme.accentColor.g,
-                                      Theme.accentColor.b, 0.12)
-                            : Theme.backgroundSecondary)
+                    // Current device = selection tint + indicator; focus = ring.
+                    color: sessionDelegate.highlighted ? Theme.surfaceInteractiveHover
+                         : (isCurrent ? Theme.selectionBackground : Theme.surfaceInteractive)
                     radius: Theme.radiusMedium
-                    border.width: isCurrent ? 2 : 0
-                    border.color: Theme.accentColor
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.leftMargin: Math.round(6 * Theme.layoutScale)
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Theme.selectionIndicatorWidth
+                        height: parent.height * 0.5
+                        radius: width / 2
+                        color: Theme.selectionIndicator
+                        visible: sessionDelegate.isCurrent
+                    }
+
+                    FocusRing {
+                        inset: true
+                        active: sessionDelegate.highlighted
+                        radius: parent.radius
+                    }
                 }
 
                 RowLayout {
@@ -211,7 +228,7 @@ FocusScope {
                     Label {
                         text: getDeviceIcon(root.authenticationMode ? model.deviceName : model.client)
                         font.family: Icons.materialFamily
-                        font.pixelSize: Theme.iconSizeMedium
+                        font.pixelSize: Theme.iconSizeNav
                         color: sessionDelegate.highlighted ? Theme.textPrimary : Theme.textSecondary
                         Layout.alignment: Qt.AlignVCenter
                     }
@@ -237,16 +254,16 @@ FocusScope {
                                 visible: sessionDelegate.isCurrent
                                 implicitWidth: currentSessionLabel.implicitWidth + Theme.spacingSmall * 2
                                 implicitHeight: currentSessionLabel.implicitHeight + Theme.spacingXSmall * 2
-                                color: Theme.accentColor
-                                radius: Theme.radiusSmall
+                                color: Theme.selectionIndicator
+                                radius: height / 2
 
                                 Label {
                                     id: currentSessionLabel
                                     anchors.centerIn: parent
                                     text: root.authenticationMode ? qsTr("Current") : qsTr("This Device")
                                     font.pixelSize: Theme.fontSizeCaption
-                                    font.weight: Font.Bold
-                                    color: Theme.textPrimary
+                                    font.weight: Theme.fontWeightHeavy
+                                    color: Theme.textOnAccent
                                 }
                             }
                         }
@@ -256,7 +273,7 @@ FocusScope {
                                 ? qsTr("IP address: %1").arg(model.ipAddress || qsTr("Unknown"))
                                 : model.client + (model.clientVersion ? " " + model.clientVersion : "")
                             font.pixelSize: Theme.fontSizeCaption
-                            color: sessionDelegate.highlighted ? Theme.textSecondary : Theme.textMuted
+                            color: Theme.textSecondary
                         }
 
                         Label {
@@ -264,7 +281,7 @@ FocusScope {
                                 ? qsTr("Created: %1").arg(formatDate(model.createdAt))
                                 : qsTr("Last active: %1").arg(formatDate(model.lastActivityDate))
                             font.pixelSize: Theme.fontSizeCaption
-                            color: sessionDelegate.highlighted ? Theme.textSecondary : Theme.textMuted
+                            color: Theme.textSecondary
                         }
                     }
 
@@ -276,9 +293,8 @@ FocusScope {
                             && !root.sessionService.isLoading
                         text: "\ue14c"  // Close/cancel icon
                         font.family: Icons.materialFamily
-                        font.pixelSize: Theme.iconSizeSmall
-                        Layout.preferredWidth: Theme.iconSizeMedium
-                        Layout.preferredHeight: Theme.iconSizeMedium
+                        font.pixelSize: Theme.fontSizeIcon
+                        destructive: true
                         toolTipText: root.authenticationMode
                             ? qsTr("Revoke authentication session")
                             : qsTr("Revoke playback session")
@@ -325,7 +341,8 @@ FocusScope {
     }
 
     WheelStepScroller {
-        anchors.fill: sessionsList
+        parent: sessionsList
+        anchors.fill: parent
         target: sessionsList
         stepPx: Math.round(80 * Theme.layoutScale)
     }

@@ -50,12 +50,18 @@ ComboBox {
     }
 
     background: Rectangle {
-        implicitHeight: Theme.buttonHeightSmall
-        radius: Theme.radiusSmall
-        color: Theme.inputBackground
-        border.color: control.activeFocus ? Theme.focusBorder : Theme.inputBorder
-        border.width: control.activeFocus ? 2 : 1
-        opacity: control.enabled ? 1.0 : 0.5
+        id: comboBackground
+        implicitHeight: Theme.buttonHeightMedium
+        radius: Theme.radiusControl
+        color: control.hovered || control.activeFocus ? Theme.surfaceInteractiveHover : Theme.surfaceInteractive
+        border.width: Theme.borderWidth
+        border.color: Theme.surfaceBorder
+        opacity: control.enabled ? 1.0 : Theme.disabledOpacity
+
+        FocusRing {
+            active: control.activeFocus || control.popup.visible
+            radius: comboBackground.radius
+        }
     }
 
     contentItem: Text {
@@ -64,15 +70,15 @@ ComboBox {
         font.family: Theme.fontPrimary
         color: control.enabled ? Theme.textPrimary : Theme.textDisabled
         verticalAlignment: Text.AlignVCenter
-        leftPadding: Theme.spacingSmall
-        rightPadding: Theme.spacingXLarge
+        leftPadding: Theme.spacingMedium
+        rightPadding: Theme.spacingXLarge + Theme.spacingMedium
         elide: Text.ElideRight
     }
 
     indicator: Text {
-        text: "▼"
-        font.pixelSize: Theme.fontSizeSmall
-        font.family: Theme.fontPrimary
+        text: Icons.expandMore
+        font.pixelSize: Theme.fontSizeIcon
+        font.family: Theme.fontIcon
         color: Theme.textSecondary
         anchors.right: parent.right
         anchors.rightMargin: Theme.spacingMedium
@@ -90,7 +96,7 @@ ComboBox {
 
         contentItem: Text {
             text: control.optionText(comboDelegate.modelData)
-            color: comboDelegate.highlighted ? Theme.textPrimary : Theme.textSecondary
+            color: Theme.textPrimary
             font.pixelSize: Theme.fontSizeBody
             font.family: Theme.fontPrimary
             verticalAlignment: Text.AlignVCenter
@@ -98,16 +104,16 @@ ComboBox {
         }
 
         background: Rectangle {
-            color: comboDelegate.highlighted ? Theme.buttonPrimaryBackground : "transparent"
+            color: comboDelegate.highlighted ? Theme.surfaceInteractiveHover : "transparent"
             radius: Theme.radiusSmall
         }
     }
 
     popup: Popup {
-        y: control.height + 5
+        y: control.height + Theme.spacingSmall
         width: control.width
-        implicitHeight: Math.min(contentItem.implicitHeight, Math.round(360 * Theme.layoutScale))
-        padding: 1
+        implicitHeight: Math.min(contentItem.implicitHeight + padding * 2, Math.round(460 * Theme.layoutScale))
+        padding: Theme.spacingSmall
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
         onOpened: {
@@ -142,21 +148,36 @@ ComboBox {
                 required property int index
                 required property var modelData
 
-                width: control.width
+                width: control.width - Theme.spacingSmall * 2
+                implicitHeight: Theme.buttonHeightSmall
                 highlighted: ListView.isCurrentItem
 
-                contentItem: Text {
-                    text: control.optionText(popupDelegate.modelData)
-                    color: popupDelegate.highlighted ? Theme.textPrimary : Theme.textSecondary
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
+                contentItem: Row {
+                    spacing: Theme.spacingSmall
+                    Text {
+                        width: parent.width - checkGlyph.width - parent.spacing
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: control.optionText(popupDelegate.modelData)
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        font.weight: popupDelegate.index === control.currentIndex ? Theme.fontWeightStrong : Theme.fontWeightRegular
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        id: checkGlyph
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: popupDelegate.index === control.currentIndex ? Icons.check : ""
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Theme.fontSizeIcon
+                        color: Theme.selectionIndicator
+                    }
                 }
 
                 background: Rectangle {
-                    color: popupDelegate.highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                    color: popupDelegate.highlighted ? Theme.surfaceInteractiveHover : "transparent"
                     radius: Theme.radiusSmall
+                    FocusRing { inset: true; active: popupDelegate.highlighted; radius: parent.radius }
                 }
 
                 onClicked: {
@@ -189,12 +210,7 @@ ComboBox {
             }
         }
 
-        background: Rectangle {
-            color: Theme.cardBackground
-            border.color: Theme.focusBorder
-            border.width: 1
-            radius: Theme.radiusSmall
-        }
+        background: DialogSurface { floating: true; radius: Theme.radiusMedium }
     }
 
     Keys.onReturnPressed: function(event) {

@@ -12,6 +12,52 @@ Window {
     title: "Bloom"
     color: Theme.backgroundPrimary
     property var homeNavigationSource: null
+
+    // Theme the Basic-style controls that don't draw custom delegates
+    // (tooltips, busy indicators, scroll bars, text selection).
+    palette.window: Theme.backgroundPrimary
+    palette.windowText: Theme.textPrimary
+    palette.base: Theme.surfaceDialog
+    palette.alternateBase: Theme.surfaceInteractive
+    palette.text: Theme.textPrimary
+    palette.button: Theme.surfaceInteractive
+    palette.buttonText: Theme.textPrimary
+    palette.brightText: Theme.textPrimary
+    palette.highlight: Theme.accentPrimary
+    palette.highlightedText: Theme.textOnAccent
+    palette.toolTipBase: Theme.surfaceDialog
+    palette.toolTipText: Theme.textPrimary
+    palette.placeholderText: Theme.textTertiary
+    palette.light: Theme.surfaceInteractive
+    palette.midlight: Theme.surfaceInteractiveHover
+    palette.mid: Theme.surfaceBorderStrong
+    palette.dark: Theme.textSecondary
+    palette.shadow: Theme.scrimModal
+
+    // The attached ToolTip is one shared instance; size it for 10-foot
+    // reading and give it the shared dialog surface.
+    readonly property var sharedToolTip: toolTipHost.ToolTip.toolTip
+    Item { id: toolTipHost }
+    Binding {
+        target: window.sharedToolTip
+        property: "font"
+        value: Qt.font({ family: Theme.fontPrimary, pixelSize: Theme.fontSizeSmall })
+    }
+    Binding {
+        target: window.sharedToolTip
+        property: "padding"
+        value: Theme.spacingSmall + Theme.spacingXSmall
+    }
+    Binding {
+        target: window.sharedToolTip
+        property: "background"
+        value: sharedToolTipBackground
+    }
+    DialogSurface {
+        id: sharedToolTipBackground
+        floating: true
+        radius: Theme.radiusSmall
+    }
     
     function handleHomeNavigateToLibrary(libraryId, libraryName) {
         playPointerSelectSound()
@@ -201,15 +247,12 @@ Window {
     property var sidebarProxy: sidebarLoader.item || sidebarStub
     property bool pendingAuthenticatedNavigation: false
     
-    /// Sidebar overlay mode threshold (narrow screens use overlay)
-    readonly property int overlayThreshold: 960
-    
-    /// Current content offset based on sidebar state
-    readonly property int contentOffset: {
-        if (!isLoggedIn) return 0
-        if (sidebarProxy.overlayMode) return 0
-        return sidebarProxy.sidebarWidth
-    }
+    /// Left edge reserved for the floating navigation rail. Constant while
+    /// logged in: rail expansion overlays content instead of pushing it.
+    readonly property int contentOffset: isLoggedIn ? Theme.navRailReservedWidth : 0
+    /// True when a dialog was opened from the rail, so cancelling it returns
+    /// focus to the rail rather than the page behind it.
+    property bool dialogReturnsToRail: false
     readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
     readonly property bool useDetachedPlaybackOverlayWindow: Qt.platform.os === "windows"
     readonly property bool useDetachedScreensaverWindow: useDetachedPlaybackOverlayWindow && embeddedPlaybackActive
@@ -297,6 +340,7 @@ Window {
         if (!isOnRootHomeScreen() || homePowerDialog.opened) {
             return
         }
+        dialogReturnsToRail = false
         homePowerDialog.open()
     }
 
@@ -421,13 +465,6 @@ Window {
         visible: !embeddedPlaybackActive
         property bool restoringFocusFromSidebar: false
         
-        Behavior on anchors.leftMargin {
-            NumberAnimation { 
-                duration: SidebarSettings.reduceMotion ? 0 : Theme.durationNormal 
-                easing.type: Easing.OutCubic
-            }
-        }
-
         function saveFocusForSidebar() {
             var currentItem = stackView.currentItem
             if (currentItem && typeof currentItem["saveFocusForSidebar"] === "function") {
@@ -523,7 +560,7 @@ Window {
         z: 850
         visible: awaitingUpNextTransition
         focus: visible
-        color: Qt.rgba(0, 0, 0, 0.88)
+        color: Theme.scrimStrong
 
         onVisibleChanged: {
             if (visible) {
@@ -621,11 +658,11 @@ Window {
         property string iconText: ""
         property bool destructive: false
         Layout.fillWidth: true
-        Layout.preferredHeight: Math.round(64 * Theme.layoutScale)
+        Layout.preferredHeight: Theme.buttonHeightLarge
         focusPolicy: Qt.StrongFocus
         activeFocusOnTab: true
-        leftPadding: Math.round(18 * Theme.layoutScale)
-        rightPadding: Math.round(18 * Theme.layoutScale)
+        leftPadding: Theme.spacingMedium + Theme.spacingSmall
+        rightPadding: Theme.spacingMedium + Theme.spacingSmall
 
         Keys.onReturnPressed: function(event) {
             event.accepted = true
@@ -641,13 +678,13 @@ Window {
         }
 
         contentItem: RowLayout {
-            spacing: Math.round(14 * Theme.layoutScale)
+            spacing: Theme.spacingMedium
 
             Text {
                 text: powerMenuButton.iconText
                 font.family: Theme.fontIcon
-                font.pixelSize: Math.round(28 * Theme.layoutScale)
-                color: powerMenuButton.destructive ? Theme.errorColor : Theme.textPrimary
+                font.pixelSize: Theme.fontSizeIcon
+                color: powerMenuButton.destructive ? Theme.errorColor : Theme.textSecondary
                 Layout.alignment: Qt.AlignVCenter
             }
 
@@ -655,8 +692,8 @@ Window {
                 text: powerMenuButton.text
                 font.family: Theme.fontPrimary
                 font.pixelSize: Theme.fontSizeBody
-                font.weight: Font.DemiBold
-                color: Theme.textPrimary
+                font.weight: Theme.fontWeightStrong
+                color: powerMenuButton.destructive ? Theme.errorColor : Theme.textPrimary
                 elide: Text.ElideRight
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
@@ -664,14 +701,18 @@ Window {
         }
 
         background: Rectangle {
-            radius: Theme.radiusSmall
+            id: powerMenuBackground
+            radius: Theme.radiusControl
             color: {
-                if (powerMenuButton.down) return Theme.buttonSecondaryBackgroundPressed
-                if (powerMenuButton.hovered || powerMenuButton.activeFocus) return Theme.buttonSecondaryBackgroundHover
-                return Theme.buttonSecondaryBackground
+                if (powerMenuButton.down) return Theme.surfaceInteractivePressed
+                if (powerMenuButton.hovered || powerMenuButton.activeFocus) return Theme.surfaceInteractiveHover
+                return Theme.surfaceInteractive
             }
-            border.width: powerMenuButton.activeFocus ? Theme.buttonFocusBorderWidth : 1
-            border.color: powerMenuButton.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
+
+            FocusRing {
+                active: powerMenuButton.activeFocus
+                radius: powerMenuBackground.radius
+            }
         }
     }
 
@@ -681,17 +722,19 @@ Window {
         modal: true
         focus: true
         anchors.centerIn: parent
-        width: Math.min(Math.round(430 * Theme.layoutScale),
+        width: Math.min(Math.round(520 * Theme.layoutScale),
                         Math.max(0, window.width - (Theme.spacingLarge * 2)))
-        padding: Theme.spacingLarge
+        padding: Theme.dialogPadding
+        topPadding: Theme.spacingLarge
 
         function restoreHomeFocus() {
             Qt.callLater(function() {
-                // The power and sign-out dialogs can open from the expanded
-                // sidebar; cancelling must return focus there, not to the
-                // content behind the overlay sidebar.
-                if (sidebarProxy.expanded) {
-                    sidebarProxy.focusNavigation()
+                // The power and sign-out dialogs can open from the navigation
+                // rail; cancelling must return focus there, not to the page
+                // behind it.
+                if (window.dialogReturnsToRail) {
+                    window.dialogReturnsToRail = false
+                    sidebarProxy.focusDialogOrigin()
                     return
                 }
                 var item = stackView.currentItem
@@ -717,30 +760,26 @@ Window {
         onClosed: restoreHomeFocus()
         onRejected: close()
 
-        background: Rectangle {
-            // Opaque so page text behind the modal cannot bleed through the dialog copy.
-            color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.97)
-            radius: Theme.radiusMedium
-            border.color: Theme.cardBorder
-            border.width: 1
-        }
+        // Opaque so page text behind the modal cannot bleed through the dialog copy.
+        background: DialogSurface {}
+        Overlay.modal: ModalScrim {}
 
         header: Item {
-            implicitHeight: powerHeaderColumn.implicitHeight + (Theme.spacingLarge * 2)
+            implicitHeight: powerHeaderColumn.implicitHeight + Theme.dialogPadding
 
             Column {
                 id: powerHeaderColumn
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.margins: Theme.spacingLarge
+                anchors.margins: Theme.dialogPadding
                 spacing: Theme.spacingSmall
 
                 Text {
                     text: qsTr("Power")
                     font.family: Theme.fontPrimary
                     font.pixelSize: Theme.fontSizeTitle
-                    font.weight: Font.DemiBold
+                    font.weight: Theme.fontWeightHeavy
                     color: Theme.textPrimary
                 }
 
@@ -748,7 +787,7 @@ Window {
                     width: parent.width
                     text: qsTr("Choose an action for this session.")
                     font.family: Theme.fontPrimary
-                    font.pixelSize: Theme.fontSizeSmall
+                    font.pixelSize: Theme.fontSizeBody
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
                 }
@@ -812,9 +851,10 @@ Window {
         modal: true
         focus: true
         anchors.centerIn: parent
-        width: Math.min(Math.round(430 * Theme.layoutScale),
+        width: Math.min(Math.round(520 * Theme.layoutScale),
                         Math.max(0, window.width - (Theme.spacingLarge * 2)))
-        padding: Theme.spacingLarge
+        padding: Theme.dialogPadding
+        topPadding: Theme.spacingLarge
 
         property bool confirmed: false
 
@@ -831,30 +871,26 @@ Window {
             }
         }
 
-        background: Rectangle {
-            // Opaque so page text behind the modal cannot bleed through the dialog copy.
-            color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.97)
-            radius: Theme.radiusMedium
-            border.color: Theme.cardBorder
-            border.width: 1
-        }
+        // Opaque so page text behind the modal cannot bleed through the dialog copy.
+        background: DialogSurface {}
+        Overlay.modal: ModalScrim {}
 
         header: Item {
-            implicitHeight: signOutHeaderColumn.implicitHeight + (Theme.spacingLarge * 2)
+            implicitHeight: signOutHeaderColumn.implicitHeight + Theme.dialogPadding
 
             Column {
                 id: signOutHeaderColumn
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.margins: Theme.spacingLarge
+                anchors.margins: Theme.dialogPadding
                 spacing: Theme.spacingSmall
 
                 Text {
                     text: qsTr("Sign out?")
                     font.family: Theme.fontPrimary
                     font.pixelSize: Theme.fontSizeTitle
-                    font.weight: Font.DemiBold
+                    font.weight: Theme.fontWeightHeavy
                     color: Theme.textPrimary
                 }
 
@@ -862,7 +898,7 @@ Window {
                     width: parent.width
                     text: qsTr("You will need your server address and password to sign in again.")
                     font.family: Theme.fontPrimary
-                    font.pixelSize: Theme.fontSizeSmall
+                    font.pixelSize: Theme.fontSizeBody
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
                 }
@@ -921,7 +957,8 @@ Window {
             anchors.centerIn: parent
             width: Math.min(Math.round(720 * Theme.layoutScale),
                             Math.max(0, window.width - (Theme.spacingLarge * 2)))
-            padding: Theme.spacingLarge
+            padding: Theme.dialogPadding
+            topPadding: Theme.spacingLarge
 
             property string previousNavigationMode: "pointer"
 
@@ -1002,27 +1039,25 @@ Window {
 
             onRejected: dismissAndClose()
 
-            background: Rectangle {
-                color: Theme.cardBackground
-                radius: Theme.radiusMedium
-                border.color: Theme.cardBorder
-                border.width: 1
-            }
+            background: DialogSurface {}
+            Overlay.modal: ModalScrim {}
 
-            header: Rectangle {
-                color: "transparent"
-                height: Math.round(84 * Theme.layoutScale)
+            header: Item {
+                implicitHeight: updateHeaderColumn.implicitHeight + Theme.dialogPadding
 
                 Column {
-                    anchors.fill: parent
-                    anchors.margins: Theme.spacingLarge
+                    id: updateHeaderColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.dialogPadding
                     spacing: Theme.spacingSmall
 
                     Text {
                         text: qsTr("Update Available")
                         font.pixelSize: Theme.fontSizeTitle
                         font.family: Theme.fontPrimary
-                        font.weight: Font.DemiBold
+                        font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                     }
 
@@ -1082,7 +1117,7 @@ Window {
             }
 
             footer: Item {
-                implicitHeight: footerLayout.implicitHeight + (Theme.spacingLarge * 2)
+                implicitHeight: footerLayout.implicitHeight + Theme.dialogPadding + Theme.spacingLarge
 
                 Keys.onPressed: function(event) {
                     if (updateDialog.handleDialogKey(event)) {
@@ -1092,19 +1127,22 @@ Window {
 
                 RowLayout {
                     id: footerLayout
-                    anchors.fill: parent
-                    anchors.margins: Theme.spacingLarge
-                    spacing: Theme.spacingMedium
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.leftMargin: Theme.dialogPadding
+                    anchors.rightMargin: Theme.dialogPadding
+                    anchors.topMargin: Theme.spacingLarge
+                    spacing: Theme.controlSpacing
 
-                    Button {
+                    ActionButton {
                         id: updatePrimaryButton
+                        variant: "primary"
                         focusPolicy: Qt.StrongFocus
                         activeFocusOnTab: true
                         text: UpdateService.applySupported ? qsTr("Download and Install") : qsTr("Open Download Page")
                         enabled: !UpdateService.downloadInProgress && !UpdateService.installerLaunched
-                        Layout.preferredHeight: Theme.buttonHeightSmall
-                        Layout.preferredWidth: Math.max(Math.round(220 * Theme.layoutScale),
-                                                        updatePrimaryButtonText.implicitWidth + Theme.spacingLarge * 2)
+                        Layout.preferredHeight: Theme.buttonHeightMedium
                         KeyNavigation.right: updateLaterButton
                         KeyNavigation.left: updateLaterButton
                         Keys.onReturnPressed: function(event) {
@@ -1143,44 +1181,15 @@ Window {
                             }
                         }
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: {
-                                if (!updatePrimaryButton.enabled) return Theme.buttonSecondaryBackgroundDisabled
-                                if (updatePrimaryButton.down) return Theme.buttonPrimaryBackgroundPressed
-                                if (updatePrimaryButton.hovered || updatePrimaryButton.activeFocus) return Theme.buttonPrimaryBackgroundHover
-                                return Theme.buttonPrimaryBackground
-                            }
-                            border.color: updatePrimaryButton.activeFocus
-                                          ? Theme.buttonPrimaryBorderFocused
-                                          : Theme.buttonPrimaryBorder
-                            border.width: updatePrimaryButton.activeFocus
-                                          ? Theme.buttonFocusBorderWidth
-                                          : Theme.buttonBorderWidth
-                            opacity: updatePrimaryButton.enabled ? 1.0 : 0.5
-                        }
-
-                        contentItem: Text {
-                            id: updatePrimaryButtonText
-                            text: updatePrimaryButton.text
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            font.bold: true
-                            color: updatePrimaryButton.enabled ? Theme.textPrimary : Theme.textDisabled
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
 
-                    Button {
+                    ActionButton {
                         id: updateLaterButton
+                        variant: "secondary"
                         focusPolicy: Qt.StrongFocus
                         activeFocusOnTab: true
                         text: qsTr("Later")
-                        Layout.preferredHeight: Theme.buttonHeightSmall
-                        Layout.preferredWidth: Math.max(Math.round(140 * Theme.layoutScale),
-                                                        updateLaterButtonText.implicitWidth + Theme.spacingLarge * 2)
+                        Layout.preferredHeight: Theme.buttonHeightMedium
                         KeyNavigation.left: updatePrimaryButton.enabled ? updatePrimaryButton : null
                         KeyNavigation.right: updatePrimaryButton.enabled ? updatePrimaryButton : null
                         Keys.onReturnPressed: function(event) {
@@ -1215,32 +1224,6 @@ Window {
                         }
                         onClicked: updateDialog.dismissAndClose()
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: {
-                                if (updateLaterButton.down) return Theme.buttonSecondaryBackgroundPressed
-                                if (updateLaterButton.hovered || updateLaterButton.activeFocus) return Theme.buttonSecondaryBackgroundHover
-                                return Theme.buttonSecondaryBackground
-                            }
-                            border.color: updateLaterButton.activeFocus
-                                          ? Theme.buttonSecondaryBorderFocused
-                                          : (updateLaterButton.hovered ? Theme.buttonSecondaryBorderHover : Theme.buttonSecondaryBorder)
-                            border.width: updateLaterButton.activeFocus
-                                          ? Theme.buttonFocusBorderWidth
-                                          : Theme.buttonBorderWidth
-                        }
-
-                        contentItem: Text {
-                            id: updateLaterButtonText
-                            text: updateLaterButton.text
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            font.bold: true
-                            color: Theme.textPrimary
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
                 }
             }
@@ -1267,6 +1250,7 @@ Window {
         property string currentLibraryId: ""
         function focusNavigation() {}
         function focusRail() {}
+        function focusDialogOrigin() {}
         function close() {}
         function toggle() {}
     }
@@ -1279,7 +1263,6 @@ Window {
 
         sourceComponent: Sidebar {
             visible: !embeddedPlaybackActive
-            overlayMode: window.width < overlayThreshold
             currentNavigation: "home"
             mainContent: mainContentArea  // Connect to main content for focus navigation
 
@@ -1324,12 +1307,14 @@ Window {
             }
 
             onSignOutRequested: {
+                window.dialogReturnsToRail = expanded
                 // Signing out clears stored credentials, so confirm first.
                 if (!signOutDialog.opened)
                     signOutDialog.open()
             }
 
             onExitRequested: {
+                window.dialogReturnsToRail = expanded
                 // Offer Quit / Restart / power actions instead of quitting on a single press.
                 if (!homePowerDialog.opened)
                     homePowerDialog.open()
@@ -1365,6 +1350,7 @@ Window {
             var settingsScreen = stackView.currentItem
             if (settingsScreen && settingsScreen["signOutRequested"]) {
                 settingsScreen["signOutRequested"].connect(function() {
+                    window.dialogReturnsToRail = false
                     if (!signOutDialog.opened)
                         signOutDialog.open()
                 })

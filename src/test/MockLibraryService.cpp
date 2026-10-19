@@ -2,6 +2,7 @@
 #include "TestModeController.h"
 #include "../network/NextEpisodeResolver.h"
 #include "providers/jellyfin/JellyfinModelMapper.h"
+#include <QDir>
 #include <QUrl>
 #include <QDebug>
 #include <algorithm>
@@ -619,12 +620,25 @@ QString MockLibraryService::getStreamUrlWithTracks(const QString &itemId, const 
 
 QString MockLibraryService::getImageUrl(const QString &itemId, const QString &imageType)
 {
-    Q_UNUSED(itemId)
-    Q_UNUSED(imageType)
     QString imagesPath = TestModeController::instance()->testImagesPath();
     if (imagesPath.isEmpty()) {
         return QString();
     }
+
+    // Optional per-item artwork lets visual checks cover bright, dark and
+    // missing artwork: "<itemId>_<kind>.png|jpg" overrides the placeholder and
+    // "<itemId>_<kind>.missing" reports no artwork for that kind.
+    const QDir imagesDir(imagesPath);
+    const QString stem = itemId + QLatin1Char('_') + imageType.toLower();
+    if (imagesDir.exists(stem + QStringLiteral(".missing"))) {
+        return QString();
+    }
+    for (const QString &suffix : {QStringLiteral(".png"), QStringLiteral(".jpg")}) {
+        if (imagesDir.exists(stem + suffix)) {
+            return QUrl::fromLocalFile(imagesDir.filePath(stem + suffix)).toString();
+        }
+    }
+
     // Use QUrl to correct handle file:// prefix and path separators on all platforms
     return QUrl::fromLocalFile(imagesPath + "/placeholder.svg").toString();
 }

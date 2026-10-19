@@ -1073,14 +1073,20 @@ FocusScope {
         LibraryService.toggleFavorite(selectedEpisodeId, !selectedEpisodeIsFavorite)
     }
     
-    // Backdrop with fade
-    Rectangle {
+    // Backdrop with fade. Full-bleed under the floating rail, sharp artwork
+    // with a leading-edge scrim and a floor for the episode shelf.
+    Item {
         id: backdropContainer
         anchors.fill: parent
-        color: "transparent"
+        anchors.leftMargin: -Theme.navRailReservedWidth
         z: 0
         clip: true
-        
+
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.backgroundPrimary
+        }
+
         Image {
             id: backdropImage
             anchors.fill: parent
@@ -1090,21 +1096,33 @@ FocusScope {
             cache: true
             opacity: status === Image.Ready ? 1.0 : 0.0
             Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
-            
-            layer.enabled: true
+
+            // Poster fallbacks are low resolution; soften them.
+            layer.enabled: !SeriesDetailsViewModel.backdropUrl
             layer.effect: MultiEffect {
                 blurEnabled: true
-                blur: 0.6
+                blur: 0.8
                 blurMax: 48
             }
         }
-        
+
         Rectangle {
             anchors.fill: parent
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.3) }
-                GradientStop { position: 0.5; color: Qt.rgba(0, 0, 0, 0.6) }
-                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.9) }
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.90) }
+                GradientStop { position: 0.45; color: Theme.withAlpha(Theme.backgroundPrimary, 0.55) }
+                GradientStop { position: 0.85; color: Theme.withAlpha(Theme.backgroundPrimary, 0.10) }
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.0) }
+                GradientStop { position: 0.45; color: Theme.withAlpha(Theme.backgroundPrimary, 0.25) }
+                GradientStop { position: 0.75; color: Theme.withAlpha(Theme.backgroundPrimary, 0.82) }
+                GradientStop { position: 1.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.96) }
             }
         }
     }
@@ -1116,9 +1134,9 @@ FocusScope {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        anchors.leftMargin: Theme.paddingLarge
-        anchors.rightMargin: Theme.paddingLarge
-        anchors.topMargin: root.height < Math.round(1200 * Theme.layoutScale) ? Math.round(20 * Theme.layoutScale) : Math.round(60 * Theme.layoutScale)
+        anchors.leftMargin: Theme.pageMarginX
+        anchors.rightMargin: Theme.pageMarginX
+        anchors.topMargin: Theme.pageMarginTop
         anchors.bottomMargin: 0
         contentWidth: width
         contentHeight: mainContentColumn.implicitHeight + bottomMargin
@@ -1152,12 +1170,12 @@ FocusScope {
         ColumnLayout {
             id: mainContentColumn
             width: mainContentFlickable.width
-            spacing: Theme.spacingXLarge
+            spacing: Theme.sectionSpacing - Theme.spacingMedium
 
             ListView {
                 id: seasonsTabList
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.round(52 * Theme.layoutScale)
+                Layout.preferredHeight: Theme.buttonHeightSmall + Theme.spacingSmall
                 orientation: ListView.Horizontal
                 spacing: Theme.spacingSmall
                 clip: false
@@ -1171,8 +1189,8 @@ FocusScope {
                 }
 
                 delegate: ItemDelegate {
-                    width: Math.max(Math.round(110 * Theme.layoutScale), seasonTabText.implicitWidth + Math.round(34 * Theme.layoutScale))
-                    height: Math.round(44 * Theme.layoutScale)
+                    width: seasonTabText.implicitWidth + Theme.spacingXLarge
+                    height: Theme.buttonHeightSmall
                     padding: 0
                     leftPadding: 0
                     rightPadding: 0
@@ -1183,18 +1201,28 @@ FocusScope {
 
                     KeyNavigation.down: playResumeButton
 
+                    // Season tabs: selected = accent underline, focus = ring.
                     background: Rectangle {
-                        radius: Theme.radiusMedium
-                        color: {
-                            if (parent.down) return Theme.buttonSecondaryBackgroundPressed
-                            if (isSelected) return Theme.accentPrimary
-                            if (parent.hovered) return Theme.buttonSecondaryBackgroundHover
-                            return Theme.buttonSecondaryBackground
-                        }
-                        border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : 0
-                        border.color: Theme.buttonSecondaryBorderFocused
+                        id: seasonTabBackground
+                        radius: Theme.radiusSmall
+                        color: parent.down ? Theme.surfaceInteractivePressed
+                             : (parent.hovered || parent.activeFocus ? Theme.surfaceInteractive : "transparent")
 
-                        Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.bottom: parent.bottom
+                            width: parent.width - Theme.spacingLarge
+                            height: Theme.selectionIndicatorWidth
+                            radius: height / 2
+                            color: Theme.selectionIndicator
+                            visible: isSelected
+                        }
+
+                        FocusRing {
+                            inset: true
+                            active: seasonTabBackground.parent.activeFocus
+                            radius: seasonTabBackground.radius
+                        }
                     }
 
                     contentItem: Text {
@@ -1202,8 +1230,8 @@ FocusScope {
                         text: model.name || (model.indexNumber > 0 ? qsTr("Season %1").arg(model.indexNumber) : qsTr("Specials"))
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
-                        font.bold: isSelected
-                        color: isSelected ? Theme.textOnAccent : Theme.textPrimary
+                        font.weight: isSelected ? Theme.fontWeightStrong : Theme.fontWeightRegular
+                        color: isSelected ? Theme.textPrimary : Theme.textSecondary
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -1231,30 +1259,17 @@ FocusScope {
                 }
             }
 
-            Rectangle {
+            GlassPanel {
                 id: heroPanel
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.max(heroPosterHeight + root.heroPanelPadding * 2,
                                                  heroContent.implicitHeight + root.heroPanelPadding * 2)
-                radius: Theme.radiusLarge
-                color: Qt.rgba(0, 0, 0, 0.22)
-                border.width: 1
-                border.color: Qt.rgba(1, 1, 1, 0.10)
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: parent.radius
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.04) }
-                        GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, 0.01) }
-                    }
-                }
 
                 RowLayout {
                     id: heroContent
                     anchors.fill: parent
                     anchors.margins: root.heroPanelPadding
-                    spacing: Theme.spacingXLarge
+                    spacing: Theme.spacingXLarge + Theme.spacingSmall
 
                     Item {
                         Layout.preferredWidth: heroPosterWidth
@@ -1263,9 +1278,7 @@ FocusScope {
                         Rectangle {
                             anchors.fill: parent
                             radius: Theme.imageRadius
-                            color: Theme.backgroundSecondary
-                            border.width: 1
-                            border.color: Qt.rgba(1, 1, 1, 0.08)
+                            color: root.heroArtworkUsesFit ? Theme.surfaceSunken : "transparent"
 
                             Image {
                                 id: heroPosterImage
@@ -1292,20 +1305,11 @@ FocusScope {
                                 layer.smooth: true
                             }
 
-                            Rectangle {
+                            ArtworkPlaceholder {
                                 anchors.fill: parent
-                                radius: Theme.imageRadius
-                                color: Qt.rgba(0.06, 0.06, 0.06, 0.55)
                                 visible: heroPosterImage.status !== Image.Ready
-                            }
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: Icons.tvShows
-                                visible: heroPosterImage.status !== Image.Ready
-                                font.family: Theme.fontIcon
-                                font.pixelSize: Math.round(76 * Theme.layoutScale)
-                                color: Theme.textSecondary
+                                loading: heroPosterImage.status === Image.Loading
+                                iconGlyph: Icons.tvShows
                             }
 
                             Row {
@@ -1345,7 +1349,7 @@ FocusScope {
                                     text: selectedEpisodeLabel
                                     font.pixelSize: Theme.fontSizeSmall
                                     font.family: Theme.fontPrimary
-                                    font.weight: Font.Black
+                                    font.weight: Theme.fontWeightHeavy
                                     color: Theme.textOnDarkOverlay
                                 }
                             }
@@ -1361,13 +1365,14 @@ FocusScope {
                             Layout.fillWidth: true
                             Layout.preferredHeight: displayLogoUrl !== "" ? Theme.detailViewLogoHeight : titleFallback.implicitHeight
 
-                            Image {
-                                anchors.horizontalCenter: parent.horizontalCenter
+                            ArtworkLogo {
+                                anchors.left: parent.left
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: Math.min(Theme.seriesLogoMaxWidth, parent.width)
                                 height: parent.height
                                 source: displayLogoUrl
                                 fillMode: Image.PreserveAspectFit
+                                horizontalAlignment: Image.AlignLeft
                                 asynchronous: true
                                 cache: true
                                 visible: displayLogoUrl !== ""
@@ -1382,9 +1387,9 @@ FocusScope {
                                 width: parent.width
                                 text: displayName || seriesName
                                 visible: displayLogoUrl === ""
-                                font.pixelSize: Theme.fontSizeDisplay
+                                font.pixelSize: Theme.fontSizeHero
                                 font.family: Theme.fontPrimary
-                                font.weight: Font.Black
+                                font.weight: Theme.fontWeightHeavy
                                 color: Theme.textPrimary
                                 wrapMode: Text.WordWrap
                             }
@@ -1403,135 +1408,81 @@ FocusScope {
                         Text {
                             text: selectedEpisodeName !== "" ? selectedEpisodeName : qsTr("Select an episode")
                             Layout.fillWidth: true
-                            font.pixelSize: Theme.fontSizeDisplay
+                            font.pixelSize: Theme.fontSizeTitle
                             font.family: Theme.fontPrimary
-                            font.weight: Font.Black
+                            font.weight: Theme.fontWeightHeavy
                             color: Theme.textPrimary
                             wrapMode: Text.WordWrap
                         }
 
-                        Flow {
+                        MetadataLine {
                             Layout.fillWidth: true
-                            spacing: Theme.spacingSmall
-
-                            MetadataChip { text: selectedEpisodeLabel }
-                            MetadataChip { text: selectedEpisodeDurationMs > 0 ? formatRuntime(selectedEpisodeDurationMs) : "" }
-                            MetadataChip { text: selectedEpisodeDurationMs > 0 ? calculateEndTime(selectedEpisodeDurationMs) : "" }
-                            MetadataChip { text: selectedEpisodeCommunityRating > 0 ? formatRating(selectedEpisodeCommunityRating) : "" }
-                            MetadataChip { text: selectedEpisodePremiereDate !== "" ? formatPremiereDate(selectedEpisodePremiereDate) : "" }
-                            MetadataChip {
-                                text: selectedEpisodeIsPlayed
-                                      ? qsTr("Watched")
-                                      : (selectedEpisodePlaybackPosition > 0 ? qsTr("In Progress") : "")
-                            }
+                            font.pixelSize: Theme.fontSizeBody
+                            items: [selectedEpisodeLabel,
+                                    selectedEpisodeDurationMs > 0 ? formatRuntime(selectedEpisodeDurationMs) : "",
+                                    selectedEpisodeDurationMs > 0 ? calculateEndTime(selectedEpisodeDurationMs) : "",
+                                    selectedEpisodeCommunityRating > 0 ? formatRating(selectedEpisodeCommunityRating) : "",
+                                    selectedEpisodePremiereDate !== "" ? formatPremiereDate(selectedEpisodePremiereDate) : "",
+                                    selectedEpisodeIsPlayed ? qsTr("Watched")
+                                                            : (selectedEpisodePlaybackPosition > 0 ? qsTr("In Progress") : "")]
                         }
 
                         Item {
                             id: overviewContainer
                             Layout.fillWidth: true
-                            Layout.minimumHeight: root.overviewExpanded
-                                                  ? overviewColumn.implicitHeight
-                                                  : overviewContainer.collapsedLayoutHeight
                             Layout.preferredHeight: root.overviewExpanded
                                                    ? overviewColumn.implicitHeight
                                                    : overviewContainer.collapsedLayoutHeight
 
-                            readonly property int collapsedHeight: Math.round(150 * Theme.layoutScale)
-                            readonly property int buttonRowHeight: Math.round(34 * Theme.layoutScale)
+                            // Collapsed height is fixed so the hero does not jump while browsing
+                            // episodes with different overview lengths.
+                            readonly property int collapsedLines: 4
+                            readonly property int collapsedHeight: Math.round(Theme.fontSizeBody * 1.45 * collapsedLines)
+                            readonly property int buttonRowHeight: Theme.buttonHeightSmall
                             readonly property int collapsedLayoutHeight: collapsedHeight + buttonRowHeight + overviewColumn.spacing
-                            property bool hasOverflow: overviewText.implicitHeight > collapsedHeight
+                            property bool hasOverflow: overviewText.truncated || root.overviewExpanded
 
                             ColumnLayout {
                                 id: overviewColumn
-                                anchors.fill: parent
-                                spacing: Math.round(10 * Theme.layoutScale)
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                spacing: Theme.spacingSmall
 
-                                Item {
-                                    id: overviewTextArea
+                                Text {
+                                    id: overviewText
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: root.overviewExpanded
-                                                            ? overviewText.implicitHeight
-                                                            : overviewContainer.collapsedHeight
-                                    clip: true
-
-                                    Text {
-                                        id: overviewText
-                                        width: parent.width
-                                        text: selectedEpisodeOverview || qsTr("No description available.")
-                                        font.pixelSize: Theme.fontSizeBody
-                                        font.family: Theme.fontPrimary
-                                        font.weight: Font.Medium
-                                        color: Theme.textPrimary
-                                        wrapMode: Text.WordWrap
-                                    }
-
-                                    Rectangle {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.bottom: parent.bottom
-                                        height: Math.round(56 * Theme.layoutScale)
-                                        visible: !root.overviewExpanded && overviewContainer.hasOverflow
-                                        gradient: Gradient {
-                                            GradientStop { position: 0.0; color: "transparent" }
-                                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.92) }
-                                        }
-                                    }
+                                    Layout.preferredHeight: root.overviewExpanded ? implicitHeight : overviewContainer.collapsedHeight
+                                    verticalAlignment: Text.AlignTop
+                                    text: selectedEpisodeOverview || qsTr("No description available.")
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    color: selectedEpisodeOverview ? Theme.textPrimary : Theme.textSecondary
+                                    opacity: 0.9
+                                    lineHeight: 1.12
+                                    wrapMode: Text.WordWrap
+                                    maximumLineCount: root.overviewExpanded ? 1000 : overviewContainer.collapsedLines
+                                    elide: Text.ElideRight
                                 }
 
                                 Item {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: overviewContainer.buttonRowHeight
 
-                                    Button {
+                                    ActionButton {
                                         id: readMoreButton
+                                        variant: "ghost"
                                         visible: overviewContainer.hasOverflow
                                         anchors.left: parent.left
+                                        anchors.leftMargin: -Theme.spacingMedium
                                         anchors.verticalCenter: parent.verticalCenter
-                                        padding: 0
                                         implicitHeight: overviewContainer.buttonRowHeight
-                                        implicitWidth: readMoreRow.implicitWidth + Math.round(22 * Theme.layoutScale)
+                                        sidePadding: Theme.spacingMedium
+                                        labelPixelSize: Theme.fontSizeSmall
+                                        text: root.overviewExpanded ? qsTr("Show Less") : qsTr("Read More")
+                                        iconGlyph: root.overviewExpanded ? Icons.expandLess : Icons.expandMore
 
                                         KeyNavigation.up: seasonsTabList
                                         KeyNavigation.down: playResumeButton
-
-                                        background: Rectangle {
-                                            radius: Theme.radiusMedium
-                                            color: {
-                                                if (readMoreButton.down) return Qt.rgba(1, 1, 1, 0.18)
-                                                if (readMoreButton.hovered || readMoreButton.activeFocus) return Qt.rgba(1, 1, 1, 0.13)
-                                                return Qt.rgba(0, 0, 0, 0.24)
-                                            }
-                                            border.width: readMoreButton.activeFocus ? Theme.buttonFocusBorderWidth : 1
-                                            border.color: readMoreButton.activeFocus ? Theme.buttonSecondaryBorderFocused : Qt.rgba(1, 1, 1, 0.14)
-                                        }
-
-                                        contentItem: Item {
-                                            implicitWidth: readMoreRow.implicitWidth
-                                            implicitHeight: readMoreRow.implicitHeight
-
-                                            RowLayout {
-                                                id: readMoreRow
-                                                anchors.centerIn: parent
-                                                spacing: Math.round(6 * Theme.layoutScale)
-
-                                                Text {
-                                                    text: root.overviewExpanded ? qsTr("Show Less") : qsTr("Read More")
-                                                    font.pixelSize: Theme.fontSizeSmall
-                                                    font.family: Theme.fontPrimary
-                                                    font.weight: Font.Black
-                                                    color: Theme.textPrimary
-                                                    Layout.alignment: Qt.AlignVCenter
-                                                }
-
-                                                Text {
-                                                    text: root.overviewExpanded ? Icons.expandLess : Icons.expandMore
-                                                    font.family: Theme.fontIcon
-                                                    font.pixelSize: Theme.fontSizeIcon
-                                                    color: Theme.textPrimary
-                                                    Layout.alignment: Qt.AlignVCenter
-                                                }
-                                            }
-                                        }
 
                                         Keys.onReturnPressed: (event) => {
                                             if (event.isAutoRepeat) {
@@ -1562,15 +1513,18 @@ FocusScope {
                             Layout.bottomMargin: root.heroActionsBottomSpacing
                             spacing: Theme.spacingMedium
 
-                            Button {
+                            ActionButton {
                                 id: playResumeButton
+                                variant: "primary"
+                                readonly property bool loadingPlayback: selectedEpisodeId !== "" && playbackInfoLoadingItemId === selectedEpisodeId
                                 text: selectedEpisodePlaybackPosition > 0 ? qsTr("Resume Episode") : qsTr("Play Episode")
+                                iconGlyph: Icons.playArrow
+                                busy: loadingPlayback
                                 enabled: selectedEpisodeId !== ""
-                                Layout.preferredHeight: Theme.buttonHeightLarge
-                                Layout.preferredWidth: Math.max(Math.round(200 * Theme.layoutScale),
-                                                                playResumeInnerRow.implicitWidth + Math.round(48 * Theme.layoutScale))
+                                implicitHeight: Theme.buttonHeightLarge
+                                Layout.minimumWidth: Math.round(260 * Theme.layoutScale)
 
-                                Accessible.name: text
+                                Accessible.name: selectedEpisodePlaybackPosition > 0 ? qsTr("Resume Episode") : qsTr("Play Episode")
 
                                 KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
                                 KeyNavigation.right: playFromBeginningButton
@@ -1605,77 +1559,6 @@ FocusScope {
                                 }
 
                                 onClicked: startPlayback(false, playResumeButton)
-
-                                background: Rectangle {
-                                    radius: Theme.radiusMedium
-                                    gradient: Gradient {
-                                        GradientStop {
-                                            position: 0.0
-                                            color: !playResumeButton.enabled
-                                                   ? Qt.rgba(0.12, 0.12, 0.12, 0.55)
-                                                   : (playResumeButton.down
-                                                      ? Theme.buttonPrimaryBackgroundPressed
-                                                      : playResumeButton.hovered
-                                                        ? Theme.buttonPrimaryBackgroundHover
-                                                        : Theme.buttonPrimaryBackground)
-                                        }
-                                        GradientStop {
-                                            position: 1.0
-                                            color: !playResumeButton.enabled
-                                                   ? Qt.rgba(0.08, 0.08, 0.08, 0.55)
-                                                   : (playResumeButton.down
-                                                      ? Qt.darker(Theme.buttonPrimaryBackgroundPressed, 1.1)
-                                                      : playResumeButton.hovered
-                                                        ? Qt.darker(Theme.buttonPrimaryBackgroundHover, 1.08)
-                                                        : Qt.darker(Theme.buttonPrimaryBackground, 1.12))
-                                        }
-                                    }
-                                    border.width: playResumeButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                                    border.color: playResumeButton.activeFocus ? Theme.buttonPrimaryBorderFocused : Qt.rgba(1, 1, 1, 0.12)
-
-                                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-                                }
-
-                                contentItem: Item {
-                                    implicitWidth: playResumeInnerRow.implicitWidth
-                                    implicitHeight: playResumeInnerRow.implicitHeight
-
-                                    RowLayout {
-                                        id: playResumeInnerRow
-                                        visible: playbackInfoLoadingItemId !== selectedEpisodeId
-                                        anchors.centerIn: parent
-                                        spacing: Theme.spacingSmall
-
-                                        Text {
-                                            text: Icons.playArrow
-                                            font.family: Theme.fontIcon
-                                            font.pixelSize: Theme.fontSizeIcon
-                                            color: Theme.textPrimary
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            Layout.alignment: Qt.AlignVCenter
-                                        }
-
-                                        Text {
-                                            text: playResumeButton.text
-                                            font.pixelSize: Theme.fontSizeBody
-                                            font.family: Theme.fontPrimary
-                                            font.weight: Font.Black
-                                            color: Theme.textPrimary
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            Layout.alignment: Qt.AlignVCenter
-                                        }
-                                    }
-                                }
-
-                                BusyIndicator {
-                                    anchors.centerIn: parent
-                                    width: Math.round(28 * Theme.layoutScale)
-                                    height: Math.round(28 * Theme.layoutScale)
-                                    running: visible
-                                    visible: playbackInfoLoadingItemId === selectedEpisodeId
-                                }
                             }
 
                             SecondaryActionButton {
@@ -1772,7 +1655,7 @@ FocusScope {
                                 id: favoriteButton
                                 text: selectedEpisodeIsFavorite ? qsTr("Favorited") : qsTr("Favorite")
                                 iconGlyph: selectedEpisodeIsFavorite ? Icons.favorite : Icons.favoriteBorder
-                                iconColor: selectedEpisodeIsFavorite ? "#e74c3c" : Theme.textPrimary
+                                iconColor: selectedEpisodeIsFavorite ? Theme.favoriteColor : Theme.textPrimary
                                 showLabel: false
                                 enabled: selectedEpisodeId !== ""
                                 Layout.preferredHeight: Theme.buttonHeightLarge
@@ -1861,7 +1744,7 @@ FocusScope {
                             SecondaryActionButton {
                                 id: contextMenuButton
                                 text: ""
-                                iconGlyph: Icons.moreVert
+                                iconGlyph: Icons.moreHoriz
                                 accessibleLabel: qsTr("Audio and subtitle options")
                                 enabled: selectedEpisodeId !== ""
                                 Layout.preferredHeight: Theme.buttonHeightLarge
@@ -1905,7 +1788,7 @@ FocusScope {
                     text: qsTr("Episodes")
                     font.pixelSize: Theme.fontSizeHeader
                     font.family: Theme.fontPrimary
-                    font.weight: Font.Black
+                    font.weight: Theme.fontWeightHeavy
                     color: Theme.textPrimary
                 }
 
@@ -1920,6 +1803,25 @@ FocusScope {
                     highlightMoveDuration: Theme.durationNormal
                     highlightMoveVelocity: -1
                     model: SeriesDetailsViewModel.episodesModel
+
+                    StateMessage {
+                        parent: episodesList
+                        anchors.centerIn: parent
+                        width: parent.width
+                        compact: true
+                        visible: episodesList.count === 0
+                        kind: SeriesDetailsViewModel.isLoading ? "loading" : "empty"
+                        iconGlyph: SeriesDetailsViewModel.isLoading ? "" : Icons.tvShows
+                        title: SeriesDetailsViewModel.isLoading ? qsTr("Loading episodes") : qsTr("No episodes in this season")
+
+                        // Focus can still land on the empty list; keep it visible.
+                        FocusRing {
+                            active: episodesList.activeFocus
+                            inset: true
+                            radius: Theme.radiusLarge
+                        }
+                    }
+
                     KeyNavigation.up: playResumeButton
                     KeyNavigation.down: chapterSection.visible && chapterList.count > 0
                                         ? chapterList
@@ -1972,8 +1874,9 @@ FocusScope {
                         background: Rectangle {
                             radius: Theme.radiusMedium
                             color: Theme.cardBackground
-                            border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : 0
-                            border.color: Theme.accentPrimary
+                            border.width: episodeDelegate.ListView.isCurrentItem && !episodeDelegate.activeFocus ? Theme.selectionIndicatorWidth : 0
+                            border.color: Theme.selectionIndicator
+                            FocusRing { inset: true; active: episodeDelegate.activeFocus; radius: parent.radius }
 
                             Image {
                                 id: episodeThumbnailSource
@@ -2047,7 +1950,9 @@ FocusScope {
 
                         contentItem: ColumnLayout {
                             anchors.fill: parent
-                            anchors.margins: Theme.spacingSmall
+                            anchors.margins: Theme.spacingMedium
+                            // Keep the text clear of the progress line on in-progress episodes.
+                            anchors.bottomMargin: (model.positionMs || 0) > 0 ? Theme.progressHeight + Theme.spacingMedium * 2 : Theme.spacingMedium
                             spacing: Math.round(2 * Theme.layoutScale)
 
                             Item { Layout.fillHeight: true }
@@ -2147,7 +2052,7 @@ FocusScope {
                         text: qsTr("Chapters")
                         font.pixelSize: Theme.fontSizeHeader
                         font.family: Theme.fontPrimary
-                        font.weight: Font.Black
+                        font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                     }
 
@@ -2156,9 +2061,7 @@ FocusScope {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
                         radius: Theme.radiusMedium
-                        color: Qt.rgba(1, 1, 1, 0.04)
-                        border.width: 1
-                        border.color: Theme.cardBorder
+                        color: Theme.surfaceSunken
 
                         Row {
                             anchors.fill: parent
@@ -2170,7 +2073,7 @@ FocusScope {
                                     width: Math.round(248 * Theme.layoutScale)
                                     height: parent.height
                                     radius: Theme.radiusMedium
-                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                    color: Theme.surfaceInteractive
                                     opacity: 0.72
                                     SequentialAnimation on opacity {
                                         running: Theme.uiAnimationsEnabled && parent.visible
@@ -2284,8 +2187,7 @@ FocusScope {
                                 anchors.fill: parent
                                 radius: Theme.radiusMedium
                                 color: Theme.cardBackground
-                                border.width: chapterDelegate.activeFocus ? Theme.buttonFocusBorderWidth : 0
-                                border.color: Theme.accentPrimary
+                                FocusRing { inset: true; active: chapterDelegate.activeFocus; radius: parent.radius }
 
                                 ColumnLayout {
                                     anchors.fill: parent
@@ -2345,9 +2247,7 @@ FocusScope {
                         Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
                         visible: !focusedEpisodeChaptersLoading && !chapterPreloadTimer.running && focusedEpisodeChapters.length === 0
                         radius: Theme.radiusMedium
-                        color: Qt.rgba(1, 1, 1, 0.04)
-                        border.width: 1
-                        border.color: Theme.cardBorder
+                        color: Theme.surfaceSunken
                         Text {
                             anchors.centerIn: parent
                             text: qsTr("No chapters available.")
@@ -2392,7 +2292,7 @@ FocusScope {
                         text: qsTr("Cast & Crew")
                         font.pixelSize: Theme.fontSizeHeader
                         font.family: Theme.fontPrimary
-                        font.weight: Font.Black
+                        font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                     }
 
@@ -2401,9 +2301,7 @@ FocusScope {
                         Layout.fillWidth: true
                         Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
                         radius: Theme.radiusMedium
-                        color: Qt.rgba(1, 1, 1, 0.04)
-                        border.width: 1
-                        border.color: Theme.cardBorder
+                        color: Theme.surfaceSunken
                         Row {
                             anchors.fill: parent
                             anchors.margins: Theme.spacingMedium
@@ -2414,7 +2312,7 @@ FocusScope {
                                     width: root.peopleCardWidth
                                     height: root.peopleCardHeight
                                     radius: Theme.radiusMedium
-                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                    color: Theme.surfaceInteractive
                                     opacity: 0.72
                                     SequentialAnimation on opacity {
                                         running: Theme.uiAnimationsEnabled && parent.visible
@@ -2519,9 +2417,7 @@ FocusScope {
                         Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
                         visible: !focusedEpisodeDetailsLoading && focusedEpisodePeople.length === 0
                         radius: Theme.radiusMedium
-                        color: Qt.rgba(1, 1, 1, 0.04)
-                        border.width: 1
-                        border.color: Theme.cardBorder
+                        color: Theme.surfaceSunken
                         Text {
                             anchors.centerIn: parent
                             text: qsTr("No cast or crew listed.")
@@ -2542,67 +2438,10 @@ FocusScope {
     }
     
     // Context Menu for Audio/Subtitle Selection
-    Menu {
+    BloomMenu {
         id: contextMenu
         
-        background: Rectangle {
-            implicitWidth: Math.round(280 * Theme.layoutScale)
-            color: Theme.cardBackground
-            radius: Theme.radiusMedium
-            border.color: Theme.cardBorder
-            border.width: 1
-            
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                shadowEnabled: true
-                shadowHorizontalOffset: 0
-                shadowVerticalOffset: 4
-                shadowBlur: 0.5
-                shadowColor: "#44000000"
-            }
-        }
         
-        delegate: MenuItem {
-            id: menuItem
-            implicitWidth: Math.round(240 * Theme.layoutScale)
-            implicitHeight: Math.round(40 * Theme.layoutScale)
-            
-            arrow: Canvas {
-                x: parent.width - width - Math.round(12 * Theme.layoutScale)
-                y: parent.height / 2 - height / 2
-                width: Math.round(12 * Theme.layoutScale)
-                height: Math.round(12 * Theme.layoutScale)
-                visible: menuItem.subMenu
-                onPaint: {
-                    var ctx = getContext("2d")
-                    ctx.fillStyle = menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
-                    ctx.moveTo(0, 0)
-                    ctx.lineTo(0, height)
-                    ctx.lineTo(width, height / 2)
-                    ctx.closePath()
-                    ctx.fill()
-                }
-            }
-            
-            contentItem: Text {
-                text: menuItem.text
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
-                elide: Text.ElideRight
-                verticalAlignment: Text.AlignVCenter
-                leftPadding: Theme.spacingSmall
-                rightPadding: menuItem.arrow.width + Theme.spacingSmall
-            }
-            
-            background: Rectangle {
-                implicitWidth: Math.round(240 * Theme.layoutScale)
-                implicitHeight: Math.round(40 * Theme.layoutScale)
-                opacity: enabled ? 1 : 0.3
-                color: menuItem.highlighted ? Theme.hoverOverlay : "transparent"
-                radius: Theme.radiusSmall
-            }
-        }
         
         onOpened: {
             // Re-fetch tracks when menu opens
@@ -2629,23 +2468,16 @@ FocusScope {
             })
         }
         
-        Menu {
+        BloomMenu {
             id: audioMenu
             title: "Audio Tracks"
             enabled: getAudioStreams().length > 0
             
-            background: Rectangle {
-                implicitWidth: Math.round(280 * Theme.layoutScale)
-                color: Theme.cardBackground
-                radius: Theme.radiusMedium
-                border.color: Theme.cardBorder
-                border.width: 1
-            }
             
             Repeater {
                 model: getAudioStreams()
                 
-                MenuItem {
+                BloomMenuItem {
                     id: audioMenuItem
                     required property var modelData
                     
@@ -2655,60 +2487,8 @@ FocusScope {
                     
                     indicator: Item {}
                     
-                    contentItem: RowLayout {
-                        spacing: Theme.spacingSmall
-                        
-                        Text {
-                            text: audioMenuItem.checked ? "✓" : "  "
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.accentPrimary
-                            Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
-                        }
-                        
-                        Item {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: scrollingAudioText.height
-                            clip: true
-                            
-                            Text {
-                                id: scrollingAudioText
-                                text: audioMenuItem.text
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                color: Theme.textPrimary
-                                
-                                SequentialAnimation on x {
-                                    running: scrollingAudioText.width > parent.width && audioMenuItem.highlighted
-                                    loops: Animation.Infinite
-                                    
-                                    PauseAnimation { duration: 1000 }
-                                    NumberAnimation {
-                                        to: -scrollingAudioText.width + parent.width
-                                        duration: Math.max(1000, (scrollingAudioText.width - parent.width) * 20)
-                                        easing.type: Easing.Linear
-                                    }
-                                    PauseAnimation { duration: 1000 }
-                                    NumberAnimation {
-                                        to: 0
-                                        duration: Math.max(1000, (scrollingAudioText.width - parent.width) * 20)
-                                        easing.type: Easing.Linear
-                                    }
-                                }
-                                
-                                // Reset position when not running
-                                onXChanged: {
-                                    if (!running && x !== 0) x = 0
-                                }
-                                property bool running: scrollingAudioText.width > parent.width && audioMenuItem.highlighted
-                            }
-                        }
-                    }
+                    marked: audioMenuItem.checked
                     
-                    background: Rectangle {
-                        color: parent.highlighted ? Theme.hoverOverlay : "transparent"
-                        radius: Theme.radiusSmall
-                    }
                     
                     onTriggered: {
                         selectedAudioIndex = modelData.index
@@ -2725,47 +2505,18 @@ FocusScope {
             }
         }
         
-        Menu {
+        BloomMenu {
             id: subtitleMenu
             title: "Subtitle Tracks"
             
-            background: Rectangle {
-                implicitWidth: Math.round(280 * Theme.layoutScale)
-                color: Theme.cardBackground
-                radius: Theme.radiusMedium
-                border.color: Theme.cardBorder
-                border.width: 1
-            }
             
-            MenuItem {
+            BloomMenuItem {
                 text: "None"
                 checkable: true
                 checked: selectedSubtitleIndex === -1
                 indicator: Item {}
                 
-                contentItem: RowLayout {
-                    spacing: Theme.spacingSmall
-                    
-                    Text {
-                        text: parent.checked ? "✓" : "  "
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        color: Theme.accentPrimary
-                        Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
-                    }
-                    
-                    Text {
-                        text: parent.text
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                    }
-                }
                 
-                background: Rectangle {
-                    color: parent.highlighted ? Theme.hoverOverlay : "transparent"
-                    radius: Theme.radiusSmall
-                }
                 
                 onTriggered: {
                     selectedSubtitleIndex = -1
@@ -2782,7 +2533,7 @@ FocusScope {
             Repeater {
                 model: getSubtitleStreams()
                 
-                MenuItem {
+                BloomMenuItem {
                     id: subtitleMenuItem
                     required property var modelData
                     
@@ -2792,60 +2543,8 @@ FocusScope {
                     
                     indicator: Item {}
                     
-                    contentItem: RowLayout {
-                        spacing: Theme.spacingSmall
-                        
-                        Text {
-                            text: subtitleMenuItem.checked ? "✓" : "  "
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.accentPrimary
-                            Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
-                        }
-                        
-                        Item {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: scrollingSubtitleText.height
-                            clip: true
-                            
-                            Text {
-                                id: scrollingSubtitleText
-                                text: subtitleMenuItem.text
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                color: Theme.textPrimary
-                                
-                                SequentialAnimation on x {
-                                    running: scrollingSubtitleText.width > parent.width && subtitleMenuItem.highlighted
-                                    loops: Animation.Infinite
-                                    
-                                    PauseAnimation { duration: 1000 }
-                                    NumberAnimation {
-                                        to: -scrollingSubtitleText.width + parent.width
-                                        duration: Math.max(1000, (scrollingSubtitleText.width - parent.width) * 20)
-                                        easing.type: Easing.Linear
-                                    }
-                                    PauseAnimation { duration: 1000 }
-                                    NumberAnimation {
-                                        to: 0
-                                        duration: Math.max(1000, (scrollingSubtitleText.width - parent.width) * 20)
-                                        easing.type: Easing.Linear
-                                    }
-                                }
-                                
-                                // Reset position when not running
-                                onXChanged: {
-                                    if (!running && x !== 0) x = 0
-                                }
-                                property bool running: scrollingSubtitleText.width > parent.width && subtitleMenuItem.highlighted
-                            }
-                        }
-                    }
+                    marked: subtitleMenuItem.checked
                     
-                    background: Rectangle {
-                        color: parent.highlighted ? Theme.hoverOverlay : "transparent"
-                        radius: Theme.radiusSmall
-                    }
                     
                     onTriggered: {
                         selectedSubtitleIndex = modelData.index

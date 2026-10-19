@@ -50,13 +50,8 @@ FocusScope {
         event.accepted = true
     }
 
-    Rectangle {
-        anchors.fill: parent
-        anchors.margins: -Theme.spacingSmall
-        radius: Theme.radiusSmall
-        color: root.activeFocus ? Theme.hoverOverlay : "transparent"
-        border.color: root.activeFocus ? Theme.focusBorder : "transparent"
-        border.width: root.activeFocus ? 2 : 0
+    SettingsRowBackground {
+        focused: root.activeFocus
     }
 
     ColumnLayout {
@@ -144,12 +139,13 @@ FocusScope {
                     height: parent.height
                     implicitWidth: Math.round(40 * Theme.layoutScale)
                     implicitHeight: Math.round(40 * Theme.layoutScale)
-                    color: spinBox.up.pressed ? Theme.buttonPrimaryBackground : "transparent"
+                    color: spinBox.up.pressed ? Theme.surfaceInteractivePressed : "transparent"
                     radius: Theme.radiusSmall
 
                     Text {
                         text: "+"
                         font.pixelSize: Theme.fontSizeTitle
+                        font.family: Theme.fontPrimary
                         color: Theme.textPrimary
                         anchors.centerIn: parent
                     }
@@ -160,24 +156,23 @@ FocusScope {
                     height: parent.height
                     implicitWidth: Math.round(40 * Theme.layoutScale)
                     implicitHeight: Math.round(40 * Theme.layoutScale)
-                    color: spinBox.down.pressed ? Theme.buttonPrimaryBackground : "transparent"
+                    color: spinBox.down.pressed ? Theme.surfaceInteractivePressed : "transparent"
                     radius: Theme.radiusSmall
 
                     Text {
                         text: "-"
                         font.pixelSize: Theme.fontSizeTitle
+                        font.family: Theme.fontPrimary
                         color: Theme.textPrimary
                         anchors.centerIn: parent
                     }
                 }
 
                 background: Rectangle {
-                    implicitWidth: Math.round(140 * Theme.layoutScale)
+                    implicitWidth: Math.round(180 * Theme.layoutScale)
                     implicitHeight: Theme.buttonHeightSmall
-                    color: Theme.inputBackground
-                    border.color: Theme.inputBorder
-                    border.width: 1
-                    radius: Theme.radiusSmall
+                    color: Theme.surfaceInteractive
+                    radius: Theme.radiusControl
                 }
             }
         }

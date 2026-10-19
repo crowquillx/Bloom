@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import BloomUI
 
@@ -34,62 +33,19 @@ FocusScope {
         { label: qsTr("Controller"), value: "gamepad" }
     ]
 
-    component SettingsActionButton: Button {
+    component SettingsActionButton: ActionButton {
         id: actionButton
 
         property bool primary: false
         property bool destructive: false
         property var ensureVisible: null
 
-        focusPolicy: Qt.StrongFocus
+        variant: destructive ? "destructive" : (primary ? "primary" : "secondary")
         implicitHeight: Theme.buttonHeightSmall
-        leftPadding: Theme.spacingMedium
-        rightPadding: Theme.spacingMedium
-
-        Accessible.role: Accessible.Button
-        Accessible.name: text
+        sidePadding: Theme.spacingMedium + Theme.spacingXSmall
 
         onActiveFocusChanged: {
             if (activeFocus && ensureVisible) ensureVisible(actionButton)
-        }
-
-        contentItem: Text {
-            text: actionButton.text
-            font.pixelSize: Theme.fontSizeBody
-            font.family: Theme.fontPrimary
-            font.weight: actionButton.primary ? Font.DemiBold : Font.Normal
-            color: actionButton.enabled ? Theme.textPrimary : Theme.textDisabled
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-        }
-
-        background: Rectangle {
-            implicitHeight: Theme.buttonHeightSmall
-            radius: Theme.radiusSmall
-            color: {
-                if (!actionButton.enabled) return Theme.buttonSecondaryBackgroundDisabled
-                if (actionButton.down) {
-                    return actionButton.primary ? Theme.buttonPrimaryBackgroundPressed : Theme.buttonSecondaryBackgroundPressed
-                }
-                if (actionButton.hovered || actionButton.activeFocus) {
-                    if (actionButton.destructive) return Theme.destructiveHoverBg
-                    return actionButton.primary ? Theme.buttonPrimaryBackgroundHover : Theme.buttonSecondaryBackgroundHover
-                }
-                if (actionButton.destructive) return "transparent"
-                return actionButton.primary ? Theme.buttonPrimaryBackground : Theme.buttonSecondaryBackground
-            }
-            border.color: {
-                if (actionButton.activeFocus) return Theme.focusBorder
-                if (actionButton.destructive) return Theme.destructiveBorder
-                if (actionButton.hovered) return actionButton.primary ? Theme.buttonPrimaryBorderFocused : Theme.buttonSecondaryBorderHover
-                return actionButton.primary ? Theme.buttonPrimaryBorder : Theme.buttonSecondaryBorder
-            }
-            border.width: actionButton.activeFocus ? 2 : Theme.buttonBorderWidth
-            opacity: actionButton.enabled ? 1.0 : 0.55
-
-            Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-            Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
         }
     }
 
@@ -270,32 +226,23 @@ FocusScope {
         }
     }
 
-    Rectangle {
+    GlassPanel {
         anchors.fill: parent
-        radius: Theme.radiusLarge
-        color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.76)
-        border.color: Theme.cardBorder
-        border.width: Theme.borderWidth
-
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.08) }
-            GradientStop { position: 0.3; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.78) }
-            GradientStop { position: 1.0; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.66) }
-        }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
+        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
         Text {
             text: qsTr("Input")
-            font.pixelSize: Theme.fontSizeTitle
+            font.pixelSize: Theme.fontSizeHeader
             font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
+            font.weight: Theme.fontWeightHeavy
             color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingMedium
+            Layout.bottomMargin: Theme.spacingLarge
+            Layout.leftMargin: Theme.spacingMedium
         }
 
         Flickable {
@@ -326,9 +273,9 @@ FocusScope {
 
             ColumnLayout {
                 id: contentColumn
-                x: Theme.spacingSmall
+                x: Theme.spacingMedium
                 y: Theme.spacingSmall
-                width: flickable.width - 2 * Theme.spacingSmall
+                width: flickable.width - 2 * Theme.spacingMedium
                 spacing: Theme.spacingMedium
 
                 RowLayout {
@@ -511,14 +458,11 @@ FocusScope {
                         Rectangle {
                             anchors.fill: parent
                             radius: Theme.radiusMedium
-                            color: row.activeFocus
-                                   ? Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.12)
-                                   : Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.48)
-                            border.color: row.activeFocus ? Theme.focusBorder : Theme.cardBorder
-                            border.width: row.activeFocus ? 2 : Theme.borderWidth
+                            // The focused control inside the row draws the ring; the row
+                            // only lifts its surface so the active binding is easy to find.
+                            color: row.activeFocus ? Theme.surfaceInteractive : Theme.surfaceSunken
 
-                            Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                            Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                            Behavior on color { enabled: Theme.uiAnimationsEnabled; ColorAnimation { duration: Theme.durationShort } }
                         }
 
                         Rectangle {

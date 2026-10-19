@@ -190,9 +190,9 @@ FocusScope {
                     if (selectorButton.hovered || popup.visible) return Theme.buttonSecondaryBackgroundHover
                     return Theme.buttonSecondaryBackground
                 }
-                border.width: selectorButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                border.width: Theme.buttonBorderWidth
+                FocusRing { active: selectorButton.activeFocus; radius: parent.radius }
                 border.color: {
-                    if (selectorButton.activeFocus) return Theme.buttonSecondaryBorderFocused
                     if (selectorButton.hovered) return Theme.buttonSecondaryBorderHover
                     return Theme.buttonSecondaryBorder
                 }

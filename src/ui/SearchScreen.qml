@@ -200,9 +200,16 @@ FocusScope {
     // Background
     // ========================================
     
+    // Quiet theme backdrop (search has no artwork of its own), full-bleed
+    // under the floating rail.
     Rectangle {
         anchors.fill: parent
-        color: Theme.backgroundPrimary
+        anchors.leftMargin: -Theme.navRailReservedWidth
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Theme.mix(Theme.backgroundPrimary, Theme.accentPrimary, 0.08) }
+            GradientStop { position: 0.5; color: Theme.backgroundPrimary }
+            GradientStop { position: 1.0; color: Theme.backgroundSecondary }
+        }
     }
     
     // ========================================
@@ -211,47 +218,59 @@ FocusScope {
     
     ColumnLayout {
         anchors.fill: parent
-        anchors.topMargin: Theme.spacingLarge
-        spacing: Theme.spacingLarge
+        anchors.topMargin: Theme.pageMarginTop
+        spacing: Theme.spacingXLarge
         
         // Search Input Container
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.buttonHeightLarge
-            Layout.leftMargin: Theme.spacingXLarge
-            Layout.rightMargin: Theme.spacingXLarge
+            Layout.preferredHeight: Theme.buttonHeightLarge + Theme.spacingMedium
+            Layout.leftMargin: Theme.pageMarginX
+            Layout.rightMargin: Theme.pageMarginX
             
-            // Center the search bar
             RowLayout {
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: Math.min(parent.width, Math.round(700 * Theme.layoutScale))
+                anchors.left: parent.left
+                width: Math.min(parent.width, Math.round(1100 * Theme.layoutScale))
                 height: parent.height
                 spacing: Theme.spacingMedium
                 
                 // Search input field
                 Rectangle {
+                    id: searchFieldSurface
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.round(50 * Theme.layoutScale)
-                    radius: Theme.radiusMedium
-                    color: Theme.inputBackground
-                    border.color: searchInput.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: searchInput.activeFocus ? 2 : 1
-                    
-                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                    Layout.preferredHeight: Theme.buttonHeightLarge
+                    radius: Theme.radiusControl
+                    color: searchInput.activeFocus ? Theme.surfaceGlassStrong : Theme.surfaceGlass
+                    border.width: Theme.borderWidth
+                    border.color: Theme.surfaceBorder
+
+                    FocusRing {
+                        active: searchInput.activeFocus
+                        radius: searchFieldSurface.radius
+                    }
                     
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: Theme.spacingMedium
-                        anchors.rightMargin: Theme.spacingMedium
-                        spacing: Theme.spacingSmall
+                        anchors.leftMargin: Theme.spacingLarge
+                        anchors.rightMargin: Theme.spacingLarge
+                        spacing: Theme.spacingMedium
+
+                        Text {
+                            text: Icons.search
+                            font.pixelSize: Theme.iconSizeNav
+                            font.family: Theme.fontIcon
+                            color: searchInput.activeFocus ? Theme.textPrimary : Theme.textSecondary
+                            Layout.alignment: Qt.AlignVCenter
+                        }
                         
                         TextField {
                             id: searchInput
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            placeholderText: "Search..."
-                            placeholderTextColor: Theme.textSecondary
-                            font.pixelSize: Theme.fontSizeBody
+                            placeholderText: qsTr("Search movies and shows")
+                            placeholderTextColor: Theme.textTertiary
+                            font.pixelSize: Theme.fontSizeMedium
+                            verticalAlignment: TextInput.AlignVCenter
                             font.family: Theme.fontPrimary
                             color: Theme.textPrimary
                             background: null
@@ -277,15 +296,6 @@ FocusScope {
                                     suggestionsColumn.children[0].forceActiveFocus()
                                 }
                             }
-                        }
-                        
-                        // Search icon
-                        Text {
-                            text: Icons.search
-                            font.pixelSize: Theme.fontSizeIcon
-                            font.family: Theme.fontIcon
-                            color: Theme.textSecondary
-                            Layout.alignment: Qt.AlignVCenter
                         }
                     }
                 }
@@ -318,24 +328,21 @@ FocusScope {
                     
                     ColumnLayout {
                         id: suggestionsInner
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: Theme.spacingMedium
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.pageMarginX
+                        spacing: Theme.sectionTitleSpacing
                         
                         // Title
-                        Text {
-                            text: "Suggestions"
-                            font.pixelSize: Theme.fontSizeTitle
-                            font.family: Theme.fontPrimary
-                            font.weight: Font.DemiBold
-                            color: Theme.textPrimary
-                            Layout.alignment: Qt.AlignHCenter
+                        SectionHeader {
+                            text: qsTr("Try searching for")
+                            level: "group"
                         }
                         
                         // Suggestions list (centered, vertical list of titles)
                         ColumnLayout {
                             id: suggestionsColumn
-                            Layout.alignment: Qt.AlignHCenter
-                            spacing: Theme.spacingSmall
+                            Layout.alignment: Qt.AlignLeft
+                            spacing: Theme.spacingXSmall
                             
                             Repeater {
                                 model: suggestions
@@ -345,18 +352,19 @@ FocusScope {
                                     required property var modelData
                                     required property int index
                                     
-                                    Layout.alignment: Qt.AlignHCenter
-                                    Layout.preferredWidth: Math.max(suggestionText.implicitWidth + Theme.spacingLarge * 2, Math.round(200 * Theme.layoutScale))
-                                    implicitHeight: Math.round(40 * Theme.layoutScale)
+                                    Layout.alignment: Qt.AlignLeft
+                                    Layout.preferredWidth: suggestionText.implicitWidth + Theme.spacingLarge * 2 + Theme.fontSizeIcon
+                                    implicitHeight: Theme.buttonHeightSmall
                                 
                                 background: Rectangle {
-                                    radius: Theme.radiusSmall
-                                    color: suggestionDelegate.activeFocus ? Theme.cardBackgroundFocused 
-                                         : (suggestionDelegate.hovered ? Theme.cardBackgroundHover : "transparent")
-                                    border.color: suggestionDelegate.activeFocus ? Theme.focusBorder : "transparent"
-                                    border.width: suggestionDelegate.activeFocus ? 2 : 0
-                                    
-                                    Behavior on color { ColorAnimation { duration: 100 } }
+                                    id: suggestionBackground
+                                    radius: Theme.radiusControl
+                                    color: suggestionDelegate.activeFocus || suggestionDelegate.hovered
+                                           ? Theme.surfaceInteractiveHover : "transparent"
+                                    FocusRing {
+                                        active: suggestionDelegate.activeFocus
+                                        radius: suggestionBackground.radius
+                                    }
                                 }
                                 
                                 contentItem: Item {
@@ -365,12 +373,15 @@ FocusScope {
                                     
                                     Text {
                                         id: suggestionText
-                                        anchors.centerIn: parent
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: Theme.spacingMedium
+                                        anchors.verticalCenter: parent.verticalCenter
                                         text: suggestionDelegate.modelData.name || ""
                                         font.pixelSize: Theme.fontSizeBody
                                         font.family: Theme.fontPrimary
-                                        color: suggestionDelegate.activeFocus ? Theme.accentPrimary : Theme.textPrimary
-                                        horizontalAlignment: Text.AlignHCenter
+                                        font.weight: suggestionDelegate.activeFocus ? Theme.fontWeightStrong : Theme.fontWeightRegular
+                                        color: suggestionDelegate.activeFocus ? Theme.textPrimary : Theme.textSecondary
+                                        horizontalAlignment: Text.AlignLeft
                                         verticalAlignment: Text.AlignVCenter
                                     }
                                 }
@@ -425,24 +436,23 @@ FocusScope {
                 // ========================================
                 
                 // Loading indicator
-                Item {
+                StateMessage {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.round(100 * Theme.layoutScale)
+                    Layout.topMargin: Theme.sectionSpacing
                     visible: isSearching
-                    
-                    BusyIndicator {
-                        anchors.centerIn: parent
-                        running: isSearching
-                    }
+                    kind: "loading"
+                    compact: true
+                    message: qsTr("Searching\u2026")
                 }
                 
                 // No results message
-                Text {
-                    text: "No results found"
-                    font.pixelSize: Theme.fontSizeTitle
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                    Layout.alignment: Qt.AlignHCenter
+                StateMessage {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.sectionSpacing
+                    kind: "empty"
+                    iconGlyph: Icons.search
+                    title: qsTr("No results")
+                    message: qsTr("Nothing in your libraries matches \u201c%1\u201d.").arg(searchTerm)
                     visible: hasSearched && !isSearching && seriesResults.length === 0 && movieResults.length === 0
                              && seerrResults.length === 0 && !waitingForSeerrSearch
                 }
@@ -465,16 +475,16 @@ FocusScope {
                 ColumnLayout {
                     id: seriesSection
                     Layout.fillWidth: true
-                    Layout.leftMargin: Theme.spacingXLarge
-                    Layout.rightMargin: Theme.spacingXLarge
+                    Layout.leftMargin: Theme.pageMarginX - Theme.spacingSmall
+                    Layout.rightMargin: Theme.pageMarginX - Theme.spacingSmall
                     spacing: Theme.spacingMedium
                     visible: hasSearched && seriesResults.length > 0
                     
                     Text {
                         text: "TV Shows"
-                        font.pixelSize: Theme.fontSizeTitle
+                        font.pixelSize: Theme.fontSizeHeader
                         font.family: Theme.fontPrimary
-                        font.weight: Font.DemiBold
+                        font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                     }
                     
@@ -590,16 +600,16 @@ FocusScope {
                 ColumnLayout {
                     id: moviesSection
                     Layout.fillWidth: true
-                    Layout.leftMargin: Theme.spacingXLarge
-                    Layout.rightMargin: Theme.spacingXLarge
+                    Layout.leftMargin: Theme.pageMarginX - Theme.spacingSmall
+                    Layout.rightMargin: Theme.pageMarginX - Theme.spacingSmall
                     spacing: Theme.spacingMedium
                     visible: hasSearched && movieResults.length > 0
                     
                     Text {
                         text: "Movies"
-                        font.pixelSize: Theme.fontSizeTitle
+                        font.pixelSize: Theme.fontSizeHeader
                         font.family: Theme.fontPrimary
-                        font.weight: Font.DemiBold
+                        font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                     }
                     
@@ -718,8 +728,8 @@ FocusScope {
                 ColumnLayout {
                     id: seerrSection
                     Layout.fillWidth: true
-                    Layout.leftMargin: Theme.spacingXLarge
-                    Layout.rightMargin: Theme.spacingXLarge
+                    Layout.leftMargin: Theme.pageMarginX - Theme.spacingSmall
+                    Layout.rightMargin: Theme.pageMarginX - Theme.spacingSmall
                     spacing: Theme.spacingMedium
                     visible: hasSearched && seerrResults.length > 0
                     opacity: visible ? 1 : 0
@@ -730,9 +740,9 @@ FocusScope {
 
                     Text {
                         text: "Seerr"
-                        font.pixelSize: Theme.fontSizeTitle
+                        font.pixelSize: Theme.fontSizeHeader
                         font.family: Theme.fontPrimary
-                        font.weight: Font.DemiBold
+                        font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                     }
 
@@ -855,7 +865,9 @@ FocusScope {
     }
 
     WheelStepScroller {
-        anchors.fill: contentFlickable
+        // contentFlickable lives inside the layout, so attach directly to it.
+        parent: contentFlickable
+        anchors.fill: parent
         target: contentFlickable
         stepPx: Math.round(120 * Theme.layoutScale)
     }

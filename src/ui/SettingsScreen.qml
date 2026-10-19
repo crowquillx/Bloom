@@ -318,6 +318,7 @@ FocusScope {
 
     Rectangle {
         anchors.fill: parent
+        anchors.leftMargin: -Theme.navRailReservedWidth
         z: -3
         gradient: Gradient {
             GradientStop { position: 0.0; color: Theme.backgroundPrimary }
@@ -328,6 +329,7 @@ FocusScope {
     Rectangle {
         id: backdropContainer
         anchors.fill: parent
+        anchors.leftMargin: -Theme.navRailReservedWidth
         z: -2
         color: "transparent"
         clip: true
@@ -378,9 +380,9 @@ FocusScope {
             anchors.fill: parent
             z: 1
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.60) }
-                GradientStop { position: 0.35; color: Qt.rgba(0, 0, 0, 0.70) }
-                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.80) }
+                GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.72) }
+                GradientStop { position: 0.35; color: Theme.withAlpha(Theme.backgroundPrimary, 0.82) }
+                GradientStop { position: 1.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.90) }
             }
         }
     }
@@ -436,8 +438,11 @@ FocusScope {
     RowLayout {
         enabled: !root.activeSessionsVisible
         anchors.fill: parent
-        anchors.margins: Theme.paddingLarge
-        spacing: Theme.spacingLarge
+        anchors.leftMargin: Theme.pageMarginX
+        anchors.rightMargin: Theme.pageMarginX
+        anchors.topMargin: Theme.pageMarginTop
+        anchors.bottomMargin: Theme.pageMarginTop
+        spacing: Theme.spacingXLarge
 
         // Left rail
         SettingsRail {

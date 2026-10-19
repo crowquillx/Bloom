@@ -335,8 +335,9 @@ FocusScope {
                             if (playButton.hovered) return Theme.buttonPrimaryBackgroundHover
                             return Theme.buttonPrimaryBackground
                         }
-                        border.width: playButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                        border.color: playButton.activeFocus ? Theme.buttonPrimaryBorderFocused : Theme.buttonPrimaryBorder
+                        border.width: Theme.buttonBorderWidth
+                        FocusRing { active: playButton.activeFocus; radius: parent.radius }
+                        border.color: Theme.buttonPrimaryBorder
                         
                         Behavior on color { ColorAnimation { duration: Theme.durationShort } }
                         Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
@@ -361,9 +362,9 @@ FocusScope {
                             if (bookmarkButton.hovered) return Theme.buttonIconBackgroundHover
                             return Theme.buttonIconBackground
                         }
-                        border.width: bookmarkButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                        border.width: Theme.buttonBorderWidth
+                        FocusRing { active: bookmarkButton.activeFocus; radius: parent.radius }
                         border.color: {
-                            if (bookmarkButton.activeFocus) return Theme.buttonIconBorderFocused
                             if (bookmarkButton.hovered) return Theme.buttonIconBorderHover
                             return Theme.buttonIconBorder
                         }
@@ -400,9 +401,9 @@ FocusScope {
                             if (markWatchedButton.hovered) return Theme.buttonIconBackgroundHover
                             return Theme.buttonIconBackground
                         }
-                        border.width: markWatchedButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                        border.width: Theme.buttonBorderWidth
+                        FocusRing { active: markWatchedButton.activeFocus; radius: parent.radius }
                         border.color: {
-                            if (markWatchedButton.activeFocus) return Theme.buttonIconBorderFocused
                             if (markWatchedButton.hovered) return Theme.buttonIconBorderHover
                             return Theme.buttonIconBorder
                         }
@@ -452,9 +453,9 @@ FocusScope {
                             if (favoriteButton.hovered) return Theme.buttonIconBackgroundHover
                             return Theme.buttonIconBackground
                         }
-                        border.width: favoriteButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                        border.width: Theme.buttonBorderWidth
+                        FocusRing { active: favoriteButton.activeFocus; radius: parent.radius }
                         border.color: {
-                            if (favoriteButton.activeFocus) return Theme.buttonIconBorderFocused
                             if (favoriteButton.hovered) return Theme.buttonIconBorderHover
                             return Theme.buttonIconBorder
                         }
@@ -492,9 +493,9 @@ FocusScope {
                             if (moreButton.hovered) return Theme.buttonIconBackgroundHover
                             return Theme.buttonIconBackground
                         }
-                        border.width: moreButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                        border.width: Theme.buttonBorderWidth
+                        FocusRing { active: moreButton.activeFocus; radius: parent.radius }
                         border.color: {
-                            if (moreButton.activeFocus) return Theme.buttonIconBorderFocused
                             if (moreButton.hovered) return Theme.buttonIconBorderHover
                             return Theme.buttonIconBorder
                         }
@@ -586,8 +587,10 @@ FocusScope {
                         anchors.margins: Math.round(4 * Theme.layoutScale)
                         radius: Theme.radiusMedium
                         color: episodeDelegate.isFocused ? Theme.cardBackgroundFocused : (episodeDelegate.isHovered ? Theme.cardBackgroundHover : Theme.cardBackground)
-                        border.width: episodeDelegate.isFocused ? 2 : 1
-                        border.color: episodeDelegate.isFocused ? Theme.cardBorderFocused : (episodeDelegate.isHovered ? Theme.cardBorderHover : Theme.cardBorder)
+                        border.width: 1
+                        border.color: (episodeDelegate.isHovered ? Theme.cardBorderHover : Theme.cardBorder)
+                        
+                        FocusRing { active: episodeDelegate.isFocused; radius: parent.radius; inset: true }
                         
                         Behavior on color { ColorAnimation { duration: 150 } }
                         Behavior on border.color { ColorAnimation { duration: 150 } }
@@ -758,7 +761,7 @@ FocusScope {
                                         text: root.formatRating(episodeDelegate.communityRating)
                                         font.pixelSize: Theme.fontSizeSmall
                                         font.family: Theme.fontPrimary
-                                        color: "#FFD700" // Gold color for star
+                                        color: Theme.warningColor
                                     }
                                     
                                     Text {

@@ -18,9 +18,10 @@ FocusScope {
         modal: true
         focus: true
         anchors.centerIn: parent
-        width: Math.round(760 * Theme.layoutScale)
+        width: Math.round(820 * Theme.layoutScale)
         height: Math.round(720 * Theme.layoutScale)
-        padding: Theme.spacingLarge
+        padding: Theme.dialogPadding
+        topPadding: Theme.spacingLarge
 
         property string requestId: ""
         property var dialogModel: ({})
@@ -162,30 +163,26 @@ FocusScope {
             onActivated: dialog.closeWithoutSelection()
         }
 
-        background: Rectangle {
-            color: Theme.cardBackground
-            radius: Theme.radiusMedium
-            border.color: Theme.cardBorder
-            border.width: 1
-        }
+        background: DialogSurface {}
+        Overlay.modal: ModalScrim {}
 
-        header: Rectangle {
-            color: "transparent"
-            height: Math.round(88 * Theme.layoutScale)
+        header: Item {
+            implicitHeight: dialogHeaderColumn.implicitHeight + Theme.dialogPadding + Theme.spacingMedium
 
             Column {
+                id: dialogHeaderColumn
                 anchors.left: parent.left
-                anchors.leftMargin: Theme.spacingLarge
+                anchors.leftMargin: Theme.dialogPadding
                 anchors.right: parent.right
-                anchors.rightMargin: Theme.spacingLarge
-                anchors.verticalCenter: parent.verticalCenter
+                anchors.rightMargin: Theme.dialogPadding
+                anchors.bottom: parent.bottom
                 spacing: Theme.spacingSmall
 
                 Text {
                     text: dialog.dialogTitle()
                     font.pixelSize: Theme.fontSizeTitle
                     font.family: Theme.fontPrimary
-                    font.weight: Font.DemiBold
+                    font.weight: Theme.fontWeightHeavy
                     color: Theme.textPrimary
                 }
 
@@ -282,15 +279,35 @@ FocusScope {
                                 close()
                             }
 
+                            leftPadding: Theme.spacingLarge
+                            rightPadding: Theme.spacingLarge
+                            topPadding: Theme.spacingMedium
+                            bottomPadding: Theme.spacingMedium
+
                             background: Rectangle {
                                 radius: Theme.radiusMedium
                                 color: {
-                                    if (optionButton.down) return Theme.buttonSecondaryBackgroundPressed
-                                    if (optionButton.hovered || optionButton.activeFocus) return Theme.buttonSecondaryBackgroundHover
-                                    return optionButton.selectedOption ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground
+                                    if (optionButton.down) return Theme.surfaceInteractivePressed
+                                    if (optionButton.hovered || optionButton.activeFocus) return Theme.surfaceInteractiveHover
+                                    return optionButton.selectedOption ? Theme.selectionBackground : Theme.surfaceInteractive
                                 }
-                                border.width: optionButton.activeFocus ? 2 : 1
-                                border.color: optionButton.activeFocus ? Theme.focusBorder : (optionButton.selectedOption ? Theme.accentPrimary : Theme.cardBorder)
+
+                                Text {
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: Theme.spacingLarge
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: optionButton.selectedOption
+                                    text: Icons.check
+                                    font.family: Theme.fontIcon
+                                    font.pixelSize: Theme.fontSizeIcon
+                                    color: Theme.selectionIndicator
+                                }
+
+                                FocusRing {
+                                    inset: true
+                                    active: optionButton.activeFocus
+                                    radius: parent.radius
+                                }
                             }
 
                             contentItem: Column {
@@ -300,7 +317,7 @@ FocusScope {
                                     text: dialog.optionTitle(optionButton.optionData)
                                     font.pixelSize: Theme.fontSizeBody
                                     font.family: Theme.fontPrimary
-                                    font.bold: true
+                                    font.weight: Theme.fontWeightStrong
                                     color: Theme.textPrimary
                                     wrapMode: Text.WordWrap
                                 }
@@ -321,7 +338,7 @@ FocusScope {
         }
 
         footer: FocusScope {
-            implicitHeight: Math.round(64 * Theme.layoutScale)
+            implicitHeight: Theme.buttonHeightLarge + Theme.dialogPadding + Theme.spacingMedium
 
             Keys.onPressed: function(event) {
                 if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
@@ -332,15 +349,16 @@ FocusScope {
 
             RowLayout {
                 anchors.right: parent.right
-                anchors.rightMargin: Theme.spacingLarge
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Theme.spacingMedium
+                anchors.rightMargin: Theme.dialogPadding
+                anchors.top: parent.top
+                anchors.topMargin: Theme.spacingMedium
+                spacing: Theme.controlSpacing
 
-                Button {
+                ActionButton {
                     id: cancelButton
+                    variant: "secondary"
                     text: qsTr("Cancel")
-                    Layout.preferredWidth: Math.round(160 * Theme.layoutScale)
-                    Layout.preferredHeight: Theme.buttonHeightLarge
+                    implicitHeight: Theme.buttonHeightLarge
                     KeyNavigation.up: optionRepeater.count > 0 ? optionRepeater.itemAt(optionRepeater.count - 1) : null
 
                     Keys.onReturnPressed: function(event) {
@@ -362,26 +380,7 @@ FocusScope {
 
                     onClicked: closeWithoutSelection()
 
-                    background: Rectangle {
-                        radius: Theme.radiusLarge
-                        color: {
-                            if (cancelButton.down) return Theme.buttonSecondaryBackgroundPressed
-                            if (cancelButton.hovered) return Theme.buttonSecondaryBackgroundHover
-                            return Theme.buttonSecondaryBackground
-                        }
-                        border.width: cancelButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                        border.color: cancelButton.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
-                    }
 
-                    contentItem: Text {
-                        text: cancelButton.text
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        font.bold: true
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
                 }
             }
         }

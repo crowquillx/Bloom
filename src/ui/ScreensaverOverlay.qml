@@ -277,8 +277,8 @@ Item {
             width: metadataBlock.width
             color: Qt.rgba(1, 1, 1, 0.78)
             font.family: Theme.fontPrimary
-            font.bold: true
-            font.pixelSize: Math.round(42 * Theme.layoutScale)
+            font.weight: Theme.fontWeightHeavy
+            font.pixelSize: Theme.fontSizeDisplay
             wrapMode: Text.WordWrap
             maximumLineCount: 2
             elide: Text.ElideRight
@@ -289,7 +289,7 @@ Item {
             width: metadataBlock.width
             color: Qt.rgba(1, 1, 1, 0.62)
             font.family: Theme.fontPrimary
-            font.pixelSize: Math.round(20 * Theme.layoutScale)
+            font.pixelSize: Theme.fontSizeBody
             lineHeight: 1.15
             wrapMode: Text.WordWrap
             maximumLineCount: 4
@@ -323,8 +323,8 @@ Item {
         width: Math.min(Math.round(360 * Theme.layoutScale), root.width * 0.32)
         color: Qt.rgba(1, 1, 1, 0.70)
         font.family: Theme.fontPrimary
-        font.bold: true
-        font.pixelSize: Math.round(32 * Theme.layoutScale)
+        font.weight: Theme.fontWeightHeavy
+        font.pixelSize: Theme.fontSizeTitle
         wrapMode: Text.WordWrap
         maximumLineCount: 2
         elide: Text.ElideRight

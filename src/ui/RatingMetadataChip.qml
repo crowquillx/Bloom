@@ -16,12 +16,11 @@ Rectangle {
     readonly property string displayValue: ratingDisplayValue(normalizedSource, score)
     readonly property string fallbackText: ratingFallbackLabel(normalizedSource, originalSource)
 
-    implicitHeight: Math.round(38 * Theme.layoutScale)
-    implicitWidth: ratingRow.implicitWidth + Math.round(20 * Theme.layoutScale)
-    radius: implicitHeight / 2
-    color: Theme.chipBackground
-    border.width: 1
-    border.color: Theme.chipBorder
+    // Ratings read as inline facts (logo + score) rather than bordered chips.
+    implicitHeight: Math.round(40 * Theme.layoutScale)
+    implicitWidth: ratingRow.implicitWidth + Math.round(8 * Theme.layoutScale)
+    radius: Theme.radiusSmall
+    color: "transparent"
     visible: displayValue !== ""
 
     function normalizedRatingSource(source) {
@@ -91,8 +90,8 @@ Rectangle {
         spacing: Math.round(6 * Theme.layoutScale)
 
         Item {
-            Layout.preferredWidth: Math.round(42 * Theme.layoutScale)
-            Layout.preferredHeight: Math.round(16 * Theme.layoutScale)
+            Layout.preferredWidth: Math.round(48 * Theme.layoutScale)
+            Layout.preferredHeight: Math.round(20 * Theme.layoutScale)
             Layout.alignment: Qt.AlignVCenter
 
             Image {
@@ -108,9 +107,9 @@ Rectangle {
                 anchors.centerIn: parent
                 visible: ratingChip.logoSource === ""
                 text: ratingChip.fallbackText
-                font.pixelSize: Math.round(13 * Theme.layoutScale)
+                font.pixelSize: Theme.fontSizeCaption
                 font.family: Theme.fontPrimary
-                font.weight: Font.Black
+                font.weight: Theme.fontWeightHeavy
                 color: Theme.textSecondary
             }
         }
@@ -119,7 +118,7 @@ Rectangle {
             text: ratingChip.displayValue
             font.pixelSize: Theme.fontSizeSmall
             font.family: Theme.fontPrimary
-            font.weight: Font.Black
+            font.weight: Theme.fontWeightStrong
             color: Theme.textPrimary
             verticalAlignment: Text.AlignVCenter
             Layout.alignment: Qt.AlignVCenter

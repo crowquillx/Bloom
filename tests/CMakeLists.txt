@@ -708,6 +708,35 @@ target_link_libraries(ResponsiveLayoutPolicyTest
 
 add_test(NAME ResponsiveLayoutPolicyTest COMMAND ResponsiveLayoutPolicyTest)
 
+add_executable(NavigationRailTest
+    NavigationRailTest.cpp
+)
+
+target_compile_definitions(NavigationRailTest PRIVATE
+    BLOOM_UI_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/ui"
+)
+
+target_include_directories(NavigationRailTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(NavigationRailTest
+    PRIVATE
+        Bloom::ResponsiveLayoutPolicy
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::QuickControls2
+        Qt6::QuickTest
+        Qt6::Test
+)
+
+add_test(NAME NavigationRailTest COMMAND NavigationRailTest)
+set_tests_properties(NavigationRailTest PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
+
 add_executable(DisplayManagerTest
     DisplayManagerTest.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp

@@ -1227,15 +1227,14 @@ FocusScope {
                        ? Theme.playbackControlGlassBackgroundHover
                        : Theme.playbackControlGlassBackground
             }
-            border.width: glassButton.activeFocus ? Theme.buttonFocusBorderWidth : (glassButton.hero ? 2 : 1)
-            border.color: glassButton.activeFocus
-                          ? Theme.focusBorder
-                          : (glassButton.hero ? Theme.playbackControlGlassBorderStrong : Theme.playbackControlGlassBorder)
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                blurEnabled: true
-                blurMax: 32
-                blur: 0.35
+            border.width: Theme.borderWidth
+            border.color: glassButton.hero ? Theme.playbackControlGlassBorderStrong : Theme.playbackControlGlassBorder
+
+            FocusRing {
+                active: glassButton.activeFocus
+                radius: parent.radius
+                color: Theme.playbackFocusRing
+                haloColor: Qt.rgba(0, 0, 0, 0.55)
             }
         }
         contentItem: Text {
@@ -1272,23 +1271,14 @@ FocusScope {
                    : (skipButton.emphasized
                       ? Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.18)
                       : Theme.playbackControlGlassBackground)
-            border.width: skipButton.activeFocus ? Theme.buttonFocusBorderWidth : (skipButton.emphasized ? 2 : 1)
-            border.color: skipButton.activeFocus
-                          ? Theme.focusBorder
-                          : (skipButton.emphasized ? Theme.accentPrimary : Theme.playbackControlGlassBorderStrong)
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                blurEnabled: true
-                blurMax: 30
-                blur: 0.35
-            }
-            Rectangle {
-                anchors.fill: parent
+            border.width: skipButton.emphasized ? Math.max(1, Math.round(2 * Theme.layoutScale)) : Theme.borderWidth
+            border.color: skipButton.emphasized ? Theme.accentPrimary : Theme.playbackControlGlassBorderStrong
+
+            FocusRing {
+                active: skipButton.activeFocus
                 radius: parent.radius
-                color: "transparent"
-                border.width: skipButton.activeFocus ? Math.max(2, Theme.buttonFocusBorderWidth + 1) : 0
-                border.color: Qt.rgba(Theme.focusBorder.r, Theme.focusBorder.g, Theme.focusBorder.b, 0.55)
-                visible: skipButton.activeFocus
+                color: Theme.playbackFocusRing
+                haloColor: Qt.rgba(0, 0, 0, 0.55)
             }
             SequentialAnimation on opacity {
                 running: skipButton.emphasized && skipButton.visible && !skipButton.activeFocus
@@ -1318,7 +1308,7 @@ FocusScope {
                     font.family: Theme.fontPrimary
                     font.pixelSize: Math.round((compact ? 18 : 28) * Theme.layoutScale)
                     font.weight: Font.DemiBold
-                    color: Theme.textPrimary
+                    color: Theme.playbackTimePrimary
                     horizontalAlignment: Text.AlignHCenter
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -1419,7 +1409,7 @@ FocusScope {
 
         Rectangle {
             anchors.fill: parent
-            color: Qt.rgba(Theme.backgroundPrimary.r, Theme.backgroundPrimary.g, Theme.backgroundPrimary.b, loadingBackdrop.visible ? 0.58 : 0.78)
+            color: Qt.rgba(Theme.playbackOverlayShadowTint.r, Theme.playbackOverlayShadowTint.g, Theme.playbackOverlayShadowTint.b, loadingBackdrop.visible ? 0.58 : 0.78)
         }
 
         Rectangle {
@@ -1448,9 +1438,9 @@ FocusScope {
             width: Math.round(Math.min(parent.width * 0.56, 640 * Theme.layoutScale))
             height: Math.round(360 * Theme.layoutScale)
             radius: Theme.radiusXLarge
-            color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.82)
+            color: Theme.playbackPanelBackground
             border.width: 1
-            border.color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.38)
+            border.color: Theme.playbackControlGlassBorder
             layer.enabled: true
             layer.effect: MultiEffect {
                 blurEnabled: true
@@ -1481,7 +1471,7 @@ FocusScope {
                     radius: width / 2
                     color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.18)
                     border.width: 1
-                    border.color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.46)
+                    border.color: Theme.playbackControlGlassBorder
                     opacity: 0.8
 
                         SequentialAnimation on opacity {
@@ -1523,7 +1513,7 @@ FocusScope {
             Text {
                 text: qsTr("Buffering...")
                 anchors.horizontalCenter: parent.horizontalCenter
-                color: Theme.textPrimary
+                color: Theme.playbackTimePrimary
                 font.family: root.overlayMetadataFontFamily
                 font.pixelSize: Math.round(32 * Theme.layoutScale)
                 font.weight: Font.Bold
@@ -1533,7 +1523,7 @@ FocusScope {
             Text {
                 text: qsTr("Connecting to server")
                 anchors.horizontalCenter: parent.horizontalCenter
-                color: Theme.textSecondary
+                color: Theme.playbackTimeSecondary
                 font.family: root.overlayMetadataFontFamily
                 font.pixelSize: Math.round(20 * Theme.layoutScale)
                 font.weight: Font.DemiBold
@@ -1574,7 +1564,7 @@ FocusScope {
                                  || bufferingTitleLogo.status === Image.Error
                                  || bufferingTitleLogo.status === Image.Loading
                                  || bufferingTitleLogo.status === Image.Null
-                        color: Qt.rgba(Theme.textPrimary.r, Theme.textPrimary.g, Theme.textPrimary.b, 0.82)
+                        color: Theme.withAlpha(Theme.playbackTimePrimary, 0.82)
                         font.family: root.overlayMetadataFontFamily
                         font.pixelSize: Math.round(18 * Theme.layoutScale)
                         font.weight: Font.Bold
@@ -1602,7 +1592,7 @@ FocusScope {
                         x: parent.subtitleUnderLogo ? (parent.width - width) / 2 : 0
                         width: parent.subtitleRailWidth
                         text: root.mediaSubtitle
-                        textColor: Qt.rgba(Theme.textPrimary.r, Theme.textPrimary.g, Theme.textPrimary.b, 0.9)
+                        textColor: Theme.withAlpha(Theme.playbackTimePrimary, 0.9)
                         fontFamily: root.overlayMetadataFontFamily
                         fontPixelSize: root.bufferingSubtitlePixelSize
                         fontWeight: Font.Bold
@@ -1633,9 +1623,9 @@ FocusScope {
                 width: Math.round(96 * Theme.layoutScale)
                 height: width
                 radius: width / 2
-                color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.58)
+                color: Theme.playbackPanelBackground
                 border.width: 1
-                border.color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.46)
+                border.color: Theme.playbackControlGlassBorder
 
                 layer.enabled: true
                 layer.effect: MultiEffect {
@@ -1742,7 +1732,7 @@ FocusScope {
                                  || chromeTitleLogo.status === Image.Error
                                  || chromeTitleLogo.status === Image.Loading
                                  || chromeTitleLogo.status === Image.Null
-                        color: Theme.textPrimary
+                        color: Theme.playbackTimePrimary
                         font.family: root.overlayMetadataFontFamily
                         font.pixelSize: Math.round(36 * Theme.layoutScale)
                         font.weight: Font.Bold
@@ -1913,7 +1903,7 @@ FocusScope {
                                ? Theme.playbackControlGlassBackgroundHover
                                : Theme.playbackControlGlassBackground
                         border.width: index === root.focusedChapterIndex ? Theme.buttonFocusBorderWidth : 1
-                        border.color: index === root.focusedChapterIndex ? Theme.focusBorder : Theme.playbackControlGlassBorder
+                        border.color: index === root.focusedChapterIndex ? Theme.playbackFocusRing : Theme.playbackControlGlassBorder
                         layer.enabled: true
                         layer.effect: MultiEffect {
                             blurEnabled: true
@@ -2017,9 +2007,9 @@ FocusScope {
                         id: trickplayFrame
                         anchors.fill: parent
                         radius: Theme.radiusLarge
-                        color: Theme.cardBackground
+                        color: Theme.playbackControlGlassBackground
                         border.width: 1
-                        border.color: Theme.cardBorder
+                        border.color: Theme.playbackControlGlassBorder
                         clip: true
 
                         Image {
@@ -2331,9 +2321,9 @@ FocusScope {
            ? root.buttonAttachedPanelYInRoot(volumeButton, height)
            : Math.round(root.height - height - (120 * Theme.layoutScale))
         radius: Theme.radiusLarge
-        color: Qt.rgba(0.01, 0.02, 0.05, 0.72)
+        color: Theme.playbackPanelBackground
         border.width: 1
-        border.color: Theme.cardBorder
+        border.color: Theme.playbackControlGlassBorder
         opacity: root.volumePanelVisible ? 1.0 : 0.0
         Behavior on opacity {
             NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
@@ -2387,7 +2377,7 @@ FocusScope {
 
                 Text {
                     text: qsTr("Volume")
-                    color: Theme.textPrimary
+                    color: Theme.playbackTimePrimary
                     font.family: Theme.fontPrimary
                     font.pixelSize: Math.round(20 * Theme.layoutScale)
                     font.weight: Font.DemiBold
@@ -2403,7 +2393,7 @@ FocusScope {
                               : (PlayerController.volume < 50 ? Icons.volumeDown : Icons.volumeUp)
                         font.family: Theme.fontIcon
                         font.pixelSize: Math.round(24 * Theme.layoutScale)
-                        color: Theme.textPrimary
+                        color: Theme.playbackTimePrimary
                         Layout.alignment: Qt.AlignVCenter
                     }
 
@@ -2419,7 +2409,7 @@ FocusScope {
 
                     Text {
                         text: PlayerController.muted ? qsTr("Muted") : qsTr("%1%").arg(PlayerController.volume)
-                        color: Theme.textPrimary
+                        color: Theme.playbackTimePrimary
                         font.family: Theme.fontPrimary
                         font.pixelSize: Math.round(16 * Theme.layoutScale)
                         font.weight: Font.Medium
@@ -2439,16 +2429,16 @@ FocusScope {
         x: root.buttonXInRoot(audioButton, width)
         y: root.buttonYInRoot(audioButton, height)
         radius: Theme.radiusXLarge
-        color: Qt.rgba(0.01, 0.02, 0.05, 0.92)
+        color: Theme.playbackPanelBackground
         border.width: 1
-        border.color: Theme.cardBorder
+        border.color: Theme.playbackControlGlassBorder
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: Math.round(28 * Theme.layoutScale)
             spacing: Math.round(16 * Theme.layoutScale)
             Text {
                 text: root.audioOutputMode ? qsTr("Audio Output") : qsTr("Audio Track")
-                color: Theme.textPrimary
+                color: Theme.playbackTimePrimary
                 font.family: Theme.fontPrimary
                 font.pixelSize: Math.round(42 * Theme.layoutScale * 0.6)
                 font.weight: Font.DemiBold
@@ -2467,8 +2457,14 @@ FocusScope {
                     required property var modelData
                     width: audioList.width
                     height: Math.round(72 * Theme.layoutScale)
-                    color: audioList.currentIndex === index ? Theme.hoverOverlay : "transparent"
+                    color: audioList.currentIndex === index ? Theme.playbackControlGlassBackgroundHover : "transparent"
                     radius: Theme.radiusMedium
+                    FocusRing {
+                        inset: true
+                        active: audioList.activeFocus && audioList.currentIndex === index
+                        radius: parent.radius
+                        color: Theme.playbackFocusRing
+                    }
                     MouseArea {
                         anchors.fill: parent
                         onClicked: {
@@ -2485,7 +2481,7 @@ FocusScope {
                         width: parent.width - Math.round(64 * Theme.layoutScale)
                         Text {
                             text: root.trackPrimaryLabel(modelData)
-                            color: Theme.textPrimary
+                            color: Theme.playbackTimePrimary
                             font.family: Theme.fontPrimary
                             font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
                             elide: Text.ElideRight
@@ -2493,7 +2489,7 @@ FocusScope {
                         }
                         Text {
                             text: root.trackSecondaryLabel(modelData, false)
-                            color: Theme.textSecondary
+                            color: Theme.playbackTimeSecondary
                             font.family: Theme.fontPrimary
                             font.pixelSize: Math.round(28 * Theme.layoutScale * 0.58)
                             visible: text.length > 0
@@ -2508,7 +2504,7 @@ FocusScope {
                         text: modelData.index === PlayerController.selectedAudioTrack ? Icons.check : ""
                         font.family: Theme.fontIcon
                         font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
-                        color: Theme.textPrimary
+                        color: Theme.playbackTimePrimary
                     }
                 }
                 Keys.onPressed: function(event) {
@@ -2559,8 +2555,14 @@ FocusScope {
                     required property var modelData
                     width: audioOutputList.width
                     height: Math.round(72 * Theme.layoutScale)
-                    color: audioOutputList.currentIndex === index ? Theme.hoverOverlay : "transparent"
+                    color: audioOutputList.currentIndex === index ? Theme.playbackControlGlassBackgroundHover : "transparent"
                     radius: Theme.radiusMedium
+                    FocusRing {
+                        inset: true
+                        active: audioOutputList.activeFocus && audioOutputList.currentIndex === index
+                        radius: parent.radius
+                        color: Theme.playbackFocusRing
+                    }
                     Accessible.role: Accessible.ListItem
                     Accessible.name: root.audioOutputPrimaryLabel(modelData)
                     Accessible.description: root.audioOutputSecondaryLabel(modelData)
@@ -2576,7 +2578,7 @@ FocusScope {
                         width: parent.width - Math.round(64 * Theme.layoutScale)
                         Text {
                             text: root.audioOutputPrimaryLabel(modelData)
-                            color: modelData.available ? Theme.textPrimary : Theme.textSecondary
+                            color: modelData.available ? Theme.playbackTimePrimary : Theme.playbackTimeSecondary
                             font.family: Theme.fontPrimary
                             font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
                             elide: Text.ElideRight
@@ -2584,7 +2586,7 @@ FocusScope {
                         }
                         Text {
                             text: root.audioOutputSecondaryLabel(modelData)
-                            color: Theme.textSecondary
+                            color: Theme.playbackTimeSecondary
                             font.family: Theme.fontPrimary
                             font.pixelSize: Math.round(28 * Theme.layoutScale * 0.58)
                             visible: text.length > 0
@@ -2599,7 +2601,7 @@ FocusScope {
                         text: modelData.selected ? Icons.check : ""
                         font.family: Theme.fontIcon
                         font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
-                        color: Theme.textPrimary
+                        color: Theme.playbackTimePrimary
                     }
                 }
                 Keys.onPressed: function(event) {
@@ -2632,9 +2634,16 @@ FocusScope {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.round(84 * Theme.layoutScale)
                 radius: Theme.radiusMedium
-                color: activeFocus ? Theme.hoverOverlay : "transparent"
-                border.width: activeFocus ? 2 : 1
-                border.color: activeFocus ? Theme.focusBorder : Theme.cardBorder
+                color: activeFocus ? Theme.playbackControlGlassBackgroundHover : "transparent"
+                border.width: Theme.borderWidth
+                border.color: Theme.playbackControlGlassBorder
+
+                FocusRing {
+                    inset: true
+                    active: parent.activeFocus
+                    radius: parent.radius
+                    color: Theme.playbackFocusRing
+                }
                 Accessible.role: Accessible.Button
                 Accessible.name: qsTr("Audio output: %1").arg(root.audioOutputSummary())
                 Accessible.description: root.audioOutputDetail()
@@ -2654,7 +2663,7 @@ FocusScope {
                         text: Icons.speaker
                         font.family: Theme.fontIcon
                         font.pixelSize: Math.round(26 * Theme.layoutScale)
-                        color: Theme.textSecondary
+                        color: Theme.playbackTimeSecondary
                     }
 
                     Column {
@@ -2662,7 +2671,7 @@ FocusScope {
                         spacing: Math.round(2 * Theme.layoutScale)
                         Text {
                             text: root.audioOutputSummary()
-                            color: Theme.textPrimary
+                            color: Theme.playbackTimePrimary
                             font.family: Theme.fontPrimary
                             font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
                             elide: Text.ElideRight
@@ -2670,7 +2679,7 @@ FocusScope {
                         }
                         Text {
                             text: root.audioOutputDetail()
-                            color: Theme.textSecondary
+                            color: Theme.playbackTimeSecondary
                             font.family: Theme.fontPrimary
                             font.pixelSize: Math.round(28 * Theme.layoutScale * 0.58)
                             visible: text.length > 0
@@ -2683,7 +2692,7 @@ FocusScope {
                         text: Icons.chevronRight
                         font.family: Theme.fontIcon
                         font.pixelSize: Math.round(28 * Theme.layoutScale)
-                        color: Theme.textSecondary
+                        color: Theme.playbackTimeSecondary
                     }
                 }
 
@@ -2719,9 +2728,9 @@ FocusScope {
                         root.width - Math.round(96 * Theme.layoutScale))
         height: audioNoticeLabel.implicitHeight + Math.round(28 * Theme.layoutScale)
         radius: Theme.radiusMedium
-        color: Qt.rgba(0.01, 0.02, 0.05, 0.92)
+        color: Theme.playbackPanelBackground
         border.width: 1
-        border.color: Theme.cardBorder
+        border.color: Theme.playbackControlGlassBorder
         Accessible.role: Accessible.AlertMessage
         Accessible.name: root.audioNoticeText
         Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
@@ -2731,7 +2740,7 @@ FocusScope {
             anchors.centerIn: parent
             width: Math.min(implicitWidth, root.width - Math.round(144 * Theme.layoutScale))
             text: root.audioNoticeText
-            color: Theme.textPrimary
+            color: Theme.playbackTimePrimary
             font.family: Theme.fontPrimary
             font.pixelSize: Math.round(22 * Theme.layoutScale)
             wrapMode: Text.WordWrap
@@ -2762,16 +2771,16 @@ FocusScope {
         x: root.buttonXInRoot(subtitleButton, width)
         y: root.buttonYInRoot(subtitleButton, height)
         radius: Theme.radiusXLarge
-        color: Qt.rgba(0.01, 0.02, 0.05, 0.92)
+        color: Theme.playbackPanelBackground
         border.width: 1
-        border.color: Theme.cardBorder
+        border.color: Theme.playbackControlGlassBorder
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: Math.round(28 * Theme.layoutScale)
             spacing: Math.round(16 * Theme.layoutScale)
             Text {
                 text: qsTr("Subtitles")
-                color: Theme.textPrimary
+                color: Theme.playbackTimePrimary
                 font.family: Theme.fontPrimary
                 font.pixelSize: Math.round(42 * Theme.layoutScale * 0.6)
                 font.weight: Font.DemiBold
@@ -2789,8 +2798,14 @@ FocusScope {
                     required property var modelData
                     width: subtitleList.width
                     height: Math.round(72 * Theme.layoutScale)
-                    color: subtitleList.currentIndex === index ? Theme.hoverOverlay : "transparent"
+                    color: subtitleList.currentIndex === index ? Theme.playbackControlGlassBackgroundHover : "transparent"
                     radius: Theme.radiusMedium
+                    FocusRing {
+                        inset: true
+                        active: subtitleList.activeFocus && subtitleList.currentIndex === index
+                        radius: parent.radius
+                        color: Theme.playbackFocusRing
+                    }
                     MouseArea {
                         anchors.fill: parent
                         onClicked: {
@@ -2807,7 +2822,7 @@ FocusScope {
                         width: parent.width - Math.round(64 * Theme.layoutScale)
                         Text {
                             text: root.trackPrimaryLabel(modelData)
-                            color: Theme.textPrimary
+                            color: Theme.playbackTimePrimary
                             font.family: Theme.fontPrimary
                             font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
                             elide: Text.ElideRight
@@ -2815,7 +2830,7 @@ FocusScope {
                         }
                         Text {
                             text: root.trackSecondaryLabel(modelData, true)
-                            color: Theme.textSecondary
+                            color: Theme.playbackTimeSecondary
                             font.family: Theme.fontPrimary
                             font.pixelSize: Math.round(28 * Theme.layoutScale * 0.58)
                             visible: text.length > 0
@@ -2830,7 +2845,7 @@ FocusScope {
                         text: modelData.index === PlayerController.selectedSubtitleTrack ? Icons.check : ""
                         font.family: Theme.fontIcon
                         font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
-                        color: Theme.textPrimary
+                        color: Theme.playbackTimePrimary
                     }
                 }
                 Keys.onPressed: function(event) {
@@ -2868,9 +2883,9 @@ FocusScope {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.round(90 * Theme.layoutScale)
                 radius: Theme.radiusMedium
-                color: Theme.hoverOverlay
+                color: Theme.playbackControlGlassBackground
                 border.width: 1
-                border.color: Theme.cardBorder
+                border.color: Theme.playbackControlGlassBorder
 
                 RowLayout {
                     anchors.fill: parent
@@ -2879,7 +2894,7 @@ FocusScope {
 
                     Text {
                         text: qsTr("Delay")
-                        color: Theme.textSecondary
+                        color: Theme.playbackTimeSecondary
                         font.family: Theme.fontPrimary
                         font.pixelSize: Math.round(22 * Theme.layoutScale)
                         font.weight: Font.Medium
@@ -2905,7 +2920,7 @@ FocusScope {
 
                     Text {
                         text: root.formatSubtitleDelay(PlayerController.subtitleDelayMs)
-                        color: Theme.textPrimary
+                        color: Theme.playbackTimePrimary
                         font.family: Theme.fontPrimary
                         font.pixelSize: Math.round(24 * Theme.layoutScale)
                         font.weight: Font.DemiBold

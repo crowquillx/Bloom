@@ -48,7 +48,7 @@ FocusScope {
             cursorVisible: activeFocus
 
             color: Theme.textPrimary
-            placeholderTextColor: Theme.textSecondary
+            placeholderTextColor: Theme.textTertiary
 
             onActiveFocusChanged: {
                 if (activeFocus && typeof InputModeManager !== "undefined") {
@@ -62,15 +62,9 @@ FocusScope {
                 if (activeFocus && root.ensureVisible) root.ensureVisible(root)
             }
 
-            background: Rectangle {
-                implicitHeight: Theme.buttonHeightSmall
-                radius: Theme.radiusSmall
-                color: Theme.inputBackground
-                border.color: textField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                border.width: textField.activeFocus ? 2 : Theme.borderWidth
-
-                Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-            }
+            leftPadding: Theme.spacingMedium
+            rightPadding: Theme.spacingMedium
+            background: FieldBackground { control: textField }
 
             Keys.onUpPressed: function(event) {
                 if (typeof InputModeManager !== "undefined") {
