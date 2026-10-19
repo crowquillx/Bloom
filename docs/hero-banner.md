@@ -29,7 +29,9 @@ Settings > Home:
 
 When both use the same placement, they stack in one column (default: bottom-left — badge, logo or
 title fallback, episode subtitle when relevant, chips, buttons). When placements differ, the logo
-block and info block anchor independently inside the hero card.
+block and info block anchor independently inside the hero card. In card mode the card keeps a
+30%-of-width aspect height but grows to fit the laid-out content (both blocks plus edge margins and
+the carousel indicator inset), so tall content never spills above the card.
 
 The hero shows the item logo image when available. If no logo exists, a text title is shown in the
 logo slot (detail-view style). Episodes use the series name as the primary title and show the
