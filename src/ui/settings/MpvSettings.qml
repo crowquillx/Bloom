@@ -49,32 +49,24 @@ FocusScope {
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
-    Rectangle {
+    GlassPanel {
         anchors.fill: parent
-        radius: Theme.radiusLarge
-        color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.76)
-        border.color: Theme.cardBorder
-        border.width: Theme.borderWidth
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.08) }
-            GradientStop { position: 0.3; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.78) }
-            GradientStop { position: 1.0; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.66) }
-        }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
+        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
         Text {
             text: qsTr("MPV")
-            font.pixelSize: Theme.fontSizeTitle
+            font.pixelSize: Theme.fontSizeHeader
             font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
+            font.weight: Theme.fontWeightHeavy
             color: Theme.textPrimary
             Layout.fillWidth: true
-            Layout.bottomMargin: Theme.spacingMedium
+            Layout.bottomMargin: Theme.spacingLarge
+            Layout.leftMargin: Theme.spacingMedium
         }
 
         Flickable {
@@ -104,9 +96,9 @@ FocusScope {
 
             ColumnLayout {
                 id: outerColumn
-                x: Theme.spacingSmall
+                x: Theme.spacingMedium
                 y: Theme.spacingSmall
-                width: flickable.width - 2 * Theme.spacingSmall
+                width: flickable.width - 2 * Theme.spacingMedium
                 spacing: Theme.spacingLarge
 
                 // ========================================
@@ -207,13 +199,7 @@ FocusScope {
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: defaultProfileCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: defaultProfileCombo.activeFocus ? 2 : 1
-                        }
+                        background: FieldBackground { control: defaultProfileCombo; implicitHeight: Theme.buttonHeightSmall }
 
                         contentItem: Text {
                             text: defaultProfileCombo.selectedText()
@@ -234,7 +220,7 @@ FocusScope {
                                 verticalAlignment: Text.AlignVCenter
                             }
                             background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
                                 radius: Theme.radiusSmall
                             }
                             highlighted: ListView.isCurrentItem || defaultProfileCombo.highlightedIndex === index
@@ -276,12 +262,7 @@ FocusScope {
                                 Keys.onEscapePressed: defaultProfileCombo.popup.close()
                             }
 
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
+                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
                         }
                     }
                 }
@@ -289,8 +270,11 @@ FocusScope {
             // ========================================
             // 2. Profile Editor Toggle
             // ========================================
-            Button {
+            ActionButton {
                 id: profileEditorToggle
+                variant: "ghost"
+                text: qsTr("Edit Profiles")
+                iconGlyph: profileEditorToggle.expanded ? Icons.expandLess : Icons.expandMore
                 property bool expanded: false
 
                 Layout.alignment: Qt.AlignLeft
@@ -304,33 +288,7 @@ FocusScope {
                     }
                 }
 
-                contentItem: RowLayout {
-                    spacing: Theme.spacingSmall
 
-                    Text {
-                        text: profileEditorToggle.expanded ? "▼" : "▶"
-                        font.family: Theme.fontPrimary
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: profileEditorToggle.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                    }
-
-                    Text {
-                        text: qsTr("Edit Profiles")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: profileEditorToggle.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                    }
-                }
-
-                background: Rectangle {
-                    implicitWidth: Math.round(160 * Theme.layoutScale)
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: profileEditorToggle.activeFocus ? Theme.buttonSecondaryBackgroundHover
-                         : (profileEditorToggle.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")
-                    border.color: profileEditorToggle.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
-                    border.width: profileEditorToggle.activeFocus ? 2 : Theme.buttonBorderWidth
-                }
 
                 KeyNavigation.up: defaultProfileCombo
                 KeyNavigation.down: profileEditorToggle.expanded ? editProfileCombo : libraryProfilesToggle
@@ -429,13 +387,7 @@ FocusScope {
                             }
                         }
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: editProfileCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: editProfileCombo.activeFocus ? 2 : 1
-                        }
+                        background: FieldBackground { control: editProfileCombo; implicitHeight: Theme.buttonHeightSmall }
 
                         contentItem: Text {
                             text: editProfileCombo.selectedText()
@@ -456,7 +408,7 @@ FocusScope {
                                 verticalAlignment: Text.AlignVCenter
                             }
                             background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
                                 radius: Theme.radiusSmall
                             }
                             highlighted: ListView.isCurrentItem || editProfileCombo.highlightedIndex === index
@@ -498,12 +450,7 @@ FocusScope {
                                 Keys.onEscapePressed: editProfileCombo.popup.close()
                             }
 
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
+                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
                         }
                     }
                 }
@@ -513,8 +460,9 @@ FocusScope {
                     Layout.fillWidth: true
                     spacing: Theme.spacingMedium
 
-                    Button {
+                    ActionButton {
                         id: newProfileBtn
+                        variant: "secondary"
                         text: qsTr("+ New Profile")
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Create New Profile")
@@ -532,31 +480,16 @@ FocusScope {
                         Keys.onLeftPressed: editProfileCombo.forceActiveFocus()
                         Keys.onRightPressed: duplicateProfileBtn.forceActiveFocus()
 
-                        contentItem: Text {
-                            text: newProfileBtn.text
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.accentPrimary
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
 
-                        background: Rectangle {
-                            implicitWidth: Math.round(120 * Theme.layoutScale)
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: newProfileBtn.activeFocus || newProfileBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
-                            border.color: newProfileBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary
-                            border.width: newProfileBtn.activeFocus ? 2 : 1
-                        }
 
                         onClicked: root.openNewProfileDialog(newProfileBtn)
                         Keys.onReturnPressed: root.openNewProfileDialog(newProfileBtn)
                         Keys.onEnterPressed: root.openNewProfileDialog(newProfileBtn)
                     }
 
-                    Button {
+                    ActionButton {
                         id: duplicateProfileBtn
+                        variant: "secondary"
                         text: qsTr("Duplicate")
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Duplicate selected profile")
@@ -611,32 +544,16 @@ FocusScope {
                             })
                         }
 
-                        contentItem: Text {
-                            text: duplicateProfileBtn.text
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: duplicateProfileBtn.enabled ? Theme.accentPrimary : Theme.textDisabled
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
 
-                        background: Rectangle {
-                            implicitWidth: Math.round(130 * Theme.layoutScale)
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: duplicateProfileBtn.activeFocus || duplicateProfileBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
-                            border.color: duplicateProfileBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary
-                            border.width: duplicateProfileBtn.activeFocus ? 2 : 1
-                            opacity: duplicateProfileBtn.enabled ? 1.0 : 0.5
-                        }
 
                         onClicked: duplicateSelectedProfile()
                         Keys.onReturnPressed: duplicateSelectedProfile()
                         Keys.onEnterPressed: duplicateSelectedProfile()
                     }
 
-                    Button {
+                    ActionButton {
                         id: renameProfileBtn
+                        variant: "secondary"
                         text: qsTr("Rename")
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Rename selected profile")
@@ -670,32 +587,16 @@ FocusScope {
                             root.openRenameProfileDialog(editProfileCombo.currentText, renameProfileBtn)
                         }
 
-                        contentItem: Text {
-                            text: renameProfileBtn.text
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: renameProfileBtn.enabled ? Theme.accentPrimary : Theme.textDisabled
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
 
-                        background: Rectangle {
-                            implicitWidth: Math.round(120 * Theme.layoutScale)
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: renameProfileBtn.activeFocus || renameProfileBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
-                            border.color: renameProfileBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary
-                            border.width: renameProfileBtn.activeFocus ? 2 : 1
-                            opacity: renameProfileBtn.enabled ? 1.0 : 0.5
-                        }
 
                         onClicked: requestRenameSelectedProfile()
                         Keys.onReturnPressed: requestRenameSelectedProfile()
                         Keys.onEnterPressed: requestRenameSelectedProfile()
                     }
 
-                    Button {
+                    ActionButton {
                         id: importConfigBtn
+                        variant: "secondary"
                         text: qsTr("Import Config")
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Import mpv.conf as profile")
@@ -723,31 +624,16 @@ FocusScope {
                             }
                         }
 
-                        contentItem: Text {
-                            text: importConfigBtn.text
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.accentPrimary
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
 
-                        background: Rectangle {
-                            implicitWidth: Math.round(150 * Theme.layoutScale)
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: importConfigBtn.activeFocus || importConfigBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
-                            border.color: importConfigBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary
-                            border.width: importConfigBtn.activeFocus ? 2 : 1
-                        }
 
                         onClicked: root.openImportConfigDialog(importConfigBtn)
                         Keys.onReturnPressed: root.openImportConfigDialog(importConfigBtn)
                         Keys.onEnterPressed: root.openImportConfigDialog(importConfigBtn)
                     }
 
-                    Button {
+                    ActionButton {
                         id: deleteProfileBtn
+                        variant: "destructive"
                         text: qsTr("Delete")
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Delete selected profile")
@@ -786,24 +672,7 @@ FocusScope {
                             root.openDeleteProfileDialog(editProfileCombo.currentText, deleteProfileBtn)
                         }
 
-                        contentItem: Text {
-                            text: deleteProfileBtn.text
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: deleteProfileBtn.enabled ? "#ff8c8c" : Theme.textDisabled
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
 
-                        background: Rectangle {
-                            implicitWidth: Math.round(110 * Theme.layoutScale)
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: deleteProfileBtn.activeFocus || deleteProfileBtn.hovered ? Qt.rgba(1, 0.4, 0.4, 0.2) : "transparent"
-                            border.color: deleteProfileBtn.activeFocus ? Theme.focusBorder : "#ff8c8c"
-                            border.width: deleteProfileBtn.activeFocus ? 2 : 1
-                            opacity: deleteProfileBtn.enabled ? 1.0 : 0.5
-                        }
 
                         onClicked: requestDeleteSelectedProfile()
                         Keys.onReturnPressed: requestDeleteSelectedProfile()
@@ -828,8 +697,11 @@ FocusScope {
             // ========================================
             // 4. Library Profiles Toggle
             // ========================================
-            Button {
+            ActionButton {
                 id: libraryProfilesToggle
+                variant: "ghost"
+                text: qsTr("Library Profiles")
+                iconGlyph: libraryProfilesToggle.expanded ? Icons.expandLess : Icons.expandMore
                 property bool expanded: false
 
                 Layout.alignment: Qt.AlignLeft
@@ -843,33 +715,7 @@ FocusScope {
                     }
                 }
 
-                contentItem: RowLayout {
-                    spacing: Theme.spacingSmall
 
-                    Text {
-                        text: libraryProfilesToggle.expanded ? "▼" : "▶"
-                        font.family: Theme.fontPrimary
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: libraryProfilesToggle.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                    }
-
-                    Text {
-                        text: qsTr("Library Profiles")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: libraryProfilesToggle.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                    }
-                }
-
-                background: Rectangle {
-                    implicitWidth: Math.round(180 * Theme.layoutScale)
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: libraryProfilesToggle.activeFocus ? Theme.buttonSecondaryBackgroundHover
-                         : (libraryProfilesToggle.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")
-                    border.color: libraryProfilesToggle.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
-                    border.width: libraryProfilesToggle.activeFocus ? 2 : Theme.buttonBorderWidth
-                }
 
                 Keys.onUpPressed: function(event) {
                     if (profileEditorToggle.expanded && profileEditor) {
@@ -1026,13 +872,7 @@ FocusScope {
                                 }
                             }
 
-                            background: Rectangle {
-                                implicitHeight: Theme.buttonHeightSmall
-                                radius: Theme.radiusSmall
-                                color: Theme.inputBackground
-                                border.color: libraryProfileCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                                border.width: libraryProfileCombo.activeFocus ? 2 : 1
-                            }
+                            background: FieldBackground { control: libraryProfileCombo; implicitHeight: Theme.buttonHeightSmall }
 
                             contentItem: Text {
                                 text: libraryProfileCombo.selectedText()
@@ -1053,7 +893,7 @@ FocusScope {
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 background: Rectangle {
-                                    color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                    color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
                                     radius: Theme.radiusSmall
                                 }
                                 highlighted: ListView.isCurrentItem || libraryProfileCombo.highlightedIndex === index
@@ -1097,12 +937,7 @@ FocusScope {
                                     Keys.onEscapePressed: libraryProfileCombo.popup.close()
                                 }
 
-                                background: Rectangle {
-                                    color: Theme.cardBackground
-                                    border.color: Theme.focusBorder
-                                    border.width: 1
-                                    radius: Theme.radiusSmall
-                                }
+                                background: DialogSurface { floating: true; radius: Theme.radiusMedium }
                             }
                         }
                     }

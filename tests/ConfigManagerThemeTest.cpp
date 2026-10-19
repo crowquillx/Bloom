@@ -278,9 +278,9 @@ void ConfigManagerThemeTest::defaultsIncludeThemeVariants()
     ConfigManager config;
     config.load();
 
-    QCOMPARE(config.getTheme(), QStringLiteral("Jellyfin"));
-    QCOMPARE(config.getThemeFlavor(), QString());
-    QCOMPARE(config.getThemeColorScheme(), QStringLiteral("blue"));
+    QCOMPARE(config.getTheme(), QStringLiteral("Bloom"));
+    QCOMPARE(config.getThemeFlavor(), QStringLiteral("dusk"));
+    QCOMPARE(config.getThemeColorScheme(), QStringLiteral("lavender"));
 }
 
 void ConfigManagerThemeTest::defaultsContainNewBuiltinMpvProfiles()
@@ -380,7 +380,7 @@ void ConfigManagerThemeTest::themeVariantSettersPersistAndEmit()
     QSignalSpy colorSchemeSpy(&config, &ConfigManager::themeColorSchemeChanged);
 
     config.setThemeColorScheme(QStringLiteral("   "));
-    QCOMPARE(config.getThemeColorScheme(), QStringLiteral("blue"));
+    QCOMPARE(config.getThemeColorScheme(), QStringLiteral("lavender"));
     QCOMPARE(colorSchemeSpy.count(), 0);
 
     config.setThemeFlavor(QStringLiteral(" Mocha "));

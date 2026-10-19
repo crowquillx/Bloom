@@ -34,12 +34,18 @@ FocusScope {
     readonly property string logoPlacement: ConfigManager.heroBannerLogoPlacement
     readonly property string infoPlacement: ConfigManager.heroBannerInfoPlacement
     readonly property bool combinedLayout: logoPlacement === infoPlacement
+    /// Cardless "floating cinema" presentation: the hero artwork is the page
+    /// backdrop (backdrop sync) and the hero content floats over it. When
+    /// false the hero draws its own artwork inside a rounded panel.
+    property bool cinematic: false
+    readonly property bool carouselFocused: activeFocus && !actionsFocused && !buttonsFocused
+    readonly property real contentEdgeMargin: cinematic ? 0 : Theme.spacingXLarge + Theme.spacingSmall
 
     signal detailsRequested(var item)
     signal playRequested(var item)
     signal moveDownRequested()
 
-    implicitHeight: Math.round(Math.max(310, width * 0.30))
+    implicitHeight: Math.round(width * 0.30)
     Accessible.role: Accessible.Button
     Accessible.name: {
         var title = primaryTitle(currentItem)
@@ -115,6 +121,25 @@ FocusScope {
             return item.__seriesOverview || ""
         }
         return item.overview || ""
+    }
+    function playLabel(item) {
+        if (!item) return qsTr("Play")
+        var resume = (item.positionMs || 0) > 0 || item.__heroReason === "Continue Watching"
+        var code = ""
+        if (item.mediaType === "Episode" && item.parentIndexNumber >= 0 && item.indexNumber >= 0)
+            code = " S" + item.parentIndexNumber + " E" + item.indexNumber
+        return (resume ? qsTr("Resume") : qsTr("Play")) + code
+    }
+    function progressFraction(item) {
+        if (!item || !(item.durationMs > 0) || !(item.positionMs > 0)) return 0
+        return Math.min(1, item.positionMs / item.durationMs)
+    }
+    function remainingText(item) {
+        if (!item || !(item.durationMs > 0)) return ""
+        var minutes = Math.max(1, Math.round((item.durationMs - (item.positionMs || 0)) / 60000))
+        return minutes >= 60
+               ? qsTr("%1h %2m left").arg(Math.floor(minutes / 60)).arg(minutes % 60)
+               : qsTr("%1 min left").arg(minutes)
     }
     function formatRuntime(durationMs) {
         if (!durationMs) return ""
@@ -215,17 +240,19 @@ FocusScope {
                                       ? titleFallback.implicitHeight
                                       : 0
 
-            Image {
+            ArtworkLogo {
                 id: heroLogoImage
                 width: Math.min(Theme.seriesLogoMaxWidth, parent.width > 0 ? parent.width : Theme.seriesLogoMaxWidth)
                 height: root.logoPlacement === "centerLarge"
                         ? Math.round(Theme.detailViewLogoHeight * 1.35)
-                        : Theme.detailViewLogoHeight
+                        : Math.round(Theme.detailViewLogoHeight * 1.15)
                 anchors.left: logoSection.alignRight || logoSection.alignCenter ? undefined : parent.left
                 anchors.right: logoSection.alignRight ? parent.right : undefined
                 anchors.horizontalCenter: logoSection.alignCenter ? parent.horizontalCenter : undefined
                 source: root.currentLogoUrl
                 fillMode: Image.PreserveAspectFit
+                horizontalAlignment: logoSection.alignRight ? Image.AlignRight
+                                     : (logoSection.alignCenter ? Image.AlignHCenter : Image.AlignLeft)
                 asynchronous: true
                 cache: true
                 visible: source !== "" && status !== Image.Error
@@ -233,6 +260,7 @@ FocusScope {
                 Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
             }
 
+            // Missing logo: the title is set large in the logo slot.
             Text {
                 id: titleFallback
                 width: parent.width
@@ -241,15 +269,15 @@ FocusScope {
                 anchors.horizontalCenter: logoSection.alignCenter ? parent.horizontalCenter : undefined
                 text: root.primaryTitle(root.currentItem)
                 visible: root.currentLogoUrl === "" || heroLogoImage.status === Image.Error
-                font.pixelSize: Theme.fontSizeDisplay
+                font.pixelSize: Theme.fontSizeHero
                 font.family: Theme.fontPrimary
-                font.bold: true
+                font.weight: Theme.fontWeightHeavy
+                font.letterSpacing: -Math.round(0.5 * Theme.layoutScale)
                 color: Theme.textPrimary
-                style: Text.Outline
-                styleColor: "#000000"
                 wrapMode: Text.WordWrap
-                maximumLineCount: 3
+                maximumLineCount: 2
                 elide: Text.ElideRight
+                lineHeight: 0.95
                 horizontalAlignment: logoSection.alignRight ? Text.AlignRight
                                      : (logoSection.alignCenter ? Text.AlignHCenter : Text.AlignLeft)
             }
@@ -260,11 +288,10 @@ FocusScope {
             Layout.alignment: logoSection.layoutAlignment
             text: root.episodeSubtitle(root.currentItem)
             visible: text.length > 0
-            font.pixelSize: Theme.fontSizeBody
+            font.pixelSize: Theme.fontSizeMedium
             font.family: Theme.fontPrimary
-            color: Theme.textSecondary
-            style: Text.Outline
-            styleColor: "#000000"
+            font.weight: Theme.fontWeightStrong
+            color: Theme.textPrimary
             wrapMode: Text.WordWrap
             maximumLineCount: 2
             elide: Text.ElideRight
@@ -273,32 +300,33 @@ FocusScope {
         }
     }
 
-    component HeroBadge: Rectangle {
+    // Why this item is featured, set as a quiet eyebrow rather than a pill.
+    component HeroBadge: Text {
         property int layoutBlockAlignment: Qt.AlignLeft
         Layout.alignment: layoutBlockAlignment
-        implicitWidth: badgeLabel.implicitWidth + Theme.spacingMedium
-        implicitHeight: badgeLabel.implicitHeight + Theme.spacingSmall
-        radius: height / 2
-        color: Theme.accentSecondary
-        Text {
-            id: badgeLabel
-            anchors.centerIn: parent
-            text: root.badgeText(root.currentItem)
-            color: Theme.backgroundPrimary
-            font.pixelSize: Theme.fontSizeSmall
-            font.bold: true
-        }
+        text: root.badgeText(root.currentItem)
+        visible: text !== ""
+        font.pixelSize: Theme.fontSizeCaption
+        font.family: Theme.fontPrimary
+        font.weight: Theme.fontWeightHeavy
+        font.capitalization: Font.AllUppercase
+        font.letterSpacing: Math.round(2 * Theme.layoutScale)
+        color: Theme.accentPrimary
     }
 
-    component HeroMetadataRow: RowLayout {
+    component HeroMetadataRow: MetadataLine {
         property int layoutBlockAlignment: Qt.AlignLeft
         Layout.alignment: layoutBlockAlignment
-        Layout.fillWidth: layoutBlockAlignment === Qt.AlignLeft
-        spacing: Theme.spacingSmall
-        MetadataChip { text: root.currentItem ? String(root.currentItem.productionYear || "") : "" }
-        MetadataChip { text: root.episodeText(root.currentItem) }
-        MetadataChip { text: root.currentItem ? root.formatRuntime(root.currentItem.durationMs) : "" }
-        MetadataChip { text: root.currentItem ? (root.currentItem.officialRating || "") : "" }
+        Layout.maximumWidth: parent ? parent.width : implicitWidth
+        font.pixelSize: Theme.fontSizeBody
+        color: Theme.textPrimary
+        opacity: 0.86
+        items: root.currentItem ? [
+            String(root.currentItem.productionYear || ""),
+            root.episodeText(root.currentItem),
+            root.formatRuntime(root.currentItem.durationMs),
+            root.currentItem.officialRating || ""
+        ] : []
     }
 
     component HeroSynopsisText: Text {
@@ -310,60 +338,97 @@ FocusScope {
         visible: text.length > 0
         font.pixelSize: Theme.fontSizeBody
         font.family: Theme.fontPrimary
-        color: Theme.textSecondary
-        style: Text.Outline
-        styleColor: "#000000"
+        color: Theme.textPrimary
+        opacity: 0.86
         wrapMode: Text.WordWrap
         maximumLineCount: 3
         elide: Text.ElideRight
-        lineHeight: 1.08
+        lineHeight: 1.12
         horizontalAlignment: layoutBlockAlignment === Qt.AlignRight ? Text.AlignRight
                              : (layoutBlockAlignment === Qt.AlignHCenter ? Text.AlignHCenter : Text.AlignLeft)
     }
 
-    component HeroActionsRow: RowLayout {
-        id: actionsRow
+    component HeroActionsRow: ColumnLayout {
+        id: actionsColumn
         property int layoutBlockAlignment: Qt.AlignLeft
         Layout.alignment: layoutBlockAlignment
-        Layout.fillWidth: layoutBlockAlignment === Qt.AlignLeft
-        spacing: Theme.spacingSmall
+        Layout.topMargin: Theme.spacingSmall
+        spacing: Theme.spacingMedium
         property Item playButtonRef: playBtn
         property Item detailsButtonRef: detailsBtn
 
-        SecondaryActionButton {
-            id: playBtn
-            visible: root.currentItem && root.currentItem.mediaType !== "Series"
-            focusPolicy: root.actionsFocused ? Qt.StrongFocus : Qt.NoFocus
-            text: root.currentItem && root.currentItem.__heroReason === "Continue Watching" ? qsTr("Resume") : qsTr("Play")
-            iconGlyph: Icons.playArrow
-            onClicked: root.playRequested(root.currentItem)
-            Keys.onRightPressed: function(event) { detailsBtn.forceActiveFocus(); event.accepted = true }
-            Keys.onLeftPressed: function(event) { event.accepted = true }
-            Keys.onUpPressed: function(event) { root.exitActions(); event.accepted = true }
-            Keys.onEscapePressed: function(event) { root.exitActions(); event.accepted = true }
-            Keys.onDownPressed: function(event) {
-                root.resetToCarousel()
-                root.moveDownRequested()
-                event.accepted = true
+        RowLayout {
+            Layout.alignment: actionsColumn.layoutBlockAlignment
+            spacing: Theme.controlSpacing
+
+            ActionButton {
+                id: playBtn
+                variant: "primary"
+                visible: root.currentItem && root.currentItem.mediaType !== "Series"
+                focusPolicy: root.actionsFocused ? Qt.StrongFocus : Qt.NoFocus
+                implicitHeight: Theme.buttonHeightLarge
+                text: root.playLabel(root.currentItem)
+                iconGlyph: Icons.playArrow
+                onClicked: root.playRequested(root.currentItem)
+                Keys.onRightPressed: function(event) { detailsBtn.forceActiveFocus(); event.accepted = true }
+                Keys.onLeftPressed: function(event) { event.accepted = true }
+                Keys.onUpPressed: function(event) { root.exitActions(); event.accepted = true }
+                Keys.onEscapePressed: function(event) { root.exitActions(); event.accepted = true }
+                Keys.onDownPressed: function(event) {
+                    root.resetToCarousel()
+                    root.moveDownRequested()
+                    event.accepted = true
+                }
+            }
+            ActionButton {
+                id: detailsBtn
+                variant: playBtn.visible ? "secondary" : "primary"
+                focusPolicy: root.actionsFocused ? Qt.StrongFocus : Qt.NoFocus
+                implicitHeight: Theme.buttonHeightLarge
+                text: qsTr("Details")
+                iconGlyph: playBtn.visible ? "" : Icons.info
+                onClicked: root.detailsRequested(root.currentItem)
+                Keys.onLeftPressed: function(event) {
+                    if (playBtn.visible) playBtn.forceActiveFocus()
+                    event.accepted = true
+                }
+                Keys.onRightPressed: function(event) { event.accepted = true }
+                Keys.onUpPressed: function(event) { root.exitActions(); event.accepted = true }
+                Keys.onEscapePressed: function(event) { root.exitActions(); event.accepted = true }
+                Keys.onDownPressed: function(event) {
+                    root.resetToCarousel()
+                    root.moveDownRequested()
+                    event.accepted = true
+                }
             }
         }
-        SecondaryActionButton {
-            id: detailsBtn
-            focusPolicy: root.actionsFocused ? Qt.StrongFocus : Qt.NoFocus
-            text: qsTr("Details")
-            iconGlyph: Icons.info
-            onClicked: root.detailsRequested(root.currentItem)
-            Keys.onLeftPressed: function(event) {
-                if (playBtn.visible) playBtn.forceActiveFocus()
-                event.accepted = true
+
+        // Resume progress under the primary action.
+        RowLayout {
+            Layout.alignment: actionsColumn.layoutBlockAlignment
+            visible: root.progressFraction(root.currentItem) > 0
+            spacing: Theme.spacingMedium
+
+            Rectangle {
+                Layout.preferredWidth: playBtn.width
+                Layout.preferredHeight: Theme.progressHeight
+                radius: height / 2
+                color: Theme.progressTrack
+
+                Rectangle {
+                    width: Math.max(height, parent.width * root.progressFraction(root.currentItem))
+                    height: parent.height
+                    radius: height / 2
+                    color: Theme.progressFill
+                }
             }
-            Keys.onRightPressed: function(event) { event.accepted = true }
-            Keys.onUpPressed: function(event) { root.exitActions(); event.accepted = true }
-            Keys.onEscapePressed: function(event) { root.exitActions(); event.accepted = true }
-            Keys.onDownPressed: function(event) {
-                root.resetToCarousel()
-                root.moveDownRequested()
-                event.accepted = true
+
+            Text {
+                text: root.remainingText(root.currentItem)
+                font.pixelSize: Theme.fontSizeCaption
+                font.family: Theme.fontPrimary
+                font.weight: Theme.fontWeightMedium
+                color: Theme.textSecondary
             }
         }
     }
@@ -380,7 +445,9 @@ FocusScope {
                 positionRoot: heroCard
                 placement: root.logoPlacement
                 centerLarge: root.logoPlacement === "centerLarge"
+                edgeMargin: root.contentEdgeMargin
                 extraBottomInset: root.carouselBottomInset
+                focusFramed: root.cinematic && root.carouselFocused
                 HeroBadge { layoutBlockAlignment: combinedHost.contentLayoutAlignment }
                 HeroLogoSection { blockPlacement: root.logoPlacement }
                 HeroMetadataRow { layoutBlockAlignment: combinedHost.contentLayoutAlignment }
@@ -405,6 +472,7 @@ FocusScope {
                 positionRoot: heroCard
                 placement: root.logoPlacement
                 centerLarge: root.logoPlacement === "centerLarge"
+                edgeMargin: root.contentEdgeMargin
                 extraBottomInset: root.carouselBottomInset
                 HeroLogoSection { blockPlacement: root.logoPlacement }
             }
@@ -413,7 +481,9 @@ FocusScope {
                 id: infoHost
                 positionRoot: heroCard
                 placement: root.infoPlacement
+                edgeMargin: root.contentEdgeMargin
                 extraBottomInset: root.carouselBottomInset
+                focusFramed: root.cinematic && root.carouselFocused
                 HeroBadge { layoutBlockAlignment: infoHost.contentLayoutAlignment }
                 HeroMetadataRow { layoutBlockAlignment: infoHost.contentLayoutAlignment }
                 HeroSynopsisText { layoutBlockAlignment: infoHost.contentLayoutAlignment }
@@ -522,7 +592,14 @@ FocusScope {
         }
     }
 
-    onCurrentBackdropUrlChanged: {
+    onCurrentBackdropUrlChanged: loadCardBackdrop()
+    onCinematicChanged: loadCardBackdrop()
+
+    // The card's own artwork is only needed when the hero is not driving the
+    // page backdrop.
+    function loadCardBackdrop() {
+        if (cinematic)
+            return
         if (currentBackdropUrl === "") {
             heroCard.clearBackdrop()
             return
@@ -539,14 +616,11 @@ FocusScope {
     Rectangle {
         id: heroCard
         anchors.fill: parent
-        anchors.leftMargin: Theme.paddingLarge
-        anchors.rightMargin: Theme.paddingLarge
-        radius: Theme.radiusLarge
-        color: Theme.cardBackground
-        border.color: root.activeFocus && !root.actionsFocused ? Theme.focusBorder : Theme.cardBorder
-        border.width: root.activeFocus && !root.actionsFocused ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-        scale: root.activeFocus && !root.actionsFocused ? 1.01 : 1
-        Behavior on scale { NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationShort : 0 } }
+        anchors.leftMargin: Theme.pageMarginX
+        anchors.rightMargin: Theme.pageMarginX
+        radius: root.cinematic ? 0 : Theme.radiusPanel
+        color: root.cinematic ? "transparent" : Theme.artworkPlaceholder
+        antialiasing: true
 
         property bool showBackdropA: true
         property bool showBackdropNeutral: true
@@ -580,61 +654,85 @@ FocusScope {
             showBackdropA = (img === heroBackdropA)
         }
 
-        Image {
-            id: heroBackdropA
+        Item {
+            id: cardArtwork
             anchors.fill: parent
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            opacity: !heroCard.showBackdropNeutral && heroCard.showBackdropA ? 1.0 : 0.0
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
-            onStatusChanged: heroCard.checkBackdropStatus(this)
+            visible: !root.cinematic
 
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                maskEnabled: true
-                maskSource: heroMask
+            Image {
+                id: heroBackdropA
+                anchors.fill: parent
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
+                opacity: !heroCard.showBackdropNeutral && heroCard.showBackdropA ? 1.0 : 0.0
+                Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
+                onStatusChanged: heroCard.checkBackdropStatus(this)
+
+                layer.enabled: true
+                layer.effect: MultiEffect {
+                    maskEnabled: true
+                    maskSource: heroMask
+                }
+            }
+
+            Image {
+                id: heroBackdropB
+                anchors.fill: parent
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
+                opacity: !heroCard.showBackdropNeutral && !heroCard.showBackdropA ? 1.0 : 0.0
+                Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
+                onStatusChanged: heroCard.checkBackdropStatus(this)
+
+                layer.enabled: true
+                layer.effect: MultiEffect {
+                    maskEnabled: true
+                    maskSource: heroMask
+                }
+            }
+
+            Rectangle {
+                id: heroMask
+                anchors.fill: parent
+                radius: heroCard.radius
+                visible: false
+                layer.enabled: true
+                layer.smooth: true
+            }
+
+            // Hold the scrim across the text column so the synopsis stays
+            // legible over bright backdrops, then let the artwork through.
+            Rectangle {
+                anchors.fill: parent
+                radius: heroCard.radius
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.92) }
+                    GradientStop { position: 0.42; color: Theme.withAlpha(Theme.backgroundPrimary, 0.74) }
+                    GradientStop { position: 0.72; color: Theme.withAlpha(Theme.backgroundPrimary, 0.22) }
+                    GradientStop { position: 1; color: Theme.withAlpha(Theme.backgroundPrimary, 0.0) }
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: parent.height * 0.45
+                radius: heroCard.radius
+                gradient: Gradient {
+                    GradientStop { position: 0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.0) }
+                    GradientStop { position: 1; color: Theme.withAlpha(Theme.backgroundPrimary, 0.55) }
+                }
             }
         }
 
-        Image {
-            id: heroBackdropB
-            anchors.fill: parent
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            opacity: !heroCard.showBackdropNeutral && !heroCard.showBackdropA ? 1.0 : 0.0
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
-            onStatusChanged: heroCard.checkBackdropStatus(this)
-
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                maskEnabled: true
-                maskSource: heroMask
-            }
-        }
-
-        Rectangle {
-            id: heroMask
-            anchors.fill: parent
-            radius: Theme.imageRadius
-            visible: false
-            layer.enabled: true
-            layer.smooth: true
-        }
-
-        Rectangle {
-            anchors.fill: parent
-            radius: Theme.imageRadius
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
-                // Hold the scrim across the text column (~60% of the card) so the
-                // synopsis stays legible over bright backdrops, then fade out.
-                GradientStop { position: 0; color: "#EB10141C" }
-                GradientStop { position: 0.45; color: "#CC10141C" }
-                GradientStop { position: 0.75; color: "#5910141C" }
-                GradientStop { position: 1; color: "#1A10141C" }
-            }
+        // Card mode: focus is a ring around the whole panel.
+        FocusRing {
+            active: !root.cinematic && root.carouselFocused
+            radius: heroCard.radius
         }
 
         Loader {
@@ -648,22 +746,47 @@ FocusScope {
             onSourceComponentChanged: Qt.callLater(root.reapplyHeroPlacements)
         }
 
+        // Page indicator. Left/Right hints appear while the carousel has focus.
         Row {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            anchors.margins: Theme.spacingLarge
+            anchors.rightMargin: root.cinematic ? 0 : Theme.spacingLarge
+            anchors.bottomMargin: root.cinematic ? Theme.spacingSmall : Theme.spacingLarge
             spacing: Theme.spacingSmall
             visible: root.heroModel.length > 1
+            z: 2
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: Icons.chevronLeft
+                font.family: Theme.fontIcon
+                font.pixelSize: Theme.fontSizeIcon
+                color: Theme.textPrimary
+                opacity: root.carouselFocused ? 0.9 : 0.0
+                Behavior on opacity { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
+            }
+
             Repeater {
                 model: root.heroModel.length
                 Rectangle {
-                    width: index === root.currentIndex ? Theme.spacingLarge : Theme.spacingSmall
-                    height: Theme.spacingSmall
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: index === root.currentIndex ? Theme.spacingLarge : Theme.spacingSmall + Theme.spacingXSmall
+                    height: Theme.spacingSmall + Theme.spacingXSmall
                     radius: height / 2
-                    color: index === root.currentIndex ? Theme.accentPrimary : Theme.textSecondary
+                    color: index === root.currentIndex ? Theme.textPrimary : Theme.withAlpha(Theme.textPrimary, 0.38)
                     Behavior on width { NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic } enabled: Theme.uiAnimationsEnabled }
                     Behavior on color { ColorAnimation { duration: Theme.durationNormal } enabled: Theme.uiAnimationsEnabled }
                 }
+            }
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: Icons.chevronRight
+                font.family: Theme.fontIcon
+                font.pixelSize: Theme.fontSizeIcon
+                color: Theme.textPrimary
+                opacity: root.carouselFocused ? 0.9 : 0.0
+                Behavior on opacity { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
             }
         }
     }

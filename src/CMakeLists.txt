@@ -145,6 +145,20 @@ qt_add_qml_module(Bloom
         ui/PersonCard.qml
         ui/ScrollingCardLabel.qml
         ui/SecondaryActionButton.qml
+        ui/ActionButton.qml
+        ui/FocusRing.qml
+        ui/GlassPanel.qml
+        ui/MetadataLine.qml
+        ui/SectionHeader.qml
+        ui/StateMessage.qml
+        ui/ArtworkPlaceholder.qml
+        ui/ArtworkLogo.qml
+        ui/DialogSurface.qml
+        ui/ModalScrim.qml
+        ui/BloomMenu.qml
+        ui/BloomMenuItem.qml
+        ui/BloomCheckIndicator.qml
+        ui/FieldBackground.qml
         ui/SeriesDetailsView.qml
         ui/SeasonView.qml
         ui/SeriesSeasonEpisodeView.qml
@@ -162,6 +176,7 @@ qt_add_qml_module(Bloom
         ui/settings/SettingsComboBox.qml
         ui/settings/SettingsInfoRow.qml
         ui/settings/SettingsGroupDivider.qml
+        ui/settings/SettingsRowBackground.qml
         ui/settings/PlaybackSettings.qml
         ui/settings/DisplaySettings.qml
         ui/settings/HomeSettings.qml

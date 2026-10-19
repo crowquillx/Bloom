@@ -63,11 +63,11 @@ Item {
     // ========================================
     
     property bool isHovered: InputModeManager.pointerActive && mouseArea.containsMouse
-    scale: isFocused ? 1.05 : (isHovered ? 1.02 : 1.0)
+    scale: isFocused ? Theme.focusScale : 1.0
     z: isFocused ? 2 : 0
     transformOrigin: Item.Center
     
-    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
+    Behavior on scale { NumberAnimation { duration: Theme.durationShort; easing.type: Easing.OutCubic } enabled: Theme.uiAnimationsEnabled }
     
     // ========================================
     // Card Content
@@ -76,21 +76,11 @@ Item {
     Rectangle {
         id: card
         anchors.fill: parent
-        radius: Theme.radiusMedium
-        color: root.isFocused ? Theme.cardBackgroundFocused 
-             : (root.isHovered ? Theme.cardBackgroundHover : Theme.cardBackground)
-        border.width: root.isFocused ? 2 : 1
-        border.color: root.isFocused ? Theme.cardBorderFocused 
-                    : (root.isHovered ? Theme.cardBorderHover : Theme.cardBorder)
-        
-        Behavior on color { ColorAnimation { duration: 100 } }
-        Behavior on border.color { ColorAnimation { duration: 100 } }
-        
-        clip: true
+        // Poster-first card: no chrome of its own, focus rings the artwork.
+        color: "transparent"
         
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: Theme.spacingSmall
             spacing: Theme.spacingSmall
             
             // Poster Image
@@ -100,8 +90,16 @@ Item {
                 Layout.fillHeight: true
                 radius: Theme.imageRadius
                 antialiasing: true
-                color: Theme.backgroundSecondary
+                color: "transparent"
                 clip: false
+
+                ArtworkPlaceholder {
+                    anchors.fill: parent
+                    visible: posterImage.status !== Image.Ready
+                    loading: posterImage.status === Image.Loading
+                    iconGlyph: itemType === "Series" ? Icons.tvShows : Icons.movie
+                    title: itemName
+                }
                 
                 Image {
                     id: posterImage
@@ -110,27 +108,12 @@ Item {
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     smooth: true
-                    visible: true
+                    visible: status === Image.Ready
 
                     layer.enabled: true
                     layer.effect: MultiEffect {
                         maskEnabled: true
                         maskSource: posterMask
-                    }
-                    
-                    // Fallback when no image
-                    Rectangle {
-                        anchors.fill: parent
-                        color: Theme.backgroundSecondary
-                        visible: posterImage.status !== Image.Ready
-                        
-                        Text {
-                            anchors.centerIn: parent
-                            text: itemType === "Series" ? Icons.tvShows : Icons.movie
-                            font.pixelSize: Math.round(48 * Theme.layoutScale)
-                            font.family: Theme.fontIcon
-                            color: Theme.textSecondary
-                        }
                     }
                 }
 
@@ -154,23 +137,17 @@ Item {
                 }
 
                 // Watched indicator (for Movies only)
-                Rectangle {
+                UnwatchedBadge {
                     anchors.top: parent.top
                     anchors.right: parent.right
-                    anchors.margins: Math.round(8 * Theme.layoutScale)
-                    width: Math.round(24 * Theme.layoutScale)
-                    height: Math.round(24 * Theme.layoutScale)
-                    radius: Math.round(12 * Theme.layoutScale)
-                    color: Theme.accentPrimary
+                    count: 0
+                    isFullyWatched: true
                     visible: !isSeerr && itemType === "Movie" && isPlayed
-                    
-                    Text {
-                        anchors.centerIn: parent
-                        text: Icons.check
-                        font.pixelSize: Math.round(16 * Theme.layoutScale)
-                        font.family: Theme.fontIcon
-                        color: Theme.textPrimary
-                    }
+                }
+
+                FocusRing {
+                    active: root.isFocused
+                    radius: Theme.imageRadius
                 }
 
                 Rectangle {
@@ -180,8 +157,10 @@ Item {
                     anchors.margins: Theme.spacingSmall
                     width: seerrBadgeContent.implicitWidth + Theme.spacingSmall * 2
                     height: seerrBadgeContent.implicitHeight + Theme.spacingSmall * 2
-                    radius: Theme.radiusSmall
-                    color: Theme.overlayDark
+                    radius: height / 2
+                    color: Theme.overlayTextBackground
+                    border.width: Theme.borderWidth
+                    border.color: Theme.overlayTextBorder
                     visible: isSeerr
 
                     RowLayout {
@@ -194,16 +173,17 @@ Item {
 
                         Text {
                             text: "Seerr"
-                            font.pixelSize: Theme.fontSizeSmall
+                            font.pixelSize: Theme.fontSizeCaption
                             font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
+                            font.weight: Theme.fontWeightHeavy
+                            color: Theme.textOnDarkOverlay
                         }
 
                         Text {
                             text: seerrStatusLabel
-                            font.pixelSize: Theme.fontSizeSmall
+                            font.pixelSize: Theme.fontSizeCaption
                             font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
+                            color: Qt.rgba(1, 1, 1, 0.78)
                             visible: seerrStatusLabel.length > 0
                         }
                     }
@@ -219,7 +199,7 @@ Item {
                     text: itemName
                     font.pixelSize: Theme.fontSizeSmall
                     font.family: Theme.fontPrimary
-                    font.weight: Font.Medium
+                    font.weight: Theme.fontWeightStrong
                     color: Theme.textPrimary
                     Layout.fillWidth: true
                     elide: Text.ElideRight
@@ -229,7 +209,7 @@ Item {
                 
                 Text {
                     text: itemYear
-                    font.pixelSize: Theme.fontSizeSmall
+                    font.pixelSize: Theme.fontSizeCaption
                     font.family: Theme.fontPrimary
                     color: Theme.textSecondary
                     visible: itemYear.length > 0

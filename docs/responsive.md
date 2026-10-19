@@ -81,6 +81,12 @@ layoutScale     = baseLayoutScale * manualDpiScaleOverride
 > poster/episode clamps were removed. `sidebarDefaultMode` is now always
 > `"rail"`. `ResponsiveLayoutPolicyTest` guards the resolution and OS-scaling
 > independence.
+>
+> The navigation shell is a floating rail. Pages reserve a constant
+> `Theme.navRailReservedWidth`, and the rail expands as an overlay. The old
+> 960 px overlay threshold and the content-margin animation were removed.
+> `NavigationRailTest` checks the rail metrics and fit at 720p, 1080p, 4K,
+> 21:9, 4:3 and narrow windows.
 
 ## Manual DPI Scale Override
 
@@ -424,11 +430,11 @@ Button padding and the back-button width scale with `Theme.layoutScale`, keeping
 
 ## SeriesDetailsView Responsive Layout
 
-[`SeriesDetailsView.qml`](../src/ui/SeriesDetailsView.qml) uses the responsive layout system for its two-column series details layout.
+[`SeriesDetailsView.qml`](../src/ui/SeriesDetailsView.qml) is a single scrolling column inside `Theme.pageMarginX` / `Theme.pageMarginTop` margins, over a full-bleed, sharp backdrop with scrims.
 
 ### Layout structure
 
-A 70%/30% `RowLayout` split (left content area + right sidebar). The sidebar narrows to 15% on wide screens (`root.width > 1200 * Theme.layoutScale`).
+A `GlassPanel` hero holds the poster (or `ArtworkPlaceholder`) next to the logo (`ArtworkLogo`) or title. Beside them sit a `MetadataLine`, ratings, genres, creators, a four-line overview with Read More, and the actions: the primary "Play/Resume S#E#" or "Start Series" `ActionButton`, mark watched, favorite and more. Seasons, Next Up, cast and recommendations follow below the hero as shelves.
 
 ### Token usage
 
@@ -448,17 +454,6 @@ A 70%/30% `RowLayout` split (left content area + right sidebar). The sidebar nar
 
 The seasons grid uses `Theme.seasonPosterWidth`/`Theme.seasonPosterHeight` for cell sizing with responsive capping against viewport height (`root.height * 0.45`). Grid margins use `Theme.spacingMedium`. Custom keyboard navigation handles row/column traversal within the grid.
 
-### Animated transitions
-
-Sidebar width animates on resize, gated by `Theme.uiAnimationsEnabled`:
-
-```qml
-Behavior on Layout.preferredWidth {
-    enabled: Theme.uiAnimationsEnabled
-    NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic }
-}
-```
-
 ## SeriesSeasonEpisodeView Responsive Layout
 
 [`SeriesSeasonEpisodeView.qml`](../src/ui/SeriesSeasonEpisodeView.qml) uses the responsive layout system for the episode browsing experience with seasons tabs, episode thumbnails, the selected-episode `Chapters` shelf, cast metadata, action buttons (Play, Mark Watched, Favorite, **Go to Series**, and the audio/subtitle context menu), and audio/subtitle track selection. **Go to Series** opens the parent series details view and returns to the same season/episode context via the library navigation stack. The portrait hero frame shows the season poster when available, then the series poster; landscape episode thumbs are only used as a last-resort fill.
@@ -472,8 +467,8 @@ Behavior on Layout.preferredWidth {
 | Series logo / name | Max height uses `Math.round(180 * Theme.layoutScale)` with viewport-relative capping |
 | Episode metadata typography | `Theme.fontSizeHeader`, `Theme.fontSizeBody`, `Theme.fontSizeCaption` |
 | Episode thumbnail delegate | Margins/spacing via `Theme.spacingSmall`, `Math.round(2 * Theme.layoutScale)` |
-| Chapter rail cards | Existing card/background/radius tokens, `Theme.spacingSmall`/`Theme.spacingMedium`, and focus border tokens |
-| Focus border width | `Theme.buttonFocusBorderWidth` |
+| Chapter rail cards | Surface/radius tokens, `Theme.spacingSmall`/`Theme.spacingMedium`, and the shared `FocusRing` |
+| Focus indicator | `FocusRing` (`Theme.focusRing*` tokens) |
 | Played indicator icon | `Theme.fontSizeIcon` |
 | Read More button | Height/width via `Math.round(N * Theme.layoutScale)` |
 | Action buttons | `Theme.buttonHeightLarge`, `Math.round(N * Theme.layoutScale)` for widths |

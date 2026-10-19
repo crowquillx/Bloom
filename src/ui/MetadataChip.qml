@@ -2,6 +2,8 @@ import QtQuick
 
 import BloomUI
 
+// Compact metadata label. Borderless and low-fill so groups of facts read as
+// text rather than a row of boxes; prefer MetadataLine for plain fact lists.
 Item {
     id: metadataChip
 
@@ -19,12 +21,12 @@ Item {
     Rectangle {
         id: visualRect
         anchors.fill: parent
-        implicitHeight: Math.round(38 * Theme.layoutScale)
-        implicitWidth: chipText.implicitWidth + Math.round(22 * Theme.layoutScale)
-        radius: implicitHeight / 2
-        color: metadataChip.onArtwork ? Theme.overlayTextBackground : Theme.chipBackground
-        border.width: 1
-        border.color: metadataChip.onArtwork ? Theme.overlayTextBorder : Theme.chipBorder
+        implicitHeight: Math.round(40 * Theme.layoutScale)
+        implicitWidth: chipText.implicitWidth + Math.round(28 * Theme.layoutScale)
+        radius: Theme.radiusSmall
+        color: metadataChip.onArtwork ? Theme.overlayTextBackground : Theme.surfaceInteractive
+        border.width: metadataChip.onArtwork ? 1 : 0
+        border.color: Theme.overlayTextBorder
 
         Text {
             id: chipText
@@ -32,7 +34,7 @@ Item {
             text: metadataChip.text
             font.pixelSize: Theme.fontSizeSmall
             font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
+            font.weight: Theme.fontWeightMedium
             color: metadataChip.onArtwork ? Theme.textOnDarkOverlay : Theme.textPrimary
         }
     }

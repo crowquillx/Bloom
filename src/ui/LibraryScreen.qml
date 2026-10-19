@@ -82,6 +82,32 @@ FocusScope {
 
     component LibraryComboBox: ComboBox {
         id: combo
+        // Sized to the widest option so the selection never truncates or
+        // shifts neighbouring controls when it changes.
+        implicitWidth: widestLabelWidth + Theme.spacingMedium * 2 + Theme.fontSizeIcon + Theme.spacingSmall
+        leftPadding: 0
+        rightPadding: 0
+        topPadding: 0
+        bottomPadding: 0
+        property real widestLabelWidth: 0
+        function measureLabels() {
+            var widest = 0
+            var options = model || []
+            for (var i = 0; i < options.length; ++i) {
+                labelMetrics.text = String(options[i])
+                widest = Math.max(widest, labelMetrics.advanceWidth)
+            }
+            widestLabelWidth = Math.ceil(widest)
+        }
+        onModelChanged: measureLabels()
+        onLabelFontSizeChanged: measureLabels()
+        Component.onCompleted: measureLabels()
+        TextMetrics {
+            id: labelMetrics
+            font.pixelSize: combo.labelFontSize
+            font.family: Theme.fontPrimary
+            font.weight: Theme.fontWeightMedium
+        }
 
         property var values: []
         property Item leftTarget: null
@@ -151,49 +177,84 @@ FocusScope {
         onActivated: valueAccepted(selectedValue())
 
         background: Rectangle {
+            id: comboBackground
             implicitHeight: Theme.buttonHeightSmall
-            radius: Theme.radiusSmall
-            color: Theme.inputBackground
-            border.color: combo.activeFocus || combo.popup.visible ? Theme.focusBorder : Theme.inputBorder
-            border.width: combo.activeFocus || combo.popup.visible ? 2 : 1
+            radius: Theme.radiusControl
+            color: combo.hovered || combo.activeFocus ? Theme.surfaceInteractiveHover : Theme.surfaceInteractive
+            border.width: Theme.borderWidth
+            border.color: Theme.surfaceBorder
+
+            FocusRing {
+                active: combo.activeFocus || combo.popup.visible
+                radius: comboBackground.radius
+            }
+        }
+
+        indicator: Text {
+            x: combo.width - width - Theme.spacingMedium
+            y: (combo.height - height) / 2
+            text: Icons.expandMore
+            font.family: Theme.fontIcon
+            font.pixelSize: Theme.fontSizeIcon
+            color: Theme.textSecondary
         }
 
         contentItem: Text {
             text: combo.displayText
             font.pixelSize: combo.labelFontSize
             font.family: Theme.fontPrimary
+            font.weight: Theme.fontWeightMedium
             color: Theme.textPrimary
             verticalAlignment: Text.AlignVCenter
-            leftPadding: Theme.spacingSmall
-            rightPadding: Theme.spacingMedium
+            leftPadding: Theme.spacingMedium
+            rightPadding: Theme.spacingMedium + Theme.fontSizeIcon + Theme.spacingSmall
             elide: Text.ElideRight
         }
 
         delegate: ItemDelegate {
-            width: combo.width
+            id: comboDelegate
+            width: combo.width - Theme.spacingSmall * 2
+            implicitHeight: Theme.buttonHeightSmall
             highlighted: ListView.isCurrentItem || combo.highlightedIndex === index
             onClicked: combo.commitIndex(index)
 
-            contentItem: Text {
-                text: modelData
-                color: parent.highlighted ? Theme.textPrimary : Theme.textSecondary
-                font.pixelSize: combo.labelFontSize
-                font.family: Theme.fontPrimary
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
+            contentItem: RowLayout {
+                spacing: Theme.spacingSmall
+                Text {
+                    text: modelData
+                    color: Theme.textPrimary
+                    font.pixelSize: combo.labelFontSize
+                    font.family: Theme.fontPrimary
+                    font.weight: index === combo.currentIndex ? Theme.fontWeightStrong : Theme.fontWeightRegular
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                Text {
+                    visible: index === combo.currentIndex
+                    text: Icons.check
+                    font.family: Theme.fontIcon
+                    font.pixelSize: Theme.fontSizeIcon
+                    color: Theme.selectionIndicator
+                }
             }
 
             background: Rectangle {
-                color: parent.highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                color: comboDelegate.highlighted ? Theme.surfaceInteractiveHover : "transparent"
                 radius: Theme.radiusSmall
+                FocusRing {
+                    inset: true
+                    active: comboDelegate.highlighted && combo.popup.visible
+                    radius: parent.radius
+                }
             }
         }
 
         popup: Popup {
-            y: combo.height + Math.round(5 * Theme.layoutScale)
+            y: combo.height + Theme.spacingSmall
             width: combo.width
-            implicitHeight: Math.min(contentItem.implicitHeight, Math.round(320 * Theme.layoutScale))
-            padding: 1
+            implicitHeight: Math.min(contentItem.implicitHeight + padding * 2, Math.round(420 * Theme.layoutScale))
+            padding: Theme.spacingSmall
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
             onOpened: {
@@ -237,12 +298,7 @@ FocusScope {
                 }
             }
 
-            background: Rectangle {
-                color: Theme.cardBackground
-                border.color: Theme.focusBorder
-                border.width: 1
-                radius: Theme.radiusSmall
-            }
+            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
         }
     }
 
@@ -527,7 +583,7 @@ FocusScope {
             cache: true
             opacity: parent.showBackdrop1 ? 1.0 : 0.0
             visible: true
-            Behavior on opacity { NumberAnimation { duration: 500 } }
+            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
 
             layer.enabled: true
             layer.effect: MultiEffect {
@@ -547,7 +603,7 @@ FocusScope {
             cache: true
             opacity: parent.showBackdrop1 ? 0.0 : 1.0
             visible: true
-            Behavior on opacity { NumberAnimation { duration: 500 } }
+            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
 
             layer.enabled: true
             layer.effect: MultiEffect {
@@ -896,6 +952,35 @@ FocusScope {
             }
         }
         
+        // Empty / error state for the grid area.
+        StateMessage {
+            id: gridStateMessage
+            anchors.centerIn: parent
+            width: Math.min(parent.width - Theme.pageMarginX * 2, Math.round(760 * Theme.layoutScale))
+            z: 5
+            visible: !isLoading && grid.count === 0 && (LibraryViewModel.hasError || currentParentId !== "")
+            kind: LibraryViewModel.hasError ? "error" : "empty"
+            title: LibraryViewModel.hasError ? qsTr("Couldn't load this library")
+                   : (LibraryViewModel.activeFilterCount > 0 || librarySearchText !== ""
+                      ? qsTr("Nothing matches") : qsTr("Nothing here yet"))
+            message: LibraryViewModel.hasError ? LibraryViewModel.errorMessage
+                     : (LibraryViewModel.activeFilterCount > 0 || librarySearchText !== ""
+                        ? qsTr("Try a different search or clear the filters.")
+                        : qsTr("This library has no titles."))
+            actionText: LibraryViewModel.hasError ? qsTr("Try Again")
+                        : (LibraryViewModel.activeFilterCount > 0 ? qsTr("Clear Filters") : "")
+            onActionTriggered: {
+                if (LibraryViewModel.hasError) {
+                    LibraryViewModel.reload()
+                } else {
+                    LibraryViewModel.clearFilters()
+                    syncFilterControls()
+                    applyFilters("")
+                }
+            }
+            Keys.onUpPressed: (event) => { searchField.forceActiveFocus(); event.accepted = true }
+        }
+
         // When this component receives focus, delegate to the grid
         onActiveFocusChanged: {
             if (activeFocus && grid) {
@@ -905,9 +990,9 @@ FocusScope {
         
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.spacingMedium
-        anchors.rightMargin: Theme.spacingMedium
-        anchors.topMargin: Theme.spacingMedium
+        anchors.leftMargin: Theme.pageMarginX
+        anchors.rightMargin: Theme.pageMarginX - Theme.spacingMedium
+        anchors.topMargin: Theme.pageMarginTop
         anchors.bottomMargin: 0
         spacing: Theme.spacingLarge
 
@@ -929,7 +1014,7 @@ FocusScope {
                         text: currentParentId === "" ? "Libraries" : (currentLibraryName || "Library")
                         font.pixelSize: Theme.fontSizeDisplay
                         font.family: Theme.fontPrimary
-                        font.bold: true
+                        font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                         Accessible.role: Accessible.Heading
                         Accessible.name: text
@@ -945,7 +1030,7 @@ FocusScope {
                             }
                             return ""
                         }
-                        font.pixelSize: Theme.fontSizeMedium
+                        font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         color: Theme.textSecondary
                     }
@@ -978,20 +1063,24 @@ FocusScope {
                         placeholderTextColor: Theme.textSecondary
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
-                        leftPadding: Theme.spacingSmall
-                        rightPadding: Theme.spacingSmall
+                        leftPadding: Theme.spacingMedium
+                        rightPadding: Theme.spacingMedium
                         verticalAlignment: TextInput.AlignVCenter
                         cursorVisible: activeFocus
                         Accessible.name: "Search library"
                         KeyNavigation.right: sortCombo
                         KeyNavigation.down: grid
                         background: Rectangle {
+                            id: searchFieldBackground
                             implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: searchField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: searchField.activeFocus ? 2 : Theme.borderWidth
-                            Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                            radius: Theme.radiusControl
+                            color: searchField.activeFocus ? Theme.surfaceInteractiveHover : Theme.surfaceInteractive
+                            border.width: Theme.borderWidth
+                            border.color: Theme.surfaceBorder
+                            FocusRing {
+                                active: searchField.activeFocus
+                                radius: searchFieldBackground.radius
+                            }
                         }
                         onTextEdited: {
                             librarySearchText = text
@@ -1009,8 +1098,7 @@ FocusScope {
 
                     LibraryComboBox {
                         id: sortCombo
-                        Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
-                        Layout.preferredHeight: Theme.buttonHeightSmall
+                                                Layout.preferredHeight: Theme.buttonHeightSmall
                         model: ["Library order", "Title", "Release date", "Date added", "Rating", "Year", "Random"]
                         values: ["", "title", "releaseDate", "dateAdded", "rating", "year", "random"]
                         Accessible.name: "Sort library"
@@ -1026,8 +1114,7 @@ FocusScope {
 
                     LibraryComboBox {
                         id: orderCombo
-                        Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
-                        Layout.preferredHeight: Theme.buttonHeightSmall
+                                                Layout.preferredHeight: Theme.buttonHeightSmall
                         model: ["Ascending", "Descending"]
                         values: ["ascending", "descending"]
                         Accessible.name: "Sort order"
@@ -1041,10 +1128,12 @@ FocusScope {
                         }
                     }
 
-                    Button {
+                    ActionButton {
                         id: filterDrawerButton
+                        variant: "secondary"
                         text: LibraryViewModel.activeFilterCount > 0 ? ("Filters " + LibraryViewModel.activeFilterCount) : "Filters"
-                        Layout.preferredWidth: Math.round(150 * Theme.layoutScale)
+                        iconGlyph: Icons.filter
+                        selected: showFilterPanel
                         Layout.preferredHeight: Theme.buttonHeightSmall
                         Accessible.name: text
                         KeyNavigation.left: orderCombo
@@ -1086,39 +1175,18 @@ FocusScope {
                             }
                         }
                         onClicked: toggleFilterDrawer()
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: {
-                                if (filterDrawerButton.down || showFilterPanel) return Theme.buttonSecondaryBackgroundPressed
-                                if (filterDrawerButton.hovered) return Theme.buttonSecondaryBackgroundHover
-                                return Theme.inputBackground
-                            }
-                            border.color: filterDrawerButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: filterDrawerButton.activeFocus ? 2 : Theme.borderWidth
-                            Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                            Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-                        }
-                        contentItem: Text {
-                            text: filterDrawerButton.text
-                            color: Theme.textPrimary
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                        }
                     }
                 }
                 
-                Button {
+                ActionButton {
                     id: backButton
+                    variant: "secondary"
+                    iconGlyph: Icons.arrowBack
                     visible: currentParentId !== ""
                     text: "Back"
                     Accessible.role: Accessible.Button
                     Accessible.name: text
                     Accessible.description: "Return to previous library view"
-                    Layout.preferredWidth: Math.round(148 * Theme.layoutScale)
                     Layout.preferredHeight: Theme.buttonHeightSmall
                     
                     KeyNavigation.left: filterDrawerButton
@@ -1142,49 +1210,24 @@ FocusScope {
                     }
                     
                     onClicked: navigateBack()
-                    background: Rectangle {
-                        radius: Theme.radiusLarge
-                        color: {
-                            if (parent.down) return Theme.buttonSecondaryBackgroundPressed
-                            if (parent.hovered) return Theme.buttonSecondaryBackgroundHover
-                            return Theme.buttonSecondaryBackground
-                        }
-                        border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                        border.color: {
-                            if (parent.activeFocus) return Theme.buttonSecondaryBorderFocused
-                            if (parent.hovered) return Theme.buttonSecondaryBorderHover
-                            return Theme.buttonSecondaryBorder
-                        }
-                        
-                        Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                        Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
                 }
             }
             
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: showFilterPanel ? Math.round(260 * Theme.layoutScale) : 0
+                Layout.preferredHeight: showFilterPanel ? Math.round(300 * Theme.layoutScale) : 0
                 visible: showFilterPanel
-                color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.88)
-                radius: Theme.radiusLarge
+                color: Theme.surfaceGlassStrong
+                radius: Theme.radiusPanel
                 border.width: Theme.borderWidth
-                border.color: Theme.inputBorder
+                border.color: Theme.surfaceBorder
                 clip: true
-                Behavior on Layout.preferredHeight { NumberAnimation { duration: 200 } }
+                Behavior on Layout.preferredHeight { NumberAnimation { duration: Theme.durationNormal } }
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingSmall
+                    anchors.margins: Theme.spacingLarge
+                    spacing: Theme.spacingMedium
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -1192,8 +1235,7 @@ FocusScope {
 
 		                        LibraryComboBox {
 		                            id: favoriteFilterCombo
-		                            Layout.preferredWidth: Math.round(172 * Theme.layoutScale)
-	                            Layout.preferredHeight: Theme.buttonHeightSmall
+		                            	                            Layout.preferredHeight: Theme.buttonHeightSmall
                                 labelFontSize: Theme.fontSizeSmall
                             model: ["Any favorite", "Favorites", "Not favorite"]
 	                            values: ["any", "favorite", "notFavorite"]
@@ -1209,8 +1251,7 @@ FocusScope {
 	
 	                        LibraryComboBox {
 	                            id: addedSinceCombo
-	                            Layout.preferredWidth: Math.round(188 * Theme.layoutScale)
-	                            Layout.preferredHeight: Theme.buttonHeightSmall
+	                            	                            Layout.preferredHeight: Theme.buttonHeightSmall
                                 labelFontSize: Theme.fontSizeSmall
                             model: ["Any added date", "Last 7 days", "Last 30 days", "Last 90 days", "Last year"]
 	                            values: ["any", "7d", "30d", "90d", "1y"]
@@ -1227,7 +1268,7 @@ FocusScope {
 
 	                        Slider {
 	                            id: ratingSlider
-	                            Layout.preferredWidth: Math.round(140 * Theme.layoutScale)
+	                            Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
                                 Layout.preferredHeight: Theme.buttonHeightSmall
                             from: 0
                             to: 10
@@ -1284,12 +1325,9 @@ FocusScope {
                                 x: ratingSlider.leftPadding
                                 y: ratingSlider.topPadding + ratingSlider.availableHeight / 2 - height / 2
                                 width: ratingSlider.availableWidth
-                                height: Math.max(4, Math.round(5 * Theme.layoutScale))
+                                height: Theme.progressHeight
                                 radius: height / 2
-                                color: Theme.inputBackground
-                                border.color: ratingSliderEditing ? Theme.accentPrimary
-                                                                 : (ratingSlider.activeFocus ? Theme.focusBorder : Theme.inputBorder)
-                                border.width: ratingSlider.activeFocus ? 2 : Theme.borderWidth
+                                color: Theme.progressTrack
 
                                 Rectangle {
                                     width: ratingSlider.visualPosition * parent.width
@@ -1301,19 +1339,22 @@ FocusScope {
                             handle: Rectangle {
                                 x: ratingSlider.leftPadding + ratingSlider.visualPosition * (ratingSlider.availableWidth - width)
                                 y: ratingSlider.topPadding + ratingSlider.availableHeight / 2 - height / 2
-                                width: Math.round(18 * Theme.layoutScale)
+                                width: Math.round(26 * Theme.layoutScale)
                                 height: width
                                 radius: width / 2
                                 color: ratingSliderEditing || ratingSlider.pressed ? Theme.accentPrimary : Theme.textPrimary
-                                border.color: Theme.accentPrimary
-                                border.width: ratingSliderEditing ? 2 : Theme.borderWidth
+                                FocusRing {
+                                    active: ratingSlider.activeFocus
+                                    radius: parent.radius
+                                    color: ratingSliderEditing ? Theme.selectionIndicator : Theme.focusRing
+                                }
                             }
                         }
 	
-	                        Button {
+	                        ActionButton {
 	                            id: clearFiltersButton
+	                            variant: "ghost"
 	                            text: "Clear"
-	                            Layout.preferredWidth: Math.round(100 * Theme.layoutScale)
 	                            Layout.preferredHeight: Theme.buttonHeightSmall
 	                            KeyNavigation.left: ratingSlider
 	                            KeyNavigation.down: facetTabs
@@ -1322,36 +1363,21 @@ FocusScope {
                                 syncFilterControls()
                                 applyFilters("clearFiltersButton")
                             }
-                            background: Rectangle {
-                                implicitHeight: Theme.buttonHeightSmall
-                                radius: Theme.radiusSmall
-                                color: {
-                                    if (clearFiltersButton.down) return Theme.buttonSecondaryBackgroundPressed
-                                    if (clearFiltersButton.hovered) return Theme.buttonSecondaryBackgroundHover
-                                    return Theme.inputBackground
-                                }
-                                border.color: clearFiltersButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                                border.width: clearFiltersButton.activeFocus ? 2 : Theme.borderWidth
-                            }
-                            contentItem: Text {
-                                text: clearFiltersButton.text
-                                color: Theme.textPrimary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
                         }
                     }
 
 	                    TabBar {
 	                        id: facetTabs
-	                        Layout.fillWidth: true
+	                        Layout.fillWidth: false
                             background: Rectangle {
-                                color: Qt.rgba(Theme.inputBackground.r, Theme.inputBackground.g, Theme.inputBackground.b, 0.82)
-                                radius: Theme.radiusSmall
-                                border.color: Theme.inputBorder
-                                border.width: Theme.borderWidth
+                                color: "transparent"
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    height: Theme.borderWidth
+                                    color: Theme.surfaceBorder
+                                }
                             }
 	                        KeyNavigation.up: favoriteFilterCombo
 	                        KeyNavigation.down: facetGrid
@@ -1380,51 +1406,99 @@ FocusScope {
 	                            facetGrid.currentIndex = 0
 	                        }
 	                        TabButton {
+                                width: implicitContentWidth + Theme.spacingXLarge * 2
+                                implicitHeight: Theme.buttonHeightSmall
                                 text: "Genres"
                                 contentItem: Text {
                                     text: parent.text
                                     color: parent.checked ? Theme.textPrimary : Theme.textSecondary
                                     font.pixelSize: Theme.fontSizeBody
                                     font.family: Theme.fontPrimary
+                                    font.weight: parent.checked ? Theme.fontWeightStrong : Theme.fontWeightRegular
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 background: Rectangle {
-                                    color: parent.checked ? Theme.buttonTabBackgroundActive : (parent.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")
-                                    border.color: parent.activeFocus ? Theme.focusBorder : "transparent"
-                                    border.width: parent.activeFocus ? 2 : 0
+                                    color: parent.hovered ? Theme.surfaceInteractive : "transparent"
+                                    radius: Theme.radiusSmall
+                                    Rectangle {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        anchors.bottom: parent.bottom
+                                        width: parent.width * 0.6
+                                        height: Theme.selectionIndicatorWidth
+                                        radius: height / 2
+                                        color: Theme.selectionIndicator
+                                        visible: parent.parent.checked
+                                    }
+                                    FocusRing {
+                                        inset: true
+                                        active: facetTabs.activeFocus && parent.parent.checked
+                                        radius: parent.radius
+                                    }
                                 }
                             }
 	                        TabButton {
+                                width: implicitContentWidth + Theme.spacingXLarge * 2
+                                implicitHeight: Theme.buttonHeightSmall
                                 text: "Tags"
                                 contentItem: Text {
                                     text: parent.text
                                     color: parent.checked ? Theme.textPrimary : Theme.textSecondary
                                     font.pixelSize: Theme.fontSizeBody
                                     font.family: Theme.fontPrimary
+                                    font.weight: parent.checked ? Theme.fontWeightStrong : Theme.fontWeightRegular
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 background: Rectangle {
-                                    color: parent.checked ? Theme.buttonTabBackgroundActive : (parent.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")
-                                    border.color: parent.activeFocus ? Theme.focusBorder : "transparent"
-                                    border.width: parent.activeFocus ? 2 : 0
+                                    color: parent.hovered ? Theme.surfaceInteractive : "transparent"
+                                    radius: Theme.radiusSmall
+                                    Rectangle {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        anchors.bottom: parent.bottom
+                                        width: parent.width * 0.6
+                                        height: Theme.selectionIndicatorWidth
+                                        radius: height / 2
+                                        color: Theme.selectionIndicator
+                                        visible: parent.parent.checked
+                                    }
+                                    FocusRing {
+                                        inset: true
+                                        active: facetTabs.activeFocus && parent.parent.checked
+                                        radius: parent.radius
+                                    }
                                 }
                             }
 	                        TabButton {
+                                width: implicitContentWidth + Theme.spacingXLarge * 2
+                                implicitHeight: Theme.buttonHeightSmall
                                 text: currentLibraryType === "tvshows" ? "Networks" : "Studios"
                                 contentItem: Text {
                                     text: parent.text
                                     color: parent.checked ? Theme.textPrimary : Theme.textSecondary
                                     font.pixelSize: Theme.fontSizeBody
                                     font.family: Theme.fontPrimary
+                                    font.weight: parent.checked ? Theme.fontWeightStrong : Theme.fontWeightRegular
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 background: Rectangle {
-                                    color: parent.checked ? Theme.buttonTabBackgroundActive : (parent.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")
-                                    border.color: parent.activeFocus ? Theme.focusBorder : "transparent"
-                                    border.width: parent.activeFocus ? 2 : 0
+                                    color: parent.hovered ? Theme.surfaceInteractive : "transparent"
+                                    radius: Theme.radiusSmall
+                                    Rectangle {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        anchors.bottom: parent.bottom
+                                        width: parent.width * 0.6
+                                        height: Theme.selectionIndicatorWidth
+                                        radius: height / 2
+                                        color: Theme.selectionIndicator
+                                        visible: parent.parent.checked
+                                    }
+                                    FocusRing {
+                                        inset: true
+                                        active: facetTabs.activeFocus && parent.parent.checked
+                                        radius: parent.radius
+                                    }
                                 }
                             }
 	                    }
@@ -1436,8 +1510,8 @@ FocusScope {
 	                        Accessible.role: Accessible.List
 	                        Accessible.name: "Filter choices"
 	                        clip: true
-	                        cellWidth: Math.round(180 * Theme.layoutScale)
-	                        cellHeight: Theme.buttonHeightSmall + Theme.spacingSmall
+	                        cellWidth: Math.round(220 * Theme.layoutScale)
+	                        cellHeight: Theme.buttonHeightSmall + Theme.spacingMedium
 	                        boundsBehavior: Flickable.StopAtBounds
 	                        KeyNavigation.up: facetTabs
 	                        KeyNavigation.down: grid
@@ -1476,23 +1550,26 @@ FocusScope {
                                     id: facetButton
 	                                anchors.left: parent.left
 	                                anchors.right: parent.right
+                                anchors.leftMargin: Theme.spacingXSmall
+                                anchors.rightMargin: Theme.spacingXSmall
 	                                anchors.verticalCenter: parent.verticalCenter
 	                                height: Theme.buttonHeightSmall
-	                                radius: Theme.radiusSmall
-	                                color: {
-                                        if (parent.selected) return Theme.buttonTabBackgroundActive
-                                        return Qt.rgba(Theme.inputBackground.r, Theme.inputBackground.g, Theme.inputBackground.b, 0.78)
-                                    }
-	                                border.width: parent.focused ? 2 : Theme.borderWidth
-	                                border.color: parent.focused ? Theme.focusBorder
-	                                                       : (parent.selected ? Theme.buttonTabBorderActive : Theme.inputBorder)
+                                radius: Theme.radiusControl
+                                color: parent.selected ? Theme.selectionBackground : Theme.surfaceInteractive
+                                border.width: Theme.borderWidth
+                                border.color: parent.selected ? Theme.selectionIndicator : "transparent"
+                                FocusRing {
+                                    inset: true
+                                    active: facetDelegate.focused
+                                    radius: parent.radius
+                                }
 	
 	                                Text {
 	                                anchors.fill: parent
 	                                anchors.leftMargin: Theme.spacingMedium
 	                                anchors.rightMargin: Theme.spacingMedium
-	                                text: facetDelegate.modelData
-	                                color: facetDelegate.selected ? Theme.textPrimary : Theme.textSecondary
+	                                text: (facetDelegate.selected ? "\u2713  " : "") + facetDelegate.modelData
+	                                color: Theme.textPrimary
 	                                font.pixelSize: Theme.fontSizeSmall
 	                                font.family: Theme.fontPrimary
 	                                horizontalAlignment: Text.AlignHCenter
@@ -1539,7 +1616,7 @@ FocusScope {
                 property int columns: Math.max(Theme.gridColumns, 1)
 
                 cellWidth: width / Math.max(columns, 1)
-                cellHeight: (cellWidth - Theme.spacingSmall) * 1.5 + Math.round(70 * Theme.layoutScale)
+                cellHeight: (cellWidth - Theme.spacingLarge) * 1.5 + Math.round(96 * Theme.layoutScale)
 
                 Behavior on opacity {
                     enabled: Theme.uiAnimationsEnabled
@@ -1575,6 +1652,8 @@ FocusScope {
                     if (activeFocus && showFilterPanel) {
                         showFilterPanel = false
                     }
+                    if (activeFocus && count === 0 && gridStateMessage.visible && gridStateMessage.actionText !== "")
+                        Qt.callLater(gridStateMessage.focusAction)
                 }
                 // Allow focused-scale/border overflow at viewport edges.
                 clip: false
@@ -1691,7 +1770,7 @@ FocusScope {
                     property bool baseImageFailed: false
 
                     // Poster dimensions — fill nearly the full cell with minimal spacing
-                    property real posterWidth: grid.cellWidth - Theme.spacingSmall
+                    property real posterWidth: grid.cellWidth - Theme.spacingLarge
                     property real posterHeight: posterWidth * 1.5
 
                     // Handle item pooling/reuse
@@ -1758,7 +1837,7 @@ FocusScope {
 
                     property bool isFocused: grid.currentIndex === index && grid.activeFocus
                     property bool isHovered: InputModeManager.pointerActive && mouseArea.containsMouse
-                    scale: isFocused ? 1.05 : (isHovered ? 1.02 : 1.0)
+                    scale: isFocused ? Theme.focusScale : 1.0
                     z: isFocused ? 2 : 0
                     transformOrigin: Item.Bottom
                     Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
@@ -1777,6 +1856,15 @@ FocusScope {
                             radius: Theme.imageRadius
                             clip: false
                             color: "transparent"
+
+                            ArtworkPlaceholder {
+                                anchors.fill: parent
+                                visible: coverArt.status !== Image.Ready
+                                loading: coverArt.status === Image.Loading
+                                iconGlyph: delegateItem.modelData.mediaType === "Series" ? Icons.tvShows
+                                         : (delegateItem.modelData.mediaType === "Movie" ? Icons.movie : Icons.folder)
+                                title: formatTitle(delegateItem.modelData)
+                            }
 
                             RoundedImage {
                                 id: coverArt
@@ -1803,28 +1891,9 @@ FocusScope {
                                 }
                             }
 
-                            // Focus border overlay
-                            Rectangle {
-                                anchors.centerIn: parent
-                                width: parent.width + border.width * 2
-                                height: parent.height + border.width * 2
-                                radius: Theme.imageRadius + border.width
-                                color: "transparent"
-                                border.width: delegateItem.isFocused ? Theme.buttonFocusBorderWidth : 0
-                                border.color: Theme.accentPrimary
-                                antialiasing: true
-                                visible: border.width > 0
-                                Behavior on border.width { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
-                            }
-
-                            // Loading placeholder
-                            Text {
-                                anchors.centerIn: parent
-                                text: "..."
-                                color: Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                visible: coverArt.status !== Image.Ready
+                            FocusRing {
+                                active: delegateItem.isFocused
+                                radius: Theme.imageRadius
                             }
 
                             // Unwatched episode count badge (for Series only)
@@ -1860,10 +1929,8 @@ FocusScope {
                             text: formatTitle(delegateItem.modelData)
                             font.pixelSize: Theme.fontSizeSmall
                             font.family: Theme.fontPrimary
-                            font.bold: true
+                            font.weight: Theme.fontWeightStrong
                             color: Theme.textPrimary
-                            style: Text.Outline
-                            styleColor: "#000000"
                             elide: Text.ElideRight
                             maximumLineCount: 1
                         }
@@ -1885,11 +1952,9 @@ FocusScope {
                                 }
                                 return start
                             }
-                            font.pixelSize: Theme.fontSizeSmall
+                            font.pixelSize: Theme.fontSizeCaption
                             font.family: Theme.fontPrimary
                             color: Theme.textSecondary
-                            style: Text.Outline
-                            styleColor: "#000000"
                             elide: Text.ElideRight
                             maximumLineCount: 1
                         }
@@ -1926,6 +1991,17 @@ FocusScope {
                     }
                 }
 
+                // Right from the last column (or last item) moves to the A-Z rail.
+                Keys.onRightPressed: (event) => {
+                    var lastColumn = (grid.currentIndex % Math.max(1, grid.columns)) === grid.columns - 1
+                    if (letterRail.visible && (lastColumn || grid.currentIndex === grid.count - 1)) {
+                        letterRail.enter()
+                        event.accepted = true
+                    } else {
+                        event.accepted = false
+                    }
+                }
+
                 Keys.onReturnPressed: (event) => {
                     if (grid.currentIndex >= 0 && grid.currentIndex < LibraryViewModel.rowCount()) {
                         handleSelection(LibraryViewModel.getItem(grid.currentIndex))
@@ -1943,27 +2019,88 @@ FocusScope {
 
         }
 
-        Column {
+        FocusScope {
             id: letterRail
             Layout.alignment: Qt.AlignVCenter
-            Layout.preferredWidth: Math.round(28 * Theme.layoutScale)
-            spacing: Math.round(6 * Theme.layoutScale)
+            Layout.preferredWidth: Math.round(52 * Theme.layoutScale)
+            Layout.preferredHeight: letterColumn.implicitHeight
             visible: letterBuckets.length > 2
+            activeFocusOnTab: false
+            Accessible.role: Accessible.List
+            Accessible.name: qsTr("Jump to letter")
 
-            Repeater {
-                model: letterBuckets
-                delegate: Text {
-                    text: modelData.letter
-                    color: grid.currentIndex >= modelData.index ? Theme.accentSecondary : Theme.textSecondary
-                    font.pixelSize: Theme.fontSizeSmall
-                    horizontalAlignment: Text.AlignHCenter
-                    width: parent.width
-                    opacity: 0.9
+            // Bucket that contains the grid's current item.
+            readonly property int activeBucket: {
+                var result = -1
+                for (var i = 0; i < letterBuckets.length; ++i) {
+                    if (grid.currentIndex >= letterBuckets[i].index)
+                        result = i
+                }
+                return result
+            }
+            property int cursor: 0
 
-                    MouseArea {
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        onClicked: jumpToLetter(modelData.letter)
+            function enter() {
+                cursor = Math.max(0, activeBucket)
+                forceActiveFocus()
+            }
+
+            function commit() {
+                if (cursor >= 0 && cursor < letterBuckets.length)
+                    jumpToLetter(letterBuckets[cursor].letter)
+            }
+
+            Keys.onUpPressed: (event) => { cursor = Math.max(0, cursor - 1); event.accepted = true }
+            Keys.onDownPressed: (event) => { cursor = Math.min(letterBuckets.length - 1, cursor + 1); event.accepted = true }
+            Keys.onLeftPressed: (event) => { grid.forceActiveFocus(); event.accepted = true }
+            Keys.onRightPressed: (event) => { event.accepted = true }
+            Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) commit(); event.accepted = true }
+            Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) commit(); event.accepted = true }
+            Keys.onEscapePressed: (event) => { grid.forceActiveFocus(); event.accepted = true }
+
+            Column {
+                id: letterColumn
+                width: parent.width
+                spacing: Math.round(2 * Theme.layoutScale)
+
+                Repeater {
+                    model: letterBuckets
+                    delegate: Item {
+                        width: letterColumn.width
+                        height: Math.round(40 * Theme.layoutScale)
+                        readonly property bool isActive: index === letterRail.activeBucket
+                        readonly property bool isCursor: letterRail.activeFocus && index === letterRail.cursor
+
+                        Rectangle {
+                            id: letterChip
+                            anchors.centerIn: parent
+                            width: Math.round(40 * Theme.layoutScale)
+                            height: width
+                            radius: width / 2
+                            color: parent.isActive ? Theme.selectionBackground
+                                 : (letterMouse.containsMouse ? Theme.surfaceInteractive : "transparent")
+                            FocusRing {
+                                inset: true
+                                active: parent.parent.isCursor
+                                radius: letterChip.radius
+                            }
+                        }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: modelData.letter
+                            color: parent.isActive || parent.isCursor ? Theme.textPrimary : Theme.textSecondary
+                            font.pixelSize: Theme.fontSizeCaption
+                            font.family: Theme.fontPrimary
+                            font.weight: parent.isActive ? Theme.fontWeightHeavy : Theme.fontWeightMedium
+                        }
+
+                        MouseArea {
+                            id: letterMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: jumpToLetter(modelData.letter)
+                        }
                     }
                 }
             }

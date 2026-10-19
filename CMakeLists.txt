@@ -33,7 +33,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network Sql C
 find_package(Qt6 COMPONENTS MultimediaQuick QUIET)
 include(CTest)
 if(BUILD_TESTING)
-    find_package(Qt6 REQUIRED COMPONENTS Test)
+    find_package(Qt6 REQUIRED COMPONENTS Test QuickTest)
     find_package(GTest QUIET)
     if(NOT GTest_FOUND)
         # Fall back to a pinned FetchContent build for platforms without a

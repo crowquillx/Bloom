@@ -9,6 +9,7 @@ QML & Focus
 - For keyboard/remote UX, `InputModeManager` should detect pointer vs keyboard navigation; hide cursor while navigating via keyboard.
 - Use `Qt.callLater` to restore focus after async view/model updates or cache reloads.
 - UI scale is resolution- and OS-scaling-independent (10-foot, Kodi-style): size everything with `Theme` tokens or `Math.round(N * Theme.layoutScale)`, never bare pixels. See `docs/responsive.md`.
+- Global navigation is the floating left rail (`Sidebar.qml`). Pages reserve `Theme.navRailReservedWidth`, and the rail expands as an overlay without shifting content. Show focus only with the shared `FocusRing` and selection with `selection*` tokens. Use semantic Theme tokens and shared components (`ActionButton`, `BloomMenu`, `DialogSurface`, `StateMessage`, ...) instead of one-off styling. See `docs/theme.md`.
 
 Stack: C++23 (Qt 6/QML) • CMake • mpv (external JSON IPC)
 Keep as much logic as possible in C++ (network, data models, services); QML for UI, animations, and theming.

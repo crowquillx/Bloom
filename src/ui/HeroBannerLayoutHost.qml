@@ -12,6 +12,8 @@ Item {
     property real extraBottomInset: 0
     property real contentWidthRatio: 0.58
     property Item positionRoot: parent
+    /// Draw the carousel focus ring around this block (cardless hero).
+    property bool focusFramed: false
     default property alias content: contentColumn.data
 
     readonly property string resolvedPlacement: centerLarge ? "center" : placement
@@ -34,10 +36,19 @@ Item {
     width: laidOutContentWidth
     height: contentColumn.implicitHeight
 
+    Item {
+        anchors.fill: parent
+        anchors.margins: -Theme.spacingLarge
+        FocusRing {
+            active: root.focusFramed
+            radius: Theme.radiusLarge
+        }
+    }
+
     ColumnLayout {
         id: contentColumn
         width: root.laidOutContentWidth
-        spacing: Theme.spacingSmall
+        spacing: Theme.spacingMedium
         onImplicitHeightChanged: Qt.callLater(root.applyPlacement)
     }
 

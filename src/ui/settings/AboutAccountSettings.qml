@@ -104,32 +104,23 @@ FocusScope {
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
-    // Glass card background
-    Rectangle {
+    GlassPanel {
         anchors.fill: parent
-        radius: Theme.radiusLarge
-        color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.76)
-        border.color: Theme.cardBorder
-        border.width: Theme.borderWidth
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.08) }
-            GradientStop { position: 0.3; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.78) }
-            GradientStop { position: 1.0; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.66) }
-        }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
+        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
         Text {
             text: qsTr("About & Account")
-            font.pixelSize: Theme.fontSizeTitle
+            font.pixelSize: Theme.fontSizeHeader
             font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
+            font.weight: Theme.fontWeightHeavy
             color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingMedium
+            Layout.bottomMargin: Theme.spacingLarge
+            Layout.leftMargin: Theme.spacingMedium
         }
 
         Flickable {
@@ -159,9 +150,9 @@ FocusScope {
 
             ColumnLayout {
                 id: contentColumn
-                x: Theme.spacingSmall
+                x: Theme.spacingMedium
                 y: Theme.spacingSmall
-                width: flickable.width - 2 * Theme.spacingSmall
+                width: flickable.width - 2 * Theme.spacingMedium
                 spacing: Theme.spacingMedium
 
                 // ── Group 1: About Info ──
@@ -276,13 +267,7 @@ FocusScope {
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: updateChannelCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: updateChannelCombo.activeFocus ? 2 : 1
-                        }
+                        background: FieldBackground { control: updateChannelCombo; implicitHeight: Theme.buttonHeightSmall }
 
                         contentItem: Text {
                             text: updateChannelCombo.selectedText()
@@ -303,7 +288,7 @@ FocusScope {
                                 verticalAlignment: Text.AlignVCenter
                             }
                             background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
                                 radius: Theme.radiusSmall
                             }
                             highlighted: ListView.isCurrentItem || updateChannelCombo.highlightedIndex === index
@@ -333,12 +318,7 @@ FocusScope {
                                 Keys.onEscapePressed: updateChannelCombo.popup.close()
                             }
 
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
+                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
                         }
                     }
                 }
@@ -348,8 +328,9 @@ FocusScope {
                     Layout.fillWidth: true
                     spacing: Theme.spacingSmall
 
-                    Button {
+                    ActionButton {
                         id: checkUpdatesBtn
+                        variant: "secondary"
                         focusPolicy: Qt.StrongFocus
                         text: UpdateService.checking ? qsTr("Checking...") : qsTr("Check for Updates")
                         enabled: !UpdateService.checking && !UpdateService.downloadInProgress && !UpdateService.installerLaunched
@@ -379,12 +360,11 @@ FocusScope {
                             root.focusAdjacentUpdateButton(checkUpdatesBtn, 1)
                             event.accepted = true
                         }
-                        contentItem: Text { text: checkUpdatesBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: checkUpdatesBtn.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                        background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: checkUpdatesBtn.activeFocus || checkUpdatesBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground; border.color: checkUpdatesBtn.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder; border.width: checkUpdatesBtn.activeFocus ? 2 : Theme.buttonBorderWidth; opacity: checkUpdatesBtn.enabled ? 1.0 : 0.5 }
                     }
 
-                    Button {
+                    ActionButton {
                         id: downloadInstallBtn
+                        variant: "primary"
                         focusPolicy: Qt.StrongFocus
                         visible: UpdateService.updateAvailable && UpdateService.applySupported
                         text: qsTr("Download and Install")
@@ -415,12 +395,11 @@ FocusScope {
                             root.focusAdjacentUpdateButton(downloadInstallBtn, 1)
                             event.accepted = true
                         }
-                        contentItem: Text { text: downloadInstallBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: downloadInstallBtn.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                        background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: downloadInstallBtn.activeFocus || downloadInstallBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"; border.color: downloadInstallBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary; border.width: downloadInstallBtn.activeFocus ? 2 : 1; opacity: downloadInstallBtn.enabled ? 1.0 : 0.5 }
                     }
 
-                    Button {
+                    ActionButton {
                         id: openInstallerBtn
+                        variant: "secondary"
                         focusPolicy: Qt.StrongFocus
                         visible: UpdateService.updateAvailable && !UpdateService.applySupported && UpdateService.installerUrl.length > 0
                         text: qsTr("Open Installer")
@@ -451,12 +430,11 @@ FocusScope {
                             root.focusAdjacentUpdateButton(openInstallerBtn, 1)
                             event.accepted = true
                         }
-                        contentItem: Text { text: openInstallerBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: openInstallerBtn.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                        background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: openInstallerBtn.activeFocus || openInstallerBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"; border.color: openInstallerBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary; border.width: openInstallerBtn.activeFocus ? 2 : 1; opacity: openInstallerBtn.enabled ? 1.0 : 0.5 }
                     }
 
-                    Button {
+                    ActionButton {
                         id: openPortableBtn
+                        variant: "secondary"
                         focusPolicy: Qt.StrongFocus
                         visible: UpdateService.updateAvailable && !UpdateService.applySupported && UpdateService.portableUrl.length > 0
                         text: qsTr("Open Portable ZIP")
@@ -487,8 +465,6 @@ FocusScope {
                             root.focusAdjacentUpdateButton(openPortableBtn, 1)
                             event.accepted = true
                         }
-                        contentItem: Text { text: openPortableBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: openPortableBtn.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                        background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: openPortableBtn.activeFocus || openPortableBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"; border.color: openPortableBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary; border.width: openPortableBtn.activeFocus ? 2 : 1; opacity: openPortableBtn.enabled ? 1.0 : 0.5 }
                     }
                 }
 
@@ -541,8 +517,9 @@ FocusScope {
                 }
 
                 // Open Download Page button
-                Button {
+                ActionButton {
                     id: openDownloadPageBtn
+                    variant: "secondary"
                     focusPolicy: Qt.StrongFocus
                     visible: UpdateService.updateAvailable
                     text: qsTr("Open Download Page")
@@ -578,8 +555,6 @@ FocusScope {
                     Keys.onRightPressed: function(event) {
                         event.accepted = true
                     }
-                    contentItem: Text { text: openDownloadPageBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: openDownloadPageBtn.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                    background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: openDownloadPageBtn.activeFocus || openDownloadPageBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground; border.color: openDownloadPageBtn.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder; border.width: openDownloadPageBtn.activeFocus ? 2 : Theme.buttonBorderWidth; opacity: openDownloadPageBtn.enabled ? 1.0 : 0.5 }
                 }
 
 
@@ -658,13 +633,7 @@ FocusScope {
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: logLevelCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: logLevelCombo.activeFocus ? 2 : 1
-                        }
+                        background: FieldBackground { control: logLevelCombo; implicitHeight: Theme.buttonHeightSmall }
 
                         contentItem: Text {
                             text: logLevelCombo.selectedText()
@@ -685,7 +654,7 @@ FocusScope {
                                 verticalAlignment: Text.AlignVCenter
                             }
                             background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
                                 radius: Theme.radiusSmall
                             }
                             highlighted: ListView.isCurrentItem || logLevelCombo.highlightedIndex === index
@@ -715,12 +684,7 @@ FocusScope {
                                 Keys.onEscapePressed: logLevelCombo.popup.close()
                             }
 
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
+                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
                         }
                     }
                 }
@@ -742,8 +706,13 @@ FocusScope {
                 }
                 // Session management is available for both providers, but the
                 // destination labels the provider-supported session type.
-                Button {
+                ActionButton {
                     id: activeSessionsBtn
+                    variant: "secondary"
+                    text: typeof SessionService !== "undefined"
+                        ? qsTr("Manage %1").arg(SessionService.sessionTypeLabel)
+                        : qsTr("Manage Sessions")
+                    iconGlyph: Icons.group
                     focusPolicy: Qt.StrongFocus
                     enabled: typeof SessionService !== "undefined"
                         && typeof AuthenticationService !== "undefined"
@@ -767,34 +736,16 @@ FocusScope {
                     Keys.onReturnPressed: root.sessionsRequested()
                     Keys.onEnterPressed: root.sessionsRequested()
 
-                    contentItem: Text {
-                        text: typeof SessionService !== "undefined"
-                            ? qsTr("Manage %1").arg(SessionService.sessionTypeLabel)
-                            : qsTr("Manage Sessions")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
 
-                    background: Rectangle {
-                        implicitHeight: Theme.buttonHeightSmall
-                        radius: Theme.radiusSmall
-                        color: activeSessionsBtn.activeFocus || activeSessionsBtn.hovered
-                            ? Theme.buttonSecondaryBackgroundHover
-                            : Theme.buttonSecondaryBackground
-                        border.color: activeSessionsBtn.activeFocus
-                            ? Theme.focusBorder : Theme.buttonSecondaryBorder
-                        border.width: activeSessionsBtn.activeFocus ? 2 : Theme.buttonBorderWidth
-                        opacity: activeSessionsBtn.enabled ? 1.0 : 0.5
-                    }
                 }
 
                 // Sign Out button
 
-                Button {
+                ActionButton {
                     id: signOutBtn
+                    variant: "destructive"
+                    text: qsTr("Sign Out")
+                    iconGlyph: Icons.logout
                     focusPolicy: Qt.StrongFocus
                     Layout.topMargin: Theme.spacingMedium
                     onClicked: root.signOutRequested()
@@ -812,34 +763,7 @@ FocusScope {
                     Keys.onReturnPressed: root.signOutRequested()
                     Keys.onEnterPressed: root.signOutRequested()
 
-                    contentItem: RowLayout {
-                        spacing: Theme.spacingSmall
 
-                        Text {
-                            text: "\uf2f5"
-                            font.family: Theme.fontIcon
-                            font.pixelSize: Theme.fontSizeBody
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                        }
-
-                        Text {
-                            text: qsTr("Sign Out")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                    }
-
-                    background: Rectangle {
-                        implicitHeight: Theme.buttonHeightSmall
-                        radius: Theme.radiusSmall
-                        color: signOutBtn.activeFocus || signOutBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground
-                        border.color: signOutBtn.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
-                        border.width: signOutBtn.activeFocus ? 2 : Theme.buttonBorderWidth
-                        opacity: signOutBtn.enabled ? 1.0 : 0.5
-                    }
                 }
             }
         }

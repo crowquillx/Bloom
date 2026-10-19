@@ -11,7 +11,7 @@ FocusScope {
 
     signal enterContentRequested()
 
-    implicitWidth: Math.round(320 * Theme.layoutScale)
+    implicitWidth: Math.round(380 * Theme.layoutScale)
 
     readonly property var sectionModel: [
         { sectionKey: "playback",        name: qsTr("Playback"),        icon: "\ue037" },
@@ -30,51 +30,30 @@ FocusScope {
         }
     }
 
-    Rectangle {
+    GlassPanel {
         anchors.fill: parent
-        radius: Theme.radiusLarge
-        color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.76)
-        border.color: Theme.cardBorder
-        border.width: Theme.borderWidth
-
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.08) }
-            GradientStop { position: 0.3; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.78) }
-            GradientStop { position: 1.0; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.66) }
-        }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
-        spacing: Theme.spacingSmall
+        anchors.margins: Theme.spacingMedium + Theme.spacingXSmall
+        spacing: Theme.spacingXSmall
 
         // Settings title
         RowLayout {
             Layout.fillWidth: true
-            Layout.bottomMargin: Theme.spacingSmall
+            Layout.leftMargin: Theme.spacingSmall
+            Layout.topMargin: Theme.spacingSmall
+            Layout.bottomMargin: Theme.spacingMedium
             spacing: Theme.spacingSmall
 
             Text {
-                text: Icons.settings
-                font.family: Theme.fontIcon
-                font.pixelSize: Theme.fontSizeTitle
-                color: Theme.accentPrimary
-            }
-
-            Text {
                 text: qsTr("Settings")
-                font.pixelSize: Theme.fontSizeTitle
+                font.pixelSize: Theme.fontSizeHeader
                 font.family: Theme.fontPrimary
-                font.weight: Font.DemiBold
+                font.weight: Theme.fontWeightHeavy
                 color: Theme.textPrimary
             }
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            height: 1
-            color: Theme.borderLight
         }
 
         ListView {
@@ -103,60 +82,63 @@ FocusScope {
             delegate: ItemDelegate {
                 id: railDelegate
                 width: railList.width
-                height: Math.round(56 * Theme.layoutScale)
+                height: Theme.navRailItemHeight - Theme.spacingSmall
                 focusPolicy: Qt.StrongFocus
-                leftPadding: Theme.spacingSmall
+                leftPadding: Theme.spacingMedium + Theme.spacingSmall
+                rightPadding: Theme.spacingMedium
 
                 property bool isActive: railList.currentIndex === index
                 property bool hasFocus: railDelegate.activeFocus || (railList.activeFocus && isActive)
 
                 background: Rectangle {
+                    id: railItemBackground
                     radius: Theme.radiusMedium
                     color: {
-                        if (railDelegate.hasFocus && railDelegate.isActive)
-                            return Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.20)
-                        if (railDelegate.isActive)
-                            return Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.12)
-                        if (railDelegate.hovered)
-                            return Qt.rgba(1, 1, 1, 0.06)
+                        if (railDelegate.hasFocus) return Theme.surfaceInteractiveHover
+                        if (railDelegate.isActive) return Theme.selectionBackground
+                        if (railDelegate.hovered) return Theme.surfaceInteractive
                         return "transparent"
                     }
-                    border.color: railDelegate.hasFocus ? Theme.focusBorder : "transparent"
-                    border.width: railDelegate.hasFocus ? 2 : 0
 
-                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                    Behavior on color { enabled: Theme.uiAnimationsEnabled; ColorAnimation { duration: Theme.durationShort } }
+
+                    FocusRing {
+                        inset: true
+                        active: railDelegate.hasFocus
+                        radius: railItemBackground.radius
+                    }
                 }
 
                 // Accent bar on left edge for active item
                 Rectangle {
-                    width: Math.round(4 * Theme.layoutScale)
-                    height: parent.height - Theme.spacingSmall * 2
+                    width: Theme.selectionIndicatorWidth
+                    height: Math.round(parent.height * 0.44)
                     anchors.left: parent.left
-                    anchors.leftMargin: Math.round(2 * Theme.layoutScale)
+                    anchors.leftMargin: Math.round(6 * Theme.layoutScale)
                     anchors.verticalCenter: parent.verticalCenter
-                    radius: Math.round(2 * Theme.layoutScale)
-                    color: Theme.accentPrimary
+                    radius: width / 2
+                    color: Theme.selectionIndicator
                     visible: true
                     opacity: railDelegate.isActive ? 1.0 : 0.0
                     Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
                 }
 
                 contentItem: RowLayout {
-                    spacing: Theme.spacingSmall
+                    spacing: Theme.spacingMedium
 
                     Text {
                         text: modelData.icon
                         font.family: Theme.fontIcon
-                        font.pixelSize: Theme.fontSizeBody
-                        color: railDelegate.isActive ? Theme.accentPrimary : Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeIcon
+                        color: railDelegate.isActive ? Theme.selectionIndicator : Theme.textSecondary
                     }
 
                     Text {
                         text: modelData.name
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
-                        font.weight: railDelegate.isActive ? Font.DemiBold : Font.Normal
-                        color: railDelegate.isActive ? Theme.textPrimary : Theme.textSecondary
+                        font.weight: railDelegate.isActive || railDelegate.hasFocus ? Theme.fontWeightStrong : Theme.fontWeightRegular
+                        color: railDelegate.isActive || railDelegate.hasFocus ? Theme.textPrimary : Theme.textSecondary
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }

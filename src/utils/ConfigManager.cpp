@@ -4763,9 +4763,9 @@ QJsonObject ConfigManager::defaultConfig() const
     ui["launch_in_fullscreen"] = true;
     ui["launch_in_fullscreen_user_set"] = false;
     ui["ui_animations_enabled"] = true;
-    ui["theme"] = QStringLiteral("Jellyfin");
-    ui["theme_flavor"] = QString();
-    ui["theme_color_scheme"] = QStringLiteral("blue");
+    ui["theme"] = QStringLiteral("Bloom");
+    ui["theme_flavor"] = QStringLiteral("dusk");
+    ui["theme_color_scheme"] = QStringLiteral("lavender");
 
     // Hero Banner defaults (settings.ui.hero_banner.*)
     QJsonObject heroBanner;

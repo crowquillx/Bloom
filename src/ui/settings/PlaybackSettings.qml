@@ -192,32 +192,23 @@ FocusScope {
         event.accepted = true
     }
 
-    Rectangle {
+    GlassPanel {
         anchors.fill: parent
-        radius: Theme.radiusLarge
-        color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.76)
-        border.color: Theme.cardBorder
-        border.width: Theme.borderWidth
-
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.08) }
-            GradientStop { position: 0.3; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.78) }
-            GradientStop { position: 1.0; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.66) }
-        }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
+        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
         Text {
             text: qsTr("Playback")
-            font.pixelSize: Theme.fontSizeTitle
+            font.pixelSize: Theme.fontSizeHeader
             font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
+            font.weight: Theme.fontWeightHeavy
             color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingMedium
+            Layout.bottomMargin: Theme.spacingLarge
+            Layout.leftMargin: Theme.spacingMedium
         }
 
         Flickable {
@@ -247,9 +238,9 @@ FocusScope {
 
             ColumnLayout {
                 id: contentColumn
-                x: Theme.spacingSmall
+                x: Theme.spacingMedium
                 y: Theme.spacingSmall
-                width: flickable.width - 2 * Theme.spacingSmall
+                width: flickable.width - 2 * Theme.spacingMedium
                 spacing: Theme.spacingMedium
 
                 // ── Group 1: Autoplay ──
@@ -387,14 +378,7 @@ FocusScope {
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: autoplayCountdownCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: autoplayCountdownCombo.activeFocus ? 2 : 1
-                            opacity: autoplayCountdownCombo.enabled ? 1.0 : 0.5
-                        }
+                        background: FieldBackground { control: autoplayCountdownCombo; implicitHeight: Theme.buttonHeightSmall }
 
                         contentItem: Text {
                             text: autoplayCountdownCombo.selectedText()
@@ -416,7 +400,7 @@ FocusScope {
                                 verticalAlignment: Text.AlignVCenter
                             }
                             background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
                                 radius: Theme.radiusSmall
                             }
                             highlighted: ListView.isCurrentItem || autoplayCountdownCombo.highlightedIndex === index
@@ -471,12 +455,7 @@ FocusScope {
                                 Keys.onEscapePressed: autoplayCountdownCombo.popup.close()
                             }
 
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
+                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
                         }
                     }
                 }
@@ -568,7 +547,7 @@ FocusScope {
                         textRole: "label"
                         valueRole: "value"
                         currentIndex: root.selectedOptionIndex(options)
-                        Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
+                        Layout.preferredWidth: Math.round(340 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
 
                         function refreshOptions() {
@@ -915,13 +894,7 @@ FocusScope {
                             event.accepted = true
                         }
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: defaultAudioTrackCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: defaultAudioTrackCombo.activeFocus ? 2 : 1
-                        }
+                        background: FieldBackground { control: defaultAudioTrackCombo; implicitHeight: Theme.buttonHeightSmall }
 
                         contentItem: Text {
                             text: defaultAudioTrackCombo.selectedText()
@@ -944,7 +917,7 @@ FocusScope {
                                 elide: Text.ElideRight
                             }
                             background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
                                 radius: Theme.radiusSmall
                             }
                             highlighted: ListView.isCurrentItem || defaultAudioTrackCombo.highlightedIndex === index
@@ -1006,12 +979,7 @@ FocusScope {
                                 }
                             }
 
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
+                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
                         }
                     }
                 }
@@ -1115,13 +1083,7 @@ FocusScope {
                             event.accepted = true
                         }
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: defaultSubtitleTrackCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: defaultSubtitleTrackCombo.activeFocus ? 2 : 1
-                        }
+                        background: FieldBackground { control: defaultSubtitleTrackCombo; implicitHeight: Theme.buttonHeightSmall }
 
                         contentItem: Text {
                             text: defaultSubtitleTrackCombo.selectedText()
@@ -1144,7 +1106,7 @@ FocusScope {
                                 elide: Text.ElideRight
                             }
                             background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
                                 radius: Theme.radiusSmall
                             }
                             highlighted: ListView.isCurrentItem || defaultSubtitleTrackCombo.highlightedIndex === index
@@ -1206,12 +1168,7 @@ FocusScope {
                                 }
                             }
 
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
+                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
                         }
                     }
                 }
@@ -1386,14 +1343,7 @@ FocusScope {
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: uiSoundsVolumeCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: uiSoundsVolumeCombo.activeFocus ? 2 : 1
-                            opacity: uiSoundsVolumeCombo.enabled ? 1.0 : 0.5
-                        }
+                        background: FieldBackground { control: uiSoundsVolumeCombo; implicitHeight: Theme.buttonHeightSmall }
 
                         contentItem: Text {
                             text: uiSoundsVolumeCombo.selectedText()
@@ -1415,7 +1365,7 @@ FocusScope {
                                 verticalAlignment: Text.AlignVCenter
                             }
                             background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
                                 radius: Theme.radiusSmall
                             }
                             highlighted: ListView.isCurrentItem || uiSoundsVolumeCombo.highlightedIndex === index
@@ -1474,12 +1424,7 @@ FocusScope {
                                 Keys.onEscapePressed: uiSoundsVolumeCombo.popup.close()
                             }
 
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
+                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
                         }
                     }
                 }
@@ -1578,13 +1523,7 @@ FocusScope {
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: themeSongVolumeCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: themeSongVolumeCombo.activeFocus ? 2 : 1
-                        }
+                        background: FieldBackground { control: themeSongVolumeCombo; implicitHeight: Theme.buttonHeightSmall }
 
                         contentItem: Text {
                             text: themeSongVolumeCombo.selectedText()
@@ -1605,7 +1544,7 @@ FocusScope {
                                 verticalAlignment: Text.AlignVCenter
                             }
                             background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
                                 radius: Theme.radiusSmall
                             }
                             highlighted: ListView.isCurrentItem || themeSongVolumeCombo.highlightedIndex === index
@@ -1664,12 +1603,7 @@ FocusScope {
                                 Keys.onEscapePressed: themeSongVolumeCombo.popup.close()
                             }
 
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
+                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
                         }
                     }
                 }

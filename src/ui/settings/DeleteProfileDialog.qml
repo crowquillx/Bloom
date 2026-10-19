@@ -9,32 +9,28 @@ Dialog {
     modal: true
     anchors.centerIn: parent
     width: Math.round(560 * Theme.layoutScale)
-    padding: Theme.spacingLarge
+    padding: Theme.dialogPadding
+    topPadding: Theme.spacingLarge
 
     property string profileToDelete: ""
     property Item restoreFocusTarget: null
 
     signal profileDeleted(string name)
 
-    background: Rectangle {
-        color: Theme.cardBackground
-        radius: Theme.radiusMedium
-        border.color: Theme.cardBorder
-        border.width: 1
-    }
+    background: DialogSurface {}
+    Overlay.modal: ModalScrim {}
 
-    header: Rectangle {
-        color: "transparent"
-        height: Math.round(68 * Theme.layoutScale)
+    header: Item {
+        implicitHeight: Math.round(68 * Theme.layoutScale) + Theme.spacingLarge
         Text {
             text: root.title
             font.pixelSize: Theme.fontSizeTitle
             font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
+            font.weight: Theme.fontWeightHeavy
             color: Theme.textPrimary
             anchors.left: parent.left
-            anchors.leftMargin: Theme.spacingLarge
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Theme.dialogPadding
+            anchors.bottom: parent.bottom
         }
     }
 
@@ -68,15 +64,17 @@ Dialog {
     }
 
     footer: Item {
-        implicitHeight: Theme.buttonHeightSmall + Theme.spacingLarge * 2
+        implicitHeight: Theme.buttonHeightMedium + Theme.dialogPadding + Theme.spacingMedium
         implicitWidth: parent ? parent.width : 400
         RowLayout {
             anchors.fill: parent
-            anchors.margins: Theme.spacingMedium
-            spacing: Theme.spacingSmall
+            anchors.margins: Theme.dialogPadding
+            anchors.topMargin: Theme.spacingMedium
+            spacing: Theme.controlSpacing
 
-            Button {
+            ActionButton {
                 id: cancelBtn
+                variant: "secondary"
                 Layout.fillWidth: true
                 text: qsTr("Cancel")
                 focusPolicy: Qt.StrongFocus
@@ -84,12 +82,11 @@ Dialog {
                 Keys.onReturnPressed: root.reject()
                 Keys.onEnterPressed: root.reject()
                 onClicked: root.reject()
-                contentItem: Text { text: cancelBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: cancelBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground; border.color: cancelBtn.activeFocus ? Theme.focusBorder : Theme.inputBorder; border.width: cancelBtn.activeFocus ? 2 : 1 }
             }
 
-            Button {
+            ActionButton {
                 id: confirmBtn
+                variant: "destructive"
                 Layout.fillWidth: true
                 text: qsTr("Delete")
                 focusPolicy: Qt.StrongFocus
@@ -97,8 +94,6 @@ Dialog {
                 Keys.onReturnPressed: root.accept()
                 Keys.onEnterPressed: root.accept()
                 onClicked: root.accept()
-                contentItem: Text { text: confirmBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: Theme.colorDestructive; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: confirmBtn.hovered ? Theme.destructiveHoverBg : "transparent"; border.color: confirmBtn.activeFocus ? Theme.focusBorder : Theme.destructiveBorder; border.width: confirmBtn.activeFocus ? 2 : 1 }
             }
         }
     }

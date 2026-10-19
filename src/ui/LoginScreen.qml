@@ -248,24 +248,27 @@ FocusScope {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.overlayDark
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.55) }
+            GradientStop { position: 1.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.85) }
+        }
     }
 
     Rectangle {
         id: loginCard
         anchors.centerIn: parent
-        width: Math.min(Math.round(720 * Theme.layoutScale), parent.width - Theme.spacingLarge * 2)
-        height: Math.min(Math.round(660 * Theme.layoutScale), parent.height - Theme.spacingLarge * 2)
-        radius: Theme.radiusXLarge
-        color: Theme.backgroundGlass
-        border.color: Theme.borderLight
+        width: Math.min(Math.round(780 * Theme.layoutScale), parent.width - Theme.spacingLarge * 2)
+        height: Math.min(Math.round(800 * Theme.layoutScale), parent.height - Theme.spacingLarge * 2)
+        radius: Theme.radiusPanel
+        color: Theme.surfaceGlassStrong
+        border.color: Theme.surfaceBorder
         border.width: Theme.borderWidth
 
         ColumnLayout {
             id: cardContent
             anchors.fill: parent
-            anchors.margins: Theme.spacingLarge
-            spacing: Theme.spacingSmall
+            anchors.margins: Theme.dialogPadding
+            spacing: Theme.controlSpacing
 
             Image {
                 source: "qrc:/images/app/logo_trans.svg"
@@ -284,7 +287,7 @@ FocusScope {
                 color: Theme.textPrimary
                 font.family: Theme.fontPrimary
                 font.pixelSize: Theme.fontSizeHeader
-                font.bold: true
+                font.weight: Theme.fontWeightHeavy
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
                 Layout.fillWidth: true
@@ -328,8 +331,10 @@ FocusScope {
                         Layout.fillWidth: true
                         spacing: Theme.spacingSmall
 
-                        Button {
+                        ActionButton {
                             id: autoButton
+                            variant: "secondary"
+                            selected: root.providerSelection === "auto"
                             text: qsTr("Auto")
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.buttonHeightMedium
@@ -341,27 +346,12 @@ FocusScope {
                             KeyNavigation.tab: jellyfinButton
                             KeyNavigation.backtab: credentialCancelButton
                             onClicked: root.selectProvider("auto")
-                            background: Rectangle {
-                                radius: Theme.radiusSmall
-                                color: root.providerSelection === "auto" ? Theme.accentPrimary : Theme.backgroundSecondary
-                                // The accent fill hides an accent focus ring, so selected buttons use the primary focus border.
-                                border.color: autoButton.activeFocus
-                                              ? (root.providerSelection === "auto" ? Theme.buttonPrimaryBorderFocused : Theme.focusBorder)
-                                              : Theme.inputBorder
-                                border.width: autoButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                            }
-                            contentItem: Text {
-                                text: autoButton.text
-                                color: root.providerSelection === "auto" ? Theme.textOnAccent : Theme.textPrimary
-                                font.family: Theme.fontPrimary
-                                font.pixelSize: Theme.fontSizeSmall
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
                         }
 
-                        Button {
+                        ActionButton {
                             id: jellyfinButton
+                            variant: "secondary"
+                            selected: root.providerSelection === "jellyfin"
                             text: qsTr("Jellyfin")
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.buttonHeightMedium
@@ -373,26 +363,12 @@ FocusScope {
                             KeyNavigation.tab: siloButton
                             KeyNavigation.backtab: autoButton
                             onClicked: root.selectProvider("jellyfin")
-                            background: Rectangle {
-                                radius: Theme.radiusSmall
-                                color: root.providerSelection === "jellyfin" ? Theme.accentPrimary : Theme.backgroundSecondary
-                                border.color: jellyfinButton.activeFocus
-                                              ? (root.providerSelection === "jellyfin" ? Theme.buttonPrimaryBorderFocused : Theme.focusBorder)
-                                              : Theme.inputBorder
-                                border.width: jellyfinButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                            }
-                            contentItem: Text {
-                                text: jellyfinButton.text
-                                color: root.providerSelection === "jellyfin" ? Theme.textOnAccent : Theme.textPrimary
-                                font.family: Theme.fontPrimary
-                                font.pixelSize: Theme.fontSizeSmall
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
                         }
 
-                        Button {
+                        ActionButton {
                             id: siloButton
+                            variant: "secondary"
+                            selected: root.providerSelection === "silo"
                             text: qsTr("Silo (Experimental)")
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.buttonHeightMedium
@@ -404,29 +380,13 @@ FocusScope {
                             KeyNavigation.tab: serverField
                             KeyNavigation.backtab: jellyfinButton
                             onClicked: root.selectProvider("silo")
-                            background: Rectangle {
-                                radius: Theme.radiusSmall
-                                color: root.providerSelection === "silo" ? Theme.accentPrimary : Theme.backgroundSecondary
-                                border.color: siloButton.activeFocus
-                                              ? (root.providerSelection === "silo" ? Theme.buttonPrimaryBorderFocused : Theme.focusBorder)
-                                              : Theme.inputBorder
-                                border.width: siloButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                            }
-                            contentItem: Text {
-                                text: siloButton.text
-                                color: root.providerSelection === "silo" ? Theme.textOnAccent : Theme.textPrimary
-                                font.family: Theme.fontPrimary
-                                font.pixelSize: Theme.fontSizeSmall
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
                         }
                     }
 
                     TextField {
                         id: serverField
                         placeholderText: qsTr("https://media.example.com")
-                        placeholderTextColor: Theme.textSecondary
+                        placeholderTextColor: Theme.textTertiary
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         font.pixelSize: Theme.fontSizeBody
@@ -437,12 +397,9 @@ FocusScope {
                         KeyNavigation.tab: userField
                         KeyNavigation.backtab: root.selectedProviderButton()
                         onAccepted: userField.forceActiveFocus()
-                        background: Rectangle {
-                            color: Theme.inputBackground
-                            radius: Theme.radiusSmall
-                            border.color: serverField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: serverField.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                        }
+                        leftPadding: Theme.spacingMedium
+                        rightPadding: Theme.spacingMedium
+                        background: FieldBackground { control: serverField }
                     }
 
                     Text {
@@ -457,7 +414,7 @@ FocusScope {
                     TextField {
                         id: userField
                         placeholderText: root.providerSelection === "silo" ? qsTr("Silo account username") : qsTr("Username")
-                        placeholderTextColor: Theme.textSecondary
+                        placeholderTextColor: Theme.textTertiary
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         font.pixelSize: Theme.fontSizeBody
@@ -468,18 +425,15 @@ FocusScope {
                         KeyNavigation.tab: passField
                         KeyNavigation.backtab: serverField
                         onAccepted: passField.forceActiveFocus()
-                        background: Rectangle {
-                            color: Theme.inputBackground
-                            radius: Theme.radiusSmall
-                            border.color: userField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: userField.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                        }
+                        leftPadding: Theme.spacingMedium
+                        rightPadding: Theme.spacingMedium
+                        background: FieldBackground { control: userField }
                     }
 
                     TextField {
                         id: passField
                         placeholderText: qsTr("Password")
-                        placeholderTextColor: Theme.textSecondary
+                        placeholderTextColor: Theme.textTertiary
                         echoMode: TextInput.Password
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.buttonHeightMedium
@@ -491,20 +445,18 @@ FocusScope {
                         KeyNavigation.tab: connectButton
                         KeyNavigation.backtab: userField
                         onAccepted: root.submitCredentials()
-                        background: Rectangle {
-                            color: Theme.inputBackground
-                            radius: Theme.radiusSmall
-                            border.color: passField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: passField.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                        }
+                        leftPadding: Theme.spacingMedium
+                        rightPadding: Theme.spacingMedium
+                        background: FieldBackground { control: passField }
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.spacingSmall
 
-                        Button {
+                        ActionButton {
                             id: credentialCancelButton
+                            variant: "secondary"
                             text: qsTr("Reset")
                             Layout.preferredWidth: Math.round(160 * Theme.layoutScale)
                             Layout.preferredHeight: Theme.buttonHeightLarge
@@ -521,24 +473,11 @@ FocusScope {
                                 passField.clear()
                                 root.cancelAuthentication()
                             }
-                            background: Rectangle {
-                                radius: Theme.radiusSmall
-                                color: Theme.backgroundSecondary
-                                border.color: credentialCancelButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                                border.width: credentialCancelButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                            }
-                            contentItem: Text {
-                                text: credentialCancelButton.text
-                                color: Theme.textPrimary
-                                font.family: Theme.fontPrimary
-                                font.pixelSize: Theme.fontSizeSmall
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
                         }
 
-                        Button {
+                        ActionButton {
                             id: connectButton
+                            variant: "primary"
                             text: qsTr("Sign in")
                             enabled: serverField.text.trim().length > 0
                             Layout.fillWidth: true
@@ -551,20 +490,6 @@ FocusScope {
                             KeyNavigation.tab: credentialCancelButton
                             KeyNavigation.backtab: passField
                             onClicked: root.submitCredentials()
-                            background: Rectangle {
-                                radius: Theme.radiusSmall
-                                color: connectButton.enabled ? Theme.accentPrimary : Theme.backgroundSecondary
-                                border.color: connectButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                                border.width: connectButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                            }
-                            contentItem: Text {
-                                text: connectButton.text
-                                color: connectButton.enabled ? Theme.textOnAccent : Theme.textDisabled
-                                font.family: Theme.fontPrimary
-                                font.pixelSize: Theme.fontSizeTitle
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
                         }
                     }
                 }
@@ -628,11 +553,13 @@ FocusScope {
                             width: profileList.width
                             height: Math.round(88 * Theme.layoutScale)
                             radius: Theme.radiusMedium
-                            color: profileList.currentIndex === index ? Theme.accentPrimary : Theme.backgroundSecondary
-                            border.color: profileList.activeFocus && profileList.currentIndex === index
-                                          ? Theme.focusBorder : Theme.inputBorder
-                            border.width: profileList.activeFocus && profileList.currentIndex === index
-                                          ? Theme.buttonFocusBorderWidth : Theme.borderWidth
+                            color: profileList.currentIndex === index ? Theme.surfaceInteractiveHover : Theme.surfaceInteractive
+
+                            FocusRing {
+                                inset: true
+                                active: profileList.activeFocus && profileList.currentIndex === index
+                                radius: parent.radius
+                            }
 
                             MouseArea {
                                 anchors.fill: parent
@@ -658,16 +585,16 @@ FocusScope {
                                     Layout.preferredWidth: Math.round(64 * Theme.layoutScale)
                                     Layout.preferredHeight: Math.round(64 * Theme.layoutScale)
                                     radius: width / 2
-                                    color: Theme.inputBackground
+                                    color: Theme.selectionBackground
                                     clip: true
 
                                     Text {
                                         anchors.centerIn: parent
                                         text: root.profileName(modelData).charAt(0).toUpperCase()
-                                        color: profileList.currentIndex === index ? Theme.textOnAccent : Theme.textPrimary
+                                        color: Theme.textPrimary
                                         font.family: Theme.fontPrimary
                                         font.pixelSize: Theme.fontSizeTitle
-                                        font.bold: true
+                                        font.weight: Theme.fontWeightStrong
                                         visible: root.profileAvatar(modelData).length === 0
                                     }
 
@@ -687,17 +614,17 @@ FocusScope {
 
                                     Text {
                                         text: root.profileName(modelData)
-                                        color: profileList.currentIndex === index ? Theme.textOnAccent : Theme.textPrimary
+                                        color: Theme.textPrimary
                                         font.family: Theme.fontPrimary
                                         font.pixelSize: Theme.fontSizeBody
-                                        font.bold: true
+                                        font.weight: Theme.fontWeightStrong
                                         elide: Text.ElideRight
                                         Layout.fillWidth: true
                                     }
 
                                     Text {
                                         text: root.profileHasPin(modelData) ? qsTr("PIN required") : qsTr("No PIN required")
-                                        color: profileList.currentIndex === index ? Theme.textOnAccent : Theme.textSecondary
+                                        color: Theme.textSecondary
                                         font.family: Theme.fontPrimary
                                         font.pixelSize: Theme.fontSizeCaption
                                         Layout.fillWidth: true
@@ -706,8 +633,8 @@ FocusScope {
 
                                 Text {
                                     text: root.profileHasPin(modelData) ? "lock" : "arrow_forward"
-                                    color: profileList.currentIndex === index ? Theme.textOnAccent : Theme.textPrimary
-                                    font.family: "Material Symbols Outlined"
+                                    color: Theme.textPrimary
+                                    font.family: Theme.fontIcon
                                     font.pixelSize: Theme.fontSizeIcon
                                 }
                             }
@@ -724,8 +651,9 @@ FocusScope {
                         }
                     }
 
-                    Button {
+                    ActionButton {
                         id: profilesBackButton
+                        variant: "secondary"
                         text: qsTr("Back to sign in")
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.buttonHeightMedium
@@ -749,20 +677,6 @@ FocusScope {
                             event.accepted = true
                         }
                         onClicked: root.cancelAuthentication()
-                        background: Rectangle {
-                            radius: Theme.radiusSmall
-                            color: Theme.backgroundSecondary
-                            border.color: profilesBackButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: profilesBackButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                        }
-                        contentItem: Text {
-                            text: profilesBackButton.text
-                            color: Theme.textPrimary
-                            font.family: Theme.fontPrimary
-                            font.pixelSize: Theme.fontSizeSmall
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
                 }
 
@@ -776,7 +690,7 @@ FocusScope {
                         Layout.preferredWidth: Math.round(104 * Theme.layoutScale)
                         Layout.preferredHeight: Math.round(104 * Theme.layoutScale)
                         radius: width / 2
-                        color: Theme.inputBackground
+                        color: Theme.selectionBackground
                         clip: true
 
                         Text {
@@ -785,9 +699,9 @@ FocusScope {
                                   ? root.selectedProfileName.charAt(0).toUpperCase() : "lock"
                             color: Theme.textPrimary
                             font.family: root.selectedProfileName.length > 0
-                                         ? Theme.fontPrimary : "Material Symbols Outlined"
+                                         ? Theme.fontPrimary : Theme.fontIcon
                             font.pixelSize: Theme.fontSizeHeader
-                            font.bold: true
+                            font.weight: Theme.fontWeightStrong
                             visible: root.selectedProfileAvatar.length === 0
                         }
 
@@ -804,7 +718,7 @@ FocusScope {
                     TextField {
                         id: pinField
                         placeholderText: qsTr("Profile PIN")
-                        placeholderTextColor: Theme.textSecondary
+                        placeholderTextColor: Theme.textTertiary
                         echoMode: TextInput.Password
                         inputMethodHints: Qt.ImhDigitsOnly | Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
                         horizontalAlignment: TextInput.AlignHCenter
@@ -818,16 +732,14 @@ FocusScope {
                         KeyNavigation.tab: verifyPinButton
                         KeyNavigation.backtab: pinCancelButton
                         onAccepted: root.submitPin()
-                        background: Rectangle {
-                            color: Theme.inputBackground
-                            radius: Theme.radiusSmall
-                            border.color: pinField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: pinField.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                        }
+                        leftPadding: Theme.spacingMedium
+                        rightPadding: Theme.spacingMedium
+                        background: FieldBackground { control: pinField }
                     }
 
-                    Button {
+                    ActionButton {
                         id: verifyPinButton
+                        variant: "primary"
                         text: qsTr("Unlock profile")
                         enabled: pinField.text.length > 0
                         Layout.fillWidth: true
@@ -838,24 +750,11 @@ FocusScope {
                         KeyNavigation.tab: pinCancelButton
                         KeyNavigation.backtab: pinField
                         onClicked: root.submitPin()
-                        background: Rectangle {
-                            radius: Theme.radiusSmall
-                            color: verifyPinButton.enabled ? Theme.accentPrimary : Theme.backgroundSecondary
-                            border.color: verifyPinButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: verifyPinButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                        }
-                        contentItem: Text {
-                            text: verifyPinButton.text
-                            color: verifyPinButton.enabled ? Theme.textOnAccent : Theme.textDisabled
-                            font.family: Theme.fontPrimary
-                            font.pixelSize: Theme.fontSizeTitle
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
 
-                    Button {
+                    ActionButton {
                         id: pinCancelButton
+                        variant: "secondary"
                         text: qsTr("Cancel and return to sign in")
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.buttonHeightMedium
@@ -865,20 +764,6 @@ FocusScope {
                         KeyNavigation.tab: pinField
                         KeyNavigation.backtab: verifyPinButton
                         onClicked: root.cancelAuthentication()
-                        background: Rectangle {
-                            radius: Theme.radiusSmall
-                            color: Theme.backgroundSecondary
-                            border.color: pinCancelButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: pinCancelButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
-                        }
-                        contentItem: Text {
-                            text: pinCancelButton.text
-                            color: Theme.textPrimary
-                            font.family: Theme.fontPrimary
-                            font.pixelSize: Theme.fontSizeSmall
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                     }
 
                     Item { Layout.fillHeight: true }
@@ -891,10 +776,10 @@ FocusScope {
                                         ? Math.max(Theme.buttonHeightSmall, statusLabel.implicitHeight + Theme.spacingSmall * 2)
                                         : 0
                 visible: statusMessage.length > 0
-                radius: Theme.radiusSmall
-                color: Theme.inputBackground
-                border.color: statusIsError ? Theme.errorColor : Theme.borderLight
-                border.width: Theme.borderWidth
+                radius: Theme.radiusControl
+                color: statusIsError ? Theme.actionDestructiveBackground : Theme.surfaceInteractive
+                border.color: statusIsError ? Theme.errorColor : "transparent"
+                border.width: statusIsError ? Theme.borderWidth : 0
 
                 Text {
                     id: statusLabel

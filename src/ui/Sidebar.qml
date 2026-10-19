@@ -1,38 +1,42 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Effects
 import BloomUI
 
 /**
- * Sidebar - A glassmorphic, accessible navigation sidebar
- * 
- * Features:
- * - Collapsed rail (64px) with icons and tooltips
- * - Expanded panel (260px) with icons and labels
- * - Hamburger toggle button fixed at top-left
- * - Full keyboard/DPAD navigation: Enter/Space toggle, ESC close, arrow keys
- * - Overlay mode on narrow screens (<960px), push mode on wider screens
- * - Focus trap when open (modal behavior)
- * - State persistence via SidebarSettings (QSettings)
- * - Respects reduced-motion preference
- * - Glassmorphic design following Theme system
+ * Sidebar - Bloom's floating navigation rail.
+ *
+ * - Floats inset from the window edges with rounded corners and a restrained
+ *   translucent surface. Content reserves only the collapsed footprint
+ *   (Theme.navRailReservedWidth); expansion overlays the page without moving,
+ *   resizing or recropping it.
+ * - Collapsed: large icons. Expanded: icons + labels. The rail expands while
+ *   keyboard/gamepad focus is inside it, or while pinned open from the pointer
+ *   toggle; hover is never required.
+ * - The current page shows an accent indicator and tinted fill; the focused
+ *   entry shows the shared high-contrast FocusRing.
+ * - Up/Down walk every entry in order, Right/Escape return focus to the page,
+ *   Enter/Space activate, Shift+Enter starts library reordering.
+ * - Pointer clicks navigate directly without stealing keyboard focus.
  */
-Item {
+FocusScope {
     id: root
+
     // ========================================
     // Public API
     // ========================================
-    
-    /// Whether the sidebar is expanded (panel) or collapsed (rail)
-    property bool expanded: SidebarSettings.sidebarExpanded
-    
-    /// Whether to use overlay mode (true) or push mode (false)
-    /// Defaults from Theme.sidebarDefaultMode ("overlay" or "push"), but can be overridden
-    property bool overlayMode: Theme.sidebarDefaultMode === "overlay"
-    
-    /// Navigation items for the sidebar - using direct icon references
-    /// to ensure they're evaluated at render time
+
+    /// Pinned open from the pointer toggle (labels visible without focus).
+    property bool pinnedOpen: false
+
+    /// Whether the rail is showing labels. True while focus is inside the
+    /// rail or while pinned open.
+    readonly property bool expanded: root.activeFocus || pinnedOpen
+
+    /// Kept for API compatibility; the floating rail never pushes content.
+    property bool overlayMode: false
+
+    /// Navigation destinations above the library list.
     property var navigationItems: [
         { id: "home", icon: Icons.home, label: qsTr("Home"), tooltip: qsTr("Home") },
         { id: "search", icon: Icons.search, label: qsTr("Search"), tooltip: qsTr("Search movies and shows") }
@@ -80,7 +84,7 @@ Item {
             reorderingIndex = libraryItems.length - 1
         }
     }
-    
+
     /// Current active navigation item
     property string currentNavigation: "home"
     /// Current active library id (derived from currentNavigation when applicable)
@@ -90,7 +94,6 @@ Item {
     property var libraryItems: []
     property int reorderingIndex: -1
     property bool reorderModeActive: reorderingIndex >= 0
-    readonly property int reorderHoldDuration: 500
 
     property bool _updatesReady: false
     property bool _updatesAvailable: false
@@ -99,37 +102,28 @@ Item {
     signal navigationRequested(string navigationId)
     /// Signal emitted when a library is selected
     signal libraryRequested(string libraryId, string libraryName)
-    
     /// Signal emitted when user requests to sign out
     signal signOutRequested()
-    
     /// Signal emitted when user requests to exit the app
     signal exitRequested()
-    
-    // ========================================
-    // Internal Properties
-    // ========================================
-    
-    readonly property int collapsedWidth: Math.round(64 * Theme.layoutScale)
-    readonly property int expandedWidth: Math.round(260 * Theme.layoutScale)
-    readonly property int headerHeight: Math.round(64 * Theme.layoutScale)
-    
-    // Animation duration (respects reduced motion)
-    readonly property int animDuration: SidebarSettings.reduceMotion ? 0 : Theme.durationNormal
-    
-    // Computed sidebar width
-    readonly property int sidebarWidth: expanded ? expandedWidth : collapsedWidth
-    
-    // Whether sidebar should be visible at all (in overlay mode, only when expanded)
-    readonly property bool sidebarVisible: !overlayMode || expanded
-    
-    // Reference to the window for width checks
-    property var window: Window.window
 
-    // Initialize library ordering
-    Component.onCompleted: {
-        syncLibraryItems()
-    }
+    /// Reference to the main content for focus return
+    property Item mainContent: null
+
+    // ========================================
+    // Geometry
+    // ========================================
+
+    readonly property int collapsedWidth: Theme.navRailCollapsedWidth
+    readonly property int expandedWidth: Theme.navRailExpandedWidth
+    /// Width the page must reserve on its left edge. Constant: expansion
+    /// overlays the content instead of pushing it.
+    readonly property int sidebarWidth: Theme.navRailReservedWidth
+    readonly property int railPadding: Math.round(12 * Theme.layoutScale)
+    readonly property int animDuration: (SidebarSettings.reduceMotion || !Theme.uiAnimationsEnabled)
+                                        ? 0 : Theme.durationNormal
+
+    Component.onCompleted: syncLibraryItems()
 
     Connections {
         target: LibraryViewModel
@@ -169,16 +163,18 @@ Item {
     // ========================================
     // Public Functions
     // ========================================
-    
-    /// Reference to the main content for focus return
-    property Item mainContent: null
-    
+
     function toggle() {
-        SidebarSettings.toggleSidebar()
+        if (expanded) {
+            close()
+        } else {
+            activateKeyboardNavigation()
+            focusRail()
+        }
     }
-    
+
     function open() {
-        SidebarSettings.sidebarExpanded = true
+        focusRail()
     }
 
     function activateKeyboardNavigation() {
@@ -187,18 +183,14 @@ Item {
         InputModeManager.setNavigationMode("keyboard")
         InputModeManager.hideCursor(true)
     }
-    
+
     function close() {
-        SidebarSettings.sidebarExpanded = false
-        Qt.callLater(function() {
-            if (mainContent) {
-                if (typeof mainContent.restoreFocusFromSidebar === "function") {
-                    mainContent.restoreFocusFromSidebar()
-                } else {
-                    mainContent.forceActiveFocus()
-                }
-            }
-        })
+        var hadFocus = root.activeFocus
+        pinnedOpen = false
+        finishReorder()
+        if (!hadFocus)
+            return
+        Qt.callLater(restoreMainContentFocus)
     }
 
     function restoreMainContentFocus() {
@@ -212,29 +204,78 @@ Item {
     }
 
     function handleNavigation(navigationId) {
+        var hadFocus = root.activeFocus
+        pinnedOpen = false
         currentNavigation = navigationId
         if (navigationId.indexOf("library:") !== 0) {
             currentLibraryId = ""
         }
         navigationRequested(navigationId)
-        if (overlayMode) {
-            close()
-        }
+        if (hadFocus)
+            Qt.callLater(restoreMainContentFocus)
     }
-    
-    /// Focus the entry for the current page (Home, Search, a library, or Settings).
-    /// Returns false when no matching entry is focusable.
+
+    function activateLibrary(index) {
+        var library = libraryItems[index]
+        if (!library)
+            return
+        var hadFocus = root.activeFocus
+        pinnedOpen = false
+        currentNavigation = "library:" + (library.itemId || "")
+        currentLibraryId = library.itemId || ""
+        libraryRequested(library.itemId || "", library.name || "")
+        if (hadFocus)
+            Qt.callLater(restoreMainContentFocus)
+    }
+
+    /// Ordered list of focusable rail entries (top to bottom).
+    function focusOrder() {
+        var entries = []
+        for (var i = 0; i < navRepeater.count; ++i) {
+            var navEntry = navRepeater.itemAt(i)
+            if (navEntry && navEntry.visible)
+                entries.push(navEntry)
+        }
+        for (var j = 0; j < libraryRepeater.count; ++j) {
+            var libraryEntry = libraryRepeater.itemAt(j)
+            if (libraryEntry && libraryEntry.visible)
+                entries.push(libraryEntry)
+        }
+        if (updatesEntry.visible)
+            entries.push(updatesEntry)
+        entries.push(settingsEntry)
+        entries.push(accountEntry)
+        entries.push(powerEntry)
+        return entries
+    }
+
+    function moveFocus(fromItem, delta) {
+        var entries = focusOrder()
+        var index = entries.indexOf(fromItem)
+        if (index < 0)
+            return
+        var next = Math.max(0, Math.min(entries.length - 1, index + delta))
+        if (next !== index)
+            entries[next].forceActiveFocus()
+    }
+
+    /// Focus the entry for the current page (Home, Search, a library, or
+    /// Settings). Returns false when no matching entry is focusable.
     function focusActiveItem() {
-        if (currentNavigation === "settings" && settingsButton.visible) {
-            settingsButton.forceActiveFocus()
+        if (currentNavigation === "settings") {
+            settingsEntry.forceActiveFocus()
+            return true
+        }
+        if (currentNavigation === "updates" && updatesEntry.visible) {
+            updatesEntry.forceActiveFocus()
             return true
         }
         if (currentLibraryId !== "") {
             for (var i = 0; i < libraryItems.length; ++i) {
                 if (libraryItems[i] && libraryItems[i].itemId === currentLibraryId) {
-                    libraryListView.currentIndex = i
-                    if (libraryListView.currentItem) {
-                        libraryListView.currentItem.forceActiveFocus()
+                    var libraryEntry = libraryRepeater.itemAt(i)
+                    if (libraryEntry) {
+                        libraryEntry.forceActiveFocus()
                         return true
                     }
                     break
@@ -243,9 +284,9 @@ Item {
         }
         for (var j = 0; j < navigationItems.length; ++j) {
             if (navigationItems[j].id === currentNavigation) {
-                navListView.currentIndex = j
-                if (navListView.currentItem) {
-                    navListView.currentItem.forceActiveFocus()
+                var navEntry = navRepeater.itemAt(j)
+                if (navEntry) {
+                    navEntry.forceActiveFocus()
                     return true
                 }
                 break
@@ -254,23 +295,32 @@ Item {
         return false
     }
 
-    /// Focus the rail (called from main content via Left arrow at edge). Lands on the
-    /// current page's entry so a single Up/Down reaches neighbouring pages.
+    /// Focus the rail (called from main content via Left arrow at edge). Lands
+    /// on the current page's entry so a single Up/Down reaches neighbours.
     function focusRail() {
-        if (!focusActiveItem())
-            hamburgerButton.forceActiveFocus()
-    }
-    
-    /// Focus the navigation list (called from main content when sidebar is expanded)
-    function focusNavigation() {
-        if (expanded && !focusActiveItem()) {
-            if (navListView.count > 0) {
-                navListView.currentIndex = 0
-                navListView.currentItem.forceActiveFocus()
-            } else {
-                sidebarHamburger.forceActiveFocus()
-            }
+        if (!focusActiveItem()) {
+            var entries = focusOrder()
+            if (entries.length > 0)
+                entries[0].forceActiveFocus()
         }
+    }
+
+    /// Rail entry that opened the current confirmation dialog (sign out,
+    /// exit), so cancelling the dialog returns focus to it.
+    property Item dialogOriginEntry: null
+
+    function focusDialogOrigin() {
+        var origin = dialogOriginEntry
+        dialogOriginEntry = null
+        if (origin && origin.visible)
+            origin.forceActiveFocus()
+        else
+            focusRail()
+    }
+
+    /// Kept for callers written against the push-mode sidebar.
+    function focusNavigation() {
+        focusRail()
     }
 
     function reorderLibrary(fromIndex, toIndex) {
@@ -285,1242 +335,591 @@ Item {
         orderedLibraryItems = reordered
         reorderingIndex = toIndex
         SidebarSettings.libraryOrder = reordered.map(function (v) { return v.itemId })
-        libraryListView.currentIndex = toIndex
         Qt.callLater(function() {
-            if (libraryListView.currentItem) {
-                libraryListView.currentItem.forceActiveFocus()
-            }
+            var moved = libraryRepeater.itemAt(toIndex)
+            if (moved)
+                moved.forceActiveFocus()
         })
     }
 
     function finishReorder() {
         reorderingIndex = -1
     }
-    
+
+    function libraryIcon(library) {
+        var collectionType = String((library && library.collectionType) || "").toLowerCase()
+        if (collectionType === "tvshows") return Icons.tvShows
+        if (collectionType === "movies") return Icons.movie
+        if (collectionType === "music") return Icons.music
+        if (collectionType === "musicvideos") return Icons.videocam
+        if (collectionType === "boxsets") return Icons.videoLibrary
+        if (collectionType === "homevideos" || collectionType === "photos") return Icons.photo
+        return Icons.folder
+    }
+
+    readonly property string accountName: (typeof ConfigManager !== "undefined" && ConfigManager.username)
+                                          ? ConfigManager.username : ""
+
     // ========================================
-    // Backdrop (Overlay Mode Only)
+    // Rail entry
     // ========================================
-    
+
+    component RailEntry: AbstractButton {
+        id: entry
+
+        property string iconGlyph: ""
+        property string label: ""
+        property string sublabel: ""
+        property string toolTipLabel: label
+        property bool selected: false
+        property bool showBadge: false
+        property bool reordering: false
+        property bool avatar: false
+        property bool subdued: false
+        property int libraryIndex: -1
+
+        signal activated(bool withShift)
+
+        width: railColumn.width
+        height: Theme.navRailItemHeight
+        // Pointer clicks navigate without moving keyboard focus into the rail.
+        focusPolicy: Qt.NoFocus
+        hoverEnabled: true
+
+        Accessible.role: Accessible.MenuItem
+        Accessible.name: sublabel !== "" ? label + ", " + sublabel : label
+        Accessible.description: toolTipLabel
+        Accessible.focusable: true
+
+        onClicked: activated(false)
+
+        onActiveFocusChanged: {
+            if (activeFocus)
+                root.ensureEntryVisible(entry)
+        }
+
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                if (!event.isAutoRepeat) {
+                    root.activateKeyboardNavigation()
+                    entry.activated((event.modifiers & Qt.ShiftModifier) && event.key !== Qt.Key_Space)
+                }
+                event.accepted = true
+            } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+                root.activateKeyboardNavigation()
+                var delta = event.key === Qt.Key_Up ? -1 : 1
+                if (root.reorderModeActive) {
+                    // While reordering, Up/Down move the library being reordered.
+                    if (entry.reordering) {
+                        root.reorderLibrary(entry.libraryIndex,
+                                            Math.max(0, Math.min(root.libraryItems.length - 1, entry.libraryIndex + delta)))
+                    }
+                } else {
+                    root.moveFocus(entry, delta)
+                }
+                event.accepted = true
+            } else if (event.key === Qt.Key_Right) {
+                root.activateKeyboardNavigation()
+                root.finishReorder()
+                root.restoreMainContentFocus()
+                event.accepted = true
+            } else if (event.key === Qt.Key_Left) {
+                event.accepted = true
+            } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+                root.activateKeyboardNavigation()
+                if (root.reorderModeActive)
+                    root.finishReorder()
+                else
+                    root.close()
+                event.accepted = true
+            }
+        }
+
+        ToolTip.visible: !root.expanded && hovered && toolTipLabel !== ""
+        ToolTip.text: toolTipLabel
+        ToolTip.delay: 400
+
+        background: Rectangle {
+            id: entryBackground
+            radius: Theme.radiusMedium
+            color: {
+                if (entry.reordering) return Theme.surfaceInteractivePressed
+                if (entry.down) return Theme.surfaceInteractivePressed
+                if (entry.activeFocus) return Theme.surfaceInteractiveHover
+                if (entry.selected) return Theme.selectionBackground
+                if (entry.hovered) return Theme.surfaceInteractive
+                return "transparent"
+            }
+            Behavior on color {
+                enabled: Theme.uiAnimationsEnabled
+                ColorAnimation { duration: Theme.durationShort }
+            }
+
+            // Current-page indicator: an accent bar on the leading edge.
+            Rectangle {
+                anchors.left: parent.left
+                anchors.leftMargin: Math.round(6 * Theme.layoutScale)
+                anchors.verticalCenter: parent.verticalCenter
+                width: Theme.selectionIndicatorWidth
+                height: entry.selected ? Math.round(parent.height * 0.44) : 0
+                radius: width / 2
+                color: Theme.selectionIndicator
+                visible: height > 0
+                Behavior on height {
+                    enabled: Theme.uiAnimationsEnabled
+                    NumberAnimation { duration: Theme.durationShort; easing.type: Easing.OutCubic }
+                }
+            }
+
+            FocusRing {
+                inset: true
+                active: entry.activeFocus || entry.reordering
+                color: entry.reordering ? Theme.selectionIndicator : Theme.focusRing
+                radius: entryBackground.radius
+            }
+        }
+
+        contentItem: Item {
+            Item {
+                id: iconSlot
+                x: 0
+                width: root.collapsedWidth - root.railPadding * 2
+                height: parent.height
+
+                Text {
+                    anchors.centerIn: parent
+                    visible: !entry.avatar
+                    text: entry.iconGlyph
+                    font.family: Theme.fontIcon
+                    font.pixelSize: Theme.iconSizeNav
+                    color: entry.selected ? Theme.selectionIndicator
+                         : (entry.subdued && !entry.activeFocus ? Theme.textSecondary : Theme.textPrimary)
+                    Behavior on color {
+                        enabled: Theme.uiAnimationsEnabled
+                        ColorAnimation { duration: Theme.durationShort }
+                    }
+                }
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    visible: entry.avatar
+                    width: Math.round(42 * Theme.layoutScale)
+                    height: width
+                    radius: width / 2
+                    color: Theme.selectionBackground
+                    border.width: Theme.borderWidth
+                    border.color: Theme.surfaceBorderStrong
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: entry.iconGlyph
+                        font.family: Theme.fontPrimary
+                        font.pixelSize: Theme.fontSizeBody
+                        font.weight: Theme.fontWeightStrong
+                        color: Theme.textPrimary
+                    }
+                }
+
+                Rectangle {
+                    visible: entry.showBadge
+                    width: Math.round(12 * Theme.layoutScale)
+                    height: width
+                    radius: width / 2
+                    x: parent.width / 2 + Math.round(10 * Theme.layoutScale)
+                    y: parent.height / 2 - Math.round(20 * Theme.layoutScale)
+                    color: Theme.accentPrimary
+                    border.width: Math.max(1, Math.round(2 * Theme.layoutScale))
+                    border.color: Theme.backgroundPrimary
+                }
+            }
+
+            Column {
+                anchors.left: iconSlot.right
+                anchors.leftMargin: Math.round(6 * Theme.layoutScale)
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.spacingMedium
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Math.round(2 * Theme.layoutScale)
+                opacity: root.expanded ? 1.0 : 0.0
+                visible: opacity > 0
+                Behavior on opacity {
+                    enabled: Theme.uiAnimationsEnabled
+                    NumberAnimation { duration: root.animDuration }
+                }
+
+                Text {
+                    width: parent.width
+                    text: entry.label
+                    elide: Text.ElideRight
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    font.weight: entry.selected || entry.activeFocus ? Theme.fontWeightStrong : Theme.fontWeightMedium
+                    color: entry.selected || entry.activeFocus ? Theme.textPrimary
+                         : (entry.subdued ? Theme.textSecondary : Theme.textPrimary)
+                }
+
+                Text {
+                    width: parent.width
+                    visible: text !== ""
+                    text: entry.sublabel
+                    elide: Text.ElideRight
+                    font.pixelSize: Theme.fontSizeCaption
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                }
+            }
+        }
+    }
+
+    function ensureEntryVisible(entry) {
+        if (!entry || !libraryFlick.contentItem)
+            return
+        if (entry.parent !== libraryColumn)
+            return
+        var top = entry.y
+        var bottom = entry.y + entry.height
+        if (top < libraryFlick.contentY)
+            libraryFlick.contentY = top
+        else if (bottom > libraryFlick.contentY + libraryFlick.height)
+            libraryFlick.contentY = bottom - libraryFlick.height
+    }
+
+    // ========================================
+    // Pointer dismissal + legibility scrim (expanded only)
+    // ========================================
+
     Rectangle {
-        id: backdrop
-        anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.6)
-        visible: overlayMode && expanded
-        opacity: visible ? 1.0 : 0.0
-        z: 99
-        
+        id: expandedScrim
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        width: root.expandedWidth + Theme.navRailInset + Math.round(260 * Theme.layoutScale)
+        opacity: root.expanded ? 1.0 : 0.0
+        visible: opacity > 0
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.78) }
+            GradientStop { position: 0.55; color: Theme.withAlpha(Theme.backgroundPrimary, 0.55) }
+            GradientStop { position: 1.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.0) }
+        }
         Behavior on opacity {
+            enabled: Theme.uiAnimationsEnabled
             NumberAnimation { duration: root.animDuration }
         }
-        
-        MouseArea {
-            anchors.fill: parent
-            enabled: backdrop.visible
-            onClicked: root.close()
-        }
     }
-    
+
+    MouseArea {
+        anchors.fill: parent
+        enabled: root.pinnedOpen
+        visible: enabled
+        onClicked: root.close()
+    }
+
     // ========================================
-    // Sidebar Panel
+    // Rail panel
     // ========================================
-    
-    Item {
-        id: sidebarPanel
-        width: overlayMode ? (expanded ? expandedWidth : 0) : sidebarWidth
-        height: parent.height
-        x: overlayMode ? (expanded ? 0 : -expandedWidth) : 0
-        z: 100
-        clip: true
+
+    Rectangle {
+        id: railPanel
+        objectName: "railPanel"
+        x: Theme.navRailInset
+        y: Theme.navRailInset
+        width: root.expanded ? root.expandedWidth : root.collapsedWidth
+        height: parent.height - Theme.navRailInset * 2
+        radius: Theme.radiusPanel
+        color: root.expanded ? Theme.navRailBackground : Theme.navRailBackgroundCollapsed
+        border.width: Theme.borderWidth
+        border.color: Theme.surfaceBorder
+        antialiasing: true
 
         Behavior on width {
-            NumberAnimation { duration: root.animDuration; easing.type: Easing.OutCubic }
+            enabled: Theme.uiAnimationsEnabled
+            NumberAnimation { duration: root.animDuration; easing.type: Theme.easingStandard }
+        }
+        Behavior on color {
+            enabled: Theme.uiAnimationsEnabled
+            ColorAnimation { duration: root.animDuration }
         }
 
-        Behavior on x {
-            NumberAnimation { duration: root.animDuration; easing.type: Easing.OutCubic }
-        }
-
-        // Blur source
-        ShaderEffectSource {
-            id: blurSource
-            sourceRect: Qt.rect(sidebarPanel.x, 0, sidebarPanel.width, sidebarPanel.height)
-            visible: false
-            sourceItem: root.mainContent
-        }
-
-        // Blurred background layer
-        Item {
-            id: blurredBackground
+        // Swallow pointer events so clicks on the panel never reach the page.
+        MouseArea {
             anchors.fill: parent
-            visible: !SidebarSettings.reduceMotion && root.mainContent !== null
-
-            ShaderEffectSource {
-                id: capturedContent
-                anchors.fill: parent
-                sourceRect: Qt.rect(0, 0, sidebarPanel.width, sidebarPanel.height)
-                visible: false
-                sourceItem: root.mainContent
-            }
-
-            MultiEffect {
-                anchors.fill: parent
-                source: capturedContent
-                blurEnabled: true
-                blur: 1.0
-                blurMax: 48
-                blurMultiplier: 1.5
-                saturation: -0.2
-            }
+            acceptedButtons: Qt.AllButtons
+            onWheel: function(wheel) { wheel.accepted = false }
         }
 
-        // Glass overlay with tint
-        Rectangle {
-            anchors.fill: parent
-            color: Qt.rgba(0.05, 0.05, 0.1, 0.75)
-
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(0.08, 0.08, 0.12, 0.8) }
-                GradientStop { position: 1.0; color: Qt.rgba(0.03, 0.03, 0.06, 0.85) }
-            }
-        }
-
-        // Light border effect
-        Rectangle {
-            anchors.fill: parent
-            color: "transparent"
-            border.color: Qt.rgba(1, 1, 1, 0.1)
-            border.width: 1
-        }
-
-        // Right edge highlight
-        Rectangle {
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            width: 1
-            color: Qt.rgba(1, 1, 1, 0.15)
-        }
-        
-        // ========================================
-        // Sidebar Content
-        // ========================================
-        
         ColumnLayout {
+            id: railColumn
             anchors.fill: parent
-            spacing: 0
-            
-            // Header with Hamburger Button
+            anchors.margins: root.railPadding
+            spacing: Math.round(4 * Theme.layoutScale)
+
+            // Brand + pointer toggle. Keyboard users expand the rail by moving
+            // focus into it, so the toggle is pointer-only.
+            AbstractButton {
+                id: railToggle
+                objectName: "railToggle"
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.round(84 * Theme.layoutScale)
+                focusPolicy: Qt.NoFocus
+                hoverEnabled: true
+                onClicked: root.pinnedOpen = !root.expanded
+
+                Accessible.role: Accessible.Button
+                Accessible.name: root.expanded ? qsTr("Collapse navigation") : qsTr("Expand navigation")
+
+                ToolTip.visible: hovered && !root.expanded
+                ToolTip.text: qsTr("Show labels")
+                ToolTip.delay: 400
+
+                background: Rectangle {
+                    radius: Theme.radiusMedium
+                    color: railToggle.hovered ? Theme.surfaceInteractive : "transparent"
+                }
+
+                contentItem: Item {
+                    Image {
+                        id: railLogo
+                        x: Math.round((root.collapsedWidth - root.railPadding * 2 - width) / 2)
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.round(46 * Theme.layoutScale)
+                        height: width
+                        source: "qrc:/images/app/logo_trans.svg"
+                        sourceSize.width: width * 2
+                        sourceSize.height: height * 2
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                    }
+
+                    Text {
+                        anchors.left: railLogo.right
+                        anchors.leftMargin: Math.round(20 * Theme.layoutScale)
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "bloom"
+                        font.pixelSize: Theme.fontSizeTitle
+                        font.family: Theme.fontPrimary
+                        font.weight: Theme.fontWeightStrong
+                        font.letterSpacing: Math.round(0.5 * Theme.layoutScale)
+                        color: Theme.accentPrimary
+                        opacity: root.expanded ? 1.0 : 0.0
+                        visible: opacity > 0
+                        Behavior on opacity {
+                            enabled: Theme.uiAnimationsEnabled
+                            NumberAnimation { duration: root.animDuration }
+                        }
+                    }
+
+                    Text {
+                        anchors.right: parent.right
+                        anchors.rightMargin: Theme.spacingSmall
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Icons.chevronLeft
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Theme.fontSizeIcon
+                        color: Theme.textSecondary
+                        visible: root.pinnedOpen
+                    }
+                }
+            }
+
+            Item { Layout.preferredHeight: Theme.spacingSmall }
+
+            Repeater {
+                id: navRepeater
+                model: root.navigationItems
+
+                RailEntry {
+                    required property var modelData
+                    objectName: "railEntry_" + modelData.id
+                    iconGlyph: modelData.icon
+                    label: modelData.label
+                    toolTipLabel: modelData.tooltip
+                    selected: root.currentNavigation === modelData.id
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.navRailItemHeight
+                    onActivated: root.handleNavigation(modelData.id)
+                }
+            }
+
+            // Library section
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: root.headerHeight
-                
-                // Hamburger button (inside sidebar in expanded mode)
-                Button {
-                    id: sidebarHamburger
+                Layout.preferredHeight: libraryHeader.visible ? libraryHeader.implicitHeight + Theme.spacingSmall * 2
+                                                              : Theme.spacingSmall * 2
+
+                Rectangle {
                     anchors.left: parent.left
-                    anchors.leftMargin: Math.round(12 * Theme.layoutScale)
+                    anchors.right: parent.right
+                    anchors.leftMargin: Theme.spacingSmall
+                    anchors.rightMargin: Theme.spacingSmall
                     anchors.verticalCenter: parent.verticalCenter
-                    width: Math.round(40 * Theme.layoutScale)
-                    height: Math.round(40 * Theme.layoutScale)
-                    visible: expanded
-                    
-                    background: Rectangle {
-                        radius: Theme.radiusSmall
-                        color: sidebarHamburger.activeFocus ? Theme.buttonSecondaryBackgroundHover 
-                             : (sidebarHamburger.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")
-                        border.color: sidebarHamburger.activeFocus ? Theme.focusBorder : "transparent"
-                        border.width: sidebarHamburger.activeFocus ? 2 : 0
-                    }
-                    
-                    contentItem: Text {
-                        text: Icons.close
-                        font.pixelSize: Math.round(24 * Theme.layoutScale)
-                        font.family: Theme.fontIcon
-                        font.weight: Font.Normal
-                        color: Theme.textPrimary
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        renderType: Text.NativeRendering
-                    }
-                    
-                    onClicked: root.close()
-                    
-                    Keys.onReturnPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        root.close()
-                        event.accepted = true
-                    }
-                    Keys.onEnterPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        root.close()
-                        event.accepted = true
-                    }
-                    Keys.onSpacePressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        root.close()
-                        event.accepted = true
-                    }
-                    Keys.onEscapePressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        root.close()
-                        event.accepted = true
-                    }
-                    
-                    Keys.onDownPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        if (navListView.count > 0) {
-                            navListView.currentIndex = 0
-                            navListView.currentItem.forceActiveFocus()
-                        }
-                        event.accepted = true
-                    }
-                    
-                    Accessible.role: Accessible.Button
-                    Accessible.name: qsTr("Close sidebar")
-                    Accessible.description: qsTr("Press to close the navigation sidebar")
+                    height: Theme.borderWidth
+                    color: Theme.surfaceBorder
+                    visible: !libraryHeader.visible && libraryRepeater.count > 0
                 }
-                
-                // Title (in expanded mode)
+
                 Text {
-                    anchors.left: sidebarHamburger.right
-                    anchors.leftMargin: Math.round(12 * Theme.layoutScale)
+                    id: libraryHeader
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.spacingMedium
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Bloom"
-                    font.pixelSize: Theme.fontSizeTitle
+                    text: qsTr("My Media")
+                    font.pixelSize: Theme.fontSizeCaption
                     font.family: Theme.fontPrimary
-                    font.bold: true
-                    color: Theme.textPrimary
-                    visible: expanded
-                    opacity: expanded ? 1.0 : 0.0
-                    
-                    Behavior on opacity {
-                        NumberAnimation { duration: root.animDuration }
-                    }
-                }
-            }
-            
-            // Separator
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 1
-                Layout.leftMargin: Math.round(12 * Theme.layoutScale)
-                Layout.rightMargin: Math.round(12 * Theme.layoutScale)
-                color: Theme.borderLight
-            }
-            
-            // Navigation Items (static)
-            ListView {
-                id: navListView
-                Layout.fillWidth: true
-                Layout.preferredHeight: contentHeight
-                Layout.topMargin: Math.round(8 * Theme.layoutScale)
-                model: root.navigationItems
-                clip: true
-                interactive: false
-                spacing: Math.round(4 * Theme.layoutScale)
-                focus: false
-                keyNavigationEnabled: false
-
-                delegate: FocusScope {
-                    id: navDelegateScope
-                    width: navListView.width
-                    height: Math.round(56 * Theme.layoutScale)
-
-                    required property var modelData
-                    required property int index
-
-                    property bool isActive: root.currentNavigation === modelData.id
-                    property bool isFocused: activeFocus
-
-                    Keys.onReturnPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        navDelegate.clicked()
-                        event.accepted = true
-                    }
-                    Keys.onEnterPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        navDelegate.clicked()
-                        event.accepted = true
-                    }
-                    Keys.onSpacePressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        navDelegate.clicked()
-                        event.accepted = true
-                    }
-                    Keys.onEscapePressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        root.close()
-                        event.accepted = true
-                    }
-
-                    Keys.onUpPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        if (index > 0) {
-                            navListView.currentIndex = index - 1
-                            navListView.currentItem.forceActiveFocus()
-                        } else {
-                            if (expanded) {
-                                sidebarHamburger.forceActiveFocus()
-                            } else if (!overlayMode) {
-                                hamburgerButton.forceActiveFocus()
-                            }
-                        }
-                        event.accepted = true
-                    }
-                    Keys.onDownPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        if (index < navListView.count - 1) {
-                            navListView.currentIndex = index + 1
-                            navListView.currentItem.forceActiveFocus()
-                        } else {
-                            if (libraryListView.count > 0) {
-                                libraryListView.currentIndex = 0
-                                libraryListView.currentItem.forceActiveFocus()
-                            } else {
-                                signOutButton.forceActiveFocus()
-                            }
-                        }
-                        event.accepted = true
-                    }
-                    Keys.onRightPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        if (root.mainContent) {
-                            root.restoreMainContentFocus()
-                        }
-                        event.accepted = true
-                    }
-
-                    ItemDelegate {
-                        id: navDelegate
-                        anchors.fill: parent
-
-                        background: Rectangle {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.spacingSmall
-                            anchors.rightMargin: Theme.spacingSmall
-                            radius: Theme.radiusMedium
-                            color: {
-                                if (navDelegateScope.isFocused) return Theme.buttonSecondaryBackgroundPressed
-                                if (navDelegateScope.isActive) return Theme.buttonTabBackgroundActive
-                                if (navDelegate.hovered) return Theme.buttonSecondaryBackgroundHover
-                                return "transparent"
-                            }
-                            border.color: {
-                                if (navDelegateScope.isFocused) return Theme.focusBorder
-                                if (navDelegateScope.isActive) return Theme.accentSecondary
-                                return "transparent"
-                            }
-                            border.width: navDelegateScope.isFocused ? 2 : (navDelegateScope.isActive ? 1 : 0)
-
-                            Behavior on color { ColorAnimation { duration: 100 } }
-                            Behavior on border.color { ColorAnimation { duration: 100 } }
-                        }
-
-                        contentItem: RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: expanded ? Theme.spacingMedium : 0
-                            anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
-                            spacing: expanded ? Theme.spacingSmall * 2 : 0
-
-                            Item {
-                                Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
-                                Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
-                                Layout.alignment: Qt.AlignVCenter
-
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: navDelegateScope.modelData.icon
-                                    font.pixelSize: Theme.fontSizeIcon
-                                    font.family: Theme.fontIcon
-                                    color: navDelegateScope.isActive ? Theme.accentPrimary : Theme.textPrimary
-                                    renderType: Text.NativeRendering
-
-                                    Behavior on color { ColorAnimation { duration: 100 } }
-                                }
-                            }
-
-                            Text {
-                                text: navDelegateScope.modelData.label
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                font.weight: navDelegateScope.isActive ? Font.DemiBold : Font.Normal
-                                color: navDelegateScope.isActive ? Theme.textPrimary : Theme.textSecondary
-                                visible: expanded
-                                opacity: expanded ? 1.0 : 0.0
-                                Layout.fillWidth: true
-                                Layout.alignment: Qt.AlignVCenter
-
-                                Behavior on opacity { NumberAnimation { duration: root.animDuration } }
-                                Behavior on color { ColorAnimation { duration: 100 } }
-                            }
-                        }
-
-                        ToolTip.visible: !expanded && hovered
-                        ToolTip.text: navDelegateScope.modelData.tooltip
-                        ToolTip.delay: 500
-
-                        onClicked: {
-                            root.handleNavigation(navDelegateScope.modelData.id)
-                        }
-
-                        Accessible.role: Accessible.MenuItem
-                        Accessible.name: navDelegateScope.modelData.label
-                        Accessible.description: navDelegateScope.modelData.tooltip
-                    }
+                    font.weight: Theme.fontWeightStrong
+                    font.capitalization: Font.AllUppercase
+                    font.letterSpacing: Math.round(1.5 * Theme.layoutScale)
+                    color: Theme.textTertiary
+                    visible: root.expanded && libraryRepeater.count > 0
                 }
             }
 
-            // Media Section Header
-            Text {
-                id: mediaHeader
-                Layout.fillWidth: true
-                Layout.leftMargin: Math.round(20 * Theme.layoutScale)
-                Layout.rightMargin: Math.round(16 * Theme.layoutScale)
-                Layout.topMargin: Math.round(12 * Theme.layoutScale)
-                text: qsTr("Media")
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.fontPrimary
-                color: Theme.textSecondary
-                visible: expanded && libraryListView.count > 0
-                opacity: expanded ? 1.0 : 0.0
-                Behavior on opacity { NumberAnimation { duration: root.animDuration } }
-            }
-
-            // Library Items
-            ListView {
-                id: libraryListView
+            Flickable {
+                id: libraryFlick
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.topMargin: expanded ? Math.round(4 * Theme.layoutScale) : 0
-                model: root.libraryItems
+                Layout.minimumHeight: Theme.navRailItemHeight
+                contentWidth: width
+                contentHeight: libraryColumn.implicitHeight
+                interactive: contentHeight > height
+                boundsBehavior: Flickable.StopAtBounds
                 clip: true
-                interactive: false
-                spacing: Math.round(4 * Theme.layoutScale)
-                currentIndex: 0
-                footer: Item {
-                    width: libraryListView.width
-                    height: (expanded && libraryListView.count > 0) ? (reorderTip.implicitHeight + Theme.spacingSmall) : 0
-                    visible: expanded && libraryListView.count > 0
 
-                    Text {
-                        id: reorderTip
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.leftMargin: Theme.spacingMedium
-                        anchors.rightMargin: Theme.spacingMedium
-                        text: qsTr("Tip: Shift+Enter to reorder libraries, then use Up/Down.")
-                        wrapMode: Text.WordWrap
-                        font.pixelSize: Theme.fontSizeCaption
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                        opacity: 0.8
-                    }
+                Behavior on contentY {
+                    enabled: Theme.uiAnimationsEnabled
+                    NumberAnimation { duration: Theme.durationShort; easing.type: Theme.easingStandard }
                 }
 
-                delegate: FocusScope {
-                    id: libraryDelegateScope
-                    width: libraryListView.width
-                    height: Math.round(56 * Theme.layoutScale)
+                Column {
+                    id: libraryColumn
+                    width: libraryFlick.width
+                    spacing: Math.round(4 * Theme.layoutScale)
 
-                    required property var modelData
-                    required property int index
+                    Repeater {
+                        id: libraryRepeater
+                        model: root.libraryItems
 
-                    property bool isActive: root.currentNavigation === ("library:" + (modelData.itemId || ""))
-                    property bool isFocused: activeFocus
-                    property bool isReordering: root.reorderModeActive && root.reorderingIndex === index
-                    Keys.priority: Keys.BeforeItem
+                        RailEntry {
+                            id: libraryEntry
+                            objectName: "railLibrary_" + index
+                            required property var modelData
+                            required property int index
+                            width: libraryColumn.width
+                            iconGlyph: root.libraryIcon(modelData)
+                            label: modelData.name || ""
+                            sublabel: reordering ? qsTr("Up/Down to move, Enter to finish") : ""
+                            toolTipLabel: modelData.name || ""
+                            selected: root.currentNavigation === ("library:" + (modelData.itemId || ""))
+                            reordering: root.reorderModeActive && root.reorderingIndex === index
+                            libraryIndex: index
+                            Accessible.description: qsTr("Open library %1. Shift+Enter to reorder.").arg(modelData.name || "")
 
-                    function activateLibrary() {
-                        root.currentNavigation = "library:" + (modelData.itemId || "")
-                        root.currentLibraryId = modelData.itemId || ""
-                        root.libraryRequested(modelData.itemId || "", modelData.name || "")
-                        if (root.overlayMode) {
-                            root.close()
-                        }
-                    }
-
-                    Keys.onPressed: function(event) {
-                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            if (event.isAutoRepeat) { event.accepted = true; return }
-                            root.activateKeyboardNavigation()
-                            if (event.modifiers & Qt.ShiftModifier) {
-                                if (root.reorderModeActive && root.reorderingIndex === index) {
+                            onActivated: function(withShift) {
+                                if (withShift) {
+                                    if (reordering)
+                                        root.finishReorder()
+                                    else
+                                        root.reorderingIndex = index
+                                    return
+                                }
+                                if (root.reorderModeActive) {
                                     root.finishReorder()
-                                } else {
-                                    root.reorderingIndex = index
+                                    return
                                 }
-                                event.accepted = true; return
-                            }
-                            if (root.reorderModeActive) { root.finishReorder(); event.accepted = true; return }
-                            activateLibrary()
-                            event.accepted = true; return
-                        }
-                        if (event.key === Qt.Key_Space) {
-                            root.activateKeyboardNavigation()
-                            if (root.reorderModeActive && root.reorderingIndex === index) {
-                                root.finishReorder()
-                            } else {
-                                activateLibrary()
-                            }
-                            event.accepted = true; return
-                        }
-                    }
-
-                    Keys.onUpPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        if (root.reorderModeActive && root.reorderingIndex === index) {
-                            root.reorderLibrary(index, Math.max(0, index - 1))
-                            event.accepted = true
-                        } else if (root.reorderModeActive) {
-                            event.accepted = true
-                        } else if (index > 0) {
-                            libraryListView.currentIndex = index - 1
-                            libraryListView.currentItem.forceActiveFocus()
-                            event.accepted = true
-                        } else {
-                            if (navListView.count > 0) {
-                                navListView.currentIndex = navListView.count - 1
-                                navListView.currentItem.forceActiveFocus()
-                                event.accepted = true
+                                root.activateLibrary(index)
                             }
                         }
-                    }
-
-                    Keys.onDownPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        if (root.reorderModeActive && root.reorderingIndex === index) {
-                            root.reorderLibrary(index, Math.min(libraryListView.count - 1, index + 1))
-                            event.accepted = true
-                        } else if (root.reorderModeActive) {
-                            event.accepted = true
-                        } else if (index < libraryListView.count - 1) {
-                            libraryListView.currentIndex = index + 1
-                            libraryListView.currentItem.forceActiveFocus()
-                            event.accepted = true
-                        } else {
-                            if (updatesButtonLoader.item && updatesButtonLoader.item.visible) {
-                                updatesButtonLoader.item.forceActiveFocus()
-                            } else {
-                                settingsButton.forceActiveFocus()
-                            }
-                            event.accepted = true
-                        }
-                    }
-
-                    Keys.onRightPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        if (root.mainContent) {
-                            root.restoreMainContentFocus()
-                            event.accepted = true
-                        }
-                    }
-
-                    Keys.onEscapePressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        if (root.reorderModeActive) {
-                            root.finishReorder()
-                        } else {
-                            root.close()
-                        }
-                        event.accepted = true
-                    }
-
-                    ItemDelegate {
-                        id: libraryDelegate
-                        anchors.fill: parent
-
-                        background: Rectangle {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.spacingSmall
-                            anchors.rightMargin: Theme.spacingSmall
-                            radius: Theme.radiusMedium
-                            color: {
-                                if (libraryDelegateScope.isReordering) return Theme.buttonSecondaryBackgroundPressed
-                                if (libraryDelegateScope.isFocused) return Theme.buttonSecondaryBackgroundPressed
-                                if (libraryDelegateScope.isActive) return Theme.buttonTabBackgroundActive
-                                if (libraryDelegate.hovered) return Theme.buttonSecondaryBackgroundHover
-                                return "transparent"
-                            }
-                            border.color: {
-                                if (libraryDelegateScope.isReordering) return Theme.accentSecondary
-                                if (libraryDelegateScope.isFocused) return Theme.focusBorder
-                                if (libraryDelegateScope.isActive) return Theme.accentSecondary
-                                return "transparent"
-                            }
-                            border.width: libraryDelegateScope.isFocused || libraryDelegateScope.isReordering ? 2 : (libraryDelegateScope.isActive ? 1 : 0)
-
-                            Behavior on color { ColorAnimation { duration: 100 } }
-                            Behavior on border.color { ColorAnimation { duration: 100 } }
-                        }
-
-                        contentItem: RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: expanded ? Theme.spacingMedium : 0
-                            anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
-                            spacing: expanded ? Theme.spacingSmall * 2 : 0
-
-                            Item {
-                                Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
-                                Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
-                                Layout.alignment: Qt.AlignVCenter
-
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: {
-                                        var collectionType = (libraryDelegateScope.modelData.collectionType || "").toLowerCase()
-                                        if (collectionType === "tvshows") return Icons.tvShows
-                                        if (collectionType === "movies") return Icons.movie
-                                        if (collectionType === "music") return Icons.music
-                                        return Icons.folder
-                                    }
-                                    font.pixelSize: Theme.fontSizeIcon
-                                    font.family: Theme.fontIcon
-                                    color: libraryDelegateScope.isActive ? Theme.accentPrimary : Theme.textPrimary
-                                    renderType: Text.NativeRendering
-                                    Behavior on color { ColorAnimation { duration: 100 } }
-                                }
-                            }
-
-                            Text {
-                                text: libraryDelegateScope.modelData.name
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                font.weight: libraryDelegateScope.isActive ? Font.DemiBold : Font.Normal
-                                color: libraryDelegateScope.isActive ? Theme.textPrimary : Theme.textSecondary
-                                visible: expanded
-                                opacity: expanded ? 1.0 : 0.0
-                                Layout.fillWidth: true
-                                Layout.alignment: Qt.AlignVCenter
-                                elide: Text.ElideRight
-
-                                Behavior on opacity { NumberAnimation { duration: root.animDuration } }
-                                Behavior on color { ColorAnimation { duration: 100 } }
-                            }
-
-                            Text {
-                                text: libraryDelegateScope.isReordering ? "\u2195" : ""
-                                visible: expanded && libraryDelegateScope.isReordering
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                color: Theme.accentSecondary
-                                Layout.alignment: Qt.AlignVCenter
-                            }
-                        }
-
-                        ToolTip.visible: !expanded && hovered
-                        ToolTip.text: libraryDelegateScope.modelData.name
-                        ToolTip.delay: 500
-
-                        onClicked: {
-                            if (root.reorderModeActive && root.reorderingIndex === index) {
-                                root.finishReorder()
-                                return
-                            }
-                            libraryDelegateScope.activateLibrary()
-                        }
-
-                        Accessible.role: Accessible.MenuItem
-                        Accessible.name: libraryDelegateScope.modelData.name
-                        Accessible.description: "Open library " + libraryDelegateScope.modelData.name
                     }
                 }
             }
 
-            // Spacer
-            Item { Layout.fillHeight: true }
-
-            // Separator
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 1
-                Layout.leftMargin: Math.round(12 * Theme.layoutScale)
-                Layout.rightMargin: Math.round(12 * Theme.layoutScale)
-                color: Theme.borderLight
-                visible: expanded || !overlayMode
+                Layout.leftMargin: Theme.spacingSmall
+                Layout.rightMargin: Theme.spacingSmall
+                Layout.topMargin: Theme.spacingSmall
+                Layout.bottomMargin: Theme.spacingSmall
+                Layout.preferredHeight: Theme.borderWidth
+                color: Theme.surfaceBorder
             }
 
-            // Updates button — Loader defers UpdateService property access
-            // past the first layout polish to prevent infinite loop.
-            Loader {
-                id: updatesButtonLoader
+            RailEntry {
+                id: updatesEntry
+                objectName: "railEntry_updates"
                 Layout.fillWidth: true
-                Layout.preferredHeight: item && item.visible ? Math.round(56 * Theme.layoutScale) : 0
-                active: root._updatesReady
-                asynchronous: true
-                sourceComponent: ItemDelegate {
-                    id: updatesButton
-                    visible: (expanded || !overlayMode) && root._updatesAvailable
-
-                    background: Rectangle {
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.spacingSmall
-                        anchors.rightMargin: Theme.spacingSmall
-                        radius: Theme.radiusMedium
-                        color: {
-                            if (updatesButton.activeFocus) return Theme.buttonSecondaryBackgroundPressed
-                            if (root.currentNavigation === "updates") return Theme.buttonTabBackgroundActive
-                            if (updatesButton.hovered) return Theme.buttonSecondaryBackgroundHover
-                            return "transparent"
-                        }
-                        border.color: updatesButton.activeFocus ? Theme.focusBorder : "transparent"
-                        border.width: updatesButton.activeFocus ? 2 : (root.currentNavigation === "updates" ? 1 : 0)
-
-                        Behavior on color { ColorAnimation { duration: 100 } }
-                        Behavior on border.color { ColorAnimation { duration: 100 } }
-                    }
-
-                    contentItem: RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: expanded ? Theme.spacingMedium : 0
-                        anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
-                        spacing: expanded ? Theme.spacingSmall * 2 : 0
-
-                        Item {
-                            Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
-                            Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
-                            Layout.alignment: Qt.AlignVCenter
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: Icons.download
-                                font.pixelSize: Theme.fontSizeIcon
-                                font.family: Theme.fontIcon
-                                color: Theme.accentPrimary
-                                renderType: Text.NativeRendering
-                            }
-
-                            Rectangle {
-                                width: Math.round(10 * Theme.layoutScale)
-                                height: width
-                                radius: width / 2
-                                anchors.right: parent.right
-                                anchors.top: parent.top
-                                color: Theme.accentPrimary
-                                border.color: Theme.backgroundPrimary
-                                border.width: 1
-                            }
-                        }
-
-                        Text {
-                            text: qsTr("Updates")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            font.weight: Font.DemiBold
-                            color: Theme.textPrimary
-                            visible: expanded
-                            opacity: expanded ? 1.0 : 0.0
-                            Layout.fillWidth: true
-                            Layout.alignment: Qt.AlignVCenter
-
-                            Behavior on opacity { NumberAnimation { duration: root.animDuration } }
-                        }
-                    }
-
-                    ToolTip.visible: !expanded && hovered
-                    ToolTip.text: qsTr("Updates Available")
-                    ToolTip.delay: 500
-
-                    onClicked: root.handleNavigation("updates")
-
-                    Keys.onReturnPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        clicked()
-                        event.accepted = true
-                    }
-                    Keys.onEnterPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        clicked()
-                        event.accepted = true
-                    }
-                    Keys.onSpacePressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        clicked()
-                        event.accepted = true
-                    }
-                    Keys.onUpPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        if (libraryListView.count > 0) {
-                            libraryListView.currentIndex = libraryListView.count - 1
-                            libraryListView.currentItem.forceActiveFocus()
-                        } else if (navListView.count > 0) {
-                            navListView.currentIndex = navListView.count - 1
-                            navListView.currentItem.forceActiveFocus()
-                        }
-                        event.accepted = true
-                    }
-                    Keys.onDownPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        settingsButton.forceActiveFocus()
-                        event.accepted = true
-                    }
-                    Keys.onRightPressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        if (root.mainContent)
-                            root.restoreMainContentFocus()
-                        event.accepted = true
-                    }
-                    Keys.onEscapePressed: function(event) {
-                        root.activateKeyboardNavigation()
-                        root.close()
-                        event.accepted = true
-                    }
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: qsTr("Updates")
-                }
-            }
-            // Settings button
-            ItemDelegate {
-                id: settingsButton
-                Layout.fillWidth: true
-                Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
-                visible: expanded || !overlayMode
-
-                background: Rectangle {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingSmall
-                    anchors.rightMargin: Theme.spacingSmall
-                    radius: Theme.radiusMedium
-                    color: {
-                        if (settingsButton.activeFocus) return Theme.buttonSecondaryBackgroundPressed
-                        if (root.currentNavigation === "settings") return Theme.buttonTabBackgroundActive
-                        if (settingsButton.hovered) return Theme.buttonSecondaryBackgroundHover
-                        return "transparent"
-                    }
-                    border.color: settingsButton.activeFocus ? Theme.focusBorder : "transparent"
-                    border.width: settingsButton.activeFocus ? 2 : (root.currentNavigation === "settings" ? 1 : 0)
-
-                    Behavior on color { ColorAnimation { duration: 100 } }
-                    Behavior on border.color { ColorAnimation { duration: 100 } }
-                }
-
-                contentItem: RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: expanded ? Theme.spacingMedium : 0
-                    anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
-                    spacing: expanded ? Theme.spacingSmall * 2 : 0
-
-                    Item {
-                        Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
-                        Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
-                        Layout.alignment: Qt.AlignVCenter
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: Icons.settings
-                            font.pixelSize: Theme.fontSizeIcon
-                            font.family: Theme.fontIcon
-                            color: root.currentNavigation === "settings" ? Theme.accentPrimary : Theme.textPrimary
-                            renderType: Text.NativeRendering
-                        }
-                    }
-
-                    Text {
-                        text: qsTr("Settings")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        font.weight: root.currentNavigation === "settings" ? Font.DemiBold : Font.Normal
-                        color: root.currentNavigation === "settings" ? Theme.textPrimary : Theme.textSecondary
-                        visible: expanded
-                        opacity: expanded ? 1.0 : 0.0
-                        Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignVCenter
-
-                        Behavior on opacity { NumberAnimation { duration: root.animDuration } }
-                    }
-                }
-
-                ToolTip.visible: !expanded && hovered
-                ToolTip.text: qsTr("Settings")
-                ToolTip.delay: 500
-
-                onClicked: root.handleNavigation("settings")
-
-                Keys.onReturnPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onEnterPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onSpacePressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onUpPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    if (updatesButtonLoader.item && updatesButtonLoader.item.visible) {
-                        updatesButtonLoader.item.forceActiveFocus()
-                    } else if (libraryListView.count > 0) {
-                        libraryListView.currentIndex = libraryListView.count - 1
-                        libraryListView.currentItem.forceActiveFocus()
-                    } else if (navListView.count > 0) {
-                        navListView.currentIndex = navListView.count - 1
-                        navListView.currentItem.forceActiveFocus()
-                    }
-                    event.accepted = true
-                }
-                Keys.onDownPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    signOutButton.forceActiveFocus()
-                    event.accepted = true
-                }
-                Keys.onRightPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    if (root.mainContent)
-                        root.restoreMainContentFocus()
-                    event.accepted = true
-                }
-                Keys.onEscapePressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    root.close()
-                    event.accepted = true
-                }
-
-                Accessible.role: Accessible.Button
-                Accessible.name: qsTr("Settings")
+                Layout.preferredHeight: visible ? Theme.navRailItemHeight : 0
+                visible: root._updatesAvailable
+                iconGlyph: Icons.download
+                label: qsTr("Update available")
+                toolTipLabel: qsTr("Update available")
+                showBadge: true
+                selected: root.currentNavigation === "updates"
+                onActivated: root.handleNavigation("updates")
             }
 
-            // Sign out button
-            ItemDelegate {
-                id: signOutButton
+            RailEntry {
+                id: settingsEntry
+                objectName: "railEntry_settings"
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
-                visible: expanded || !overlayMode
-
-                background: Rectangle {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingSmall
-                    anchors.rightMargin: Theme.spacingSmall
-                    radius: Theme.radiusMedium
-                    color: {
-                        if (signOutButton.activeFocus) return Theme.buttonSecondaryBackgroundPressed
-                        if (signOutButton.hovered) return Theme.buttonSecondaryBackgroundHover
-                        return "transparent"
-                    }
-                    border.color: signOutButton.activeFocus ? Theme.focusBorder : "transparent"
-                    border.width: signOutButton.activeFocus ? 2 : 0
-
-                    Behavior on color { ColorAnimation { duration: 100 } }
-                    Behavior on border.color { ColorAnimation { duration: 100 } }
-                }
-
-                contentItem: RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: expanded ? Theme.spacingMedium : 0
-                    anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
-                    spacing: expanded ? Theme.spacingSmall * 2 : 0
-
-                    Item {
-                        Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
-                        Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
-                        Layout.alignment: Qt.AlignVCenter
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: Icons.logout
-                            font.pixelSize: Theme.fontSizeIcon
-                            font.family: Theme.fontIcon
-                            color: Theme.textSecondary
-                            renderType: Text.NativeRendering
-                        }
-                    }
-
-                    Text {
-                        text: qsTr("Sign Out")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        font.weight: Font.Normal
-                        color: Theme.textSecondary
-                        visible: expanded
-                        opacity: expanded ? 1.0 : 0.0
-                        Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignVCenter
-
-                        Behavior on opacity { NumberAnimation { duration: root.animDuration } }
-                    }
-                }
-
-                ToolTip.visible: !expanded && hovered
-                ToolTip.text: qsTr("Sign out")
-                ToolTip.delay: 500
-
-                onClicked: root.signOutRequested()
-
-                Keys.onReturnPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onEnterPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onSpacePressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onUpPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    settingsButton.forceActiveFocus()
-                    event.accepted = true
-                }
-                Keys.onDownPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    exitButton.forceActiveFocus()
-                    event.accepted = true
-                }
-                Keys.onRightPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    if (root.mainContent)
-                        root.restoreMainContentFocus()
-                    event.accepted = true
-                }
-                Keys.onEscapePressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    root.close()
-                    event.accepted = true
-                }
-
-                Accessible.role: Accessible.Button
-                Accessible.name: qsTr("Sign out")
+                Layout.preferredHeight: Theme.navRailItemHeight
+                iconGlyph: Icons.settings
+                label: qsTr("Settings")
+                selected: root.currentNavigation === "settings"
+                onActivated: root.handleNavigation("settings")
             }
 
-            // Separator
-            Rectangle {
+            RailEntry {
+                id: accountEntry
+                objectName: "railEntry_account"
                 Layout.fillWidth: true
-                Layout.preferredHeight: 1
-                Layout.leftMargin: Math.round(12 * Theme.layoutScale)
-                Layout.rightMargin: Math.round(12 * Theme.layoutScale)
-                color: Theme.borderLight
-                visible: expanded || !overlayMode
+                Layout.preferredHeight: Theme.navRailItemHeight
+                avatar: root.accountName !== ""
+                iconGlyph: root.accountName !== "" ? root.accountName.charAt(0).toUpperCase() : Icons.logout
+                label: root.accountName !== "" ? root.accountName : qsTr("Sign Out")
+                sublabel: root.accountName !== "" ? qsTr("Sign out") : ""
+                toolTipLabel: root.accountName !== "" ? qsTr("Sign out %1").arg(root.accountName) : qsTr("Sign out")
+                onActivated: {
+                    root.pinnedOpen = false
+                    root.dialogOriginEntry = accountEntry
+                    root.signOutRequested()
+                }
             }
 
-            // Exit button
-            ItemDelegate {
-                id: exitButton
+            RailEntry {
+                id: powerEntry
+                objectName: "railEntry_exit"
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
-                visible: expanded || !overlayMode
-
-                background: Rectangle {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingSmall
-                    anchors.rightMargin: Theme.spacingSmall
-                    radius: Theme.radiusMedium
-                    color: {
-                        if (exitButton.activeFocus) return Theme.buttonSecondaryBackgroundPressed
-                        if (exitButton.hovered) return Theme.buttonSecondaryBackgroundHover
-                        return "transparent"
-                    }
-                    border.color: exitButton.activeFocus ? Theme.focusBorder : "transparent"
-                    border.width: exitButton.activeFocus ? 2 : 0
-
-                    Behavior on color { ColorAnimation { duration: 100 } }
-                    Behavior on border.color { ColorAnimation { duration: 100 } }
+                Layout.preferredHeight: Theme.navRailItemHeight
+                iconGlyph: Icons.power
+                label: qsTr("Exit")
+                toolTipLabel: qsTr("Exit")
+                subdued: true
+                onActivated: {
+                    root.pinnedOpen = false
+                    root.dialogOriginEntry = powerEntry
+                    root.exitRequested()
                 }
-
-                contentItem: RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: expanded ? Theme.spacingMedium : 0
-                    anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
-                    spacing: expanded ? Theme.spacingSmall * 2 : 0
-
-                    Item {
-                        Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
-                        Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
-                        Layout.alignment: Qt.AlignVCenter
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: Icons.power
-                            font.pixelSize: Theme.fontSizeIcon
-                            font.family: Theme.fontIcon
-                            color: Theme.textSecondary
-                            renderType: Text.NativeRendering
-                        }
-                    }
-
-                    Text {
-                        text: qsTr("Exit")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        font.weight: Font.Normal
-                        color: Theme.textSecondary
-                        visible: expanded
-                        opacity: expanded ? 1.0 : 0.0
-                        Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignVCenter
-
-                        Behavior on opacity { NumberAnimation { duration: root.animDuration } }
-                    }
-                }
-
-                ToolTip.visible: !expanded && hovered
-                ToolTip.text: qsTr("Exit")
-                ToolTip.delay: 500
-
-                onClicked: root.exitRequested()
-
-                Keys.onReturnPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onEnterPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onSpacePressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onUpPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    signOutButton.forceActiveFocus()
-                    event.accepted = true
-                }
-                Keys.onRightPressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    if (root.mainContent)
-                        root.restoreMainContentFocus()
-                    event.accepted = true
-                }
-                Keys.onEscapePressed: function(event) {
-                    root.activateKeyboardNavigation()
-                    root.close()
-                    event.accepted = true
-                }
-
-                Accessible.role: Accessible.Button
-                Accessible.name: qsTr("Exit")
             }
         }
     }
 
-    // ========================================
-    // Hamburger Button (Fixed Top-Left, outside sidebar)
-    // ========================================
-    
-    Button {
-        id: hamburgerButton
-        x: overlayMode ? Math.round(12 * Theme.layoutScale) : (expanded ? Math.round(-100 * Theme.layoutScale) : Math.round(12 * Theme.layoutScale))
-        y: Math.round(12 * Theme.layoutScale)
-        width: Math.round(40 * Theme.layoutScale)
-        height: Math.round(40 * Theme.layoutScale)
-        z: 101
-        visible: overlayMode || !expanded
-        
-        Behavior on x {
-            NumberAnimation { duration: root.animDuration; easing.type: Easing.OutCubic }
-        }
-        
-        background: Rectangle {
-            radius: Theme.radiusSmall
-            color: {
-                if (hamburgerButton.activeFocus) return Theme.buttonSecondaryBackgroundPressed
-                if (hamburgerButton.hovered) return Theme.buttonSecondaryBackgroundHover
-                return Theme.buttonSecondaryBackground
-            }
-            border.color: hamburgerButton.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
-            border.width: hamburgerButton.activeFocus ? 2 : 1
-            
-            Behavior on color { ColorAnimation { duration: 100 } }
-            Behavior on border.color { ColorAnimation { duration: 100 } }
-        }
-        
-        contentItem: Text {
-            text: Icons.menu
-            font.pixelSize: Theme.fontSizeIcon
-            font.family: Theme.fontIcon
-            color: Theme.textPrimary
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
-        
-        onClicked: root.toggle()
-        
-        Keys.onReturnPressed: function(event) {
-            root.activateKeyboardNavigation()
-            root.toggle()
-            event.accepted = true
-        }
-        Keys.onEnterPressed: function(event) {
-            root.activateKeyboardNavigation()
-            root.toggle()
-            event.accepted = true
-        }
-        Keys.onSpacePressed: function(event) {
-            root.activateKeyboardNavigation()
-            root.toggle()
-            event.accepted = true
-        }
-        Keys.onRightPressed: function(event) {
-            root.activateKeyboardNavigation()
-            if (root.mainContent) {
-                root.restoreMainContentFocus()
-            }
-            event.accepted = true
-        }
-        Keys.onDownPressed: function(event) {
-            root.activateKeyboardNavigation()
-            if (!expanded && !overlayMode && navListView.count > 0) {
-                navListView.currentIndex = 0
-                navListView.currentItem.forceActiveFocus()
-            }
-            event.accepted = true
-        }
-        
-        ToolTip.visible: hovered && !expanded
-        ToolTip.text: expanded ? "Close sidebar" : "Open sidebar"
-        ToolTip.delay: 500
-        
-        Accessible.role: Accessible.Button
-        Accessible.name: expanded ? "Close navigation menu" : "Open navigation menu"
-        Accessible.description: "Toggle the navigation sidebar"
-    }
-    
-    // ========================================
-    // Global Keyboard Handling
-    // ========================================
-    
-    // ESC to close sidebar
+    // ESC closes a pointer-pinned rail even when focus is in the page.
     Shortcut {
         sequence: "Escape"
-        enabled: expanded
+        enabled: root.pinnedOpen && !root.activeFocus
         onActivated: root.close()
     }
 
-    // Focus trap: when expanded, focus the sidebar content
-    onExpandedChanged: {
-        if (expanded) {
-            // Focus the current page's entry when the sidebar expands
-            Qt.callLater(function() {
-                if (root.focusActiveItem())
-                    return
-                if (navListView.count > 0) {
-                    navListView.currentIndex = 0
-                    navListView.currentItem.forceActiveFocus()
-                } else {
-                    sidebarHamburger.forceActiveFocus()
-                }
-            })
-        }
+    onActiveFocusChanged: {
+        if (!activeFocus)
+            finishReorder()
     }
-    
+
     // ========================================
     // Accessibility
     // ========================================
-    
+
     Accessible.role: Accessible.Pane
-    Accessible.name: "Navigation sidebar"
-    Accessible.description: expanded ? "Navigation sidebar is expanded" : "Navigation sidebar is collapsed"
+    Accessible.name: qsTr("Navigation")
+    Accessible.description: expanded ? qsTr("Navigation is expanded") : qsTr("Navigation is collapsed")
 }

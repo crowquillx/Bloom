@@ -37,33 +37,9 @@ FocusScope {
         toggled(!checked)
     }
 
-    Rectangle {
-        anchors.fill: parent
-        anchors.margins: -Theme.spacingSmall
-        radius: Theme.radiusSmall
-        color: root.hasKeyboardFocus
-            ? Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.16)
-            : (root.isHovered ? Qt.rgba(1, 1, 1, 0.06) : "transparent")
-        border.color: root.hasKeyboardFocus
-            ? Theme.focusBorder
-            : (root.isHovered ? Theme.borderLight : "transparent")
-        border.width: root.hasKeyboardFocus ? 2 : (root.isHovered ? 1 : 0)
-
-        Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-        Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-    }
-
-    Rectangle {
-        width: Math.round(4 * Theme.layoutScale)
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        radius: Math.round(2 * Theme.layoutScale)
-        color: Theme.accentPrimary
-        visible: root.hasKeyboardFocus
-        opacity: visible ? 1.0 : 0.0
-
-        Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
+    SettingsRowBackground {
+        focused: root.hasKeyboardFocus
+        hovered: root.isHovered
     }
 
     MouseArea {
@@ -105,22 +81,25 @@ FocusScope {
         Rectangle {
             id: switchTrack
             Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-            width: Math.round(52 * Theme.layoutScale)
-            height: Math.round(28 * Theme.layoutScale)
-            radius: Math.round(14 * Theme.layoutScale)
-            color: root.checked ? Theme.accentPrimary : Qt.rgba(1, 1, 1, 0.2)
+            width: Math.round(68 * Theme.layoutScale)
+            height: Math.round(38 * Theme.layoutScale)
+            radius: height / 2
+            color: root.checked ? Theme.selectionIndicator : Theme.surfaceInteractivePressed
+            border.width: root.checked ? 0 : Theme.borderWidth
+            border.color: Theme.surfaceBorderStrong
 
             Behavior on color { ColorAnimation { duration: Theme.durationShort } }
 
             Rectangle {
-                width: Math.round(22 * Theme.layoutScale)
-                height: Math.round(22 * Theme.layoutScale)
-                radius: Math.round(11 * Theme.layoutScale)
-                x: root.checked ? parent.width - width - 3 : 3
+                readonly property int knobInset: Math.round(4 * Theme.layoutScale)
+                width: parent.height - knobInset * 2
+                height: width
+                radius: width / 2
+                x: root.checked ? parent.width - width - knobInset : knobInset
                 anchors.verticalCenter: parent.verticalCenter
-                color: Theme.textPrimary
+                color: root.checked ? Theme.textOnAccent : Theme.textPrimary
 
-                Behavior on x { NumberAnimation { duration: Theme.durationShort; easing.type: Easing.OutCubic } }
+                Behavior on x { enabled: Theme.uiAnimationsEnabled; NumberAnimation { duration: Theme.durationShort; easing.type: Easing.OutCubic } }
             }
 
             MouseArea {

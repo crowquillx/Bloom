@@ -180,24 +180,23 @@ FocusScope {
         Qt.callLater(root.saveProfile)
     }
 
-    component SubsectionHeader: Rectangle {
+    // Group label inside the profile editor (same style as settings groups).
+    component SubsectionHeader: Item {
         property string text: ""
         Layout.fillWidth: true
+        Layout.topMargin: Theme.spacingSmall
         implicitHeight: Math.round(44 * Theme.layoutScale)
-        radius: Theme.radiusSmall
-        color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.08)
-        border.color: Theme.cardBorder
-        border.width: 1
 
         Text {
             anchors.left: parent.left
-            anchors.leftMargin: Theme.spacingSmall
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.bottom: parent.bottom
             text: parent.text
-            font.pixelSize: Theme.fontSizeBody
+            font.pixelSize: Theme.fontSizeSmall
             font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
-            color: Theme.textPrimary
+            font.weight: Theme.fontWeightHeavy
+            font.capitalization: Font.AllUppercase
+            font.letterSpacing: Math.round(1.5 * Theme.layoutScale)
+            color: Theme.accentPrimary
         }
     }
     
@@ -222,31 +221,16 @@ FocusScope {
             }
             
             // Delete button (only for custom profiles)
-            Button {
+            ActionButton {
                 id: deleteBtn
+                variant: "destructive"
                 visible: !root.isBuiltIn
                 text: "Delete"
                 Accessible.role: Accessible.Button
                 Accessible.name: "Delete profile " + root.profileName
                 focusPolicy: Qt.StrongFocus
                 
-                contentItem: Text {
-                    text: parent.text
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.family: Theme.fontPrimary
-                    color: "#ff6b6b"
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
                 
-                background: Rectangle {
-                    implicitWidth: Math.round(80 * Theme.layoutScale)
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: deleteBtn.activeFocus || deleteBtn.hovered ? Qt.rgba(1, 0.4, 0.4, 0.2) : "transparent"
-                    border.color: deleteBtn.activeFocus ? Theme.focusBorder : "#ff6b6b"
-                    border.width: deleteBtn.activeFocus ? 2 : 1
-                }
                 
                 onClicked: root.deleteRequested()
                 Keys.onReturnPressed: root.deleteRequested()
@@ -467,13 +451,7 @@ FocusScope {
                 Keys.onUpPressed: deinterlaceSwitch.forceActiveFocus()
                 Keys.onDownPressed: interpolationSwitch.forceActiveFocus()
                 
-                background: Rectangle {
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: Theme.inputBackground
-                    border.color: deinterlaceMethodField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: deinterlaceMethodField.activeFocus ? 2 : 1
-                }
+                background: FieldBackground { control: deinterlaceMethodField; implicitHeight: Theme.buttonHeightSmall }
                 
                 onTextEdited: {
                     if (root.profileName !== "") {
@@ -527,9 +505,12 @@ FocusScope {
             Layout.topMargin: Theme.spacingSmall
         }
         
-        Button {
+        ActionButton {
             id: advancedToggleBtn
+            variant: "ghost"
             property bool expanded: false
+            text: qsTr("Advanced Options")
+            iconGlyph: advancedToggleBtn.expanded ? Icons.expandLess : Icons.expandMore
             Layout.topMargin: Theme.spacingSmall
             Layout.fillWidth: true
             focusPolicy: Qt.StrongFocus
@@ -547,33 +528,7 @@ FocusScope {
                 }
             }
             
-            contentItem: RowLayout {
-                spacing: Theme.spacingSmall
-                
-                Text {
-                    text: "Advanced Options"
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
-                    Layout.fillWidth: true
-                }
-
-                Text {
-                    text: advancedToggleBtn.expanded ? Icons.expandLess : Icons.expandMore
-                    font.family: Theme.fontIcon
-                    font.pixelSize: Theme.fontSizeBody
-                    color: advancedToggleBtn.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                }
-            }
             
-            background: Rectangle {
-                implicitHeight: Theme.buttonHeightSmall
-                radius: Theme.radiusMedium
-                color: advancedToggleBtn.activeFocus ? Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.12)
-                     : (advancedToggleBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground)
-                border.color: advancedToggleBtn.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                border.width: advancedToggleBtn.activeFocus ? 2 : Theme.buttonBorderWidth
-            }
             
             onClicked: expanded = !expanded
             Keys.onReturnPressed: expanded = !expanded
@@ -585,9 +540,7 @@ FocusScope {
             Layout.fillWidth: true
             implicitHeight: advancedContentColumn.implicitHeight + (Theme.spacingMedium * 2)
             radius: Theme.radiusMedium
-            color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.45)
-            border.color: Theme.cardBorder
-            border.width: Theme.borderWidth
+            color: Theme.surfaceSunken
             visible: advancedToggleBtn.expanded
             ColumnLayout {
                 id: advancedContentColumn
@@ -797,8 +750,8 @@ FocusScope {
                                 anchors.fill: parent
                                 anchors.margins: -Theme.spacingSmall / 2
                                 radius: Theme.radiusSmall
-                                color: argField.activeFocus || removeArgButton.activeFocus ? Theme.buttonSecondaryBackground : "transparent"
-                                border.color: argField.activeFocus || removeArgButton.activeFocus ? Theme.focusBorder : "transparent"
+                                color: argField.activeFocus || removeArgButton.activeFocus ? Theme.surfaceInteractive : "transparent"
+                                border.color: "transparent"
                                 border.width: argField.activeFocus || removeArgButton.activeFocus ? 1 : 0
                                 z: -1
                             }
@@ -815,7 +768,7 @@ FocusScope {
                                 id: argField
                                 Layout.fillWidth: true
                                 text: modelData
-                                font.family: "monospace"
+                                font.family: Theme.fontMono
                                 font.pixelSize: Theme.fontSizeSmall
                                 color: Theme.textPrimary
                                 placeholderText: "--profile=high-quality"
@@ -857,17 +810,12 @@ FocusScope {
                                     Qt.callLater(root.saveProfile)
                                 }
 
-                                background: Rectangle {
-                                    implicitHeight: Theme.buttonHeightSmall
-                                    radius: Theme.radiusSmall
-                                    color: Theme.inputBackground
-                                    border.color: argField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                                    border.width: argField.activeFocus ? 2 : 1
-                                }
+                                background: FieldBackground { control: argField; implicitHeight: Theme.buttonHeightSmall }
                             }
 
-                            Button {
+                            ActionButton {
                                 id: removeArgButton
+                                variant: "destructive"
                                 text: "Remove"
                                 focusPolicy: Qt.StrongFocus
                                 Accessible.role: Accessible.Button
@@ -897,30 +845,15 @@ FocusScope {
                                 Keys.onReturnPressed: root.removeExtraArg(index)
                                 Keys.onEnterPressed: root.removeExtraArg(index)
 
-                                contentItem: Text {
-                                    text: parent.text
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.family: Theme.fontPrimary
-                                    color: "#ff8c8c"
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
 
-                                background: Rectangle {
-                                    implicitWidth: Math.round(110 * Theme.layoutScale)
-                                    implicitHeight: Theme.buttonHeightSmall
-                                    radius: Theme.radiusSmall
-                                    color: removeArgButton.activeFocus || removeArgButton.hovered ? Qt.rgba(1, 0.4, 0.4, 0.2) : "transparent"
-                                    border.color: removeArgButton.activeFocus ? Theme.focusBorder : "#ff8c8c"
-                                    border.width: removeArgButton.activeFocus ? 2 : 1
-                                }
                             }
                         }
                     }
                 }
 
-                Button {
+                ActionButton {
                     id: addArgButton
+                    variant: "secondary"
                     text: "Add Argument"
                     focusPolicy: Qt.StrongFocus
                     Accessible.role: Accessible.Button
@@ -945,23 +878,7 @@ FocusScope {
                     Keys.onReturnPressed: root.addExtraArg()
                     Keys.onEnterPressed: root.addExtraArg()
 
-                    contentItem: Text {
-                        text: parent.text
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        color: Theme.accentPrimary
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
 
-                    background: Rectangle {
-                        implicitWidth: Math.round(170 * Theme.layoutScale)
-                        implicitHeight: Theme.buttonHeightSmall
-                        radius: Theme.radiusSmall
-                        color: addArgButton.activeFocus || addArgButton.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
-                        border.color: addArgButton.activeFocus ? Theme.focusBorder : Theme.accentPrimary
-                        border.width: addArgButton.activeFocus ? 2 : 1
-                    }
                 }
             }
 

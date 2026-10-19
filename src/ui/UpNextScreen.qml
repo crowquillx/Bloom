@@ -162,6 +162,7 @@ FocusScope {
     // ---- Background ----
     Rectangle {
         anchors.fill: parent
+        anchors.leftMargin: -Theme.navRailReservedWidth
         color: Theme.backgroundPrimary
     }
 
@@ -169,11 +170,12 @@ FocusScope {
     Image {
         id: backdropImage
         anchors.fill: parent
+        anchors.leftMargin: -Theme.navRailReservedWidth
         source: thumbnailUrl
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: true
-        opacity: status === Image.Ready ? 0.35 : 0.0
+        opacity: status === Image.Ready ? 0.55 : 0.0
         Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
 
         layer.enabled: true
@@ -187,18 +189,22 @@ FocusScope {
     // Dark gradient overlay for readability
     Rectangle {
         anchors.fill: parent
+        anchors.leftMargin: -Theme.navRailReservedWidth
         gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.5) }
-            GradientStop { position: 0.4; color: Qt.rgba(0, 0, 0, 0.7) }
-            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.9) }
+            GradientStop { position: 0.0; color: Theme.gradientOverlayStart }
+            GradientStop { position: 0.4; color: Theme.gradientOverlayMiddle }
+            GradientStop { position: 1.0; color: Theme.gradientOverlayEnd }
         }
     }
 
     // ---- Main layout ----
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.paddingLarge * 1.5
-        spacing: Theme.spacingLarge
+        anchors.leftMargin: Theme.pageMarginX
+        anchors.rightMargin: Theme.pageMarginX
+        anchors.topMargin: Theme.pageMarginTop
+        anchors.bottomMargin: Theme.pageMarginTop
+        spacing: Theme.spacingXLarge
 
         // Top: Countdown text
         Item {
@@ -212,7 +218,7 @@ FocusScope {
                 text: qsTr("Next episode in %1").arg(root.countdown)
                 font.pixelSize: Theme.fontSizeHeader
                 font.family: Theme.fontPrimary
-                font.weight: Font.DemiBold
+                font.weight: Theme.fontWeightStrong
                 color: Theme.textSecondary
             }
 
@@ -223,7 +229,7 @@ FocusScope {
                 text: qsTr("Starting…")
                 font.pixelSize: Theme.fontSizeHeader
                 font.family: Theme.fontPrimary
-                font.weight: Font.DemiBold
+                font.weight: Theme.fontWeightStrong
                 color: Theme.accentPrimary
             }
 
@@ -234,7 +240,7 @@ FocusScope {
                 text: root.hasNextEpisode ? qsTr("Up Next") : qsTr("No Next Episode")
                 font.pixelSize: Theme.fontSizeHeader
                 font.family: Theme.fontPrimary
-                font.weight: Font.Bold
+                font.weight: Theme.fontWeightHeavy
                 color: Theme.textPrimary
             }
         }
@@ -279,19 +285,18 @@ FocusScope {
                 Rectangle {
                     id: thumbnailCard
                     anchors.fill: parent
-                    radius: Theme.radiusLarge
-                    color: Theme.cardBackground
-                    border.width: thumbnailFocus.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                    border.color: thumbnailFocus.activeFocus ? Theme.accentPrimary : Theme.cardBorder
-                    clip: true
+                    radius: Theme.imageRadius
+                    color: Theme.artworkPlaceholder
 
-                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-                    Behavior on border.width { NumberAnimation { duration: Theme.durationShort } }
+                    FocusRing {
+                        active: thumbnailFocus.activeFocus
+                        radius: thumbnailCard.radius
+                    }
 
                     Image {
                         id: thumbImage
                         anchors.fill: parent
-                        anchors.margins: Math.round(2 * Theme.layoutScale)
+                        anchors.margins: 0
                         source: root.thumbnailUrl
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
@@ -309,8 +314,7 @@ FocusScope {
                     Rectangle {
                         id: thumbMask
                         anchors.fill: parent
-                        anchors.margins: Math.round(2 * Theme.layoutScale)
-                        radius: Theme.radiusLarge - 1
+                        radius: Theme.imageRadius
                         visible: false
                         layer.enabled: true
                         layer.smooth: true
@@ -319,8 +323,8 @@ FocusScope {
                     // Dark overlay + play icon
                     Rectangle {
                         anchors.fill: parent
-                        anchors.margins: Math.round(2 * Theme.layoutScale)
-                        color: thumbnailFocus.activeFocus ? Qt.rgba(0, 0, 0, 0.25) : Qt.rgba(0, 0, 0, 0.4)
+                        radius: Theme.imageRadius
+                        color: thumbnailFocus.activeFocus ? Qt.rgba(0, 0, 0, 0.15) : Qt.rgba(0, 0, 0, 0.35)
                         Behavior on color { ColorAnimation { duration: Theme.durationShort } }
 
                         // Play circle
@@ -329,11 +333,9 @@ FocusScope {
                             width: Math.round(80 * Theme.layoutScale)
                             height: width
                             radius: width / 2
-                            color: thumbnailFocus.activeFocus
-                                ? Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.9)
-                                : Qt.rgba(1, 1, 1, 0.15)
-                            border.width: 2
-                            border.color: Qt.rgba(1, 1, 1, 0.3)
+                            color: thumbnailFocus.activeFocus ? Theme.actionPrimaryBackground : Qt.rgba(0, 0, 0, 0.45)
+                            border.width: Theme.borderWidth
+                            border.color: Qt.rgba(1, 1, 1, 0.35)
 
                             Behavior on color { ColorAnimation { duration: Theme.durationShort } }
 
@@ -344,7 +346,7 @@ FocusScope {
                                 text: Icons.playArrow
                                 font.family: Theme.fontIcon
                                 font.pixelSize: Math.round(40 * Theme.layoutScale)
-                                color: thumbnailFocus.activeFocus ? Theme.textOnAccent : Theme.textPrimary
+                                color: thumbnailFocus.activeFocus ? Theme.actionPrimaryText : Theme.textOnDarkOverlay
                             }
                         }
                     }
@@ -358,16 +360,16 @@ FocusScope {
                         anchors.leftMargin: Math.round(2 * Theme.layoutScale)
                         anchors.rightMargin: Math.round(2 * Theme.layoutScale)
                         anchors.bottomMargin: Math.round(2 * Theme.layoutScale)
-                        height: Math.round(4 * Theme.layoutScale)
-                        radius: Math.round(2 * Theme.layoutScale)
-                        color: Qt.rgba(1, 1, 1, 0.2)
+                        height: Theme.progressHeight
+                        radius: height / 2
+                        color: Theme.progressTrackOnArtwork
 
                         Rectangle {
                             anchors.left: parent.left
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
-                            radius: Math.round(2 * Theme.layoutScale)
-                            color: Theme.accentPrimary
+                            radius: height / 2
+                            color: Theme.progressFill
                             width: {
                                 var total = typeof ConfigManager !== 'undefined' ? ConfigManager.autoplayCountdownSeconds : 10
                                 total = Math.max(1, total)
@@ -403,7 +405,7 @@ FocusScope {
                     text: root.seriesName
                     font.pixelSize: Theme.fontSizeMedium
                     font.family: Theme.fontPrimary
-                    font.weight: Font.DemiBold
+                    font.weight: Theme.fontWeightStrong
                     color: Theme.accentPrimary
                     Layout.fillWidth: true
                     elide: Text.ElideRight
@@ -420,7 +422,7 @@ FocusScope {
                     }
                     font.pixelSize: Theme.fontSizeTitle
                     font.family: Theme.fontPrimary
-                    font.bold: true
+                    font.weight: Theme.fontWeightHeavy
                     color: Theme.textPrimary
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
@@ -446,7 +448,7 @@ FocusScope {
                         text: root.formatRating(root.communityRating)
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
-                        color: "#FFD700"
+                        color: Theme.warningColor
                     }
 
                     Text {
@@ -482,7 +484,7 @@ FocusScope {
                     text: qsTr("There isn't another unwatched episode available right now.")
                     font.pixelSize: Theme.fontSizeTitle
                     font.family: Theme.fontPrimary
-                    font.bold: true
+                    font.weight: Theme.fontWeightHeavy
                     color: Theme.textPrimary
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
@@ -511,10 +513,12 @@ FocusScope {
             spacing: Theme.spacingLarge
 
             // "Back to Home" button
-            Button {
+            ActionButton {
                 id: backToHomeBtn
-                Layout.preferredHeight: Theme.buttonHeightLarge
-                Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
+                variant: "secondary"
+                text: qsTr("Back to Home")
+                iconGlyph: Icons.home
+                implicitHeight: Theme.buttonHeightLarge
                 focusPolicy: Qt.StrongFocus
 
                 KeyNavigation.up: root.hasNextEpisode ? thumbnailFocus : moreEpisodesBtn
@@ -546,40 +550,16 @@ FocusScope {
                     root.backToHomeRequested()
                 }
 
-                background: Rectangle {
-                    radius: Theme.radiusMedium
-                    color: {
-                        if (backToHomeBtn.down) return Theme.buttonSecondaryBackgroundPressed
-                        if (backToHomeBtn.hovered || backToHomeBtn.activeFocus) return Theme.buttonSecondaryBackgroundHover
-                        return Theme.buttonSecondaryBackground
-                    }
-                    border.width: backToHomeBtn.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                    border.color: backToHomeBtn.activeFocus ? Theme.buttonSecondaryBorderFocused : Theme.buttonSecondaryBorder
-                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                }
 
-                contentItem: RowLayout {
-                    spacing: Theme.spacingSmall
-                    Text {
-                        text: Icons.home
-                        font.family: Theme.fontIcon
-                        font.pixelSize: Theme.fontSizeIcon
-                        color: Theme.textPrimary
-                    }
-                    Text {
-                        text: qsTr("Back to Home")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                    }
-                }
             }
 
             // "More Episodes" button
-            Button {
+            ActionButton {
                 id: moreEpisodesBtn
-                Layout.preferredHeight: Theme.buttonHeightLarge
-                Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
+                variant: "secondary"
+                text: root.hasNextEpisode ? qsTr("More Episodes") : qsTr("Back to Series")
+                iconGlyph: Icons.viewList
+                implicitHeight: Theme.buttonHeightLarge
                 focusPolicy: Qt.StrongFocus
 
                 KeyNavigation.up: root.hasNextEpisode ? thumbnailFocus : backToHomeBtn
@@ -611,33 +591,7 @@ FocusScope {
                     root.moreEpisodesRequested()
                 }
 
-                background: Rectangle {
-                    radius: Theme.radiusMedium
-                    color: {
-                        if (moreEpisodesBtn.down) return Theme.buttonSecondaryBackgroundPressed
-                        if (moreEpisodesBtn.hovered || moreEpisodesBtn.activeFocus) return Theme.buttonSecondaryBackgroundHover
-                        return Theme.buttonSecondaryBackground
-                    }
-                    border.width: moreEpisodesBtn.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                    border.color: moreEpisodesBtn.activeFocus ? Theme.buttonSecondaryBorderFocused : Theme.buttonSecondaryBorder
-                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                }
 
-                contentItem: RowLayout {
-                    spacing: Theme.spacingSmall
-                    Text {
-                        text: Icons.viewList
-                        font.family: Theme.fontIcon
-                        font.pixelSize: Theme.fontSizeIcon
-                        color: Theme.textPrimary
-                    }
-                    Text {
-                        text: root.hasNextEpisode ? qsTr("More Episodes") : qsTr("Back to Series")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                    }
-                }
             }
 
             Item { Layout.fillWidth: true }
@@ -652,9 +606,9 @@ FocusScope {
 
             Text {
                 text: qsTr("Recommended Next")
-                font.pixelSize: Theme.fontSizeTitle
+                font.pixelSize: Theme.fontSizeHeader
                 font.family: Theme.fontPrimary
-                font.weight: Font.DemiBold
+                font.weight: Theme.fontWeightStrong
                 color: Theme.textPrimary
                 Layout.fillWidth: true
             }

@@ -14,17 +14,22 @@ Item {
     property int textStyle: Text.Normal
     property color textStyleColor: "transparent"
     property bool active: false
+    /// Text.AlignHCenter (cards) or Text.AlignLeft (rows, menus).
+    property int horizontalAlignment: Text.AlignHCenter
     property int gap: Math.round(fontPixelSize * 2.25)
 
     implicitHeight: staticLabel.implicitHeight
     clip: true
 
     readonly property real overflowWidth: Math.max(0, staticLabel.implicitWidth - width)
-    readonly property bool shouldScroll: active && overflowWidth > 0
+    // Reduce Motion keeps long labels elided instead of scrolling.
+    readonly property bool shouldScroll: active && overflowWidth > 0 && Theme.uiAnimationsEnabled
 
     Text {
         id: staticLabel
-        anchors.horizontalCenter: parent.horizontalCenter
+        x: scrollingLabel.horizontalAlignment === Text.AlignLeft ? 0 : Math.round((scrollingLabel.width - width) / 2)
+        width: Math.min(implicitWidth, scrollingLabel.width)
+        elide: Text.ElideRight
         visible: !scrollingLabel.shouldScroll
         text: scrollingLabel.text
         font.pixelSize: scrollingLabel.fontPixelSize

@@ -81,32 +81,23 @@ FocusScope {
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
-    // Glass card background
-    Rectangle {
+    GlassPanel {
         anchors.fill: parent
-        radius: Theme.radiusLarge
-        color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.76)
-        border.color: Theme.cardBorder
-        border.width: Theme.borderWidth
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.08) }
-            GradientStop { position: 0.3; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.78) }
-            GradientStop { position: 1.0; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.66) }
-        }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
+        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
         Text {
             text: qsTr("Display")
-            font.pixelSize: Theme.fontSizeTitle
+            font.pixelSize: Theme.fontSizeHeader
             font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
+            font.weight: Theme.fontWeightHeavy
             color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingMedium
+            Layout.bottomMargin: Theme.spacingLarge
+            Layout.leftMargin: Theme.spacingMedium
         }
 
         Flickable {
@@ -136,18 +127,28 @@ FocusScope {
 
             ColumnLayout {
                 id: contentColumn
-                x: Theme.spacingSmall
+                x: Theme.spacingMedium
                 y: Theme.spacingSmall
-                width: flickable.width - 2 * Theme.spacingSmall
+                width: flickable.width - 2 * Theme.spacingMedium
                 spacing: Theme.spacingMedium
 
                 // --- Screensaver ---
                 Text {
                     text: qsTr("Screensaver")
-                    font.pixelSize: Theme.fontSizeBody
+
+                    font.pixelSize: Theme.fontSizeSmall
+
                     font.family: Theme.fontPrimary
-                    font.weight: Font.DemiBold
-                    color: Theme.textPrimary
+
+                    font.weight: Theme.fontWeightHeavy
+
+                    font.capitalization: Font.AllUppercase
+
+                    font.letterSpacing: Math.round(1.5 * Theme.layoutScale)
+
+                    color: Theme.accentPrimary
+
+                    Layout.topMargin: Theme.spacingMedium
                 }
 
                 SettingsToggleRow {

@@ -9,7 +9,8 @@ Dialog {
     modal: true
     anchors.centerIn: parent
     width: Math.round(680 * Theme.layoutScale)
-    padding: Theme.spacingLarge
+    padding: Theme.dialogPadding
+    topPadding: Theme.spacingLarge
 
     property Item restoreFocusTarget: null
     property var candidates: []
@@ -44,25 +45,20 @@ Dialog {
         }
     }
 
-    background: Rectangle {
-        color: Theme.cardBackground
-        radius: Theme.radiusMedium
-        border.color: Theme.cardBorder
-        border.width: 1
-    }
+    background: DialogSurface {}
+    Overlay.modal: ModalScrim {}
 
-    header: Rectangle {
-        color: "transparent"
-        height: Math.round(68 * Theme.layoutScale)
+    header: Item {
+        implicitHeight: Math.round(68 * Theme.layoutScale) + Theme.spacingLarge
         Text {
             text: root.title
             font.pixelSize: Theme.fontSizeTitle
             font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
+            font.weight: Theme.fontWeightHeavy
             color: Theme.textPrimary
             anchors.left: parent.left
-            anchors.leftMargin: Theme.spacingLarge
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Theme.dialogPadding
+            anchors.bottom: parent.bottom
         }
     }
 
@@ -142,9 +138,12 @@ Dialog {
                     }
                     background: Rectangle {
                         radius: Theme.radiusSmall
-                        color: candidateList.currentIndex === index ? Theme.buttonSecondaryBackgroundHover : "transparent"
-                        border.color: candidateList.activeFocus && candidateList.currentIndex === index ? Theme.focusBorder : Theme.buttonSecondaryBorder
-                        border.width: candidateList.activeFocus && candidateList.currentIndex === index ? 2 : 1
+                        color: candidateList.currentIndex === index ? Theme.surfaceInteractiveHover : Theme.surfaceInteractive
+                        FocusRing {
+                            inset: true
+                            active: candidateList.activeFocus && candidateList.currentIndex === index
+                            radius: parent.radius
+                        }
                     }
                 }
             }
@@ -179,13 +178,7 @@ Dialog {
                     event.accepted = true
                 }
                 Keys.onDownPressed: { nameField.forceActiveFocus(); event.accepted = true }
-                background: Rectangle {
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: Theme.inputBackground
-                    border.color: pathField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: pathField.activeFocus ? 2 : 1
-                }
+                background: FieldBackground { control: pathField; implicitHeight: Theme.buttonHeightSmall }
             }
 
             Text {
@@ -204,13 +197,7 @@ Dialog {
                 color: Theme.textPrimary
                 Keys.onUpPressed: { pathField.forceActiveFocus(); event.accepted = true }
                 Keys.onDownPressed: { cancelBtn.forceActiveFocus(); event.accepted = true }
-                background: Rectangle {
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: Theme.inputBackground
-                    border.color: nameField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: nameField.activeFocus ? 2 : 1
-                }
+                background: FieldBackground { control: nameField; implicitHeight: Theme.buttonHeightSmall }
             }
 
             Text {
@@ -244,15 +231,17 @@ Dialog {
     }
 
     footer: Item {
-        implicitHeight: Theme.buttonHeightSmall + Theme.spacingLarge * 2
+        implicitHeight: Theme.buttonHeightMedium + Theme.dialogPadding + Theme.spacingMedium
         implicitWidth: parent ? parent.width : 400
         RowLayout {
             anchors.fill: parent
-            anchors.margins: Theme.spacingMedium
-            spacing: Theme.spacingSmall
+            anchors.margins: Theme.dialogPadding
+            anchors.topMargin: Theme.spacingMedium
+            spacing: Theme.controlSpacing
 
-            Button {
+            ActionButton {
                 id: cancelBtn
+                variant: "secondary"
                 Layout.fillWidth: true
                 text: root.summaryText === "" ? qsTr("Cancel") : qsTr("Close")
                 focusPolicy: Qt.StrongFocus
@@ -261,12 +250,11 @@ Dialog {
                 Keys.onReturnPressed: root.reject()
                 Keys.onEnterPressed: root.reject()
                 onClicked: root.reject()
-                contentItem: Text { text: cancelBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: Theme.textSecondary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: cancelBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground; border.color: cancelBtn.activeFocus ? Theme.focusBorder : Theme.inputBorder; border.width: cancelBtn.activeFocus ? 2 : 1 }
             }
 
-            Button {
+            ActionButton {
                 id: importBtn
+                variant: "primary"
                 Layout.fillWidth: true
                 text: qsTr("Import")
                 enabled: root.summaryText === "" && pathField.text.trim() !== "" && nameField.text.trim() !== "" && !root.nameCollides()
@@ -277,8 +265,6 @@ Dialog {
                 Keys.onEnterPressed: root.importConfig()
                 onEnabledChanged: { if (!enabled && activeFocus) cancelBtn.forceActiveFocus() }
                 onClicked: root.importConfig()
-                contentItem: Text { text: importBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: parent.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: parent.enabled ? (importBtn.hovered ? Theme.buttonPrimaryBackgroundHover : Theme.buttonPrimaryBackground) : Theme.buttonSecondaryBackground; border.color: importBtn.activeFocus ? Theme.focusBorder : Theme.inputBorder; border.width: importBtn.activeFocus ? 2 : 1 }
             }
         }
     }

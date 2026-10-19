@@ -14,7 +14,9 @@ QML & Focus
 - Settings boolean controls should use `SettingsToggleRow` for consistent focus treatment, accessibility metadata, and keyboard/gamepad toggling.
 - Global app-shell shortcuts live in `Main.qml`; ESC on the root home screen opens the power menu, while deeper screens keep the normal back-stack behavior.
 - The sidebar's Exit entry opens the same power menu, and Sign Out (sidebar or Settings → About & Account) opens a confirmation dialog with Cancel focused, so a stray Select press never signs out or quits.
-- Moving Left into the sidebar (`Sidebar.focusRail()`) or expanding it focuses the current page's entry (Home, Search, the active library, or Settings) rather than the hamburger button.
+- The sidebar is a floating navigation rail (see `docs/theme.md#navigation-rail`). Moving Left into it (`Sidebar.focusRail()`) focuses the current page's entry (Home, Search, the active library, or Settings). Cancelling a sign-out or power dialog opened from the rail returns focus to the entry that opened it (`Sidebar.focusDialogOrigin()`).
+- Pages reserve `Theme.navRailReservedWidth` on the left and never respond to rail expansion. Full-bleed backdrops extend under the rail with a negative left margin.
+- Show focus only with the shared `FocusRing` (`inset: true` inside clipped lists and popups) and selection with `selection*` tokens. Prefer the shared components (`ActionButton`, `BloomMenu`, `DialogSurface`, `StateMessage`, `SectionHeader`, `MetadataLine`, `ArtworkPlaceholder`, `ArtworkLogo`) over one-off styling.
 - Grids/lists that auto-select an index when their model loads must not move focus unless the view already has active focus; otherwise async results steal focus from text inputs (see `SearchScreen.qml`).
 - The screensaver is controlled by `ScreensaverController` and rendered by `ScreensaverOverlay.qml`. It may activate during app navigation or paused playback, but playing/loading/buffering video must always cancel or block activation.
 

@@ -61,13 +61,8 @@ FocusScope {
         return Number(root.value).toFixed(displayDecimals()) + root.unit
     }
 
-    Rectangle {
-        anchors.fill: parent
-        anchors.margins: -Theme.spacingSmall
-        radius: Theme.radiusSmall
-        color: root.activeFocus ? Theme.hoverOverlay : "transparent"
-        border.color: root.activeFocus ? Theme.focusBorder : "transparent"
-        border.width: root.activeFocus ? 2 : 0
+    SettingsRowBackground {
+        focused: root.activeFocus
     }
 
     ColumnLayout {
@@ -103,14 +98,13 @@ FocusScope {
             }
 
             Rectangle {
-                width: Math.round(60 * Theme.layoutScale)
-                height: Math.round(32 * Theme.layoutScale)
+                width: Math.max(Math.round(84 * Theme.layoutScale), valueLabel.implicitWidth + Theme.spacingMedium * 2)
+                height: Theme.buttonHeightSmall - Theme.spacingSmall
                 radius: Theme.radiusSmall
-                color: Theme.inputBackground
-                border.color: Theme.inputBorder
-                border.width: Theme.borderWidth
+                color: Theme.surfaceInteractive
 
                 Text {
+                    id: valueLabel
                     anchors.centerIn: parent
                     text: root.formattedValueText()
                     font.pixelSize: Theme.fontSizeBody
@@ -137,27 +131,25 @@ FocusScope {
                 x: slider.leftPadding
                 y: slider.topPadding + slider.availableHeight / 2 - height / 2
                 width: slider.availableWidth
-                height: Math.round(6 * Theme.layoutScale)
-                radius: Math.round(3 * Theme.layoutScale)
-                color: Qt.rgba(1, 1, 1, 0.2)
+                height: Theme.progressHeight
+                radius: height / 2
+                color: Theme.progressTrack
 
                 Rectangle {
                     width: slider.visualPosition * parent.width
                     height: parent.height
-                    radius: Math.round(3 * Theme.layoutScale)
-                    color: Theme.accentPrimary
+                    radius: height / 2
+                    color: Theme.progressFill
                 }
             }
 
             handle: Rectangle {
                 x: slider.leftPadding + slider.visualPosition * (slider.availableWidth - width)
                 y: slider.topPadding + slider.availableHeight / 2 - height / 2
-                width: Math.round(20 * Theme.layoutScale)
-                height: Math.round(20 * Theme.layoutScale)
-                radius: Math.round(10 * Theme.layoutScale)
+                width: Math.round(28 * Theme.layoutScale)
+                height: width
+                radius: width / 2
                 color: slider.pressed ? Theme.accentPrimary : Theme.textPrimary
-                border.color: Theme.accentPrimary
-                border.width: 2
 
                 Behavior on color { ColorAnimation { duration: Theme.durationShort } }
             }

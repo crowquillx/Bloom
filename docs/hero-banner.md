@@ -18,6 +18,8 @@ calls the existing player request API.
 
 ## Layout
 
+The hero has two presentations. **Cinema mode** (`HeroBanner.cinematic`, used when Settings > Home > Sync page backdrop is on, the default) draws no card: the selected item's backdrop fills the page behind the rail, sharp and unblurred, and leading-edge and floor scrims keep the text legible. **Card mode** (sync off) shows the artwork inside a rounded card with its own scrims, over the normal rotating Home backdrop. Both modes use the same content: an uppercase accent eyebrow (source), the logo or title, the episode subtitle, a `MetadataLine`, the synopsis, and the actions (primary `ActionButton` reading "Play", "Resume" or "Resume S2 E3", plus a secondary "Details"). When the item has progress, a progress row shows the time left. Logos render through `ArtworkLogo`.
+
 Logo and info (badge, metadata chips, action buttons) can be placed independently under
 Settings > Home:
 
