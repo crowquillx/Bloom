@@ -783,10 +783,18 @@ void CanonicalModelsTest::jellyfinPlaybackInfoRequestUsesBodyUserId()
     QCOMPARE(fallback.value(QStringLiteral("Protocol")).toString(), QStringLiteral("http"));
     QVERIFY(!fallback.contains(QStringLiteral("VideoCodec")));
     QVERIFY(!fallback.contains(QStringLiteral("MaxAudioChannels")));
-    QStringList fallbackAudioCodecs = advertisedAudioCodecs;
-    fallbackAudioCodecs.removeAll(QStringLiteral("flac"));
-    fallbackAudioCodecs.prepend(QStringLiteral("flac"));
-    QCOMPARE(fallback.value(QStringLiteral("AudioCodec")).toString(), fallbackAudioCodecs.join(QLatin1Char(',')));
+    // Jellyfin echoes this into the transcode URL and rejects AudioCodec
+    // values longer than 40 characters with HTTP 400.
+    const QString fallbackAudioCodecs = fallback.value(QStringLiteral("AudioCodec")).toString();
+    QVERIFY(fallbackAudioCodecs.size() <= 40);
+    QVERIFY(fallbackAudioCodecs.startsWith(QStringLiteral("flac,")));
+    for (const QString &codec : fallbackAudioCodecs.split(QLatin1Char(',')))
+        QVERIFY2(advertisedAudioCodecs.contains(codec), qPrintable(codec));
+    // Without an explicit limit Jellyfin's DeviceProfile default (8 Mbps)
+    // transcodes ordinary LAN sources.
+    QVERIFY(request.body.value(QStringLiteral("MaxStreamingBitrate")).toInt() > 8000000);
+    QCOMPARE(deviceProfile.value(QStringLiteral("MaxStreamingBitrate")).toInt(),
+             request.body.value(QStringLiteral("MaxStreamingBitrate")).toInt());
     const QJsonArray subtitleProfiles = deviceProfile.value(QStringLiteral("SubtitleProfiles")).toArray();
     QVERIFY(!subtitleProfiles.isEmpty());
     QStringList subtitleFormats;

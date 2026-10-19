@@ -8,6 +8,18 @@
 
 namespace {
 
+// Jellyfin's DeviceProfile defaults MaxStreamingBitrate to 8 Mbps, which forces
+// LAN sources above that into a transcode. Bloom is a local-network client;
+// remote users stay capped by the server's per-user remote bitrate limit.
+constexpr int kMaxStreamingBitrate = 1'000'000'000;
+
+// Jellyfin copies this list into the transcode URL's AudioCodec parameter,
+// which it validates as at most 40 characters (EncodingHelper
+// ContainerValidationRegexStr). FLAC leads as the lossless encode target;
+// the rest let common source audio be copied instead of re-encoded.
+constexpr char kTranscodeAudioCodecs[] = "flac,aac,ac3,eac3,dts,truehd,opus,mp3";
+static_assert(sizeof(kTranscodeAudioCodecs) - 1 <= 40);
+
 QUrl resolveProviderUrl(const QUrl &serverUrl, const QString &providerUrl)
 {
     QUrl url(providerUrl);
@@ -218,10 +230,8 @@ PlaybackInfoRequest JellyfinPlaybackProvider::createPlaybackInfoRequest(
                            .arg(QString::fromLatin1(QUrl::toPercentEncoding(media.itemId)));
     request.method = QStringLiteral("POST");
     request.body.insert(QStringLiteral("UserId"), context.profileId);
+    request.body.insert(QStringLiteral("MaxStreamingBitrate"), kMaxStreamingBitrate);
     const QStringList audioCodecs = Bloom::AudioPolicy::localDecodeCodecs();
-    QStringList fallbackAudioCodecs = audioCodecs;
-    fallbackAudioCodecs.removeAll(QStringLiteral("flac"));
-    fallbackAudioCodecs.prepend(QStringLiteral("flac"));
     QJsonArray subtitleProfiles;
     for (const QString &format : {QStringLiteral("ass"), QStringLiteral("ssa"),
              QStringLiteral("subrip"), QStringLiteral("srt"), QStringLiteral("webvtt"),
@@ -239,6 +249,7 @@ PlaybackInfoRequest JellyfinPlaybackProvider::createPlaybackInfoRequest(
     });
     request.body.insert(QStringLiteral("DeviceProfile"), QJsonObject{
         {QStringLiteral("Name"), QStringLiteral("Bloom")},
+        {QStringLiteral("MaxStreamingBitrate"), kMaxStreamingBitrate},
         {QStringLiteral("DirectPlayProfiles"), QJsonArray{
             QJsonObject{
                 {QStringLiteral("Type"), QStringLiteral("Video")},
@@ -250,8 +261,7 @@ PlaybackInfoRequest JellyfinPlaybackProvider::createPlaybackInfoRequest(
             {QStringLiteral("Context"), QStringLiteral("Streaming")},
             {QStringLiteral("Container"), QStringLiteral("mkv")},
             {QStringLiteral("Protocol"), QStringLiteral("http")},
-            // Jellyfin prefers matching source audio; FLAC is the lossless encode fallback.
-            {QStringLiteral("AudioCodec"), fallbackAudioCodecs.join(QLatin1Char(','))}
+            {QStringLiteral("AudioCodec"), QString::fromLatin1(kTranscodeAudioCodecs)}
         }}},
         {QStringLiteral("SubtitleProfiles"), subtitleProfiles}
     });
