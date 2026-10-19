@@ -149,7 +149,10 @@ mid-transfer on GitHub-hosted runners (broken pipe or `HTTP 416` on a resumed
 range), which cascades through `mpv-with-scripts`/`qtmultimedia` and fails
 otherwise-unrelated derivations such as `qml-lint`. The retry recovers from
 these transient substituter failures without code changes; a genuinely missing
-path still fails after three attempts.
+path still fails after three attempts. A retry happens only when one of Nix's
+own `error:` lines (not prefixed builder output) reports a download
+or connection failure. Compile, lint, and test failures stop after the first
+attempt instead of rebuilding the same failing derivation three times.
 
 Each Nix derivation honors Nix's standard `cores` setting. The command above
 uses two compile jobs and serializes derivations, preventing concurrent flake

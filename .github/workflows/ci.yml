@@ -85,11 +85,20 @@ jobs:
           # GitHub-hosted runners (broken pipe / HTTP 416 on resumed ranges),
           # which cascades through mpv/qtmultimedia and fails unrelated
           # derivations. Retry the whole nix invocation with backoff so a
-          # transient substituter failure does not fail the run.
+          # transient substituter failure does not fail the run. Only Nix's
+          # own error lines are inspected (builder output is prefixed
+          # with "<drv>>"), so failing builds and tests fail on the first
+          # attempt instead of rebuilding three times.
+          transient='unable to download|cannot download|substitutes? for|HTTP error|Broken pipe|Connection reset|Timeout was reached|transfer closed|Could not resolve host|SSL'
           retry() {
-            local attempt=0 max=3 delay=20
-            until "$@"; do
+            local attempt=0 max=3 delay=20 log
+            log="$(mktemp)"
+            until "$@" 2>&1 | tee "$log"; do
               attempt=$((attempt + 1))
+              if ! grep -qiE "^error: .*(${transient})" "$log"; then
+                echo "::error::nix build failed with a non-transient error; not retrying: $*" >&2
+                return 1
+              fi
               if [[ $attempt -ge $max ]]; then
                 echo "::error::nix build failed after $attempt attempts: $*" >&2
                 return 1
