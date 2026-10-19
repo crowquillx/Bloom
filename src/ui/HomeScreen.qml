@@ -674,9 +674,9 @@ FocusScope {
                 height: parent.height * 0.62
                 radius: Theme.imageRadius
                 gradient: Gradient {
-                    GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0) }
-                    GradientStop { position: 0.55; color: Qt.rgba(0, 0, 0, 0.55) }
-                    GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.82) }
+                    GradientStop { position: 0.0; color: Theme.withAlpha(Theme.overlayTextBackground, 0) }
+                    GradientStop { position: 0.55; color: Theme.withAlpha(Theme.overlayTextBackground, 0.55) }
+                    GradientStop { position: 1.0; color: Theme.withAlpha(Theme.overlayTextBackground, 0.82) }
                 }
             }
 
@@ -707,7 +707,7 @@ FocusScope {
                     font.pixelSize: Theme.fontSizeCaption
                     font.family: Theme.fontPrimary
                     font.weight: Theme.fontWeightMedium
-                    color: Qt.rgba(1, 1, 1, 0.78)
+                    color: Theme.withAlpha(Theme.textOnDarkOverlay, 0.78)
                     elide: Text.ElideRight
                     maximumLineCount: 1
                 }
@@ -1418,6 +1418,8 @@ FocusScope {
             LibraryService.getViews()
         }
         onVisibleChanged: if (visible && actionText !== "") Qt.callLater(focusAction)
+        // Stays visible from loading to error, so visibility alone misses the first failure.
+        onActionTextChanged: if (visible && actionText !== "") Qt.callLater(focusAction)
     }
     
     // Functions

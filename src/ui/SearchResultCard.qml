@@ -183,7 +183,7 @@ Item {
                             text: seerrStatusLabel
                             font.pixelSize: Theme.fontSizeCaption
                             font.family: Theme.fontPrimary
-                            color: Qt.rgba(1, 1, 1, 0.78)
+                            color: Theme.withAlpha(Theme.textOnDarkOverlay, 0.78)
                             visible: seerrStatusLabel.length > 0
                         }
                     }

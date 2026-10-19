@@ -1564,7 +1564,7 @@ FocusScope {
                                  || bufferingTitleLogo.status === Image.Error
                                  || bufferingTitleLogo.status === Image.Loading
                                  || bufferingTitleLogo.status === Image.Null
-                        color: Qt.rgba(1, 1, 1, 0.82)
+                        color: Theme.withAlpha(Theme.playbackTimePrimary, 0.82)
                         font.family: root.overlayMetadataFontFamily
                         font.pixelSize: Math.round(18 * Theme.layoutScale)
                         font.weight: Font.Bold
@@ -1592,7 +1592,7 @@ FocusScope {
                         x: parent.subtitleUnderLogo ? (parent.width - width) / 2 : 0
                         width: parent.subtitleRailWidth
                         text: root.mediaSubtitle
-                        textColor: Qt.rgba(1, 1, 1, 0.9)
+                        textColor: Theme.withAlpha(Theme.playbackTimePrimary, 0.9)
                         fontFamily: root.overlayMetadataFontFamily
                         fontPixelSize: root.bufferingSubtitlePixelSize
                         fontWeight: Font.Bold

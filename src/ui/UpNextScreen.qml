@@ -324,7 +324,7 @@ FocusScope {
                     Rectangle {
                         anchors.fill: parent
                         radius: Theme.imageRadius
-                        color: thumbnailFocus.activeFocus ? Qt.rgba(0, 0, 0, 0.15) : Qt.rgba(0, 0, 0, 0.35)
+                        color: Theme.withAlpha(Theme.overlayTextBackground, thumbnailFocus.activeFocus ? 0.15 : 0.35)
                         Behavior on color { ColorAnimation { duration: Theme.durationShort } }
 
                         // Play circle
@@ -333,9 +333,9 @@ FocusScope {
                             width: Math.round(80 * Theme.layoutScale)
                             height: width
                             radius: width / 2
-                            color: thumbnailFocus.activeFocus ? Theme.actionPrimaryBackground : Qt.rgba(0, 0, 0, 0.45)
+                            color: thumbnailFocus.activeFocus ? Theme.actionPrimaryBackground : Theme.withAlpha(Theme.overlayTextBackground, 0.45)
                             border.width: Theme.borderWidth
-                            border.color: Qt.rgba(1, 1, 1, 0.35)
+                            border.color: Theme.withAlpha(Theme.overlayTextBorder, 0.35)
 
                             Behavior on color { ColorAnimation { duration: Theme.durationShort } }
 

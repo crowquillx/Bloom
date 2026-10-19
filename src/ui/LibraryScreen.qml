@@ -2023,7 +2023,8 @@ FocusScope {
             id: letterRail
             Layout.alignment: Qt.AlignVCenter
             Layout.preferredWidth: Math.round(52 * Theme.layoutScale)
-            Layout.preferredHeight: letterColumn.implicitHeight
+            Layout.fillHeight: true
+            Layout.maximumHeight: letterBuckets.length * (idealEntryHeight + entrySpacing) - entrySpacing
             visible: letterBuckets.length > 2
             activeFocusOnTab: false
             Accessible.role: Accessible.List
@@ -2039,6 +2040,14 @@ FocusScope {
                 return result
             }
             property int cursor: 0
+
+            // Shrink entries so every bucket fits the available height.
+            readonly property int idealEntryHeight: Math.round(40 * Theme.layoutScale)
+            readonly property int entrySpacing: Math.round(2 * Theme.layoutScale)
+            readonly property int entryHeight: letterBuckets.length > 0
+                ? Math.max(1, Math.min(idealEntryHeight,
+                                       Math.floor((height + entrySpacing) / letterBuckets.length) - entrySpacing))
+                : idealEntryHeight
 
             function enter() {
                 cursor = Math.max(0, activeBucket)
@@ -2061,20 +2070,21 @@ FocusScope {
             Column {
                 id: letterColumn
                 width: parent.width
-                spacing: Math.round(2 * Theme.layoutScale)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: letterRail.entrySpacing
 
                 Repeater {
                     model: letterBuckets
                     delegate: Item {
                         width: letterColumn.width
-                        height: Math.round(40 * Theme.layoutScale)
+                        height: letterRail.entryHeight
                         readonly property bool isActive: index === letterRail.activeBucket
                         readonly property bool isCursor: letterRail.activeFocus && index === letterRail.cursor
 
                         Rectangle {
                             id: letterChip
                             anchors.centerIn: parent
-                            width: Math.round(40 * Theme.layoutScale)
+                            width: letterRail.entryHeight
                             height: width
                             radius: width / 2
                             color: parent.isActive ? Theme.selectionBackground
@@ -2090,7 +2100,7 @@ FocusScope {
                             anchors.centerIn: parent
                             text: modelData.letter
                             color: parent.isActive || parent.isCursor ? Theme.textPrimary : Theme.textSecondary
-                            font.pixelSize: Theme.fontSizeCaption
+                            font.pixelSize: Math.min(Theme.fontSizeCaption, Math.round(letterRail.entryHeight * 0.6))
                             font.family: Theme.fontPrimary
                             font.weight: parent.isActive ? Theme.fontWeightHeavy : Theme.fontWeightMedium
                         }

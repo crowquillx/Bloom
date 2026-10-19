@@ -45,7 +45,9 @@ FocusScope {
     signal playRequested(var item)
     signal moveDownRequested()
 
-    implicitHeight: Math.round(width * 0.30)
+    // Card mode grows past its aspect height when the content block needs it.
+    readonly property real contentRequiredHeight: contentLoader.item ? contentLoader.item.requiredHeight : 0
+    implicitHeight: Math.max(Math.round(width * 0.30), Math.ceil(contentRequiredHeight))
     Accessible.role: Accessible.Button
     Accessible.name: {
         var title = primaryTitle(currentItem)
@@ -439,6 +441,8 @@ FocusScope {
             anchors.fill: parent
             property alias playButton: combinedHeroActions.playButtonRef
             property alias detailsButton: combinedHeroActions.detailsButtonRef
+            readonly property real requiredHeight: combinedHost.height + 2 * root.contentEdgeMargin
+                                                   + root.carouselBottomInset
 
             HeroBannerLayoutHost {
                 id: combinedHost
@@ -466,6 +470,17 @@ FocusScope {
             anchors.fill: parent
             property alias playButton: splitHeroActions.playButtonRef
             property alias detailsButton: splitHeroActions.detailsButtonRef
+            // Blocks in the same vertical band overlap; otherwise they stack.
+            function verticalBand(placement) {
+                return placement.indexOf("top") === 0 ? "top"
+                     : (placement.indexOf("bottom") === 0 ? "bottom" : "center")
+            }
+            readonly property bool blocksShareBand: verticalBand(logoHost.resolvedPlacement)
+                                                    === verticalBand(infoHost.resolvedPlacement)
+            readonly property real requiredHeight: (blocksShareBand
+                                                    ? Math.max(logoHost.height, infoHost.height)
+                                                    : logoHost.height + infoHost.height + Theme.spacingMedium)
+                                                   + 2 * root.contentEdgeMargin + root.carouselBottomInset
 
             HeroBannerLayoutHost {
                 id: logoHost
