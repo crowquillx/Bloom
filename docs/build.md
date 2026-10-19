@@ -159,8 +159,15 @@ match the hosted runner; controlled builders can choose another value with
 
 The portable Linux, Flatpak, and Windows packaging jobs start as soon as build
 metadata is resolved and run in parallel with the `nix` validation job. The
-`release` job depends on all of them, so a failing check still blocks
-publishing without serializing validation ahead of packaging.
+`release` job depends only on `nix` and the Windows build. It publishes the
+GitHub release, the signed update manifest, and the Scoop update as soon as
+both pass. A failing check still blocks publishing. The `release-linux` and
+`release-flatpak` jobs then attach their artifacts to that release and merge
+their hashes into `SHA256SUMS.txt` (see `scripts/publish-release-assets.sh`).
+A failed Linux or Flatpak build marks the run as failed but does not withdraw
+or block the release. Rerun the failed jobs to attach the missing assets. Each
+attach job skips the upload if a newer `main` push has already moved
+`dev-latest` to another commit.
 
 ## Portable Linux artifacts
 
@@ -283,7 +290,8 @@ GitHub releases. Successful pushes to `main` replace the rolling
 `dev-latest` prerelease named `Development Build`. Its tag follows the current
 `main` commit, its assets use stable development filenames such as
 `Bloom-Setup-dev.exe` and `bloom_dev_amd64.deb`, and the previous prerelease is
-deleted before the new one is published. Development binaries embed a
+deleted before the new one is published. Linux and Flatpak assets therefore
+appear a few minutes after the Windows assets. Development binaries embed a
 timestamp plus short commit SHA as their build ID and never become GitHub's
 latest stable release.
 

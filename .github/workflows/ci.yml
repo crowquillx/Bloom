@@ -276,10 +276,14 @@ jobs:
             Bloom-Setup-*.exe
           if-no-files-found: error
 
+  # The release is published as soon as validation and the Windows build pass,
+  # so the Windows updater and Scoop never wait on Linux packaging. Linux and
+  # Flatpak assets are attached by the release-linux and release-flatpak jobs
+  # when their builds finish; a failing Flatpak build no longer blocks release.
   release:
     name: Publish release artifacts
     runs-on: ubuntu-24.04
-    needs: [metadata, nix, portable-linux, flatpak, windows]
+    needs: [metadata, nix, windows]
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     concurrency:
       group: bloom-release-publish
@@ -288,15 +292,16 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: Bloom-*
+          name: Bloom-Windows
           path: release-assets
-          merge-multiple: true
       - name: Prepare release metadata and assets
         id: release
         env:
@@ -319,18 +324,6 @@ jobs:
             PRERELEASE="true"
             MAKE_LATEST="false"
             mv release-assets/Bloom-Setup-*.exe release-assets/Bloom-Setup-dev.exe
-            mv release-assets/Bloom-*-linux-x86_64.AppImage release-assets/Bloom-x86_64.AppImage
-            mv release-assets/Bloom-*-linux-x86_64.flatpak release-assets/Bloom-x86_64.flatpak
-            mv release-assets/Bloom-*-linux-x86_64.tar.gz release-assets/Bloom-Linux.tar.gz
-            mv release-assets/bloom_*_amd64.deb release-assets/bloom_dev_amd64.deb
-            (
-              cd release-assets
-              sha256sum \
-                Bloom-x86_64.AppImage \
-                Bloom-Linux.tar.gz \
-                bloom_dev_amd64.deb > SHA256SUMS-linux-x86_64.txt
-              sha256sum Bloom-x86_64.flatpak > SHA256SUMS-flatpak-x86_64.txt
-            )
             INSTALLER="Bloom-Setup-dev.exe"
             NOTES_FILE="dev-release-notes.md"
             cat > "$NOTES_FILE" <<EOF
@@ -340,6 +333,8 @@ jobs:
           - Commit: \`$GITHUB_SHA\`
           - Base version: \`$VERSION\`
           - Built: \`$PUBLISHED_AT\`
+
+          Linux and Flatpak assets are attached when their builds finish.
           EOF
             git tag -f dev-latest "$GITHUB_SHA"
             git push origin refs/tags/dev-latest --force
@@ -356,15 +351,11 @@ jobs:
       - name: Generate combined checksums
         run: |
           cd release-assets
-          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -print0 |
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%P\0' |
             sort -z | xargs -0 sha256sum > SHA256SUMS.txt
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
-            release-assets/*.AppImage
-            release-assets/*.deb
-            release-assets/*.flatpak
-            release-assets/*.tar.gz
             release-assets/*.zip
             release-assets/*.exe
       - name: Remove previous development release
@@ -505,3 +496,94 @@ jobs:
             --header "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/crowquillx/scoop-bloom/dispatches" \
             --data "$PAYLOAD"
+
+  release-linux:
+    name: Attach Linux release artifacts
+    runs-on: ubuntu-24.04
+    needs: [metadata, release, portable-linux]
+    # Serializes with release-flatpak so both can merge SHA256SUMS.txt safely.
+    concurrency:
+      group: bloom-release-assets-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: Bloom-Linux
+          path: release-assets
+      - name: Apply development asset names
+        if: needs.metadata.outputs.is_tagged_release != 'true'
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          mv Bloom-*-linux-x86_64.AppImage Bloom-x86_64.AppImage
+          mv Bloom-*-linux-x86_64.tar.gz Bloom-Linux.tar.gz
+          mv bloom_*_amd64.deb bloom_dev_amd64.deb
+          sha256sum \
+            Bloom-x86_64.AppImage \
+            Bloom-Linux.tar.gz \
+            bloom_dev_amd64.deb > SHA256SUMS-linux-x86_64.txt
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release-assets/*.AppImage
+            release-assets/*.deb
+            release-assets/*.tar.gz
+      - name: Attach assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          ./scripts/publish-release-assets.sh "$TAG" \
+            release-assets/*.AppImage \
+            release-assets/*.deb \
+            release-assets/*.tar.gz \
+            release-assets/SHA256SUMS-linux-x86_64.txt
+
+  release-flatpak:
+    name: Attach Flatpak release artifact
+    runs-on: ubuntu-24.04
+    needs: [metadata, release, flatpak]
+    concurrency:
+      group: bloom-release-assets-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: Bloom-Flatpak
+          path: release-assets
+      - name: Apply development asset names
+        if: needs.metadata.outputs.is_tagged_release != 'true'
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          mv Bloom-*-linux-x86_64.flatpak Bloom-x86_64.flatpak
+          sha256sum Bloom-x86_64.flatpak > SHA256SUMS-flatpak-x86_64.txt
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release-assets/*.flatpak
+      - name: Attach assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          ./scripts/publish-release-assets.sh "$TAG" \
+            release-assets/*.flatpak \
+            release-assets/SHA256SUMS-flatpak-x86_64.txt

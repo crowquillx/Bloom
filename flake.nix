@@ -163,6 +163,7 @@
                   ${./packaging/portable/build-mpv.sh} \
                   ${./packaging/portable/build.sh} \
                   ${./scripts/package-flatpak.sh} \
+                  ${./scripts/publish-release-assets.sh} \
                   ${./scripts/run-clang-tidy.sh} \
                   ${./scripts/run-coverage.sh} \
                   ${./scripts/run-sanitizers.sh}
