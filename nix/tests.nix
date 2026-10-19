@@ -77,6 +77,7 @@ stdenv.mkDerivation {
       PlayerBackendFactoryTest \
       PlayerProcessManagerTest \
       PlaybackPolicyTest \
+      ResponsiveLayoutPolicyTest \
       AudioPolicyTest \
       AudioOutputServiceTest \
       DisplayManagerTest \
