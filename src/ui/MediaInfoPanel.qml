@@ -108,12 +108,12 @@ FocusScope {
     ColumnLayout {
         id: contentLayout
         width: parent.width
-        spacing: 16
+        spacing: Math.round(16 * Theme.layoutScale)
         
         // Video Info Section
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 4
+            spacing: Math.round(4 * Theme.layoutScale)
             visible: videoStream !== null
             
             Text {
@@ -125,7 +125,7 @@ FocusScope {
             
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 40
+                Layout.preferredHeight: Math.round(40 * Theme.layoutScale)
                 radius: Theme.radiusSmall
                 color: Theme.buttonSecondaryBackground
                 border.width: 1
@@ -133,7 +133,7 @@ FocusScope {
                 
                 Text {
                     anchors.fill: parent
-                    anchors.margins: 12
+                    anchors.margins: Math.round(12 * Theme.layoutScale)
                     text: videoInfoText
                     font.pixelSize: Theme.fontSizeBody
                     font.family: Theme.fontPrimary

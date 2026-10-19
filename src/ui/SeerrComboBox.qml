@@ -110,7 +110,7 @@ ComboBox {
     popup: Popup {
         y: control.height + 5
         width: control.width
-        implicitHeight: Math.min(contentItem.implicitHeight, 280)
+        implicitHeight: Math.min(contentItem.implicitHeight, Math.round(280 * Theme.layoutScale))
         padding: 1
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 

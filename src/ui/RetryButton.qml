@@ -7,7 +7,7 @@ Column {
     property var target               // Expects BaseViewModel-derived object
     property bool autoHide: true      // Hide unless hasError when true
     property string fallbackMessage: qsTr("Something went wrong")
-    spacing: 8
+    spacing: Math.round(8 * Theme.layoutScale)
     visible: !root.autoHide || (root.target && root.target.hasError)
 
     Label {

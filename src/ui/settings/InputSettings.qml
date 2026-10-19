@@ -522,12 +522,12 @@ FocusScope {
                         }
 
                         Rectangle {
-                            width: 4
+                            width: Math.round(4 * Theme.layoutScale)
                             anchors.left: parent.left
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
                             anchors.margins: Theme.spacingSmall
-                            radius: 2
+                            radius: Math.round(2 * Theme.layoutScale)
                             color: Theme.accentPrimary
                             opacity: row.activeFocus ? 1.0 : 0.0
 

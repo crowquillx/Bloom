@@ -31,7 +31,7 @@ FocusScope {
     property string noneText: qsTr("None")
     
     // Visual customization
-    property int preferredWidth: 300
+    property int preferredWidth: Math.round(300 * Theme.layoutScale)
     property bool openUpward: false
     
     // Signals
@@ -142,7 +142,7 @@ FocusScope {
     ColumnLayout {
         id: contentColumn
         width: parent.width
-        spacing: 4
+        spacing: Math.round(4 * Theme.layoutScale)
         
         // Label
         Text {
@@ -202,7 +202,7 @@ FocusScope {
             }
             
             contentItem: RowLayout {
-                spacing: 8
+                spacing: Math.round(8 * Theme.layoutScale)
                 
                 Text {
                     Layout.fillWidth: true
@@ -229,8 +229,8 @@ FocusScope {
             x: 0
             y: openUpward ? -implicitHeight - 4 : selectorButton.height + 4
             width: root.preferredWidth
-            implicitHeight: Math.min(trackListView.contentHeight + 16, 250)
-            padding: 8
+            implicitHeight: Math.min(trackListView.contentHeight + Math.round(16 * Theme.layoutScale), Math.round(250 * Theme.layoutScale))
+            padding: Math.round(8 * Theme.layoutScale)
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
             onVisibleChanged: {
                 root.popupVisibleChanged(visible)
@@ -349,7 +349,7 @@ FocusScope {
                 delegate: ItemDelegate {
                     id: trackDelegate
                     width: trackListView.width
-                    height: 40
+                    height: Math.round(40 * Theme.layoutScale)
                     
                     required property var modelData
                     required property int index
@@ -369,7 +369,7 @@ FocusScope {
                     }
                     
                     contentItem: RowLayout {
-                        spacing: 8
+                        spacing: Math.round(8 * Theme.layoutScale)
                         
                         // Check mark for selected item
                         Text {
@@ -377,7 +377,7 @@ FocusScope {
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: Theme.textPrimary
-                            Layout.preferredWidth: 20
+                            Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
                         }
                         
                         Text {

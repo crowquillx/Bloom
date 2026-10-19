@@ -485,8 +485,8 @@ Dialog {
                         KeyNavigation.down: !allSeasonsCheck.checked && seasonRepeater.count > 0 ? seasonRepeater.itemAt(0) : cancelButton
 
                         indicator: Rectangle {
-                            implicitWidth: 20
-                            implicitHeight: 20
+                            implicitWidth: Math.round(20 * Theme.layoutScale)
+                            implicitHeight: Math.round(20 * Theme.layoutScale)
                             radius: Theme.radiusSmall
                             color: allSeasonsCheck.checked ? Theme.buttonPrimaryBackground : Theme.inputBackground
                             border.color: allSeasonsCheck.activeFocus ? Theme.focusBorder : Theme.inputBorder
@@ -580,8 +580,8 @@ Dialog {
                                 font.family: Theme.fontPrimary
 
                                 indicator: Rectangle {
-                                    implicitWidth: 18
-                                    implicitHeight: 18
+                                    implicitWidth: Math.round(18 * Theme.layoutScale)
+                                    implicitHeight: Math.round(18 * Theme.layoutScale)
                                     radius: Theme.radiusSmall
                                     color: seasonCheck.checked ? Theme.buttonPrimaryBackground : Theme.inputBackground
                                     border.color: seasonCheck.activeFocus ? Theme.focusBorder : Theme.inputBorder

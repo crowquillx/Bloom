@@ -10,31 +10,23 @@ The new responsive system, driven by `ResponsiveLayoutManager`, replaces the old
 ### Core Concepts
 
 **1. Layout Scale (`Theme.layoutScale`)**
-- A continuous scaling factor (0.6 - 1.5) that adapts the UI size.
-- Calculated based on viewport height and `devicePixelRatio`.
+- Logical pixels per design unit. Tokens are authored on a fixed 16:9 canvas,
+  so every element covers the same fraction of the screen at any resolution
+  or OS display scaling (10-foot / Kodi-style).
+- Calculated from the logical window size only; Qt already applies
+  `devicePixelRatio`, so Bloom never multiplies it a second time.
 - Replaces `Theme.dpiScale`.
-- Usage: Multiply base pixel values by `Theme.layoutScale`.
+- Usage: every pixel size must be a Theme token or be multiplied by `Theme.layoutScale`.
   ```qml
-  width: 100 * Theme.layoutScale
+  width: Math.round(100 * Theme.layoutScale)
   ```
 
-**2. Breakpoints (`Theme.breakpoint`)**
-The system categorizes the viewport into four breakpoints based on effective height:
+**2. Ultrawide Support**
+- `Theme.gridColumns` (7 at 16:9) and `Theme.homeRowVisibleItems` (6 at 16:9)
+  grow with width beyond 16:9, so cards keep their on-screen size.
 
-| Breakpoint | Height Range (px) | Grid Cols | Use Case |
-|------------|-------------------|-----------|----------|
-| **Small**  | < 850             | 4         | Laptops, small windows |
-| **Medium** | 850 - 1150        | 6         | Standard 1080p |
-| **Large**  | 1150 - 1700       | 7         | 1440p, QHD |
-| **XL**     | >= 1700           | 8         | 4K TV |
-
-**3. Ultrawide Support**
-- Automatically detects aspect ratios > 2.2.
-- Adds extra grid columns (up to +2) to utilize horizontal space effectively.
-
-**4. High-DPI Support**
-- Automatically detects high-density displays (e.g., 4K @ 200% scale).
-- Uses physical pixels for calculation to prevent UI from becoming too small.
+See [responsive.md](responsive.md#scaling-model) for the formula, the 4K
+scaling table, and the migration note for the removed breakpoints.
 
 ### Animation Control
 - `Theme.uiAnimationsEnabled`: Boolean flag controlling all UI animations.
@@ -87,7 +79,7 @@ Standard component sizes.
 - `buttonHeightSmall` (48px), `buttonHeightMedium` (56px), `buttonHeightLarge` (64px)
 - `posterWidth` / `posterHeight` (standard 2:3 ratio)
 - `cardWidthMedium` / `cardHeightMedium` (standard 16:9 ratio)
-- `detailViewLogoHeight`: hero logo height for movie and series detail views, with a larger breakpoint-aware boost on Large and XL screens
+- `detailViewLogoHeight`: hero logo height for movie and series detail views, with a fixed 1.14 boost
 - `seriesLogoHeight` / `seriesLogoMaxWidth`: generic logo bounds for series and related logo usages
 
 ### Playback Overlay Tokens
@@ -156,8 +148,7 @@ Migrating from old `dpiScale` system:
 1.  **Replace Scaling Factor**: Search for `Theme.dpiScale` and replace with `Theme.layoutScale`.
 2.  **Remove Manual Math**: If you were manually calculating responsive sizes, check if a Theme token exists (e.g., `Theme.posterWidth`).
 3.  **Update Grids**: Replace hardcoded column counts with `Theme.gridColumns`.
-4.  **Check Breakpoints**: If you had custom logic for screen sizes, use `Theme.breakpoint` ("Small", "Medium", etc.) instead.
-5.  **Verify Animations**: Ensure all generic animations use `Theme.duration*` tokens.
+4.  **Verify Animations**: Ensure all generic animations use `Theme.duration*` tokens.
 
 ## Visual Principles
 - **Glassmorphism**: Translucent backgrounds (`backgroundGlass`) with blur (`blurRadius`).

@@ -2863,10 +2863,6 @@ FocusScope {
         }
     }
 
-    // Focus restoration on breakpoint changes
-    property var savedFocusItem: null
-    property int savedEpisodeIndex: -1
-
     ToastNotification {
         id: playbackToast
         z: 300
@@ -2904,36 +2900,5 @@ FocusScope {
                 }
             }
         }
-    }
-
-    Connections {
-        target: ResponsiveLayoutManager
-        function onBreakpointChanged() {
-            root.savedEpisodeIndex = episodesList.currentIndex
-            var active = root.Window.activeFocusItem
-            if (active && active.parent && typeof active.forceActiveFocus === 'function') {
-                root.savedFocusItem = active
-            } else {
-                root.savedFocusItem = null
-            }
-            Qt.callLater(root.restoreFocusAfterBreakpoint)
-        }
-    }
-
-    function restoreFocusAfterBreakpoint() {
-        if (savedEpisodeIndex >= 0 && episodesList.count > 0) {
-            episodesList.currentIndex = Math.min(savedEpisodeIndex, episodesList.count - 1)
-            episodesList.positionViewAtIndex(episodesList.currentIndex, ListView.Contain)
-        }
-        if (savedFocusItem && savedFocusItem.parent && typeof savedFocusItem.forceActiveFocus === 'function') {
-            savedFocusItem.forceActiveFocus()
-        } else {
-            if (episodesList.currentItem) {
-                episodesList.currentItem.forceActiveFocus()
-            } else {
-                root.forceActiveFocus()
-            }
-        }
-        savedFocusItem = null
     }
 }

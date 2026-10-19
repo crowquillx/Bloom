@@ -127,7 +127,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             text: itemType === "Series" ? Icons.tvShows : Icons.movie
-                            font.pixelSize: 48
+                            font.pixelSize: Math.round(48 * Theme.layoutScale)
                             font.family: Theme.fontIcon
                             color: Theme.textSecondary
                         }
@@ -157,17 +157,17 @@ Item {
                 Rectangle {
                     anchors.top: parent.top
                     anchors.right: parent.right
-                    anchors.margins: 8
-                    width: 24
-                    height: 24
-                    radius: 12
+                    anchors.margins: Math.round(8 * Theme.layoutScale)
+                    width: Math.round(24 * Theme.layoutScale)
+                    height: Math.round(24 * Theme.layoutScale)
+                    radius: Math.round(12 * Theme.layoutScale)
                     color: Theme.accentPrimary
                     visible: !isSeerr && itemType === "Movie" && isPlayed
                     
                     Text {
                         anchors.centerIn: parent
                         text: Icons.check
-                        font.pixelSize: 16
+                        font.pixelSize: Math.round(16 * Theme.layoutScale)
                         font.family: Theme.fontIcon
                         color: Theme.textPrimary
                     }
@@ -213,7 +213,7 @@ Item {
             // Title and year
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: Math.round(2 * Theme.layoutScale)
                 
                 Text {
                     text: itemName

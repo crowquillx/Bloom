@@ -191,7 +191,7 @@ FocusScope {
                     }
 
                     background: Rectangle {
-                        implicitWidth: 140
+                        implicitWidth: Math.round(140 * Theme.layoutScale)
                         implicitHeight: Theme.buttonHeightSmall
                         radius: Theme.radiusSmall
                         color: advancedToggle.activeFocus ? Theme.buttonSecondaryBackgroundHover : (advancedToggle.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")

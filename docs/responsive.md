@@ -1,13 +1,13 @@
 # Responsive Layout System
 
-This document describes Bloom's responsive layout system, which provides adaptive UI scaling based on viewport dimensions, high-DPI displays, and ultrawide aspect ratios.
+This document describes Bloom's responsive layout system, which keeps every UI element the same fraction of the screen regardless of resolution or OS display scaling, and adapts item counts to ultrawide aspect ratios.
 
 ## Overview
 
 The responsive layout system replaces the previous `dpiScale` approach with a comprehensive `layoutScale` system that provides:
 
 - **Unified scaling** for both content AND UI chrome
-- **Breakpoint detection** and management
+- **Resolution-independent sizing** (10-foot, Kodi-style)
 - **Aspect-ratio awareness** for ultrawide displays
 - **Clean separation** from display hardware concerns (refresh rate, HDR)
 
@@ -19,46 +19,68 @@ The [`ResponsiveLayoutManager`](../src/ui/ResponsiveLayoutManager.h) class is th
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `breakpoint` | QString | Current breakpoint: "Small", "Medium", "Large", or "XL" |
-| `layoutScale` | qreal | Continuous scaling factor (0.6 - 1.5) |
-| `gridColumns` | int | Grid column count (4-10) |
-| `homeRowVisibleItems` | int | Visible items per home row (default: 6) |
-| `sidebarDefaultMode` | QString | Default sidebar mode: "overlay", "rail", or "expanded" |
+| `layoutScale` | qreal | Logical pixels per Theme design unit (proportional to window size) |
+| `gridColumns` | int | Grid column count (7 at 16:9, more on wider viewports) |
+| `homeRowVisibleItems` | int | Visible items per home row (6 at 16:9, more on wider viewports) |
+| `sidebarDefaultMode` | QString | Default sidebar mode (always "rail") |
 | `aspectRatio` | qreal | Viewport aspect ratio (width / height) |
 | `viewportWidth` | int | Current viewport width in logical pixels |
 | `viewportHeight` | int | Current viewport height in logical pixels |
 
-## Breakpoint Model
+## Scaling Model
 
-Height-first breakpoints using effective viewport height:
+Bloom scales like a 10-foot app (similar to Kodi): every element covers the
+same fraction of the screen at any resolution and any OS display scaling.
 
-| Breakpoint | Height Range    | Base Columns | Sidebar Default | layoutScale Range |
-|------------|-----------------|--------------|-----------------|-------------------|
-| Small      | < 850px         | 4            | Overlay         | 0.6 - 0.8         |
-| Medium     | 850-1150px      | 6            | Rail            | 0.8 - 1.0         |
-| Large      | 1150-1700px     | 7            | Rail            | 1.0 - 1.25        |
-| XL         | >= 1700px       | 8            | Expanded        | 1.25 - 1.5        |
-
-### Why Height-First?
-
-As a 10-foot HTPC client, Bloom prioritizes vertical space for content visibility. Height determines how much content fits on screen, while width is handled by the ultrawide adjustment system.
-
-## High-DPI Handling
-
-When `devicePixelRatio > 1.5`, the system uses physical height for breakpoint calculations:
+Theme tokens are design units on a fixed 16:9 canvas 1272 units tall.
+`Bloom::ResponsiveLayoutPolicy` (a Qt-Core-only target) maps that canvas onto
+the window:
 
 ```text
-effectiveHeight = logicalHeight * devicePixelRatio
+baseLayoutScale = min(logicalHeight / 1272, logicalWidth / (1272 * 16/9))
+layoutScale     = baseLayoutScale * manualDpiScaleOverride
 ```
 
-This ensures that 4K displays with 200-300% scaling are correctly identified as XL breakpoints rather than Small/Medium.
+- **Logical pixels only.** Qt Quick already multiplies every logical pixel by
+  the device pixel ratio (OS display scaling). The policy has no
+  device-pixel-ratio input, so a 4K panel at 100%, 150% or 300% renders
+  identically.
+- **Reference height 1272** reproduces the layout that was tuned at
+  2560×1440 logical (a 4K TV at 150%).
+- **Narrower than 16:9** (for example a 4:3 or tall window): the canvas is
+  fitted by width so nothing overflows.
+- **Wider than 16:9**: the scale stays height-driven, and grid columns and
+  home row items grow with the extra width (see Ultrawide Adjustment).
 
-### Example
+| Display | Logical viewport | layoutScale | Physical px per design unit | Fraction of screen height |
+|---------|------------------|-------------|-----------------------------|---------------------------|
+| 1080p @ 100% | 1920×1080 | 0.849 | 0.849 | 1/1272 |
+| 4K @ 100%    | 3840×2160 | 1.698 | 1.698 | 1/1272 |
+| 4K @ 150%    | 2560×1440 | 1.132 | 1.698 | 1/1272 |
+| 4K @ 300%    | 1280×720  | 0.566 | 1.698 | 1/1272 |
 
-A 4K display (3840×2160) at 200% scaling:
-- Logical height: 1080px
-- devicePixelRatio: 2.0
-- Effective height: 2160px → XL breakpoint
+### Rules for QML
+
+- Every pixel size must come from a Theme token or be written as
+  `Math.round(N * Theme.layoutScale)`. A bare number stays a fixed number of
+  logical pixels and drifts out of proportion as the window or OS scale
+  changes.
+- Do not clamp scaled sizes to fixed pixel minimums/maximums; that breaks
+  proportionality.
+- Exceptions: image decode sizes (`sourceSize`, artwork request widths),
+  animation timings, blur radii and hairline (1 px) borders.
+- Server artwork requests should cover the physical size; for example
+  `HomeScreen.homeCardImageRequestWidth` uses
+  `Math.max(2, Screen.devicePixelRatio)` times the logical card width.
+
+> **Migration note:** Earlier builds used height breakpoints
+> (Small/Medium/Large/XL, scale 0.6–1.5) and, above a device pixel ratio of 1.5,
+> treated physical height as logical height. That applied OS scaling twice: a
+> 4K TV at 300% rendered the UI 2.3× larger than at 150%. The `breakpoint`
+> property, `onBreakpointChanged` focus-restoration handlers, and fixed-pixel
+> poster/episode clamps were removed. `sidebarDefaultMode` is now always
+> `"rail"`. `ResponsiveLayoutPolicyTest` guards the resolution and OS-scaling
+> independence.
 
 ## Manual DPI Scale Override
 
@@ -73,7 +95,7 @@ finalLayoutScale = baseLayoutScale * manualDpiScaleOverride
 ```
 
 Where:
-- `baseLayoutScale` is the automatically calculated scale (0.6 - 1.5) based on viewport height
+- `baseLayoutScale` is the automatically calculated, resolution-independent scale (see Scaling Model)
 - `manualDpiScaleOverride` is the user setting (default: 1.0, range: 0.5 - 2.0)
 
 ### Use Cases
@@ -107,29 +129,20 @@ The `manualDpiScaleOverride` setting is persisted in the user's configuration fi
 
 ## Ultrawide Adjustment
 
-For displays with aspect ratio > 2.2 (e.g., 21:9 ultrawide monitors), the system adds extra grid columns:
+For viewports wider than 16:9, `layoutScale` stays height-driven and item
+counts grow with the extra width so cards keep the same on-screen size:
 
-```cpp
-if (aspectRatio > 2.2) {
-    qreal extraWidth = aspectRatio - 2.2;
-    int extraColumns = qMin(2, static_cast<int>(extraWidth * 2));
-    baseColumns += extraColumns;
-}
+```text
+widthInCanvases     = max(1, aspectRatio / (16/9))
+gridColumns         = round(7 * widthInCanvases)
+homeRowVisibleItems = round(6 * widthInCanvases)
 ```
 
-### Example
-
-A 34" ultrawide (3440×1440):
-- Aspect ratio: 2.39
-- Base columns (Large): 7
-- Extra columns: min(2, (2.39 - 2.2) * 2) = min(2, 0.38) = 0
-- Final columns: 7
-
-A super-ultrawide (5120×1440):
-- Aspect ratio: 3.56
-- Base columns (Large): 7
-- Extra columns: min(2, (3.56 - 2.2) * 2) = min(2, 2.72) = 2
-- Final columns: 9
+| Display | Aspect ratio | gridColumns | homeRowVisibleItems |
+|---------|--------------|-------------|---------------------|
+| 16:9 (any resolution) | 1.78 | 7 | 6 |
+| 3440×1440 | 2.39 | 9 | 8 |
+| 5120×1440 | 3.56 | 14 | 12 |
 
 ## Usage in QML
 
@@ -186,15 +199,13 @@ import QtQuick 2.15
 
 Item {
     // Direct property access
-    property string currentBreakpoint: ResponsiveLayoutManager.breakpoint
-    property bool isLargeScreen: ResponsiveLayoutManager.breakpoint === "Large" || 
-                                  ResponsiveLayoutManager.breakpoint === "XL"
-    
-    // React to breakpoint changes
+    property int columns: ResponsiveLayoutManager.gridColumns
+
+    // React to column changes (window resize or aspect ratio change)
     Connections {
         target: ResponsiveLayoutManager
-        function onBreakpointChanged() {
-            console.log("Breakpoint changed to:", ResponsiveLayoutManager.breakpoint)
+        function onGridColumnsChanged() {
+            console.log("Grid columns changed to:", ResponsiveLayoutManager.gridColumns)
         }
     }
 }
@@ -262,9 +273,9 @@ All calculations run on the main thread. The `updateLayout()` slot is connected 
 
 When testing responsive behavior:
 
-1. **Resize the window** to different heights to trigger breakpoint changes
-2. **Test high-DPI** by changing display scaling in OS settings
-3. **Test ultrawide** by resizing to extreme aspect ratios (> 2.2)
+1. **Resize the window**: everything should scale uniformly, like resizing a picture
+2. **Test high-DPI** by changing OS display scaling, or launch with `QT_SCALE_FACTOR=3`; the UI must look identical apart from pixel density
+3. **Test ultrawide** by resizing wider than 16:9; cards keep their size and more columns appear
 4. **Check console output** for debug messages showing layout calculations
 
 ### Debug Output
@@ -272,7 +283,7 @@ When testing responsive behavior:
 Enable verbose logging to see layout calculations:
 
 ```text
-ResponsiveLayoutManager: Layout updated - viewport: 1920 x 1080 effectiveHeight: 1080 DPR: 1.0 breakpoint: "Large" layoutScale: 1.12 gridColumns: 7 aspectRatio: 1.78
+ResponsiveLayoutManager: Layout updated - viewport: 1280 x 720 DPR: 3 baseScale: 0.566 manualOverride: 1 finalLayoutScale: 0.566 gridColumns: 7 aspectRatio: 1.78
 ```
 
 ## Visual Regression Testing
@@ -375,7 +386,7 @@ The visual regression testing infrastructure consists of:
 
 ### Grid columns and cell sizing
 
-Column count comes directly from `Theme.gridColumns` (4/6/7/8 at Small/Medium/Large/XL breakpoints). Cell dimensions:
+Column count comes directly from `Theme.gridColumns` (7 at 16:9, more on ultrawide). Cell dimensions:
 
 ```qml
 cellWidth:  width / Theme.gridColumns
@@ -409,7 +420,7 @@ The alphabetical letter rail width and spacing scale with `Theme.layoutScale` (e
 
 ### Filter tabs
 
-Button padding and the back-button width scale with `Theme.layoutScale`, keeping touch/focus targets proportional across breakpoints.
+Button padding and the back-button width scale with `Theme.layoutScale`, keeping touch/focus targets proportional at every window size.
 
 ## SeriesDetailsView Responsive Layout
 
@@ -448,10 +459,6 @@ Behavior on Layout.preferredWidth {
 }
 ```
 
-### Focus restoration on breakpoint change
-
-A `Connections` block on `ResponsiveLayoutManager.onBreakpointChanged` saves the current season grid index and active focus item, then restores both via `Qt.callLater` after the layout reflows.
-
 ## SeriesSeasonEpisodeView Responsive Layout
 
 [`SeriesSeasonEpisodeView.qml`](../src/ui/SeriesSeasonEpisodeView.qml) uses the responsive layout system for the episode browsing experience with seasons tabs, episode thumbnails, the selected-episode `Chapters` shelf, cast metadata, action buttons (Play, Mark Watched, Favorite, **Go to Series**, and the audio/subtitle context menu), and audio/subtitle track selection. **Go to Series** opens the parent series details view and returns to the same season/episode context via the library navigation stack. The portrait hero frame shows the season poster when available, then the series poster; landscape episode thumbs are only used as a last-resort fill.
@@ -486,16 +493,11 @@ Behavior on contentY {
 
 All animation durations use Theme duration tokens (`Theme.durationNormal`, `Theme.durationLong`, `Theme.durationShort`).
 
-### Focus restoration on breakpoint change
-
-A `Connections` block on `ResponsiveLayoutManager.onBreakpointChanged` saves the current episode list index and active focus item, then restores both via `Qt.callLater` after the layout reflows — matching the `SeriesDetailsView` pattern.
-
 
 ## Future Enhancements
 
 Potential improvements for future versions:
 
-- **Configurable breakpoints** via user settings
 - **Per-screen handling** for multi-monitor setups
 - **Orientation support** for portrait displays
 - **Custom layout modes** for specific content types

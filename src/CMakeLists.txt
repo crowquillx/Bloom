@@ -419,6 +419,7 @@ target_link_libraries(Bloom
     Bloom::Network
     Bloom::PlayerPolicy
     Bloom::PlayerProcess
+    Bloom::ResponsiveLayoutPolicy
     Bloom::SoftwareRoundedImage
     Bloom::Updater
     Qt6::Core

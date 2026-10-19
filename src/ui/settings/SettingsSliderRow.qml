@@ -103,8 +103,8 @@ FocusScope {
             }
 
             Rectangle {
-                width: 60
-                height: 32
+                width: Math.round(60 * Theme.layoutScale)
+                height: Math.round(32 * Theme.layoutScale)
                 radius: Theme.radiusSmall
                 color: Theme.inputBackground
                 border.color: Theme.inputBorder
@@ -137,14 +137,14 @@ FocusScope {
                 x: slider.leftPadding
                 y: slider.topPadding + slider.availableHeight / 2 - height / 2
                 width: slider.availableWidth
-                height: 6
-                radius: 3
+                height: Math.round(6 * Theme.layoutScale)
+                radius: Math.round(3 * Theme.layoutScale)
                 color: Qt.rgba(1, 1, 1, 0.2)
 
                 Rectangle {
                     width: slider.visualPosition * parent.width
                     height: parent.height
-                    radius: 3
+                    radius: Math.round(3 * Theme.layoutScale)
                     color: Theme.accentPrimary
                 }
             }
@@ -152,9 +152,9 @@ FocusScope {
             handle: Rectangle {
                 x: slider.leftPadding + slider.visualPosition * (slider.availableWidth - width)
                 y: slider.topPadding + slider.availableHeight / 2 - height / 2
-                width: 20
-                height: 20
-                radius: 10
+                width: Math.round(20 * Theme.layoutScale)
+                height: Math.round(20 * Theme.layoutScale)
+                radius: Math.round(10 * Theme.layoutScale)
                 color: slider.pressed ? Theme.accentPrimary : Theme.textPrimary
                 border.color: Theme.accentPrimary
                 border.width: 2

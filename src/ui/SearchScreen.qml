@@ -224,7 +224,7 @@ FocusScope {
             // Center the search bar
             RowLayout {
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: Math.min(parent.width, 700)
+                width: Math.min(parent.width, Math.round(700 * Theme.layoutScale))
                 height: parent.height
                 spacing: Theme.spacingMedium
                 
@@ -346,8 +346,8 @@ FocusScope {
                                     required property int index
                                     
                                     Layout.alignment: Qt.AlignHCenter
-                                    Layout.preferredWidth: Math.max(suggestionText.implicitWidth + Theme.spacingLarge * 2, 200)
-                                    implicitHeight: 40
+                                    Layout.preferredWidth: Math.max(suggestionText.implicitWidth + Theme.spacingLarge * 2, Math.round(200 * Theme.layoutScale))
+                                    implicitHeight: Math.round(40 * Theme.layoutScale)
                                 
                                 background: Rectangle {
                                     radius: Theme.radiusSmall

@@ -359,14 +359,14 @@ FocusScope {
                         anchors.rightMargin: Math.round(2 * Theme.layoutScale)
                         anchors.bottomMargin: Math.round(2 * Theme.layoutScale)
                         height: Math.round(4 * Theme.layoutScale)
-                        radius: 2
+                        radius: Math.round(2 * Theme.layoutScale)
                         color: Qt.rgba(1, 1, 1, 0.2)
 
                         Rectangle {
                             anchors.left: parent.left
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
-                            radius: 2
+                            radius: Math.round(2 * Theme.layoutScale)
                             color: Theme.accentPrimary
                             width: {
                                 var total = typeof ConfigManager !== 'undefined' ? ConfigManager.autoplayCountdownSeconds : 10

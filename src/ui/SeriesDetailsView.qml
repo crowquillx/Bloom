@@ -2066,33 +2066,6 @@ FocusScope {
         Qt.callLater(root.restoreSavedSidebarFocus)
     }
 
-    Connections {
-        target: ResponsiveLayoutManager
-
-        function onBreakpointChanged() {
-            root.savedSeasonIndex = seasonsGrid.currentIndex
-            root.savedFocusItem = root.Window.activeFocusItem
-            Qt.callLater(root.restoreFocusAfterBreakpoint)
-        }
-    }
-
-    function restoreFocusAfterBreakpoint() {
-        if (savedSeasonIndex >= 0 && seasonsGrid.count > 0) {
-            seasonsGrid.currentIndex = Math.min(savedSeasonIndex, seasonsGrid.count - 1)
-            seasonsGrid.positionViewAtIndex(seasonsGrid.currentIndex, GridView.Contain)
-        }
-
-        if (savedFocusItem && savedFocusItem.parent && typeof savedFocusItem.forceActiveFocus === "function") {
-            savedFocusItem.forceActiveFocus()
-        } else if (playButton.enabled) {
-            playButton.forceActiveFocus()
-        } else {
-            root.focusFirstLowerSection()
-        }
-
-        savedFocusItem = null
-    }
-
     function restoreSavedSidebarFocus() {
         if (savedSeasonIndex >= 0 && seasonsGrid.count > 0) {
             seasonsGrid.currentIndex = Math.min(savedSeasonIndex, seasonsGrid.count - 1)
@@ -2141,10 +2114,10 @@ FocusScope {
             implicitHeight: Math.round(40 * Theme.layoutScale)
 
             arrow: Canvas {
-                x: parent.width - width - 12
+                x: parent.width - width - Math.round(12 * Theme.layoutScale)
                 y: parent.height / 2 - height / 2
-                width: 12
-                height: 12
+                width: Math.round(12 * Theme.layoutScale)
+                height: Math.round(12 * Theme.layoutScale)
                 visible: menuItem.subMenu
                 onPaint: {
                     const ctx = getContext("2d")
@@ -2165,7 +2138,7 @@ FocusScope {
                 elide: Text.ElideRight
                 verticalAlignment: Text.AlignVCenter
                 leftPadding: Theme.spacingSmall
-                rightPadding: menuItem.arrow.width + 12
+                rightPadding: menuItem.arrow.width + Math.round(12 * Theme.layoutScale)
             }
 
             background: Rectangle {

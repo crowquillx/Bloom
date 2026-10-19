@@ -1414,7 +1414,7 @@ FocusScope {
                                     anchors.top: parent.top
                                     anchors.bottom: parent.bottom
                                     width: durationMs > 0 ? parent.width * Math.min(1, positionMs / durationMs) : 0
-                                    radius: 3
+                                    radius: Math.round(3 * Theme.layoutScale)
                                     color: Theme.accentPrimary
                                 }
                             }
@@ -1906,10 +1906,10 @@ FocusScope {
             implicitHeight: Math.round(40 * Theme.layoutScale)
 
             arrow: Canvas {
-                x: parent.width - width - 12
+                x: parent.width - width - Math.round(12 * Theme.layoutScale)
                 y: parent.height / 2 - height / 2
-                width: 12
-                height: 12
+                width: Math.round(12 * Theme.layoutScale)
+                height: Math.round(12 * Theme.layoutScale)
                 visible: menuItem.subMenu
                 onPaint: {
                     const ctx = getContext("2d")
@@ -1930,7 +1930,7 @@ FocusScope {
                 elide: Text.ElideRight
                 verticalAlignment: Text.AlignVCenter
                 leftPadding: Theme.spacingSmall
-                rightPadding: menuItem.arrow.width + 12
+                rightPadding: menuItem.arrow.width + Math.round(12 * Theme.layoutScale)
             }
 
             background: Rectangle {

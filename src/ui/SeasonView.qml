@@ -129,14 +129,14 @@ FocusScope {
         BusyIndicator {
             anchors.centerIn: parent
             running: isLoading
-            width: 64
-            height: 64
+            width: Math.round(64 * Theme.layoutScale)
+            height: Math.round(64 * Theme.layoutScale)
         }
         
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.verticalCenter
-            anchors.topMargin: 48
+            anchors.topMargin: Math.round(48 * Theme.layoutScale)
             text: "Loading episodes..."
             font.pixelSize: Theme.fontSizeBody
             font.family: Theme.fontPrimary
@@ -182,10 +182,10 @@ FocusScope {
     
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 48
-        anchors.rightMargin: 48
-        anchors.topMargin: 24
-        anchors.bottomMargin: 32
+        anchors.leftMargin: Math.round(48 * Theme.layoutScale)
+        anchors.rightMargin: Math.round(48 * Theme.layoutScale)
+        anchors.topMargin: Math.round(24 * Theme.layoutScale)
+        anchors.bottomMargin: Math.round(32 * Theme.layoutScale)
         spacing: Theme.spacingLarge
         visible: !isLoading
         
@@ -193,7 +193,7 @@ FocusScope {
         ColumnLayout {
             Layout.fillHeight: true
             Layout.preferredWidth: parent.width * 0.75
-            spacing: 4
+            spacing: Math.round(4 * Theme.layoutScale)
             
             // Series Logo (if available)
             Item {
@@ -218,7 +218,7 @@ FocusScope {
             // Season Title and Metadata
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 4
+                spacing: Math.round(4 * Theme.layoutScale)
                 
                 // Series name (subtitle when logo not present)
                 Text {
@@ -241,7 +241,7 @@ FocusScope {
                 
                 // Metadata row (episode count, etc.)
                 RowLayout {
-                    spacing: 16
+                    spacing: Math.round(16 * Theme.layoutScale)
                     
                     Text {
                         visible: episodeCount > 0
@@ -256,18 +256,18 @@ FocusScope {
             // Action Buttons Row
             RowLayout {
                 Layout.fillWidth: true
-                Layout.topMargin: 4
-                spacing: 12
+                Layout.topMargin: Math.round(4 * Theme.layoutScale)
+                spacing: Math.round(12 * Theme.layoutScale)
                 
                 // Play Button
                 Button {
                     id: playButton
                     enabled: episodeCount > 0
-                    Layout.preferredWidth: 180
+                    Layout.preferredWidth: Math.round(180 * Theme.layoutScale)
                     Layout.preferredHeight: Theme.buttonHeightMedium
                     
                     contentItem: Row {
-                        spacing: 8
+                        spacing: Math.round(8 * Theme.layoutScale)
                         anchors.centerIn: parent
                         Text {
                             text: Icons.playArrow
@@ -414,8 +414,8 @@ FocusScope {
                     contentItem: Item {
                         Canvas {
                             anchors.centerIn: parent
-                            width: 28
-                            height: 28
+                            width: Math.round(28 * Theme.layoutScale)
+                            height: Math.round(28 * Theme.layoutScale)
                             
                             onPaint: {
                                 var ctx = getContext("2d");
@@ -505,7 +505,7 @@ FocusScope {
                     
                     contentItem: Text {
                         text: moreButton.text
-                        font.pixelSize: 24
+                        font.pixelSize: Math.round(24 * Theme.layoutScale)
                         color: Theme.textPrimary
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -519,9 +519,9 @@ FocusScope {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumHeight: Math.round(400 * Theme.dpiScale)
-                Layout.topMargin: 8
+                Layout.topMargin: Math.round(8 * Theme.layoutScale)
                 clip: true
-                spacing: 12
+                spacing: Math.round(12 * Theme.layoutScale)
                 boundsBehavior: Flickable.StopAtBounds
                 highlightMoveDuration: 150
                 keyNavigationEnabled: true
@@ -583,7 +583,7 @@ FocusScope {
                     Rectangle {
                         id: episodeCard
                         anchors.fill: parent
-                        anchors.margins: 4
+                        anchors.margins: Math.round(4 * Theme.layoutScale)
                         radius: Theme.radiusMedium
                         color: episodeDelegate.isFocused ? Theme.cardBackgroundFocused : (episodeDelegate.isHovered ? Theme.cardBackgroundHover : Theme.cardBackground)
                         border.width: episodeDelegate.isFocused ? 2 : 1
@@ -594,8 +594,8 @@ FocusScope {
                         
                         RowLayout {
                             anchors.fill: parent
-                            anchors.margins: 12
-                            spacing: 16
+                            anchors.margins: Math.round(12 * Theme.layoutScale)
+                            spacing: Math.round(16 * Theme.layoutScale)
                             
                             // Episode Thumbnail
                             Rectangle {
@@ -653,9 +653,9 @@ FocusScope {
                                     anchors.left: parent.left
                                     anchors.right: parent.right
                                     anchors.bottom: parent.bottom
-                                    anchors.margins: 4
-                                    height: 4
-                                    radius: 2
+                                    anchors.margins: Math.round(4 * Theme.layoutScale)
+                                    height: Math.round(4 * Theme.layoutScale)
+                                    radius: Math.round(2 * Theme.layoutScale)
                                     color: Qt.rgba(0, 0, 0, 0.6)
                                     
                                     Rectangle {
@@ -663,7 +663,7 @@ FocusScope {
                                         anchors.top: parent.top
                                         anchors.bottom: parent.bottom
                                         width: parent.width * Math.min(1, episodeDelegate.positionMs / episodeDelegate.durationMs)
-                                        radius: 2
+                                        radius: Math.round(2 * Theme.layoutScale)
                                         color: Theme.accentPrimary
                                     }
                                 }
@@ -673,17 +673,17 @@ FocusScope {
                                     visible: episodeDelegate.isPlayed
                                     anchors.right: parent.right
                                     anchors.bottom: parent.bottom
-                                    anchors.margins: 8
-                                    width: 24
-                                    height: 24
-                                    radius: 12
+                                    anchors.margins: Math.round(8 * Theme.layoutScale)
+                                    width: Math.round(24 * Theme.layoutScale)
+                                    height: Math.round(24 * Theme.layoutScale)
+                                    radius: Math.round(12 * Theme.layoutScale)
                                     color: Theme.accentSecondary
                                     
                                     Text {
                                         anchors.centerIn: parent
                                         text: Icons.check
                                         font.family: Theme.fontIcon
-                                        font.pixelSize: 16
+                                        font.pixelSize: Math.round(16 * Theme.layoutScale)
                                         color: Theme.textPrimary
                                     }
                                 }
@@ -693,26 +693,26 @@ FocusScope {
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                spacing: 4
+                                spacing: Math.round(4 * Theme.layoutScale)
                                 
                                 // Title row with episode number/name
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    spacing: 12
+                                    spacing: Math.round(12 * Theme.layoutScale)
                                     
                                     // Special episode badge
                                     Rectangle {
                                         visible: episodeDelegate.isSpecial
-                                        Layout.preferredWidth: specialLabel.implicitWidth + 12
-                                        Layout.preferredHeight: 20
-                                        radius: 4
+                                        Layout.preferredWidth: specialLabel.implicitWidth + Math.round(12 * Theme.layoutScale)
+                                        Layout.preferredHeight: Math.round(20 * Theme.layoutScale)
+                                        radius: Math.round(4 * Theme.layoutScale)
                                         color: Theme.accentSecondary
                                         
                                         Text {
                                             id: specialLabel
                                             anchors.centerIn: parent
                                             text: "SPECIAL"
-                                            font.pixelSize: 10
+                                            font.pixelSize: Math.round(10 * Theme.layoutScale)
                                             font.family: Theme.fontPrimary
                                             font.bold: true
                                             color: Theme.textPrimary
@@ -743,7 +743,7 @@ FocusScope {
                                 // Metadata row (runtime, rating, end time)
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    spacing: 16
+                                    spacing: Math.round(16 * Theme.layoutScale)
                                     
                                     Text {
                                         visible: episodeDelegate.durationMs > 0
@@ -853,7 +853,7 @@ FocusScope {
                 Rectangle {
                     id: posterImageContainer
                     anchors.fill: parent
-                    anchors.margins: 8
+                    anchors.margins: Math.round(8 * Theme.layoutScale)
                     radius: Theme.imageRadius
                     clip: true
                     color: "transparent"
@@ -884,7 +884,7 @@ FocusScope {
                             font.family: Theme.fontPrimary
                             wrapMode: Text.WordWrap
                             horizontalAlignment: Text.AlignHCenter
-                            width: parent.width - 20
+                            width: parent.width - Math.round(20 * Theme.layoutScale)
                         }
                     }
                 }

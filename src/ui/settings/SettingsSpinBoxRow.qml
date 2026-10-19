@@ -142,8 +142,8 @@ FocusScope {
                 up.indicator: Rectangle {
                     x: spinBox.mirrored ? 0 : parent.width - width
                     height: parent.height
-                    implicitWidth: 40
-                    implicitHeight: 40
+                    implicitWidth: Math.round(40 * Theme.layoutScale)
+                    implicitHeight: Math.round(40 * Theme.layoutScale)
                     color: spinBox.up.pressed ? Theme.buttonPrimaryBackground : "transparent"
                     radius: Theme.radiusSmall
 
@@ -158,8 +158,8 @@ FocusScope {
                 down.indicator: Rectangle {
                     x: spinBox.mirrored ? parent.width - width : 0
                     height: parent.height
-                    implicitWidth: 40
-                    implicitHeight: 40
+                    implicitWidth: Math.round(40 * Theme.layoutScale)
+                    implicitHeight: Math.round(40 * Theme.layoutScale)
                     color: spinBox.down.pressed ? Theme.buttonPrimaryBackground : "transparent"
                     radius: Theme.radiusSmall
 
@@ -172,7 +172,7 @@ FocusScope {
                 }
 
                 background: Rectangle {
-                    implicitWidth: 140
+                    implicitWidth: Math.round(140 * Theme.layoutScale)
                     implicitHeight: Theme.buttonHeightSmall
                     color: Theme.inputBackground
                     border.color: Theme.inputBorder

@@ -129,12 +129,12 @@ FocusScope {
 
                 // Accent bar on left edge for active item
                 Rectangle {
-                    width: 4
+                    width: Math.round(4 * Theme.layoutScale)
                     height: parent.height - Theme.spacingSmall * 2
                     anchors.left: parent.left
-                    anchors.leftMargin: 2
+                    anchors.leftMargin: Math.round(2 * Theme.layoutScale)
                     anchors.verticalCenter: parent.verticalCenter
-                    radius: 2
+                    radius: Math.round(2 * Theme.layoutScale)
                     color: Theme.accentPrimary
                     visible: true
                     opacity: railDelegate.isActive ? 1.0 : 0.0

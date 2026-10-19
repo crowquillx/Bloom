@@ -21,7 +21,7 @@ Rectangle {
     // Positioning
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.bottom: parent.bottom
-    anchors.bottomMargin: 80
+    anchors.bottomMargin: Math.round(80 * Theme.layoutScale)
     
     // Size based on content
     width: Math.min(contentText.implicitWidth + Theme.spacingXLarge * 2, parent.width - Theme.paddingLarge * 2)

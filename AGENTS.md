@@ -8,6 +8,7 @@ QML & Focus
 - Use `FocusScope` as the root of navigable views; QML `Item` should be used if the view is not intended to be focusable.
 - For keyboard/remote UX, `InputModeManager` should detect pointer vs keyboard navigation; hide cursor while navigating via keyboard.
 - Use `Qt.callLater` to restore focus after async view/model updates or cache reloads.
+- UI scale is resolution- and OS-scaling-independent (10-foot, Kodi-style): size everything with `Theme` tokens or `Math.round(N * Theme.layoutScale)`, never bare pixels. See `docs/responsive.md`.
 
 Stack: C++23 (Qt 6/QML) • CMake • mpv (external JSON IPC)
 Keep as much logic as possible in C++ (network, data models, services); QML for UI, animations, and theming.

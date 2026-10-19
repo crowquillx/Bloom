@@ -240,7 +240,7 @@ FocusScope {
                 }
                 
                 background: Rectangle {
-                    implicitWidth: 80
+                    implicitWidth: Math.round(80 * Theme.layoutScale)
                     implicitHeight: Theme.buttonHeightSmall
                     radius: Theme.radiusSmall
                     color: deleteBtn.activeFocus || deleteBtn.hovered ? Qt.rgba(1, 0.4, 0.4, 0.2) : "transparent"
@@ -280,12 +280,12 @@ FocusScope {
                 font.pixelSize: Theme.fontSizeBody
                 font.family: Theme.fontPrimary
                 color: Theme.textPrimary
-                Layout.preferredWidth: 150
+                Layout.preferredWidth: Math.round(150 * Theme.layoutScale)
             }
             
             SettingsComboBox {
                 id: videoOutputCombo
-                Layout.preferredWidth: 200
+                Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                 model: ["gpu-next", "gpu", "dmabuf-wayland", "x11", "drm"]
                 focusPolicy: Qt.StrongFocus
                 Accessible.role: Accessible.ComboBox
@@ -361,12 +361,12 @@ FocusScope {
                 font.pixelSize: Theme.fontSizeBody
                 font.family: Theme.fontPrimary
                 color: Theme.textPrimary
-                Layout.preferredWidth: 150
+                Layout.preferredWidth: Math.round(150 * Theme.layoutScale)
             }
             
             SettingsComboBox {
                 id: hwdecMethodCombo
-                Layout.preferredWidth: 200
+                Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                 model: ["auto", "auto-safe", "auto-copy", "vaapi", "nvdec", "nvdec-copy", "cuda", "cuda-copy", "videotoolbox", "videotoolbox-copy", "d3d11va", "d3d11va-copy", "dxva2", "dxva2-copy"]
                 focusPolicy: Qt.StrongFocus
                 Accessible.role: Accessible.ComboBox
@@ -448,12 +448,12 @@ FocusScope {
                 font.pixelSize: Theme.fontSizeBody
                 font.family: Theme.fontPrimary
                 color: Theme.textPrimary
-                Layout.preferredWidth: 150
+                Layout.preferredWidth: Math.round(150 * Theme.layoutScale)
             }
             
             TextField {
                 id: deinterlaceMethodField
-                Layout.preferredWidth: 200
+                Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                 placeholderText: "yadif, bwdif, etc."
                 font.pixelSize: Theme.fontSizeBody
                 font.family: Theme.fontPrimary
@@ -609,7 +609,7 @@ FocusScope {
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 2
+                        spacing: Math.round(2 * Theme.layoutScale)
 
                         Text {
                             text: "Windows embedded playback"
@@ -630,7 +630,7 @@ FocusScope {
 
                     SettingsComboBox {
                         id: windowsRenderApiCombo
-                        Layout.preferredWidth: 220
+                        Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
                         model: ["Auto", "D3D11", "Vulkan/winvk"]
                         focusPolicy: Qt.StrongFocus
                         Accessible.role: Accessible.ComboBox
@@ -657,7 +657,7 @@ FocusScope {
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 2
+                        spacing: Math.round(2 * Theme.layoutScale)
 
                         Text {
                             text: "HDR Metadata Mode"
@@ -678,7 +678,7 @@ FocusScope {
 
                     SettingsComboBox {
                         id: hdrMetadataModeCombo
-                        Layout.preferredWidth: 260
+                        Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
                         model: ["Target", "Source Dynamic (Experimental)"]
                         focusPolicy: Qt.StrongFocus
                         Accessible.role: Accessible.ComboBox

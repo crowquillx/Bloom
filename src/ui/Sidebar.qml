@@ -434,7 +434,7 @@ Item {
                     
                     contentItem: Text {
                         text: Icons.close
-                        font.pixelSize: 24
+                        font.pixelSize: Math.round(24 * Theme.layoutScale)
                         font.family: Theme.fontIcon
                         font.weight: Font.Normal
                         color: Theme.textPrimary
@@ -483,7 +483,7 @@ Item {
                 // Title (in expanded mode)
                 Text {
                     anchors.left: sidebarHamburger.right
-                    anchors.leftMargin: 12
+                    anchors.leftMargin: Math.round(12 * Theme.layoutScale)
                     anchors.verticalCenter: parent.verticalCenter
                     text: "Bloom"
                     font.pixelSize: Theme.fontSizeTitle
@@ -503,8 +503,8 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
-                Layout.leftMargin: 12
-                Layout.rightMargin: 12
+                Layout.leftMargin: Math.round(12 * Theme.layoutScale)
+                Layout.rightMargin: Math.round(12 * Theme.layoutScale)
                 color: Theme.borderLight
             }
             
@@ -513,11 +513,11 @@ Item {
                 id: navListView
                 Layout.fillWidth: true
                 Layout.preferredHeight: contentHeight
-                Layout.topMargin: 8
+                Layout.topMargin: Math.round(8 * Theme.layoutScale)
                 model: root.navigationItems
                 clip: true
                 interactive: false
-                spacing: 4
+                spacing: Math.round(4 * Theme.layoutScale)
                 focus: false
                 keyNavigationEnabled: false
 
@@ -674,9 +674,9 @@ Item {
             Text {
                 id: mediaHeader
                 Layout.fillWidth: true
-                Layout.leftMargin: 20
-                Layout.rightMargin: 16
-                Layout.topMargin: 12
+                Layout.leftMargin: Math.round(20 * Theme.layoutScale)
+                Layout.rightMargin: Math.round(16 * Theme.layoutScale)
+                Layout.topMargin: Math.round(12 * Theme.layoutScale)
                 text: qsTr("Media")
                 font.pixelSize: Theme.fontSizeSmall
                 font.family: Theme.fontPrimary
@@ -691,11 +691,11 @@ Item {
                 id: libraryListView
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.topMargin: expanded ? 4 : 0
+                Layout.topMargin: expanded ? Math.round(4 * Theme.layoutScale) : 0
                 model: root.libraryItems
                 clip: true
                 interactive: false
-                spacing: 4
+                spacing: Math.round(4 * Theme.layoutScale)
                 currentIndex: 0
                 footer: Item {
                     width: libraryListView.width

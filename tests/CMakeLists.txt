@@ -126,6 +126,11 @@ function(bloom_use_production_libraries test_target)
        OR player_policy_source IN_LIST test_sources)
         target_link_libraries(${test_target} PRIVATE Bloom::PlayerPolicy)
     endif()
+    set(responsive_layout_manager_source
+        ${CMAKE_SOURCE_DIR}/src/ui/ResponsiveLayoutManager.cpp)
+    if(responsive_layout_manager_source IN_LIST test_sources)
+        target_link_libraries(${test_target} PRIVATE Bloom::ResponsiveLayoutPolicy)
+    endif()
     set(display_manager_source ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp)
     if(display_manager_source IN_LIST test_sources)
         target_link_libraries(${test_target} PRIVATE Bloom::Display)
@@ -685,6 +690,23 @@ target_link_libraries(PlaybackPolicyTest
 )
 
 add_test(NAME PlaybackPolicyTest COMMAND PlaybackPolicyTest)
+
+add_executable(ResponsiveLayoutPolicyTest
+    ResponsiveLayoutPolicyTest.cpp
+)
+
+target_include_directories(ResponsiveLayoutPolicyTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(ResponsiveLayoutPolicyTest
+    PRIVATE
+        Bloom::ResponsiveLayoutPolicy
+        Qt6::Core
+        Qt6::Test
+)
+
+add_test(NAME ResponsiveLayoutPolicyTest COMMAND ResponsiveLayoutPolicyTest)
 
 add_executable(DisplayManagerTest
     DisplayManagerTest.cpp

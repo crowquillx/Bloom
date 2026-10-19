@@ -5,18 +5,18 @@ QtObject {
     // ============================
     // Responsive Layout System
     // ============================
-    // The layoutScale comes from ResponsiveLayoutManager C++ class which:
-    // - Detects viewport height and devicePixelRatio
-    // - Calculates breakpoint (Small/Medium/Large/XL)
-    // - Provides continuous scaling within breakpoint ranges
-    // - Handles ultrawide aspect ratio adjustments
+    // Tokens below are design units on a fixed 16:9 canvas. layoutScale from
+    // ResponsiveLayoutManager maps that canvas onto the window, so every
+    // element covers the same fraction of the screen at any resolution or OS
+    // display scaling (10-foot / Kodi-style). Any pixel size in QML must be
+    // multiplied by layoutScale (or come from a Theme token) to stay in step.
+    // Wider-than-16:9 viewports keep the same scale and add grid columns.
     
-    // Layout scale from ResponsiveLayoutManager (0.6 - 1.5)
+    // Layout scale from ResponsiveLayoutManager (logical px per design unit)
     property real layoutScale: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.layoutScale : 1.0
     
-    // Breakpoint info from ResponsiveLayoutManager
-    property string breakpoint: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.breakpoint : "Large"
-    property int gridColumns: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.gridColumns : 6
+    // Grid and sidebar info from ResponsiveLayoutManager
+    property int gridColumns: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.gridColumns : 7
     property int homeRowVisibleItems: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.homeRowVisibleItems : 6
     property string sidebarDefaultMode: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.sidebarDefaultMode : "rail"
     property real aspectRatio: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.aspectRatio : 1.778
@@ -507,14 +507,6 @@ QtObject {
     // ============================
     // Content Dimensions (Responsive)
     // ============================
-    // Min/max constraints for large content dimensions (Fixed pixel limits)
-    property int posterWidthLargeMin: 300
-    property int posterWidthLargeMax: 700
-    property int seasonPosterHeightMin: 480
-    property int seasonPosterHeightMax: 1100
-    property int episodeCardHeightMin: 280
-    property int episodeCardHeightMax: 700
-
     // Base content dimensions (at layoutScale 1.0)
     property int posterWidthLargeBase: 430
     property int posterHeightLargeBase: 750
@@ -539,11 +531,11 @@ QtObject {
     property int recentlyAddedPosterHeightBase: 450
 
     // Scaled content dimensions
-    property int posterWidthLarge: Math.min(posterWidthLargeMax, Math.max(posterWidthLargeMin, Math.round(posterWidthLargeBase * layoutScale)))
+    property int posterWidthLarge: Math.round(posterWidthLargeBase * layoutScale)
     property int posterHeightLarge: Math.round(posterHeightLargeBase * layoutScale)
     property int seasonPosterWidth: Math.round(seasonPosterWidthBase * layoutScale)
-    property int seasonPosterHeight: Math.min(seasonPosterHeightMax, Math.max(seasonPosterHeightMin, Math.round(seasonPosterHeightBase * layoutScale)))
-    property int episodeCardHeight: Math.min(episodeCardHeightMax, Math.max(episodeCardHeightMin, Math.round(episodeCardHeightBase * layoutScale)))
+    property int seasonPosterHeight: Math.round(seasonPosterHeightBase * layoutScale)
+    property int episodeCardHeight: Math.round(episodeCardHeightBase * layoutScale)
     property int episodeThumbWidth: Math.round(episodeThumbWidthBase * layoutScale)
     property int nextUpHeight: Math.round(nextUpHeightBase * layoutScale)
     property int nextUpImageHeight: Math.round(nextUpImageHeightBase * layoutScale)
@@ -559,9 +551,7 @@ QtObject {
     // Episode list height to accommodate full 16:9 cards with text labels
     property int episodeListHeight: Math.round(episodeThumbWidth * 9 / 16 + 50 * layoutScale)
 
-    readonly property real detailViewLogoScaleBoost: breakpoint === "XL" ? 1.28
-        : breakpoint === "Large" ? 1.14
-        : 1.0
+    readonly property real detailViewLogoScaleBoost: 1.14
     property int detailViewLogoHeight: Math.min(
         seriesLogoHeight,
         Math.round(detailViewLogoHeightBase * layoutScale * detailViewLogoScaleBoost)

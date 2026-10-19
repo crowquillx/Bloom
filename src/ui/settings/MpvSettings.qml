@@ -323,7 +323,7 @@ FocusScope {
                 }
 
                 background: Rectangle {
-                    implicitWidth: 160
+                    implicitWidth: Math.round(160 * Theme.layoutScale)
                     implicitHeight: Theme.buttonHeightSmall
                     radius: Theme.radiusSmall
                     color: profileEditorToggle.activeFocus ? Theme.buttonSecondaryBackgroundHover
@@ -542,7 +542,7 @@ FocusScope {
                         }
 
                         background: Rectangle {
-                            implicitWidth: 120
+                            implicitWidth: Math.round(120 * Theme.layoutScale)
                             implicitHeight: Theme.buttonHeightSmall
                             radius: Theme.radiusSmall
                             color: newProfileBtn.activeFocus || newProfileBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
@@ -621,7 +621,7 @@ FocusScope {
                         }
 
                         background: Rectangle {
-                            implicitWidth: 130
+                            implicitWidth: Math.round(130 * Theme.layoutScale)
                             implicitHeight: Theme.buttonHeightSmall
                             radius: Theme.radiusSmall
                             color: duplicateProfileBtn.activeFocus || duplicateProfileBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
@@ -680,7 +680,7 @@ FocusScope {
                         }
 
                         background: Rectangle {
-                            implicitWidth: 120
+                            implicitWidth: Math.round(120 * Theme.layoutScale)
                             implicitHeight: Theme.buttonHeightSmall
                             radius: Theme.radiusSmall
                             color: renameProfileBtn.activeFocus || renameProfileBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
@@ -733,7 +733,7 @@ FocusScope {
                         }
 
                         background: Rectangle {
-                            implicitWidth: 150
+                            implicitWidth: Math.round(150 * Theme.layoutScale)
                             implicitHeight: Theme.buttonHeightSmall
                             radius: Theme.radiusSmall
                             color: importConfigBtn.activeFocus || importConfigBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
@@ -796,7 +796,7 @@ FocusScope {
                         }
 
                         background: Rectangle {
-                            implicitWidth: 110
+                            implicitWidth: Math.round(110 * Theme.layoutScale)
                             implicitHeight: Theme.buttonHeightSmall
                             radius: Theme.radiusSmall
                             color: deleteProfileBtn.activeFocus || deleteProfileBtn.hovered ? Qt.rgba(1, 0.4, 0.4, 0.2) : "transparent"
@@ -862,7 +862,7 @@ FocusScope {
                 }
 
                 background: Rectangle {
-                    implicitWidth: 180
+                    implicitWidth: Math.round(180 * Theme.layoutScale)
                     implicitHeight: Theme.buttonHeightSmall
                     radius: Theme.radiusSmall
                     color: libraryProfilesToggle.activeFocus ? Theme.buttonSecondaryBackgroundHover

@@ -18,17 +18,18 @@ FocusScope {
     property var continueWatchingModel: []
     property var displayedNextUpModel: []
     property var recentlyAddedMap: ({}) // Map of libraryId -> items array
-    // Home card sizing — dynamically fills row based on visible-items breakpoint
+    // Home card sizing — fills the row with Theme.homeRowVisibleItems cards
     property int homeCardWidth: Math.round(Math.max(0, root.width - Theme.paddingLarge * 2 - Theme.spacingMedium * (Theme.homeRowVisibleItems - 1)) / Theme.homeRowVisibleItems)
     // Force 16:9 aspect to reduce image crop vs. server thumbs
     property int homeCardHeight: Math.round(homeCardWidth * 9 / 16)
-    // Request higher-resolution images for the scaled cards
-    property int homeCardImageRequestWidth: Math.round(homeCardWidth * 2)
+    // Request higher-resolution images for the scaled cards; never below the
+    // physical card width at high OS display scaling.
+    property int homeCardImageRequestWidth: Math.round(homeCardWidth * Math.max(2, Screen.devicePixelRatio))
     // Recently Added poster sizing — same column count as home cards
     property int recentlyAddedPosterWidth: Math.round(Math.max(0, root.width - Theme.paddingLarge * 2 - Theme.spacingMedium * (Theme.homeRowVisibleItems - 1)) / Theme.homeRowVisibleItems)
     property int recentlyAddedPosterHeight: Math.round(recentlyAddedPosterWidth * 1.5)
 
-    // Smooth transitions when breakpoint changes resize cards
+    // Smooth transitions when window resizes change card sizes
     Behavior on homeCardWidth {
         NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.InOutQuad }
     }
@@ -181,13 +182,6 @@ FocusScope {
     property int lastFocusedIndex: 0
     property real lastContentY: 0  // Remember scroll position
 
-    // Breakpoint focus restoration state
-    property int savedMyMediaIndex: -1
-    property int savedContinueWatchingIndex: -1
-    property int savedNextUpIndex: -1
-    property int savedRecentlyAddedIndex: -1
-    property string savedRecentlyAddedLibraryId: ""
-
     function getRecentlyAddedDelegateMeta(index) {
         var item = recentlyAddedRepeater.itemAt(index)
         return {
@@ -231,59 +225,6 @@ FocusScope {
         function onHeroBannerLibraryIdsChanged() { heroProvider.rebuild() }
     }
 
-    Connections {
-        target: ResponsiveLayoutManager
-        function onBreakpointChanged() {
-            if (myMediaList.activeFocus) savedMyMediaIndex = myMediaList.currentIndex
-            if (continueWatchingList.activeFocus) savedContinueWatchingIndex = continueWatchingList.currentIndex
-            if (nextUpList.activeFocus) savedNextUpIndex = nextUpList.currentIndex
-            // Check if a recentlyAddedList has focus and save its state
-            for (var i = 0; i < recentlyAddedRepeater.count; i++) {
-                var meta = getRecentlyAddedDelegateMeta(i)
-                if (meta.item && meta.recentlyAddedListRef && meta.recentlyAddedListRef.activeFocus) {
-                    savedRecentlyAddedLibraryId = meta.libraryId
-                    savedRecentlyAddedIndex = meta.recentlyAddedListRef.currentIndex
-                    break
-                }
-            }
-            Qt.callLater(restoreBreakpointFocus)
-        }
-    }
-
-    function restoreBreakpointFocus() {
-        if (savedMyMediaIndex >= 0 && savedMyMediaIndex < myMediaList.count) {
-            myMediaList.currentIndex = savedMyMediaIndex
-            myMediaList.positionViewAtIndex(savedMyMediaIndex, ListView.Contain)
-            myMediaList.forceActiveFocus()
-        } else if (savedContinueWatchingIndex >= 0 && savedContinueWatchingIndex < continueWatchingList.count) {
-            continueWatchingList.currentIndex = savedContinueWatchingIndex
-            continueWatchingList.positionViewAtIndex(savedContinueWatchingIndex, ListView.Contain)
-            continueWatchingList.forceActiveFocus()
-        } else if (savedNextUpIndex >= 0 && savedNextUpIndex < nextUpList.count) {
-            nextUpList.currentIndex = savedNextUpIndex
-            nextUpList.positionViewAtIndex(savedNextUpIndex, ListView.Contain)
-            nextUpList.forceActiveFocus()
-        } else if (savedRecentlyAddedLibraryId !== "" && savedRecentlyAddedIndex >= 0) {
-            // Find the matching recentlyAddedList for the saved library
-            for (var i = 0; i < recentlyAddedRepeater.count; i++) {
-                var savedMeta = getRecentlyAddedDelegateMeta(i)
-                if (savedMeta.item && savedMeta.libraryId === savedRecentlyAddedLibraryId && savedMeta.recentlyAddedListRef) {
-                    var list = savedMeta.recentlyAddedListRef
-                    if (savedRecentlyAddedIndex < list.count) {
-                        list.currentIndex = savedRecentlyAddedIndex
-                        list.positionViewAtIndex(savedRecentlyAddedIndex, ListView.Contain)
-                        list.forceActiveFocus()
-                    }
-                    break
-                }
-            }
-        }
-        savedMyMediaIndex = -1
-        savedContinueWatchingIndex = -1
-        savedNextUpIndex = -1
-        savedRecentlyAddedIndex = -1
-        savedRecentlyAddedLibraryId = ""
-    }
     
     // Function to save current focus state before navigating away
     function saveFocusState() {
@@ -944,7 +885,7 @@ FocusScope {
                     delegate: Item {
                         id: nextUpDelegate
                         width: homeCardWidth
-                        height: homeCardHeight + 60
+                        height: homeCardHeight + Math.round(60 * Theme.layoutScale)
                         property bool isFocused: ListView.view.currentIndex === index && ListView.view.activeFocus
                         property bool isHovered: InputModeManager.pointerActive && nextUpMouseArea.containsMouse
                         scale: isFocused ? 1.02 : (isHovered ? 1.01 : 1.0)
@@ -953,7 +894,7 @@ FocusScope {
 
                         Column {
                             anchors.fill: parent
-                            spacing: 8
+                            spacing: Math.round(8 * Theme.layoutScale)
 
                             Rectangle {
                                 id: nextUpImageContainer
@@ -1219,7 +1160,7 @@ FocusScope {
                             delegate: Item {
                                 id: recentlyAddedDelegate
                                 width: recentlyAddedPosterWidth
-                                height: recentlyAddedPosterHeight + 110
+                                height: recentlyAddedPosterHeight + Math.round(110 * Theme.layoutScale)
                                 property bool isFocused: recentlyAddedList.currentIndex === index && recentlyAddedList.activeFocus
                                 property bool isHovered: InputModeManager.pointerActive && recentMouseArea.containsMouse
                                 scale: isFocused ? 1.05 : (isHovered ? 1.02 : 1.0)
@@ -1509,7 +1450,7 @@ FocusScope {
         font.family: Theme.fontPrimary
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WordWrap
-        width: Math.max(0, Math.min(parent.width - Theme.spacingXLarge * 2, 640))
+        width: Math.max(0, Math.min(parent.width - Theme.spacingXLarge * 2, Math.round(640 * Theme.layoutScale)))
     }
     
     // Functions

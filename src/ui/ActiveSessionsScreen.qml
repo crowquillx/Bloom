@@ -176,7 +176,7 @@ FocusScope {
             delegate: FocusScope {
                 id: sessionDelegate
                 width: sessionsList.width
-                height: 80
+                height: Math.round(80 * Theme.layoutScale)
                 property bool isCurrent: root.authenticationMode
                     ? !!model.isCurrent
                     : model.id === (root.sessionService ? root.sessionService.currentSessionId : "")

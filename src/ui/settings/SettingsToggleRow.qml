@@ -54,11 +54,11 @@ FocusScope {
     }
 
     Rectangle {
-        width: 4
+        width: Math.round(4 * Theme.layoutScale)
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        radius: 2
+        radius: Math.round(2 * Theme.layoutScale)
         color: Theme.accentPrimary
         visible: root.hasKeyboardFocus
         opacity: visible ? 1.0 : 0.0
@@ -105,17 +105,17 @@ FocusScope {
         Rectangle {
             id: switchTrack
             Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-            width: 52
-            height: 28
-            radius: 14
+            width: Math.round(52 * Theme.layoutScale)
+            height: Math.round(28 * Theme.layoutScale)
+            radius: Math.round(14 * Theme.layoutScale)
             color: root.checked ? Theme.accentPrimary : Qt.rgba(1, 1, 1, 0.2)
 
             Behavior on color { ColorAnimation { duration: Theme.durationShort } }
 
             Rectangle {
-                width: 22
-                height: 22
-                radius: 11
+                width: Math.round(22 * Theme.layoutScale)
+                height: Math.round(22 * Theme.layoutScale)
+                radius: Math.round(11 * Theme.layoutScale)
                 x: root.checked ? parent.width - width - 3 : 3
                 anchors.verticalCenter: parent.verticalCenter
                 color: Theme.textPrimary
