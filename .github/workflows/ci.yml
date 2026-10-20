@@ -115,6 +115,7 @@ jobs:
             .#checks.x86_64-linux.metadata \
             .#checks.x86_64-linux.release-manifest \
             .#checks.x86_64-linux.release-smoke \
+            .#checks.x86_64-linux.seek-preview-no-scripting \
             .#checks.x86_64-linux.mpv-fel-capability \
             .#checks.x86_64-linux.dependency-pins \
             --print-build-logs --option max-jobs 1 --option cores 4

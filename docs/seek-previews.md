@@ -70,6 +70,10 @@ CMake builds and installs `bloom-seek-preview` next to Bloom. Both executables
 use the same libmpv runtime. All release packaging paths run the helper's
 `--self-test`, which decodes a synthetic frame through the HDR filter chain.
 Portable and Flatpak FFmpeg builds enable libzimg for the `zscale` filter.
+Those packaging paths also build mpv without Lua, which removes the `ytdl`
+option; the helper treats its absence as expected and only fails on other
+option errors. The `seek-preview-no-scripting` Nix check runs the self-test
+against a scripting-free libmpv so this stays covered.
 Builds without libmpv have no local fallback.
 The existing embedded Linux trickplay opt-in still applies.
 Linux builds with `BLOOM_BUNDLE_LIBMPV=ON` give both executables a runtime

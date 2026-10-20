@@ -54,9 +54,13 @@ bool configureMpv(mpv_handle *handle, const QJsonObject &request, const QString 
     const auto option = [handle](const char *name, const QByteArray &value) {
         return mpv_set_option_string(handle, name, value.constData()) >= 0;
     };
+    // mpv only defines `ytdl` when it is built with Lua. The Linux packaging
+    // builds mpv without scripting, so its absence is expected, not a failure.
+    const int ytdlStatus = mpv_set_option_string(handle, "ytdl", "no");
+    if (ytdlStatus < 0 && ytdlStatus != MPV_ERROR_OPTION_NOT_FOUND) return false;
     for (const auto &[name, value] : {
              std::pair { "config", "no" }, { "load-scripts", "no" },
-             { "ytdl", "no" }, { "terminal", "no" }, { "msg-level", "all=no" },
+             { "terminal", "no" }, { "msg-level", "all=no" },
              { "audio", "no" }, { "sub", "no" }, { "secondary-sid", "no" },
              { "autoload-files", "no" }, { "cover-art-auto", "no" },
              { "hwdec", "no" }, { "vd-lavc-threads", "2" },

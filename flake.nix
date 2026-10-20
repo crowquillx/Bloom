@@ -89,10 +89,57 @@
           pkgs = import nixpkgs { inherit system; };
           bloom = self.packages.${system}.bloom;
           inherit (self.packages.${system}) mpv;
+          # The Portable Linux and Flatpak packaging builds mpv without
+          # scripting. That removes the `load-scripts` and `ytdl` options, which
+          # the seek preview helper used to treat as fatal.
+          mpvNoScripting = mpv.overrideAttrs (old: {
+            mesonFlags = old.mesonFlags ++ [
+              "-Dlua=disabled"
+              "-Djavascript=disabled"
+            ];
+          });
         in
         {
           inherit bloom;
           tests = pkgs.callPackage ./nix/tests.nix { inherit mpv; };
+          seek-preview-no-scripting =
+            pkgs.runCommand "bloom-seek-preview-no-scripting" { nativeBuildInputs = [ pkgs.python3 ]; }
+              ''
+                export HOME="$TMPDIR/home"
+                mkdir -p "$HOME"
+                export LC_ALL=C
+                # Fail loudly if this mpv still has scripting: the self-test
+                # would then pass without exercising the fallback.
+                python3 - <<'PY'
+                import ctypes
+                import locale
+                import sys
+
+                locale.setlocale(locale.LC_NUMERIC, "C")
+                libmpv = ctypes.CDLL("${mpvNoScripting}/lib/libmpv.so")
+                libmpv.mpv_create.restype = ctypes.c_void_p
+                libmpv.mpv_set_option_string.argtypes = [
+                    ctypes.c_void_p,
+                    ctypes.c_char_p,
+                    ctypes.c_char_p,
+                ]
+                libmpv.mpv_terminate_destroy.argtypes = [ctypes.c_void_p]
+                handle = libmpv.mpv_create()
+                if not handle:
+                    sys.exit("mpv_create failed")
+                try:
+                    status = libmpv.mpv_set_option_string(handle, b"ytdl", b"no")
+                    if status != -5:
+                        sys.exit(f"ytdl: expected MPV_ERROR_OPTION_NOT_FOUND, got {status}")
+                finally:
+                    libmpv.mpv_terminate_destroy(handle)
+                PY
+                # LD_LIBRARY_PATH wins over the helper's RUNPATH, so the
+                # self-test links the scripting-free libmpv.
+                LD_LIBRARY_PATH="${mpvNoScripting}/lib" \
+                  ${bloom}/bin/bloom-seek-preview --self-test
+                touch "$out"
+              '';
           qml-lint = pkgs.callPackage ./nix/qml-lint.nix { inherit mpv; };
           mpv-fel-capability =
             pkgs.runCommand "bloom-mpv-fel-capability"
