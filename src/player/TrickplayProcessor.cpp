@@ -153,6 +153,12 @@ bool TrickplayProcessor::isReady() const
     return m_isReady;
 }
 
+bool TrickplayProcessor::isProcessing() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_isProcessing;
+}
+
 void TrickplayProcessor::onTileDownloaded(QNetworkReply *reply)
 {
     reply->deleteLater();

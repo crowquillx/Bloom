@@ -289,7 +289,9 @@ void LocalSeekPreview::start()
         m_process = nullptr;
         m_processJob.reset();
         m_complete = true;
+        m_available = !m_frames.isEmpty();
         process->deleteLater();
+        if (!m_available) emit unavailable();
         emit finished(m_frames.size() == count);
     });
     m_deadline.start(qMax(1, m_options.timeoutMs));

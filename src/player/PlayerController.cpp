@@ -6775,7 +6775,8 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
     }
 
     const bool wasTrickplayReady = hasTrickplay();
-    if (trickplayInfo.isEmpty() && m_useLocalTrickplay) return;
+    if (trickplayInfo.isEmpty()
+        && (m_useLocalTrickplay || m_hasTrickplayInfo || m_trickplayProcessor->isProcessing())) return;
     m_useLocalTrickplay = false;
     m_localSeekPreview->clear();
     

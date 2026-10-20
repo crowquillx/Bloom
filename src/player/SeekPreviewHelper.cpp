@@ -14,6 +14,7 @@
 #include <QUrl>
 #include <clocale>
 #include <cstdio>
+#include <cstdint>
 #include <memory>
 #include <utility>
 
@@ -172,6 +173,12 @@ int generate(const QJsonObject &request, const QDir &output, bool selfTest)
         int seekable = 0;
         if (mpv_get_property(handle.get(), "seekable", MPV_FORMAT_FLAG, &seekable) < 0
             || !seekable) return Protocol::Source;
+        std::int64_t width = 0;
+        std::int64_t height = 0;
+        if (mpv_get_property(handle.get(), "video-out-params/w", MPV_FORMAT_INT64, &width) < 0
+            || mpv_get_property(handle.get(), "video-out-params/h", MPV_FORMAT_INT64, &height) < 0
+            || width <= 0 || height <= 0 || width > 320 || height > 180
+            || (selfTest && (width != 320 || height != 180))) return Protocol::Image;
         const QStringList images = rawOutput.entryList({ QStringLiteral("????????.jpg") }, QDir::Files, QDir::Name);
         if (images.isEmpty()) return Protocol::Image;
         if (!QFile::rename(rawOutput.filePath(images.last()), destination)) return Protocol::Image;
@@ -196,8 +203,8 @@ int main(int argc, char **argv)
         QTemporaryDir output;
         QFile video(output.filePath(QStringLiteral("sample.y4m")));
         if (!output.isValid() || !video.open(QIODevice::WriteOnly)) return Protocol::Image;
-        video.write("YUV4MPEG2 W16 H16 F1:1 Ip A1:1 C420jpeg\nFRAME\n");
-        video.write(QByteArray(256, static_cast<char>(128)) + QByteArray(128, static_cast<char>(128)));
+        video.write("YUV4MPEG2 W640 H360 F1:1 Ip A1:1 C420jpeg\nFRAME\n");
+        video.write(QByteArray(640 * 360 * 3 / 2, static_cast<char>(128)));
         video.close();
         return generate({ { QStringLiteral("url"), QUrl::fromLocalFile(video.fileName()).toString() },
                           { QStringLiteral("durationMs"), 1000 }, { QStringLiteral("toneMap"), true } },

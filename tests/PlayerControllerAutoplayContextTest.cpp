@@ -740,12 +740,32 @@ void PlayerControllerAutoplayContextTest::localPreviewsStartWithoutSeekingAndYie
     QCOMPARE(controller.trickplayPreviewUrl(), controller.trickplayPreviewUrlAt(70));
     controller.m_activePlaybackSegmentOffsetMs = 0;
 
+    TrickplayTileInfo serverInfo;
+    serverInfo.width = 2;
+    serverInfo.height = 2;
+    serverInfo.interval = 10000;
+    serverInfo.thumbnailCount = 1;
+    serverInfo.tileWidth = 1;
+    serverInfo.tileHeight = 1;
+    controller.onTrickplayInfoLoaded(descriptor.media.itemId, { { 2, serverInfo } });
+    QVERIFY(controller.m_trickplayProcessor->isProcessing());
+    QVERIFY(!controller.m_useLocalTrickplay);
+    controller.onTrickplayInfoLoaded(descriptor.media.itemId, {});
+    QVERIFY(controller.m_trickplayProcessor->isProcessing());
+    QVERIFY(!controller.m_useLocalTrickplay);
+    QVERIFY(!controller.m_localSeekPreview->isAvailable());
+    controller.m_trickplayProcessor->clear();
+
     QTemporaryDir directory;
     QFile binary(directory.filePath(QStringLiteral("server.bin")));
     QVERIFY(binary.open(QIODevice::WriteOnly));
     binary.write(QByteArray(16, static_cast<char>(128)));
     binary.close();
     controller.onTrickplayProcessingComplete(descriptor.media.itemId, 1, 10000, 2, 2, binary.fileName());
+    QVERIFY(controller.hasTrickplay());
+    QVERIFY(!controller.m_useLocalTrickplay);
+    QVERIFY(controller.trickplayPreviewUrlAt(0).startsWith(QStringLiteral("data:image/")));
+    controller.onTrickplayInfoLoaded(descriptor.media.itemId, {});
     QVERIFY(controller.hasTrickplay());
     QVERIFY(!controller.m_useLocalTrickplay);
     QVERIFY(controller.trickplayPreviewUrlAt(0).startsWith(QStringLiteral("data:image/")));

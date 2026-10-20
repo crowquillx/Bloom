@@ -55,7 +55,7 @@ hours. Transcodes, unknown durations, and forward-only timelines are excluded.
 Dolby Vision sources without a compatible HDR base layer are also excluded
 because the software preview filter cannot convert their IPT colour space.
 Each image must be at most 1 MiB and the total JPEG data must stay within
-128 MiB. A timeout skips that slot and resumes the remaining timeline, with at
+128 MiB. A timeout or frame decode failure skips that slot and resumes the remaining timeline, with at
 most three failed attempts for the source. Other failures and the cache limit
 stop generation but keep images that are already available. If no image is
 available, local previews are disabled. Playback continues in each case.

@@ -98,6 +98,9 @@ stdenv.mkDerivation {
   LOCALE_ARCHIVE = "${glibcLocales}/lib/locale/locale-archive";
   checkPhase = ''
     runHook preCheck
+    export HOME="$TMPDIR/home"
+    export XDG_CACHE_HOME="$TMPDIR/cache"
+    mkdir -p "$HOME" "$XDG_CACHE_HOME"
     python3 "$src/tests/contracts/provider_contracts_test.py"
     export QT_QPA_PLATFORM=offscreen
     export QT_PLUGIN_PATH="${

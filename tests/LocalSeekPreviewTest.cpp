@@ -38,7 +38,8 @@ bool writeVideo(const QString &path, int lumaOffset = 0, int frameCount = 41)
 
 LocalSeekPreview::Options helperOptions(int timeoutMs = 10000)
 {
-    return { QString::fromUtf8(BLOOM_SEEK_PREVIEW_HELPER), timeoutMs };
+    static QTemporaryDir cacheRoot;
+    return { QString::fromUtf8(BLOOM_SEEK_PREVIEW_HELPER), timeoutMs, cacheRoot.path() };
 }
 }
 
@@ -58,6 +59,7 @@ private slots:
     void changingSourceDropsOldImages();
     void decoderFailureIsNonFatal();
     void stalledStreamHasDeadline();
+    void stalledStreamHasDeadline_data();
     void authenticatedHttpRanges();
     void rejectsHeaderInjection();
     void toneMapsHdrPreviews();
@@ -180,12 +182,15 @@ void LocalSeekPreviewTest::decoderFailureIsNonFatal()
 
 void LocalSeekPreviewTest::stalledStreamHasDeadline()
 {
+    QFETCH(qint64, durationMs);
     QTcpServer server;
     QVERIFY(server.listen(QHostAddress::LocalHost));
     LocalSeekPreview previews(helperOptions(250));
     QSignalSpy failed(&previews, &LocalSeekPreview::unavailable);
-    previews.setSource(source(QUrl(QStringLiteral("http://127.0.0.1:%1/stalled.mkv")
-        .arg(server.serverPort()))), false);
+    auto descriptor = source(QUrl(QStringLiteral("http://127.0.0.1:%1/stalled.mkv")
+        .arg(server.serverPort())));
+    descriptor.durationMs = durationMs;
+    previews.setSource(descriptor, false);
     QTimer heartbeat;
     heartbeat.start(10);
     QSignalSpy ticks(&heartbeat, &QTimer::timeout);
@@ -194,6 +199,13 @@ void LocalSeekPreviewTest::stalledStreamHasDeadline()
     QVERIFY(ticks.count() > 0);
     QVERIFY(!previews.isAvailable());
     previews.clear();
+}
+
+void LocalSeekPreviewTest::stalledStreamHasDeadline_data()
+{
+    QTest::addColumn<qint64>("durationMs");
+    QTest::newRow("one preview") << qint64(1000);
+    QTest::newRow("several previews") << qint64(41000);
 }
 
 void LocalSeekPreviewTest::authenticatedHttpRanges()

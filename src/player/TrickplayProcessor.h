@@ -57,6 +57,7 @@ public:
      * @return true if the binary file is ready
      */
     bool isReady() const;
+    bool isProcessing() const;
 
 signals:
     /**
