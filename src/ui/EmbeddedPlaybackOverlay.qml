@@ -2721,7 +2721,31 @@ FocusScope {
                 VolumeMeter {
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignVCenter
-                    emphasized: volumePanelFocus.activeFocus
+                    emphasized: volumePanelFocus.activeFocus || volumePanelMouse.containsMouse
+
+                    MouseArea {
+                        id: volumePanelMouse
+                        anchors.fill: parent
+                        anchors.topMargin: -Math.round(12 * Theme.layoutScale)
+                        anchors.bottomMargin: -Math.round(12 * Theme.layoutScale)
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        function apply(xValue) {
+                            PlayerController.setVolume(Math.round(100 * Math.max(0, Math.min(1, xValue / width))))
+                            if (PlayerController.muted && xValue > 0) {
+                                PlayerController.setMuted(false)
+                            }
+                            // Keep the OSD up while the pointer drives it.
+                            if (root.volumeOsdVisible) {
+                                volumeOsdTimer.restart()
+                            }
+                        }
+                        onPressed: function(mouse) { apply(mouse.x) }
+                        onPositionChanged: function(mouse) { if (pressed) apply(mouse.x) }
+                        onWheel: function(wheel) {
+                            root.adjustVolumeBy(wheel.angleDelta.y > 0 ? 5 : -5)
+                        }
+                    }
                 }
                 Text {
                     text: PlayerController.muted ? qsTr("Muted") : qsTr("%1%").arg(PlayerController.volume)

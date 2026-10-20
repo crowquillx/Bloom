@@ -2366,11 +2366,6 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
                                                                   request.chosenMediaSourceId,
                                                                   request.useAffinityFallback);
     updateVersionAffinityFromMediaSource(primarySource);
-    setPlaybackVersions(request.itemId,
-                        PlayerPolicy::playbackVersionOptions(
-                            primaryMediaSources,
-                            primarySource.value(QStringLiteral("id")).toString()));
-
     const QVariantList segments = buildMultipartSegments(QVariantMap{
                                                             {QStringLiteral("itemId"), request.itemId},
                                                             {QStringLiteral("seasonId"), request.seasonId},
@@ -2381,6 +2376,14 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
                                                         },
                                                         primarySource,
                                                         primaryPlaybackInfo);
+    // A version restart always begins at the first part, so multipart items
+    // cannot switch versions mid-playback without losing their place.
+    setPlaybackVersions(request.itemId,
+                        segments.size() > 1
+                            ? QVariantList{}
+                            : PlayerPolicy::playbackVersionOptions(
+                                  primaryMediaSources,
+                                  primarySource.value(QStringLiteral("id")).toString()));
     if (segments.isEmpty()) {
         failPendingPlaybackRequest(requestId, tr("No playable media sources found."));
         return;
@@ -4171,10 +4174,20 @@ void PlayerController::switchPlaybackVersion(const QString &mediaSourceId)
         return;
     }
 
+    // Before mpv reports a position, the resume point still lives in the
+    // queued start seek.
+    double switchPositionSeconds = m_currentPosition;
+    if ((m_playbackState == Loading || m_playbackState == Buffering)
+        && m_seekTargetWhileBuffering >= 0.0) {
+        switchPositionSeconds = m_seekTargetWhileBuffering;
+    } else if (m_playbackState == Loading && m_currentPosition <= 0.0) {
+        switchPositionSeconds = static_cast<double>(m_startPositionMs) / 1000.0;
+    }
     qCInfo(lcPlayback) << "Switching playback version"
                        << "itemId=" << m_currentItemId
                        << "mediaSourceId=" << mediaSourceId
-                       << "positionSeconds=" << m_currentPosition;
+                       << "positionSeconds=" << switchPositionSeconds;
+
     // Track indices are per version, so the new version resolves tracks from
     // the saved scope preferences instead of carrying raw indices across.
     requestPlayback(QVariantMap{
@@ -4182,7 +4195,7 @@ void PlayerController::switchPlaybackVersion(const QString &mediaSourceId)
         {QStringLiteral("seriesId"), m_currentSeriesId},
         {QStringLiteral("seasonId"), m_currentSeasonId},
         {QStringLiteral("libraryId"), m_currentLibraryId},
-        {QStringLiteral("startPositionMs"), qMax<qint64>(0, qRound64(m_currentPosition * 1000.0))},
+        {QStringLiteral("startPositionMs"), qMax<qint64>(0, qRound64(switchPositionSeconds * 1000.0))},
         {QStringLiteral("overlayTitle"), m_overlayTitle},
         {QStringLiteral("overlaySubtitle"), m_overlaySubtitle},
         {QStringLiteral("overlayBackdropUrl"), m_overlayBackdropUrl},
@@ -4249,11 +4262,15 @@ void PlayerController::requestAdjacentEpisodeListing(const QString &parentId, co
     }
     m_adjacentListingsRequested.insert(requestedKey);
 
-    // Same light listing the season view uses; the private request key keeps
-    // the response out of view-model request bookkeeping.
+    // The private request key keeps the response out of view-model request
+    // bookkeeping.
     LibraryItemQuery query;
     query.parentId = parentId;
     query.includeHeavyFields = false;
+    // The item type selects the hierarchy route on Silo and filters the
+    // children on Jellyfin.
+    query.includeItemTypes = {kind == kAdjacentSeries ? QStringLiteral("Season")
+                                                      : QStringLiteral("Episode")};
     query.requestKey = kAdjacentEpisodesKeyPrefix + QLatin1Char('\n')
         + m_adjacentEpisodesItemId + QLatin1Char('\n') + kind;
     m_libraryService->getItems(query);

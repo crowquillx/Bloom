@@ -572,6 +572,8 @@ private slots:
     void playbackTogglesSendMpvCycleValuesCommands();
     void requestPlaybackPromptsForVersionSelection();
     void switchPlaybackVersionRestartsAtCurrentPosition();
+    void switchPlaybackVersionKeepsQueuedResumePosition();
+    void multipartPlaybackPublishesNoVersions();
     void adjacentEpisodesCrossSeasonBoundaries();
     void requestPlaybackRecoversLibraryProfileFromSeriesDetails();
     void remoteMountStartupBufferingAppendsMpvArgs();
@@ -2513,6 +2515,92 @@ void PlayerControllerAutoplayContextTest::switchPlaybackVersionRestartsAtCurrent
     QVERIFY(!pending.allowVersionPrompt);
 }
 
+void PlayerControllerAutoplayContextTest::switchPlaybackVersionKeepsQueuedResumePosition()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_currentItemId = QStringLiteral("movie-1");
+    controller.setPlaybackVersions(QStringLiteral("movie-1"), QVariantList{
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("a")}, {QStringLiteral("selected"), true}},
+        QVariantMap{{QStringLiteral("id"), QStringLiteral("b")}, {QStringLiteral("selected"), false}}
+    });
+
+    // Still loading a resumed item: no position update yet, seek queued.
+    controller.m_playbackState = PlayerController::Loading;
+    controller.m_currentPosition = 0.0;
+    controller.m_startPositionMs = 600000;
+    controller.m_seekTargetWhileBuffering = 600.0;
+    controller.switchPlaybackVersion(QStringLiteral("b"));
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    QCOMPARE(controller.m_pendingPlaybackRequests.constBegin().value().startPositionMs, qint64(600000));
+
+    controller.m_pendingPlaybackRequests.clear();
+    controller.m_seekTargetWhileBuffering = -1;
+    controller.switchPlaybackVersion(QStringLiteral("b"));
+    QCOMPARE(controller.m_pendingPlaybackRequests.constBegin().value().startPositionMs, qint64(600000));
+}
+
+void PlayerControllerAutoplayContextTest::multipartPlaybackPublishesNoVersions()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("movie-1")},
+        {QStringLiteral("isMovie"), true},
+        {QStringLiteral("allowVersionPrompt"), false}
+    });
+    const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
+    const auto source = [](const QString &id, const QString &path) {
+        return buildMediaSourceInfo(id, id, path, {QVariantMap{{QStringLiteral("type"), QStringLiteral("Video")}}});
+    };
+    emit playbackService.playbackInfoLoadedForRequest(
+        QStringLiteral("movie-1"),
+        buildPlaybackInfo({source(QStringLiteral("hd"), QStringLiteral("/hd/part1.mkv")),
+                           source(QStringLiteral("uhd"), QStringLiteral("/uhd/part1.mkv"))}),
+        requestId);
+    emit playbackService.additionalPartsLoadedForRequest(
+        QStringLiteral("movie-1"),
+        QVariantList{QVariantMap{{QStringLiteral("itemId"), QStringLiteral("movie-1-part-2")}}},
+        requestId);
+    emit playbackService.playbackInfoLoadedForRequest(
+        QStringLiteral("movie-1-part-2"),
+        buildPlaybackInfo({source(QStringLiteral("hd-2"), QStringLiteral("/hd/part2.mkv")),
+                           source(QStringLiteral("uhd-2"), QStringLiteral("/uhd/part2.mkv"))}),
+        requestId);
+
+    QVERIFY(!backend.appendedUrls.isEmpty());
+    QCOMPARE(controller.m_playbackVersionsItemId, QStringLiteral("movie-1"));
+    QVERIFY(controller.m_playbackVersions.isEmpty());
+}
+
 void PlayerControllerAutoplayContextTest::adjacentEpisodesCrossSeasonBoundaries()
 {
     ConfigManager config;
@@ -2550,6 +2638,12 @@ void PlayerControllerAutoplayContextTest::adjacentEpisodesCrossSeasonBoundaries(
         }
         return QString();
     };
+    const auto typesFor = [&libraryService](const QString &parentId) {
+        for (const LibraryItemQuery &query : std::as_const(libraryService.itemQueries)) {
+            if (query.parentId == parentId) return query.includeItemTypes;
+        }
+        return QStringList();
+    };
 
     controller.m_currentItemId = QStringLiteral("s1e2");
     controller.m_currentSeriesId = QStringLiteral("series-1");
@@ -2570,6 +2664,9 @@ void PlayerControllerAutoplayContextTest::adjacentEpisodesCrossSeasonBoundaries(
     const QString seriesKey = keyFor(QStringLiteral("series-1"));
     QVERIFY(!seasonKey.isEmpty());
     QVERIFY(!seriesKey.isEmpty());
+    // Typed listings route to the hierarchy endpoints on Silo.
+    QCOMPARE(typesFor(QStringLiteral("season-1")), QStringList{QStringLiteral("Episode")});
+    QCOMPARE(typesFor(QStringLiteral("series-1")), QStringList{QStringLiteral("Season")});
 
     const QVariantList seasonOne{
         row(QStringLiteral("s1e1"), QStringLiteral("Episode"), QStringLiteral("season-1"), 1, 1),
