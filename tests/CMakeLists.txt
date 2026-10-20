@@ -1299,6 +1299,7 @@ add_executable(LocalSeekPreviewTest LocalSeekPreviewTest.cpp)
 target_link_libraries(LocalSeekPreviewTest PRIVATE Bloom::SeekPreview Qt6::Test)
 target_compile_definitions(LocalSeekPreviewTest PRIVATE
     BLOOM_SEEK_PREVIEW_HELPER="$<TARGET_FILE:BloomSeekPreviewHelper>"
+    BLOOM_SEEK_PREVIEW_H264_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/seek-preview-h264.mkv"
     BLOOM_SEEK_PREVIEW_HDR_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/seek-preview-hdr.mkv")
 add_dependencies(LocalSeekPreviewTest BloomSeekPreviewHelper)
 add_test(NAME LocalSeekPreviewTest COMMAND LocalSeekPreviewTest)

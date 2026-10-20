@@ -2633,17 +2633,27 @@ void PlayerController::onPlaybackDescriptorLoadedForRequest(
             : descriptor.mediaVersionId;
         const QString sessionId = descriptor.playbackSessionId.isEmpty()
             ? m_pendingAutoplayDescriptorSessionId : descriptor.playbackSessionId;
-        QVariantList autoplaySubtitleTracks = m_pendingAutoplayDescriptorSubtitleTracks;
-        int autoplaySubtitleIndex = m_pendingAutoplayDescriptorSubtitleIndex;
-        appendDescriptorExternalSubtitleTracks(autoplaySubtitleTracks,
-                                               descriptor,
-                                               &autoplaySubtitleIndex);
+        QVariantMap autoplaySegment{
+            {QStringLiteral("itemId"), itemId},
+            {QStringLiteral("mediaSourceId"), mediaSourceId},
+            {QStringLiteral("playSessionId"), sessionId},
+            {QStringLiteral("mediaSource"), m_pendingAutoplayDescriptorSource},
+            {QStringLiteral("audioIndex"), m_pendingAutoplayDescriptorAudioIndex},
+            {QStringLiteral("subtitleIndex"), m_pendingAutoplayDescriptorSubtitleIndex},
+            {QStringLiteral("availableAudioTracks"), m_pendingAutoplayDescriptorAudioTracks},
+            {QStringLiteral("availableSubtitleTracks"), m_pendingAutoplayDescriptorSubtitleTracks}
+        };
+        applyPlaybackDescriptorToSegment(autoplaySegment, descriptor);
+        const QVariantList autoplaySubtitleTracks =
+            autoplaySegment.value(QStringLiteral("availableSubtitleTracks")).toList();
+        const int autoplaySubtitleIndex = autoplaySegment.value(QStringLiteral("subtitleIndex"), -1).toInt();
         stopAutoplayPlaybackInfoWait();
         m_nextPlaybackMethod = Bloom::playbackMethodName(descriptor.stream.method);
         m_nextStreamPinsAudioTrack = descriptor.stream.pinsAudioTrack;
         m_nextStreamPinsSubtitleTrack = descriptor.stream.pinsSubtitleTrack;
         m_nextPinnedAudioTrack = parsePinnedTrackId(descriptor.stream.pinnedAudioTrackId);
         m_nextPinnedSubtitleTrack = parsePinnedTrackId(descriptor.stream.pinnedSubtitleTrackId);
+        m_nextPlaybackSegments = {autoplaySegment};
         playUrlWithTracks(url,
                           itemId,
                           m_pendingAutoplayDescriptorStartPositionMs,

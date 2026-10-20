@@ -72,6 +72,9 @@ use the same libmpv runtime. All release packaging paths run the helper's
 Portable and Flatpak FFmpeg builds enable libzimg for the `zscale` filter.
 Builds without libmpv have no local fallback.
 The existing embedded Linux trickplay opt-in still applies.
+Linux builds with `BLOOM_BUNDLE_LIBMPV=ON` give both executables a runtime
+search path to the installed `lib/bloom` directory. Installation copies the
+versioned libmpv file and its symbolic links.
 
 `LocalSeekPreviewTest` runs the real helper against generated local video and
 an authenticated HTTP range server. It covers a timeline longer than 100 seconds
@@ -82,6 +85,18 @@ retention after a frame failure, and cache reuse across a stream URL refresh. A 
 synthetic HDR fixture checks that tone mapping changes the output and preserves
 neutral colour. `PlayerControllerAutoplayContextTest` checks automatic fallback,
 server priority, multipart offsets, and terminal-state response rejection.
+It also checks that autoplay keeps the descriptor, source, session and track
+metadata needed to start local previews. A 121-second H.264 fixture with
+B-frames and 15-second keyframe gaps checks out-of-order preview generation
+and image content across the timeline.
+
+The H.264 fixture was generated with FFmpeg 8.1:
+
+```sh
+ffmpeg -f lavfi -i "nullsrc=s=64x36:r=2:d=121,geq=lum='40+T':cb=128:cr=128" \
+  -c:v libx264 -preset veryslow -qp 18 -g 30 -keyint_min 30 -sc_threshold 0 \
+  -bf 3 -pix_fmt yuv420p tests/fixtures/seek-preview-h264.mkv
+```
 
 The HDR fixture was generated with FFmpeg 9.0.1:
 

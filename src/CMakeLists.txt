@@ -265,13 +265,15 @@ if(UNIX AND NOT APPLE)
                 VERBATIM
             )
 
-            install(FILES ${BLOOM_LINUX_MPV_RUNTIME}
-                DESTINATION ${CMAKE_INSTALL_LIBDIR}/bloom
-            )
+            install(CODE "file(INSTALL
+                DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/bloom\"
+                TYPE SHARED_LIBRARY FOLLOW_SYMLINK_CHAIN
+                FILES \"${BLOOM_LINUX_MPV_RUNTIME}\")")
 
-            # Ensure bundled runtime libs are discoverable from bin/Bloom.
-            set_property(TARGET Bloom APPEND PROPERTY BUILD_RPATH "$ORIGIN")
-            set_property(TARGET Bloom APPEND PROPERTY INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/bloom")
+            foreach(_bloom_executable IN ITEMS Bloom BloomSeekPreviewHelper)
+                set_property(TARGET ${_bloom_executable} APPEND PROPERTY BUILD_RPATH "$ORIGIN")
+                set_property(TARGET ${_bloom_executable} APPEND PROPERTY INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/bloom")
+            endforeach()
         elseif(BLOOM_BUNDLE_LIBMPV)
             message(WARNING "libmpv runtime library path not found; Linux embedded backend may fail on systems without system libmpv.")
         endif()

@@ -55,6 +55,7 @@ private slots:
 #endif
     }
     void generatesEntireTimelineWithoutSeeking();
+    void generatesInterframeVideoTimeline();
     void rejectsUnsupportedSources();
     void changingSourceDropsOldImages();
     void decoderFailureIsNonFatal();
@@ -116,6 +117,52 @@ void LocalSeekPreviewTest::generatesEntireTimelineWithoutSeeking()
     previews.clear();
     QTRY_VERIFY(!QFileInfo::exists(cached));
     QVERIFY(!previews.isAvailable());
+}
+
+void LocalSeekPreviewTest::generatesInterframeVideoTimeline()
+{
+    LocalSeekPreview previews(helperOptions());
+    auto descriptor = source(QUrl::fromLocalFile(QString::fromUtf8(BLOOM_SEEK_PREVIEW_H264_FIXTURE)));
+    descriptor.durationMs = 121000;
+    previews.setSource(descriptor, false);
+    QList<int> arrivals;
+    QSet<int> seen;
+    connect(&previews, &LocalSeekPreview::framesChanged, this, [&] {
+        for (int seconds = 0; seconds <= 120; seconds += 10) {
+            if (!seen.contains(seconds) && !previews.frameUrlAt(seconds).isEmpty()) {
+                seen.insert(seconds);
+                arrivals.append(seconds);
+            }
+        }
+    });
+    QSignalSpy finished(&previews, &LocalSeekPreview::finished);
+    previews.start();
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 15000);
+    QVERIFY(finished.first().first().toBool());
+    QCOMPARE(arrivals.size(), 13);
+    QCOMPARE(arrivals.first(), 0);
+    QCOMPARE(arrivals.at(1), 120);
+    QCOMPARE(arrivals.at(2), 60);
+    const QImage firstFrame(QUrl(previews.frameUrlAt(0)).toLocalFile());
+    const QImage lastFrame(QUrl(previews.frameUrlAt(120)).toLocalFile());
+    QVERIFY(!firstFrame.isNull());
+    QVERIFY(!lastFrame.isNull());
+    const int firstBrightness = firstFrame.pixelColor(160, 90).red();
+    const int lastBrightness = lastFrame.pixelColor(160, 90).red();
+    QVERIFY(lastBrightness - firstBrightness > 100);
+    int previousBrightness = -1;
+    for (int seconds = 0; seconds <= 120; seconds += 10) {
+        const QImage frame(QUrl(previews.frameUrlAt(seconds)).toLocalFile());
+        QCOMPARE(frame.size(), QSize(320, 180));
+        const int brightness = frame.pixelColor(160, 90).red();
+        const int expected = firstBrightness + qRound((lastBrightness - firstBrightness) * seconds / 120.0);
+        // Keyframe seeks can land up to one 15-second GOP from the requested time.
+        const int tolerance = qCeil((lastBrightness - firstBrightness) * 15.0 / 120) + 3;
+        QVERIFY2(qAbs(brightness - expected) <= tolerance,
+                 qPrintable(QStringLiteral("Wrong compressed frame at %1 s: %2").arg(seconds).arg(brightness)));
+        QVERIFY(brightness >= previousBrightness - 2);
+        previousBrightness = brightness;
+    }
 }
 
 void LocalSeekPreviewTest::rejectsUnsupportedSources()
