@@ -17,7 +17,40 @@ FocusScope {
     property var nextUpModel: []
     property var continueWatchingModel: []
     property var displayedNextUpModel: []
-    property var recentlyAddedMap: ({}) // Map of libraryId -> items array
+    property var recentlyAddedMap: ({}) // Map of libraryKey(connectionId, libraryId) -> items array
+    // Merged workspaces read Home rows through MergedCatalog across every
+    // enabled source; single workspaces keep using LibraryService.
+    readonly property bool mergedMode: typeof MergedCatalog !== "undefined" && MergedCatalog.active
+    property bool mergedViewsRequested: false
+
+    // Library IDs are only unique per connection (two users on one server
+    // share them), so per-library rows key on both.
+    function libraryKey(connectionId, libraryId) {
+        return (connectionId || "") + "\n" + (libraryId || "")
+    }
+
+    function loadViews() {
+        librariesLoading = true
+        librariesError = ""
+        if (mergedMode) {
+            mergedViewsRequested = true
+            MergedCatalog.refreshViews()
+        } else {
+            LibraryService.getViews()
+        }
+    }
+
+    function resetWorkspaceContent() {
+        librariesModel = []
+        recentlyAddedMap = ({})
+        nextUpModel = []
+        updateDisplayedNextUpModel()
+        loadViews()
+    }
+
+    SourceRouter {
+        id: sourceRouter
+    }
     // Shelf spacing and sizing. Landscape cards (Continue Watching, Next Up,
     // My Media) show two thirds as many items as poster rows so artwork stays
     // large from across a room; both grow with ultrawide viewports.
@@ -90,6 +123,14 @@ FocusScope {
     /// Call this after playback ends to update watch progress indicators
     function refreshDynamicContent() {
         console.log("HomeScreen: Refreshing dynamic content")
+        if (mergedMode) {
+            MergedCatalog.getNextUp()
+            for (var j = 0; j < librariesModel.length; j++) {
+                MergedCatalog.getLatestMedia(librariesModel[j].connectionId || "",
+                                             librariesModel[j].itemId)
+            }
+            return
+        }
         LibraryService.getNextUp()
         for (var i = 0; i < librariesModel.length; i++) {
             LibraryService.getLatestMedia(librariesModel[i].itemId)
@@ -157,6 +198,10 @@ FocusScope {
     }
 
     function orderLibraries(views) {
+        // Merged views arrive in member-priority order; the saved order holds
+        // one server's library IDs only.
+        if (mergedMode)
+            return views
         var order = SidebarSettings.libraryOrder || []
         var byId = {}
         var ordered = []
@@ -228,7 +273,7 @@ FocusScope {
         return {
             item: item || null,
             recentlyAddedListRef: item ? (item["recentlyAddedListRef"] || null) : null,
-            libraryId: item ? (item["libraryId"] || "") : ""
+            libraryId: item ? (item["libraryKey"] || "") : ""
         }
     }
 
@@ -652,6 +697,15 @@ FocusScope {
                 return txt
             }
 
+            SourceBadge {
+                z: 5
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.margins: Theme.spacingSmall
+                maximumWidth: parent.width - Theme.spacingSmall * 2
+                text: root.mergedMode ? (modelData.sourceLabel || "") : ""
+            }
+
             ArtworkPlaceholder {
                 anchors.fill: parent
                 visible: nextUpImage.status !== Image.Ready
@@ -919,15 +973,31 @@ FocusScope {
                                     Layout.alignment: Qt.AlignVCenter
                                 }
 
-                                Text {
-                                    text: modelData.name || ""
-                                    font.pixelSize: Theme.fontSizeMedium
-                                    font.family: Theme.fontPrimary
-                                    font.weight: Theme.fontWeightStrong
-                                    color: Theme.textPrimary
-                                    elide: Text.ElideRight
+                                ColumnLayout {
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignVCenter
+                                    spacing: 0
+
+                                    Text {
+                                        text: modelData.name || ""
+                                        font.pixelSize: Theme.fontSizeMedium
+                                        font.family: Theme.fontPrimary
+                                        font.weight: Theme.fontWeightStrong
+                                        color: Theme.textPrimary
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+
+                                    // Owning source in merged workspaces.
+                                    Text {
+                                        visible: text !== ""
+                                        text: root.mergedMode ? (modelData.sourceLabel || "") : ""
+                                        font.pixelSize: Theme.fontSizeCaption
+                                        font.family: Theme.fontPrimary
+                                        color: Theme.textSecondary
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
                                 }
                             }
 
@@ -950,7 +1020,9 @@ FocusScope {
 
                         Accessible.role: Accessible.Button
                         Accessible.name: modelData.name
-                        Accessible.description: "Browse " + modelData.name + " library"
+                        Accessible.description: root.mergedMode && modelData.sourceLabel
+                                                ? qsTr("Browse %1 library from %2").arg(modelData.name).arg(modelData.sourceLabel)
+                                                : "Browse " + modelData.name + " library"
                     }
                     
                     Keys.onReturnPressed: {
@@ -1138,14 +1210,17 @@ FocusScope {
                         Layout.fillWidth: true
                         spacing: Theme.sectionTitleSpacing
                         
-                        property var items: recentlyAddedMap[modelData.itemId] || []
+                        property string libraryKey: root.libraryKey(modelData.connectionId, modelData.itemId)
+                        property var items: recentlyAddedMap[libraryKey] || []
                         property string libraryId: modelData.itemId
                         property var recentlyAddedListRef: recentlyAddedList
                         visible: items.length > 0
                         
                         SectionHeader {
                             text: qsTr("Recently Added")
-                            detail: modelData.name || ""
+                            detail: root.mergedMode && modelData.sourceLabel
+                                    ? (modelData.name || "") + "  ·  " + modelData.sourceLabel
+                                    : (modelData.name || "")
                             Layout.leftMargin: Theme.pageMarginX
                             Layout.rightMargin: Theme.pageMarginX
                             Layout.fillWidth: true
@@ -1459,9 +1534,7 @@ FocusScope {
                                                : qsTr("No media libraries are available for this profile."))
         actionText: !root.librariesLoading && root.librariesError !== "" ? qsTr("Try Again") : ""
         onActionTriggered: {
-            root.librariesLoading = true
-            root.librariesError = ""
-            LibraryService.getViews()
+            root.loadViews()
         }
         onVisibleChanged: if (visible && actionText !== "") Qt.callLater(focusAction)
         // Stays visible from loading to error, so visibility alone misses the first failure.
@@ -1496,8 +1569,10 @@ FocusScope {
         console.log("Selected library: " + library.name)
         // Save focus state before navigating
         saveFocusState()
-        // Emit signal to navigate to library screen
-        navigateToLibrary(library.itemId, library.name)
+        // Merged libraries open on the connection that owns them.
+        sourceRouter.run(library.connectionId || "", function() {
+            navigateToLibrary(library.itemId, library.name)
+        })
     }
     
     function handleNextUpSelection(item) {
@@ -1520,7 +1595,9 @@ FocusScope {
         var libraryId = ""
         var libraryName = ""
         
-        navigateToEpisode(item, seriesId, libraryId, libraryName)
+        sourceRouter.run(item.connectionId || "", function() {
+            navigateToEpisode(item, seriesId, libraryId, libraryName)
+        })
     }
 
     function handleHeroSelection(item) {
@@ -1530,13 +1607,20 @@ FocusScope {
         const itemId = item.itemId || ""
         const parentId = item.parentId || ""
         const seriesId = item.seriesId || ""
-        if (mediaType === "Movie") navigateToMovie(item, parentId, "")
-        else if (mediaType === "Series") navigateToSeries(itemId, parentId, "")
-        else if (mediaType === "Episode") navigateToEpisode(item, seriesId, parentId, "")
+        sourceRouter.run(item.connectionId || "", function() {
+            if (mediaType === "Movie") navigateToMovie(item, parentId, "")
+            else if (mediaType === "Series") navigateToSeries(itemId, parentId, "")
+            else if (mediaType === "Episode") navigateToEpisode(item, seriesId, parentId, "")
+        })
     }
 
     function playHeroItem(item) {
         if (!item) return
+        // Playback and its progress reports run on the owning connection.
+        sourceRouter.run(item.connectionId || "", function() { root.startHeroPlayback(item) })
+    }
+
+    function startHeroPlayback(item) {
         const mediaType = item.mediaType || ""
         if (mediaType === "Series") return
         const itemId = item.itemId || ""
@@ -1566,10 +1650,15 @@ FocusScope {
     
     function handleRecentlyAddedSelection(item, libraryId) {
         console.log("[Home] Selected Recently Added:", item.name, "Type:", item.mediaType, "Library:", libraryId)
-        
+
         // Save focus state before navigating
         saveFocusState()
-        
+        sourceRouter.run(item.connectionId || "", function() {
+            root.openRecentlyAdded(item, libraryId)
+        })
+    }
+
+    function openRecentlyAdded(item, libraryId) {
         // Find the library name for this item
         var libraryName = ""
         for (var i = 0; i < librariesModel.length; i++) {
@@ -1586,7 +1675,7 @@ FocusScope {
         } else if (item.mediaType === "Episode") {
             // For episodes, check if there are other episodes from the same series in recently added
             var seriesId = item.seriesId || ""
-            var items = recentlyAddedMap[libraryId] || []
+            var items = recentlyAddedMap[root.libraryKey(item.connectionId, libraryId)] || []
             
             // Find all episodes from the same series in this recently added list
             var relatedEpisodes = []
@@ -1656,85 +1745,121 @@ FocusScope {
         return d.getFullYear()
     }
     
+    function applyViews(views) {
+        librariesLoading = false
+        librariesError = ""
+        var orderedViews = orderLibraries(views)
+        librariesModel = orderedViews
+        heroProvider.rebuild()
+        if (orderedViews.length > 0) {
+            if (myMediaList.currentIndex < 0) {
+                myMediaList.currentIndex = 0
+            }
+            Qt.callLater(root.applyInitialFocus)
+        }
+
+        // Next Up and Recently Added for each library
+        refreshDynamicContent()
+
+        // Fetch a larger random pool from all available media for backdrop rotation.
+        // Merged workspaces draw it from the live session's source.
+        // Phase 1: fast randomized starter sample so first backdrop appears quickly.
+        loadingGlobalBackdropPool = true
+        globalBackdropPoolLoaded = false
+        useSectionBackdropFallback = false
+        fullBackdropIndexRequested = false
+        backdropCandidates = []
+        root.invalidateBackdropShuffle()
+        globalBackdropTimeout.restart()
+        LibraryService.getHomeBackdropItems(80)
+        // Phase 2: build full index in background without blocking initial paint.
+        fullBackdropIndexTimer.restart()
+    }
+
+    function applyNextUp(items) {
+        nextUpModel = items
+        updateDisplayedNextUpModel()
+
+        // Use section fallback only if global pool is unavailable.
+        if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
+            root.addBackdropCandidates(items)
+        }
+
+        // Restore focus if we had focus in Next Up section AND we're still the active screen
+        Qt.callLater(function() {
+            if ((lastFocusedSection === "nextUp" || lastFocusedSection === "continueWatching") && root.StackView.status === StackView.Active) {
+                restoreFocusState()
+            }
+        })
+    }
+
+    function applyLatestMedia(connectionId, parentId, items) {
+        // Update map safely to trigger bindings without destroying delegates
+        var newMap = {}
+        for (var key in recentlyAddedMap) {
+            newMap[key] = recentlyAddedMap[key]
+        }
+        newMap[root.libraryKey(connectionId, parentId)] = items
+        recentlyAddedMap = newMap
+        if (ConfigManager.heroBannerSource !== "library") {
+            heroProvider.rebuild()
+        }
+
+        // Use section fallback only if global pool is unavailable.
+        if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
+            root.addBackdropCandidates(items)
+        }
+    }
+
+    Connections {
+        target: typeof MergedCatalog !== "undefined" ? MergedCatalog : null
+        ignoreUnknownSignals: true
+
+        function onViewsChanged() {
+            if (!root.mergedMode || !root.mergedViewsRequested || MergedCatalog.viewsLoading)
+                return
+            root.mergedViewsRequested = false
+            root.applyViews(MergedCatalog.views)
+        }
+        function onViewsFailed(error) {
+            if (!root.mergedMode)
+                return
+            root.librariesLoading = false
+            root.librariesError = error
+        }
+        function onNextUpLoaded(items) {
+            if (root.mergedMode)
+                root.applyNextUp(items)
+        }
+        function onLatestMediaLoaded(connectionId, parentId, items) {
+            if (root.mergedMode)
+                root.applyLatestMedia(connectionId, parentId, items)
+        }
+        // Sources were added, removed, or toggled: rows from the previous
+        // membership are stale.
+        function onActiveChanged() {
+            if (AuthenticationService.authenticated)
+                root.resetWorkspaceContent()
+        }
+    }
+
     // Connections
     Connections {
         target: LibraryService
         
         function onCanonicalViewsLoadedForConnection(connectionId, views) {
-            if (!root.acceptsConnectionResponse(connectionId)) return
-            librariesLoading = false
-            librariesError = ""
-            var orderedViews = orderLibraries(views)
-            librariesModel = orderedViews
-            heroProvider.rebuild()
-            if (orderedViews.length > 0) {
-                if (myMediaList.currentIndex < 0) {
-                    myMediaList.currentIndex = 0
-                }
-                Qt.callLater(root.applyInitialFocus)
-            }
-            
-            // Fetch Next Up
-            LibraryService.getNextUp()
-            
-            // Fetch recently added for each library
-            for (var i = 0; i < orderedViews.length; i++) {
-                LibraryService.getLatestMedia(orderedViews[i].itemId)
-            }
+            if (root.mergedMode || !root.acceptsConnectionResponse(connectionId)) return
+            root.applyViews(views)
+        }
 
-            // Fetch a larger random pool from all available media for backdrop rotation.
-            // Phase 1: fast randomized starter sample so first backdrop appears quickly.
-            loadingGlobalBackdropPool = true
-            globalBackdropPoolLoaded = false
-            useSectionBackdropFallback = false
-            fullBackdropIndexRequested = false
-            backdropCandidates = []
-            root.invalidateBackdropShuffle()
-            globalBackdropTimeout.restart()
-            LibraryService.getHomeBackdropItems(80)
-            // Phase 2: build full index in background without blocking initial paint.
-            fullBackdropIndexTimer.restart()
-        }
-        
         function onCanonicalNextUpLoaded(connectionId, items) {
-            if (!root.acceptsConnectionResponse(connectionId)) return
-            nextUpModel = items
-            updateDisplayedNextUpModel()
-            
-            // Use section fallback only if global pool is unavailable.
-            if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
-                root.addBackdropCandidates(items)
-            }
-            
-            // Restore focus if we had focus in Next Up section AND we're still the active screen
-            Qt.callLater(function() {
-                if ((lastFocusedSection === "nextUp" || lastFocusedSection === "continueWatching") && root.StackView.status === StackView.Active) {
-                    restoreFocusState()
-                }
-            })
+            if (root.mergedMode || !root.acceptsConnectionResponse(connectionId)) return
+            root.applyNextUp(items)
         }
-        
+
         function onCanonicalLatestMediaLoaded(connectionId, parentId, items) {
-            if (!root.acceptsConnectionResponse(connectionId)) return
-            // Update map safely to trigger bindings without destroying delegates
-            var newMap = {}
-            for (var key in recentlyAddedMap) {
-                newMap[key] = recentlyAddedMap[key]
-            }
-            newMap[parentId] = items
-            recentlyAddedMap = newMap
-            if (ConfigManager.heroBannerSource !== "library") {
-                heroProvider.rebuild()
-            }
-            
-            // Use section fallback only if global pool is unavailable.
-            if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
-                root.addBackdropCandidates(items)
-            }
-            
-            // Note: We removed the aggressive recentlyAddedRepeater.model = null reset
-            // because updating recentlyAddedMap (with a new object reference) is sufficient 
-            // for the inner ListViews to update their 'items' binding.
+            if (root.mergedMode || !root.acceptsConnectionResponse(connectionId)) return
+            root.applyLatestMedia(connectionId, parentId, items)
         }
 
         function onCanonicalHomeBackdropItemsLoaded(connectionId, items) {
@@ -1783,7 +1908,7 @@ FocusScope {
 
         function onErrorOccurred(endpoint, error) {
             console.error("Error in " + endpoint + ": " + error)
-            if (endpoint === "getViews") {
+            if (endpoint === "getViews" && !root.mergedMode) {
                 librariesLoading = false
                 librariesError = error
             }
@@ -1852,10 +1977,8 @@ FocusScope {
         if (homeBackdropSettings.lastBackdropUrl !== "") {
             currentBackdropUrl = homeBackdropSettings.lastBackdropUrl
         }
-        librariesLoading = true
-        librariesError = ""
         console.log("[FocusDebug] HomeScreen completed, requesting initial views")
-        LibraryService.getViews()
+        loadViews()
         heroProvider.rebuild()
     }
 }

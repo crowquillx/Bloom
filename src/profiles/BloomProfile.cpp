@@ -1,6 +1,7 @@
 #include "BloomProfile.h"
 
 #include <QJsonArray>
+#include <QUrl>
 #include <QUuid>
 
 namespace {
@@ -163,4 +164,38 @@ bool BloomProfileRequestContext::isValid() const
 bool BloomProfileRequestContext::isCurrent(quint64 currentGeneration) const
 {
     return isValid() && generation == currentGeneration;
+}
+
+QString BloomProfile::connectionServerLabel(const ServerConnection &connection)
+{
+    if (!connection.serverName.trimmed().isEmpty()) {
+        return connection.serverName.trimmed();
+    }
+    const QUrl url(connection.baseUrl);
+    return url.host().isEmpty() ? connection.baseUrl : url.host();
+}
+
+QString BloomProfile::connectionAccountLabel(const ServerConnection &connection)
+{
+    if (!connection.displayName.trimmed().isEmpty()) {
+        return connection.displayName.trimmed();
+    }
+    return connection.username.trimmed();
+}
+
+QString BloomProfile::connectionLabel(const ServerConnection &connection)
+{
+    const QString account = connectionAccountLabel(connection);
+    const QString server = connectionServerLabel(connection);
+    if (account.isEmpty()) {
+        return server;
+    }
+    return server.isEmpty() ? account : account + QStringLiteral(" · ") + server;
+}
+
+QString BloomProfile::memberLabel(const BloomProfileMember &member,
+                                  const ServerConnection &connection)
+{
+    const QString overridden = member.labelOverride.trimmed();
+    return overridden.isEmpty() ? connectionLabel(connection) : overridden;
 }

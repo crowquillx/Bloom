@@ -1154,6 +1154,45 @@ void ConfigManager::clearActiveConnection()
     emit sessionChanged();
 }
 
+bool ConfigManager::removeConnection(const QString &connectionId)
+{
+    const QString normalizedId = connectionId.trimmed();
+    if (normalizedId.isEmpty()) {
+        return false;
+    }
+
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject connections = settings.value(QStringLiteral("connections")).toObject();
+    QJsonArray items = connections.value(QStringLiteral("items")).toArray();
+    bool removed = false;
+    for (qsizetype index = items.size() - 1; index >= 0; --index) {
+        if (items.at(index).toObject().value(QStringLiteral("id")).toString() == normalizedId) {
+            items.removeAt(index);
+            removed = true;
+        }
+    }
+    if (!removed) {
+        return false;
+    }
+
+    // Connection-scoped preferences stay under connection_state so signing the
+    // same account in again (same deterministic connectionId) restores them.
+    connections[QStringLiteral("items")] = items;
+    const bool wasActive =
+        connections.value(QStringLiteral("active")).toString() == normalizedId;
+    if (wasActive) {
+        connections[QStringLiteral("active")] = QString();
+    }
+    settings[QStringLiteral("connections")] = connections;
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+    emit connectionsChanged();
+    if (wasActive) {
+        emit sessionChanged();
+    }
+    return true;
+}
+
 bool ConfigManager::hasPendingLegacyJellyfinMigration() const
 {
     return m_config.value(QStringLiteral("settings")).toObject()

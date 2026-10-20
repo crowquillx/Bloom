@@ -51,11 +51,13 @@ Config schema version 28 stores connections under `settings.connections`:
 }
 ```
 
-`ConfigManager` provides connection persistence and active-connection access. Connection removal is intentionally deferred until an account-session service can delete credentials before dropping metadata. Its Jellyfin session methods remain temporary compatibility façades while existing callers move to provider-neutral services.
+`ConfigManager` provides connection persistence and active-connection access. `ConfigManager::removeConnection` drops metadata only; `WorkspaceController::removeConnection` deletes the connection's credentials first, and keeps its `connection_state` scope so signing the same account in again restores preferences. Its Jellyfin session methods remain temporary compatibility façades while existing callers move to provider-neutral services.
 
 ## Bloom profiles
 
 Bloom profiles (`src/profiles/*`, documented in [`profiles.md`](profiles.md)) are Bloom-owned workspaces, not provider household profiles. A membership references a `connectionId` only. The same physical server may appear multiple times via distinct connections (different accounts/users); memberships are never keyed by `serverId` or `baseUrl`. Within one Bloom profile, at most one membership per `connectionId` so `MediaRef{connectionId,itemId}` remains unambiguous. Membership identity lives in request/source context (`BloomProfileRequestContext`), not in `MediaRef` or caches. Config v30 persists `settings.bloom_profiles`; migration seeds one default `single` profile from the active (or sole) connection without changing `settings.connections.active`.
+
+`AuthenticationService` keeps one live, refreshable session. `WorkspaceController` switches it between saved connections (`activateConnection`) without deleting credentials, and routes merged items to their owning connection before details, playback, or writes. `ConnectionSessionPool` holds read-only tokens for the other members of a merged profile so `MergedCatalogService` and artwork providers can build per-connection requests (`requestContextForConnection`, `createRequestForConnection`). A rejected member token never expires the live session. See [profiles](profiles.md).
 
 ## Credential storage and migration
 

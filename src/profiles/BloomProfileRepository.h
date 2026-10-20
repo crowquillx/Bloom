@@ -30,6 +30,8 @@ public:
     bool upsertProfile(BloomProfile &profile);
     bool removeProfile(const QString &id);
     bool setActiveProfile(const QString &id);
+    /// Persists profile order (picker order). Must list every profile once.
+    bool reorderProfiles(const QStringList &orderedProfileIds);
 
     bool addMember(const QString &profileId, BloomProfileMember member);
     bool removeMember(const QString &profileId, const QString &memberId);

@@ -246,6 +246,7 @@ Window {
     property bool isLoggedIn: false
     property var sidebarProxy: sidebarLoader.item || sidebarStub
     property bool pendingAuthenticatedNavigation: false
+    property bool workspaceResetPending: false
     
     /// Left edge reserved for the floating navigation rail. Constant while
     /// logged in: rail expansion overlays content instead of pushing it.
@@ -326,6 +327,30 @@ Window {
                 mainContentArea.forceActiveFocus()
             }
         })
+    }
+
+    // A different workspace is live: pages from the previous one hold
+    // another connection's items, so start again from a fresh Home.
+    function resetToWorkspaceHome() {
+        if (!window.isLoggedIn) {
+            return
+        }
+        saveHomeFocusState()
+        stackView.clear()
+        var homeScreen = stackView.push("HomeScreen.qml")
+        window.homeNavigationSource = homeScreen || null
+        updateSidebarNavigation()
+        Qt.callLater(function() {
+            var item = stackView.currentItem
+            if (item)
+                item.forceActiveFocus()
+        })
+    }
+
+    function openWorkspacePicker(fromRail) {
+        window.dialogReturnsToRail = fromRail
+        if (!workspacePicker.opened)
+            workspacePicker.open()
     }
 
     function isOnRootHomeScreen() {
@@ -937,6 +962,85 @@ Window {
         }
     }
 
+    WorkspacePickerDialog {
+        id: workspacePicker
+        parent: Overlay.overlay
+        allowSignOut: window.isLoggedIn
+        allowManage: window.isLoggedIn
+
+        property bool handedOff: false
+
+        onOpened: handedOff = false
+        onClosed: {
+            // Actions that open another surface own focus from here on.
+            if (!handedOff)
+                homePowerDialog.restoreHomeFocus()
+        }
+        onManageRequested: {
+            handedOff = true
+            window.dialogReturnsToRail = false
+            pushSettingsScreen({ focusWorkspaces: true })
+        }
+        onSignOutRequested: {
+            handedOff = true
+            if (!signOutDialog.opened)
+                signOutDialog.open()
+        }
+    }
+
+    Connections {
+        target: typeof Workspaces !== "undefined" ? Workspaces : null
+        ignoreUnknownSignals: true
+
+        function onSwitchingChanged() {
+            // Pages open now belong to the previous workspace. Switches that
+            // start on the sign-in screen land on a fresh Home already.
+            if (Workspaces.switching && window.isLoggedIn)
+                window.workspaceResetPending = true
+        }
+        function onWorkspaceSwitched() {
+            toast.show(qsTr("Switched to %1").arg(Workspaces.activeProfileName))
+            if (window.workspaceResetPending)
+                window.resetToWorkspaceHome()
+            window.workspaceResetPending = false
+        }
+        function onSwitchFailed(error) {
+            window.workspaceResetPending = false
+            toast.show(qsTr("Couldn't switch workspace. %1").arg(error))
+        }
+        function onRouteReady(connectionId) {
+            // Routing keeps the workspace; the open pages stay valid.
+            window.workspaceResetPending = false
+        }
+        function onRouteFailed(connectionId, error) {
+            window.workspaceResetPending = false
+            toast.show(error)
+        }
+    }
+
+    // Merged workspaces degrade per source: name the sources that failed
+    // once instead of blanking healthy results.
+    property string lastUnavailableSources: ""
+    Connections {
+        target: typeof MergedCatalog !== "undefined" ? MergedCatalog : null
+        ignoreUnknownSignals: true
+
+        function onSourcesChanged() {
+            var unavailable = []
+            var sources = MergedCatalog.sources || []
+            for (var i = 0; i < sources.length; ++i) {
+                if (sources[i].state === "failed" || sources[i].state === "signInRequired")
+                    unavailable.push(sources[i].label)
+            }
+            var summary = unavailable.join(", ")
+            if (summary === window.lastUnavailableSources)
+                return
+            window.lastUnavailableSources = summary
+            if (summary !== "" && window.isLoggedIn)
+                toast.show(qsTr("Unavailable right now: %1").arg(summary))
+        }
+    }
+
     Timer {
         id: startupUpdateTimer
         interval: 1500
@@ -1306,6 +1410,10 @@ Window {
                 })
             }
 
+            onWorkspacePickerRequested: {
+                window.openWorkspacePicker(expanded)
+            }
+
             onSignOutRequested: {
                 window.dialogReturnsToRail = expanded
                 // Signing out clears stored credentials, so confirm first.
@@ -1357,6 +1465,9 @@ Window {
             }
             if (settingsScreen && options.focusUpdatesOnActivate && typeof settingsScreen["requestUpdateSectionFocus"] === "function") {
                 settingsScreen["requestUpdateSectionFocus"]()
+            }
+            if (settingsScreen && options.focusWorkspaces && typeof settingsScreen["requestWorkspaceSectionFocus"] === "function") {
+                settingsScreen["requestWorkspaceSectionFocus"]()
             }
         })
         updateSidebarNavigation()
@@ -1464,6 +1575,11 @@ Window {
         
         
         function onLoggedOut() {
+            window.showLoginScreen()
+        }
+
+        // A workspace switch reached a provider profile or PIN prompt.
+        function onSignInRequired() {
             window.showLoginScreen()
         }
         
@@ -1649,6 +1765,7 @@ Window {
                  && !sidebarProxy.expanded
                  && !homePowerDialog.opened
                  && !signOutDialog.opened
+                 && !workspacePicker.opened
                  && !(stackView.currentItem && stackView.currentItem["handlesOwnBackNavigation"] === true)
         onActivated: {
             console.log("[FocusDebug] Back shortcut activated, stackView.depth:", stackView.depth, "sidebar.expanded:", sidebarProxy.expanded)
@@ -1667,6 +1784,7 @@ Window {
                  && !sidebarProxy.expanded
                  && !homePowerDialog.opened
                  && !signOutDialog.opened
+                 && !workspacePicker.opened
                  && !(updateDialogLoader.item && updateDialogLoader.item.visible)
         onActivated: {
             if (InputModeManager.pointerActive) UiSoundController.playBack()

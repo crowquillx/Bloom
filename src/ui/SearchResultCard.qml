@@ -126,6 +126,15 @@ Item {
                     layer.smooth: true
                 }
 
+                // Owning server/account in merged workspaces.
+                SourceBadge {
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                    anchors.margins: Theme.spacingSmall
+                    maximumWidth: parent.width - Theme.spacingSmall * 2
+                    text: isSeerr ? "" : (itemData.sourceLabel || "")
+                }
+
                 // Unwatched episode count badge (for Series)
                 UnwatchedBadge {
                     anchors.top: parent.top

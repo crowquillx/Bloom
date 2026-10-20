@@ -91,7 +91,8 @@ QtObject {
         var libs = librariesModel
         var perLib = []
         for (var i = 0; i < libs.length; i++) {
-            var items = recentlyAddedMap[libs[i].itemId] || []
+            // Keyed by connection and library (see HomeScreen.libraryKey).
+            var items = recentlyAddedMap[(libs[i].connectionId || "") + "\n" + (libs[i].itemId || "")] || []
             perLib.push(items)
         }
         var idx = 0

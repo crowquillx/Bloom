@@ -54,6 +54,7 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${TEST_CONFIG_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${CMAKE_SOURCE_DIR}/src/network/HttpTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
@@ -64,6 +65,7 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/network/SessionService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/profiles/BloomProfile.cpp
+    ${CMAKE_SOURCE_DIR}/src/profiles/BloomProfileRepository.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/ActiveArtworkProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/ServerConnection.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinAuthenticator.cpp
@@ -97,7 +99,7 @@ function(bloom_use_production_libraries test_target)
     get_target_property(test_sources ${test_target} SOURCES)
     set(application_initializer_source ${CMAKE_SOURCE_DIR}/src/core/ApplicationInitializer.cpp)
     if(application_initializer_source IN_LIST test_sources)
-        target_link_libraries(${test_target} PRIVATE Bloom::Updater)
+        target_link_libraries(${test_target} PRIVATE Bloom::Updater Bloom::Workspace)
     endif()
     set(image_cache_provider_source ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp)
     set(image_cache_store_source ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheStore.cpp)
@@ -138,6 +140,11 @@ function(bloom_use_production_libraries test_target)
     if(display_manager_source IN_LIST test_sources)
         target_link_libraries(${test_target} PRIVATE Bloom::Display)
     endif()
+    set(profile_repository_source
+        ${CMAKE_SOURCE_DIR}/src/profiles/BloomProfileRepository.cpp)
+    if(profile_repository_source IN_LIST test_sources)
+        target_link_libraries(${test_target} PRIVATE Bloom::Profiles)
+    endif()
     list(REMOVE_ITEM test_sources ${BLOOM_LINKED_PRODUCTION_SOURCES})
     set_property(TARGET ${test_target} PROPERTY SOURCES "${test_sources}")
     target_link_libraries(${test_target} PRIVATE Bloom::Network)
@@ -167,6 +174,7 @@ add_executable(SeriesDetailsCacheTest
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
@@ -210,6 +218,7 @@ add_executable(LibraryItemQueryTest
     LibraryItemQueryTest.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
@@ -239,6 +248,7 @@ add_executable(LibraryViewModelCanonicalTest
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
@@ -341,6 +351,37 @@ target_link_libraries(BloomProfileRepositoryTest
 
 add_test(NAME BloomProfileRepositoryTest COMMAND BloomProfileRepositoryTest)
 
+add_executable(MergedCatalogPolicyTest
+    MergedCatalogPolicyTest.cpp
+)
+target_link_libraries(MergedCatalogPolicyTest
+    PRIVATE
+        Bloom::Profiles
+        Qt6::Core
+        Qt6::Test
+)
+add_test(NAME MergedCatalogPolicyTest COMMAND MergedCatalogPolicyTest)
+
+# Workspace switching, routing, merged reads, and credential isolation against
+# fake servers and an in-memory keyring.
+add_executable(WorkspaceRoutingTest
+    WorkspaceRoutingTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
+)
+target_include_directories(WorkspaceRoutingTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+target_link_libraries(WorkspaceRoutingTest
+    PRIVATE
+        Bloom::Workspace
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+)
+add_test(NAME WorkspaceRoutingTest COMMAND WorkspaceRoutingTest)
+
 add_executable(ProviderTransportTest
     ProviderTransportTest.cpp
     ${CMAKE_SOURCE_DIR}/src/network/HttpTransport.cpp
@@ -367,6 +408,7 @@ add_test(NAME ProviderTransportTest COMMAND ProviderTransportTest)
 add_executable(SiloAuthenticationTest
     SiloAuthenticationTest.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
@@ -445,6 +487,7 @@ add_executable(SiloCatalogServiceTest
     SiloCatalogServiceTest.cpp
     TestConfigIsolation.h
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
@@ -473,6 +516,7 @@ add_executable(ArtworkRefreshTest
     ArtworkRefreshTest.cpp
     TestConfigIsolation.h
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
@@ -771,6 +815,7 @@ add_executable(PlayerControllerAutoplayContextTest
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/TrackPreferencesManager.cpp
@@ -800,6 +845,7 @@ add_executable(MediaSegmentProviderServiceTest
     MediaSegmentProviderServiceTest.cpp
     ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${TEST_CONFIG_SOURCES}
@@ -887,6 +933,7 @@ add_executable(SimilarItemsRetryTest
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
@@ -918,6 +965,7 @@ add_executable(UpNextRecommendationsViewModelTest
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${TEST_CONFIG_SOURCES}
@@ -1064,6 +1112,7 @@ qt_add_executable(VisualRegressionTest
     ${TEST_CONFIG_SOURCES}
     # Network sources
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/ActiveArtworkProvider.cpp

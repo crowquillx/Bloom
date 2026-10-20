@@ -60,25 +60,25 @@ void finishLater(const std::shared_ptr<RefreshCompletion> &completion,
 bool hasMatchingSession(AuthenticationService *authService,
                         const Bloom::ArtworkRef &artwork)
 {
-    if (!authService || !artwork.isValid() || !authService->isAuthenticated()) {
+    if (!authService || !artwork.isValid()) {
         return false;
     }
 
+    // Any connection with a live or pooled session (merged Bloom profiles)
+    // may resolve its own artwork; tokens never cross connections.
     ConfigManager *config = authService->configManager();
-    const auto connection = config ? config->getActiveConnection() : std::nullopt;
-    if (!connection.has_value()
-        || connection->connectionId != artwork.connectionId
-        || connection->providerKind != ProviderKind::Silo
-        || authService->activeProviderKind() != ProviderKind::Silo) {
+    const auto connection = config ? config->getConnection(artwork.connectionId) : std::nullopt;
+    if (!connection.has_value() || connection->providerKind != ProviderKind::Silo) {
         return false;
     }
-
+    const auto context = authService->requestContextForConnection(artwork.connectionId);
     // The connection id is the cache identity, but it is not sufficient by
     // itself to authorize a request: a caller can retain an ArtworkRef while
-    // the active connection is replaced in configuration.  Do not let the
-    // current token be sent to a different server in that case.
-    return ServerConnection::normalizeBaseUrl(authService->getServerUrl())
-        == ServerConnection::normalizeBaseUrl(connection->baseUrl);
+    // the connection is replaced in configuration.  Do not let the token be
+    // sent to a different server in that case.
+    return context.has_value()
+        && ServerConnection::normalizeBaseUrl(context->baseUrl)
+            == ServerConnection::normalizeBaseUrl(connection->baseUrl);
 }
 
 bool isHttpUrl(const QUrl &url)
@@ -154,12 +154,18 @@ std::optional<QNetworkRequest> requestForSource(
         return std::nullopt;
     }
 
-    const auto url = resolveOpaqueUrl(authService->getServerUrl(), artwork.sourceUrl);
+    const auto context = authService->requestContextForConnection(artwork.connectionId);
+    const auto url = context.has_value()
+        ? resolveOpaqueUrl(context->baseUrl, artwork.sourceUrl) : std::nullopt;
     if (!url.has_value()) {
         return std::nullopt;
     }
-    QNetworkRequest request = authService->createRequest(
-        QString::fromUtf8(url->toEncoded(QUrl::FullyEncoded)));
+    const auto created = authService->createRequestForConnection(
+        artwork.connectionId, QString::fromUtf8(url->toEncoded(QUrl::FullyEncoded)));
+    if (!created.has_value()) {
+        return std::nullopt;
+    }
+    QNetworkRequest request = *created;
     request.setUrl(*url);
     request.setTransferTimeout(kArtworkTransferTimeoutMs);
     request.setRawHeader("Accept", "image/*");
@@ -383,7 +389,11 @@ void SiloArtworkProvider::refreshArtwork(
     }
 
     HttpRequestOptions options;
-    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    // A rejected token for another merged member must not expire the
+    // active session.
+    options.unauthorizedPolicy =
+        artwork.connectionId == m_authService->activeConnectionId()
+        ? UnauthorizedPolicy::ExpireSession : UnauthorizedPolicy::Ignore;
 
     HttpRequestHandle *handle = transport->sendWithRetry(
         transport.data(),
@@ -393,7 +403,12 @@ void SiloArtworkProvider::refreshArtwork(
                 || !hasMatchingSession(authService.data(), artwork)) {
                 return nullptr;
             }
-            QNetworkRequest request = authService->createRequest(endpoint);
+            const auto created =
+                authService->createRequestForConnection(artwork.connectionId, endpoint);
+            if (!created.has_value()) {
+                return nullptr;
+            }
+            QNetworkRequest request = *created;
             if (!request.url().isValid() || request.url().isEmpty()) {
                 return nullptr;
             }

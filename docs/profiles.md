@@ -1,8 +1,8 @@
 # Bloom profiles
 
-Bloom profiles are Bloom-owned workspaces for switching and (later) merging independent server connections. They are distinct from provider household profiles (for example Silo or Jellyfin user profiles).
+Bloom profiles ("workspaces" in the UI) are Bloom-owned groups of server connections. A user switches between them from the navigation rail, and a merged workspace browses several connections at once. They are distinct from provider household profiles (for example Silo or Jellyfin user profiles).
 
-This page documents the schema/repository slice (issue #91). Merged catalog reads, picker UI, and service fan-out are not implemented yet.
+Issue #91 defines the feature. This page covers the schema, the repository, session switching and routing, merged reads, and the UI.
 
 ## Terminology
 
@@ -13,7 +13,8 @@ This page documents the schema/repository slice (issue #91). Merged catalog read
 | **Bloom profile** | User-named, ordered set of independent connection memberships. |
 | **Membership** | One connection attached to a Bloom profile (`memberId` + `connectionId`). |
 | **Single mode** | Exactly one membership; preserves today’s single-connection browsing behavior. |
-| **Merged mode** | Multiple memberships; aggregation comes in a later slice. |
+| **Merged mode** | Multiple memberships browsed together through `MergedCatalogService`. |
+| **Live session** | The one connection `AuthenticationService` is signed in to. Details, playback, and writes run on it. |
 
 ## Identity rules
 
@@ -72,7 +73,7 @@ Config app version 30 introduces schema version 1:
 Public surface:
 
 - `profiles()`, `activeProfile()`, `profile(id)`
-- `upsertProfile`, `removeProfile`, `setActiveProfile` (`upsertProfile` takes a reference and writes back assigned IDs/timestamps)
+- `upsertProfile`, `removeProfile`, `setActiveProfile`, `reorderProfiles` (`upsertProfile` takes a reference and writes back assigned IDs/timestamps; `reorderProfiles` changes picker order without bumping the generation)
 - `addMember`, `removeMember`, `reorderMembers`, `setDefaultMember`
 - Immutable `BloomProfileRequestContext` snapshots: `bloomProfileId`, `memberId`, `connectionId`, `generation`
 - `generation()`, `activeRequestContext()`, `requestContext(profileId, memberId)`, `isCurrent(context)`
@@ -97,7 +98,7 @@ On load (and when connections change), the repository:
 
 Switching the active profile, default member, or membership-affecting mutations increments `generation`. Callers keep a `BloomProfileRequestContext` and use `isCurrent` to ignore stale async results.
 
-This layer does **not** secretly change `ConfigManager`’s active connection. Context is foundation-only until later service-routing slices.
+The repository never changes `ConfigManager`’s active connection. `WorkspaceController` does that explicitly through `AuthenticationService` (see below).
 
 ## Types
 
@@ -108,15 +109,56 @@ This layer does **not** secretly change `ConfigManager`’s active connection. C
 
 Snake_case JSON; C++ API uses camelCase fields.
 
-## Out of scope (later slices)
+## Sessions, switching, and routing
 
-- Bloom profile picker / settings QML
-- Merged Home/Library/Search coordinators
-- Binding services to explicit request context instead of the global active connection
-- Cross-server metadata deduplication
+`AuthenticationService` keeps exactly one live, refreshable session. `WorkspaceController` (`src/profiles/WorkspaceController.*`, QML `Workspaces`) keeps that session on an enabled member of the active Bloom profile.
+
+- **Switching** a workspace selects it in the repository, then activates its default member through `AuthenticationService::activateConnection`. If that member cannot sign in, the controller tries the other enabled members in order. If every member fails, the previous workspace and session come back and `switchFailed` reports the error. `workspaceSwitched` tells Main to replace the page stack with a fresh Home.
+- **Activation** reads the saved connection's tokens from `CredentialStore` off the UI thread, validates them, and refreshes them when the provider supports it. An explicit activation never deletes credentials, because the server may only be unreachable. A failed activation falls back to the session it replaced. A provider profile or PIN prompt hands the half-restored session to the login screen (`signInRequired`).
+- **Routing.** Merged items keep their owning `connectionId`. Before details, playback, or a watched/favorite write, QML calls `Workspaces.routeTo(connectionId)` through `SourceRouter.qml`. When another member owns the item, the live session moves to that member and the action runs on `routeReady`. Routing does not change the workspace, so Home and Search keep their merged results. Connections outside the active workspace are refused. Autoplay and Next Up therefore stay on the owning connection.
+- **Adding a connection.** `beginAddConnection(targetProfileId)` leaves the live session without deleting its credentials and shows the login screen. Signing in adds the new connection to the target workspace, which becomes merged if it was single. An empty target creates a new single workspace. `cancelAddConnection` restores the previous session.
+- **Plain sign-in** (startup restore or the login screen after sign-out) keeps the active workspace when it contains the account. Otherwise Bloom selects the first workspace that does, or creates a single one.
+- **Removing a connection** (`removeConnection`) deletes that connection's credentials and metadata (`ConfigManager::removeConnection`). Connection-scoped preferences stay under `connection_state`, so signing the same account in again restores them. The repository drops its memberships and any workspace left empty. Other members, including another user on the same server, are untouched. Removing the live connection signs it out and continues in the next workspace.
+- **Sign-out** from the picker keeps the previous behavior: it deletes the live connection's credentials and keeps its metadata.
+
+## Merged reads
+
+`MergedCatalogService` (`src/profiles/MergedCatalogService.*`, QML `MergedCatalog`) is active only while the active profile is merged and has an enabled member. Single workspaces keep using `LibraryService` unchanged.
+
+- **Credentials.** `ConnectionSessionPool` (owned by `AuthenticationService`) loads every member's access/profile tokens off the UI thread and holds them in memory only. `AuthenticationService::requestContextForConnection` serves the live session's context for the live connection and pooled contexts for the others. Pooled tokens are never refreshed or written. After a `401`/`403`, the pool reloads the tokens from storage once, because the live session may have rotated them. If the request is still rejected, the source reports `signInRequired`. A rejected member never expires the live session.
+- **Transport.** Merged reads use a private `HttpTransport` over the shared access manager. Session switches cancel `AuthenticationService`'s transport but not merged reads. Each request is built by the member's own provider request factory, so tokens never cross connections.
+- **Operations.** Views (Home and the rail), Next Up, Recently Added per library (owning member only), and Search (Movie/Series). Each source is bounded by the provider's request limit. Merged results are not paginated. A library opens on its owning connection, where `LibraryViewModel` pages through that source's own cursors.
+- **Partial failure.** Each member reports `loading`, `ready`, `failed`, or `signInRequired` in `MergedCatalog.sources`. A failed member contributes nothing and never blanks healthy results. Main shows one toast naming the unavailable sources. A `*Failed` signal fires only when every source fails.
+- **Staleness.** Any membership, mode, or active-profile change starts a new epoch. It cancels in-flight merged requests, and results from the old epoch are dropped.
+- **Artwork.** `ActiveArtworkProvider` picks the provider from the artwork's own connection. Jellyfin and Silo artwork requests go through `createRequestForConnection`, so pooled members load posters with their own server and token. Artwork cache keys were already connection-scoped and contain no credentials.
+- **Caches.** Merged reads write no disk cache. Library SQLite, detail, and track-preference caches stay keyed by connection scope, so a routed switch reopens the owning connection's caches instead of sharing another member's data.
+
+### Merge policy
+
+`IMergedCatalogPolicy` (`src/profiles/MergedCatalogPolicy.*`) is the extension point for later policies such as deduplication, source preference, failover, or per-user visibility. Those need no schema change. `DefaultMergedCatalogPolicy` implements the MVP rules:
+
+- No cross-server deduplication or progress reconciliation. The same title from two members appears twice, each with its own `MediaRef`.
+- Views: member priority, then provider order.
+- Next Up: most recent `userState.lastPlayedAt` first, then member priority, then provider order, then `MediaRef`.
+- Search: relevance is not comparable across servers, so results interleave by per-source rank in member-priority order.
+- Every merged item gains a display-only `sourceLabel`. `memberId` never enters item maps, `MediaRef`, or caches.
+
+Labels come from `BloomProfile::memberLabel`: the member's `labelOverride`, otherwise `account · server`. The account leads, so two users on one server stay distinguishable.
+
+## UI
+
+- **Workspace picker** (`WorkspacePickerDialog.qml`): opened from the rail's account entry, which shows the active workspace's name. Up/Down walk the workspaces and the actions (Manage workspaces, Add server or account, Sign out) as one column. Enter selects, and Escape/Back closes. Focus opens on the active workspace and returns to the rail entry on cancel. The login screen offers the same picker without sign-out and management ("Open a saved workspace"). While a connection is being added, it offers "Cancel and go back" instead. Escape and Back do the same.
+- **Settings → Workspaces** (`settings/WorkspaceSettings.qml`): one vertical list of rows. Each workspace row offers Switch, Rename, Merged/Single, Move up/down, and Delete. Each source row offers On/Off (merged), Make default, Rename, Move up/down, and Remove. Each workspace has an "Add server or account" row, and the page has a New workspace row and a Saved connections list with Remove. Up/Down keep the button column, Left/Right move within a row, and Left from the first button returns to the settings rail. Destructive actions confirm first. Focus returns to the same logical row with `Qt.callLater` after the model refreshes.
+- **Home, Search, rail**: merged workspaces read through `MergedCatalog`. Library tiles, Recently Added headers, and rail entries show the source. Continue Watching/Up Next cards and search results carry a `SourceBadge`. Per-library rows key on `connectionId + libraryId`, because two users on one server share library IDs. Saved rail library order and Shift+Enter reordering apply to single workspaces only. Backdrops and the Library hero source come from the live session's connection.
+
+## Migration and rollback
+
+This feature adds no config or profile schema version. Config stays at v30 and `settings.bloom_profiles` at schema 1. Rolling back to a build without workspace switching keeps working. That build restores `settings.connections.active`, which holds the last live connection, and keeps the profile block as data. Credentials are untouched. Connections removed in this build stay removed after a rollback, and their credentials are already deleted.
 
 ## Tests
 
-`BloomProfileRepositoryTest` covers JSON round-trip, multi-server plus two users on one physical server (shared `baseUrl`, distinct `connectionId`s), duplicate-connection dedupe, migration seeding (active-only, sole connection, empty), dangling repair, ordering/default repair, Single-mode multi-member retention, CRUD persistence, context epoch stale guards, and absence of credential/server identity fields in profile JSON.
+`MergedCatalogPolicyTest` covers merge ordering, failed-source isolation, no deduplication, same-server users, and labels. `WorkspaceRoutingTest` runs real `ConfigManager`, repository, `AuthenticationService`, `MergedCatalogService`, and `WorkspaceController` against fake servers that answer only to each connection's own token. It covers per-member credentials in merged reads, two users on one server, an unavailable member, dropping in-flight results on a profile switch, routing that keeps credentials, failed-route fallback, joining a workspace after sign-in, connection removal isolation, and pooled-member artwork. `NavigationRailTest` covers the account entry opening the picker.
+
+`BloomProfileRepositoryTest` covers JSON round-trip, profile reordering, connection removal that keeps sibling memberships, multi-server plus two users on one physical server (shared `baseUrl`, distinct `connectionId`s), duplicate-connection dedupe, migration seeding (active-only, sole connection, empty), dangling repair, ordering/default repair, Single-mode multi-member retention, CRUD persistence, context epoch stale guards, and absence of credential/server identity fields in profile JSON.
 
 See also: [provider architecture](provider-architecture.md), [canonical models](canonical-models.md), [config](config.md), [services](services.md).

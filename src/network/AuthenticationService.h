@@ -29,6 +29,7 @@
 class ICatalogProvider;
 class ISecretStore;
 class ConfigManager;
+class ConnectionSessionPool;
 class HttpTransport;
 
 /**
@@ -135,12 +136,41 @@ public:
     QNetworkRequest createRequest(const QString &endpoint) const;
     bool checkForSessionExpiry(QNetworkReply *reply, bool deferLogout = false);
 
+    // Bloom profile routing (docs/profiles.md). The active session stays the
+    // only refreshable one; other members of a merged profile are served from
+    // read-only credentials held by ConnectionSessionPool.
+    QString activeConnectionId() const;
+    ConnectionSessionPool *sessionPool() const { return m_sessionPool; }
+    /// Saved connections whose credentials stay loaded for merged reads.
+    void setMemberConnections(const QStringList &connectionIds);
+    bool hasSessionForConnection(const QString &connectionId) const;
+    std::optional<ProviderRequestContext> requestContextForConnection(
+        const QString &connectionId) const;
+    IProviderAdapter *providerForConnection(const QString &connectionId) const;
+    std::optional<QNetworkRequest> createRequestForConnection(
+        const QString &connectionId, const QString &endpoint) const;
+    /// Makes a saved connection the active session without deleting the
+    /// previous connection's credentials. On failure the previous session is
+    /// restored when possible.
+    void activateConnection(const QString &connectionId);
+    bool isActivatingConnection() const { return !m_activatingConnectionId.isEmpty(); }
+    /// Leaves the active session without deleting its credentials (used to
+    /// sign in to an additional server). Emits loggedOut.
+    void suspendSession();
+    /// Deletes stored credentials for a connection that is not active.
+    void removeStoredCredentials(const ServerConnection &connection);
+
 signals:
     void loginSuccess(const QString &userId, const QString &accessToken, const QString &username);
     void loginError(const QString &error);
     void loggedOut();
     void sessionExpired();
     void sessionExpiredAfterPlayback();
+    void connectionActivated(const QString &connectionId);
+    void connectionActivationFailed(const QString &connectionId, const QString &error);
+    /// An activated connection needs interactive input (provider profile or
+    /// PIN); the login screen continues from the current step.
+    void signInRequired();
 
     void serverUrlChanged();
     void userIdChanged();
@@ -187,6 +217,10 @@ private:
     bool m_isRestoringSession = false;
     ConfigManager *m_configManager = nullptr;
     quint64 m_stateGeneration = 0;
+    ConnectionSessionPool *m_sessionPool = nullptr;
+    QStringList m_memberConnectionIds;
+    QString m_activatingConnectionId;
+    QString m_activationFallbackConnectionId;
 
     // Snapshot of everything a background keyring write needs. Captured on
     // the UI thread because ConfigManager is not thread-safe.
@@ -235,6 +269,9 @@ private:
         std::make_shared<CredentialTaskState>();
 
     QString normalizeUrl(const QString &url) const;
+    void startRestoration();
+    void failRestoration(const QString &error);
+    void finishActivation();
     QNetworkRequest createUnauthenticatedRequest(const QString &endpoint) const;
     void configureTransport();
     IProviderAdapter *providerForKind(ProviderKind kind) const;

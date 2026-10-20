@@ -23,6 +23,19 @@ The [live report](evidence/silo-v2-2026-10-18.json) records the new runner. It r
 
 Current limits are explicit. Forward-only remux and HLS/transcode timelines are unavailable. Ebooks, audiobooks, comics, watch-together, notifications, history imports, downloads/offline, and admin operations remain out of scope. The operator accepted the missing preview fixture for this migration. Native support remains experimental while the platform gates are open.
 
+## Bloom workspaces (issue #91), 2026-10-20 UTC
+
+Automated coverage is listed in [profiles](profiles.md#tests). The live gates below need real servers, accounts, and input devices.
+
+| Gate | Result | Action and pass criteria |
+| --- | --- | --- |
+| Incremental build and automated checks | PASS | `./scripts/dev-build.sh --tests` passed and local CTest passed 44/44, including `WorkspaceRoutingTest`, `MergedCatalogPolicyTest`, and the updated `NavigationRailTest`. |
+| Live merged browsing | NOT RUN | Create a merged workspace with two Jellyfin users on one server and one account on a second server (Jellyfin or Silo). Home, the rail, and Search must show every source with its label, and identical libraries from the two users must stay separate. Stop one server: its source must be named as unavailable while the other sources keep their rows. |
+| Routing to the owning connection | NOT RUN | From merged Home and Search, open details, play, report progress, stop, and toggle watched/favorite on items from each source. Each action must reach the owning server and account. Next Up and autoplay must stay on that connection. |
+| Switching and adding accounts | NOT RUN | Switch single and merged workspaces from the rail picker and from the sign-in screen. Add an account into an existing workspace and as a new workspace, cancel an add, remove a connection, and sign out. Confirm that other connections keep their sign-in. Include a Silo profile that needs a PIN. |
+| Keyboard and gamepad focus | NOT RUN | Drive the picker, Settings → Workspaces, every confirmation and rename dialog, and the sign-in screen's workspace actions with only a physical keyboard, then with only a controller. Focus must stay visible and deterministic and must return to the opener on cancel. |
+| Windows embedded playback overlay | NOT RUN | `src/ui/Main.qml` changed (picker dialog, workspace reset, toasts). On Windows `win-libmpv`, controls must stay above video, with no video move or clip across show/hide, resize, minimize/restore, maximize, and fullscreen. |
+
 ## Historical alpha evidence, 2026-08-08
 
 The following ledger describes the old `8044eb8` alpha fixture and Bloom `d4b46091a6fcf8dc76e6cb286edfb069cbf1515f`. Its legacy playback, snapshot paging, and old route observations do not validate API v2. Actions and command references in these historical rows describe that run only.

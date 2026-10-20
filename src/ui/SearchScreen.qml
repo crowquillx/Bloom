@@ -38,6 +38,32 @@ FocusScope {
     property bool waitingForSeerrSearch: false
     property string pendingLibraryConnectionId: ""
     property string pendingLibrarySearchTerm: ""
+    // Merged workspaces search every enabled source at once.
+    readonly property bool mergedMode: typeof MergedCatalog !== "undefined" && MergedCatalog.active
+
+    // Details for a merged result open on the connection that owns it.
+    function openSeries(item) {
+        sourceRouter.run(item.connectionId || "", function() { root.navigateToSeries(item.itemId) })
+    }
+
+    function openMovie(item) {
+        sourceRouter.run(item.connectionId || "", function() { root.navigateToMovie(item) })
+    }
+
+    function applyLibrarySearchResults(term, movies, series, failed) {
+        waitingForLibrarySearch = false
+        pendingLibraryConnectionId = ""
+        pendingLibrarySearchTerm = ""
+        if (term !== searchTerm.trim())
+            return
+        hasSearched = true
+        movieResults = failed ? [] : (movies || [])
+        seriesResults = failed ? [] : (series || [])
+    }
+
+    SourceRouter {
+        id: sourceRouter
+    }
 
     /**
      * Scrolls contentFlickable so that @p item is fully within the visible viewport.
@@ -75,11 +101,14 @@ FocusScope {
         onTriggered: {
             const normalizedSearchTerm = searchTerm.trim()
             if (normalizedSearchTerm.length > 0) {
-                pendingLibraryConnectionId = LibraryService.getActiveConnectionId()
+                pendingLibraryConnectionId = mergedMode ? "" : LibraryService.getActiveConnectionId()
                 pendingLibrarySearchTerm = normalizedSearchTerm
                 waitingForLibrarySearch = true
                 hasSearched = false
-                LibraryService.search(normalizedSearchTerm)
+                if (mergedMode)
+                    MergedCatalog.search(normalizedSearchTerm)
+                else
+                    LibraryService.search(normalizedSearchTerm)
 
                 if (SeerrService.isConfigured()) {
                     waitingForSeerrSearch = true
@@ -140,7 +169,7 @@ FocusScope {
         }
 
         function onCanonicalSearchResultsLoaded(connectionId, term, movies, series) {
-            if (connectionId !== pendingLibraryConnectionId
+            if (root.mergedMode || connectionId !== pendingLibraryConnectionId
                     || term !== pendingLibrarySearchTerm) {
                 return
             }
@@ -157,7 +186,7 @@ FocusScope {
         }
 
         function onCanonicalSearchResultsFailed(connectionId, term, error) {
-            if (connectionId !== pendingLibraryConnectionId
+            if (root.mergedMode || connectionId !== pendingLibraryConnectionId
                     || term !== pendingLibrarySearchTerm) {
                 return
             }
@@ -171,6 +200,23 @@ FocusScope {
             hasSearched = true
             movieResults = []
             seriesResults = []
+        }
+    }
+
+    Connections {
+        target: typeof MergedCatalog !== "undefined" ? MergedCatalog : null
+        ignoreUnknownSignals: true
+
+        function onSearchResultsLoaded(term, movies, series) {
+            if (!root.mergedMode || term !== root.pendingLibrarySearchTerm)
+                return
+            root.applyLibrarySearchResults(term, movies, series, false)
+        }
+
+        function onSearchResultsFailed(term, error) {
+            if (!root.mergedMode || term !== root.pendingLibrarySearchTerm)
+                return
+            root.applyLibrarySearchResults(term, [], [], true)
         }
     }
 
@@ -389,9 +435,9 @@ FocusScope {
                                 onClicked: {
                                     const item = modelData
                                     if (item.mediaType === "Series") {
-                                        root.navigateToSeries(item.itemId)
+                                        root.openSeries(item)
                                     } else if (item.mediaType === "Movie") {
-                                        root.navigateToMovie(item)
+                                        root.openMovie(item)
                                     }
                                 }
                                 
@@ -523,7 +569,7 @@ FocusScope {
                                 isFocused: seriesDelegateScope.activeFocus
                                 
                                 onClicked: {
-                                    root.navigateToSeries(seriesDelegateScope.modelData.itemId)
+                                    root.openSeries(seriesDelegateScope.modelData)
                                 }
                             }
                             
@@ -648,7 +694,7 @@ FocusScope {
                                 isFocused: movieDelegateScope.activeFocus
                                 
                                 onClicked: {
-                                    root.navigateToMovie(movieDelegateScope.modelData)
+                                    root.openMovie(movieDelegateScope.modelData)
                                 }
                             }
                             

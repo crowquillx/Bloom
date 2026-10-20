@@ -1,6 +1,7 @@
 # Reusable production libraries shared by the application and unit tests.
 # Keep dependency direction acyclic:
 #   Models -> Config / Transport / ImageCache / PlayerProcess -> Providers -> Network
+#                     Config -> Profiles;  Network + Profiles -> Workspace
 #                     Config -> Display
 #                     Qt Core -> PlayerPolicy -> PlayerProcess
 #                     Monocypher -> Updater -> Config
@@ -286,6 +287,7 @@ add_library(BloomNetwork STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/ActiveArtworkProvider.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinArtworkProvider.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloArtworkProvider.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/ConnectionSessionPool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/AuthenticationService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/LibraryService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/NextEpisodeResolver.cpp
@@ -310,6 +312,47 @@ target_link_libraries(BloomNetwork
         Qt6::Network
 )
 
+# Bloom profiles: repository/merge policy depend only on configuration; the
+# workspace facade and merged reads sit above network services.
+add_library(BloomProfiles STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/profiles/BloomProfileRepository.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/profiles/BloomProfileRepository.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/profiles/MergedCatalogPolicy.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/profiles/MergedCatalogPolicy.h
+)
+add_library(Bloom::Profiles ALIAS BloomProfiles)
+target_include_directories(BloomProfiles
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_link_libraries(BloomProfiles
+    PUBLIC
+        Bloom::Config
+        Qt6::Core
+)
+
+add_library(BloomWorkspace STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/profiles/MergedCatalogService.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/profiles/MergedCatalogService.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/profiles/WorkspaceController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/profiles/WorkspaceController.h
+)
+add_library(Bloom::Workspace ALIAS BloomWorkspace)
+target_include_directories(BloomWorkspace
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_link_libraries(BloomWorkspace
+    PUBLIC
+        Bloom::Network
+        Bloom::Profiles
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Network
+)
+
 set_target_properties(
     BloomMonocypher
     BloomModels
@@ -322,5 +365,7 @@ set_target_properties(
     BloomUpdater
     BloomProviders
     BloomNetwork
+    BloomProfiles
+    BloomWorkspace
     PROPERTIES FOLDER "Bloom/Libraries"
 )

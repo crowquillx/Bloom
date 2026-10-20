@@ -65,6 +65,8 @@ stdenv.mkDerivation {
       ConfigManagerThemeTest \
       ConnectionPersistenceTest \
       BloomProfileRepositoryTest \
+      MergedCatalogPolicyTest \
+      WorkspaceRoutingTest \
       ProviderTransportTest \
       SiloAuthenticationTest \
       ProviderCatalogTest \

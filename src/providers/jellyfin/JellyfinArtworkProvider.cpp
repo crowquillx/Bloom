@@ -12,14 +12,15 @@ JellyfinArtworkProvider::JellyfinArtworkProvider(AuthenticationService *authServ
 std::optional<QNetworkRequest> JellyfinArtworkProvider::resolveArtwork(
     const Bloom::ArtworkRef &artwork) const
 {
-    if (!m_authService || !artwork.isValid() || !m_authService->isAuthenticated()) {
+    if (!m_authService || !artwork.isValid()) {
         return std::nullopt;
     }
 
+    // The active session or a pooled merged-profile member may resolve
+    // artwork, always with that connection's own credentials.
     ConfigManager *config = m_authService->configManager();
-    const auto connection = config ? config->getActiveConnection() : std::nullopt;
-    if (!connection.has_value() || connection->connectionId != artwork.connectionId
-        || connection->providerKind != ProviderKind::Jellyfin) {
+    const auto connection = config ? config->getConnection(artwork.connectionId) : std::nullopt;
+    if (!connection.has_value() || connection->providerKind != ProviderKind::Jellyfin) {
         return std::nullopt;
     }
 
@@ -27,5 +28,5 @@ std::optional<QNetworkRequest> JellyfinArtworkProvider::resolveArtwork(
     if (endpoint.isEmpty()) {
         return std::nullopt;
     }
-    return m_authService->createRequest(endpoint);
+    return m_authService->createRequestForConnection(artwork.connectionId, endpoint);
 }

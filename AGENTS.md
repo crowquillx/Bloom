@@ -90,6 +90,12 @@ Each area has one owner. Read its doc before changing it.
   Ed25519-signed, HTTPS/origin-restricted, and size/deadline-bounded. Installer
   bytes are hashed incrementally and finalized atomically before any Windows
   elevation.
+- **Bloom profiles (workspaces)**: `Bloom::Profiles` (repository, merge
+  policy) and `Bloom::Workspace` (`WorkspaceController`, `MergedCatalogService`)
+  (`docs/profiles.md`). `AuthenticationService` keeps one live session;
+  switching never deletes credentials, and merged items route to their owning
+  connection before details, playback, or writes. Merge logic stays in C++,
+  never in QML; `memberId` never enters `MediaRef` or caches.
 
 ## Windows embedded playback guardrail
 
@@ -125,7 +131,7 @@ move/clip across show/hide, resize, minimize/restore, maximize, and fullscreen.
 - Server connections, credentials, adapters → `docs/provider-architecture.md`;
   Jellyfin/Silo contract pins → `docs/provider-compatibility.md`
 - Canonical media/artwork/playback models → `docs/canonical-models.md`
-- Bloom profiles vs provider profiles → `docs/profiles.md`
+- Bloom profiles (workspaces), merged reads, routing → `docs/profiles.md`
 - View models and loading/error state → `docs/viewmodels.md`
 - Theme tokens, rail, shared components → `docs/theme.md`; scaling math and
   ultrawide layout → `docs/responsive.md`

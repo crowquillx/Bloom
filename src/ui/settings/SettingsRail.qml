@@ -8,6 +8,7 @@ FocusScope {
 
     property int currentSection: 0
     readonly property string aboutAccountSectionKey: "about-account"
+    readonly property string workspacesSectionKey: "workspaces"
 
     signal enterContentRequested()
 
@@ -21,6 +22,7 @@ FocusScope {
         { sectionKey: "mpv",             name: qsTr("MPV"),             icon: "\ue429" },
         { sectionKey: "input",           name: qsTr("Input"),           icon: "\ue312" },
         { sectionKey: "integrations",    name: qsTr("Integrations"),    icon: "\ue2c3" },
+        { sectionKey: workspacesSectionKey, name: qsTr("Workspaces"),      icon: "" },
         { sectionKey: aboutAccountSectionKey, name: qsTr("About & Account"), icon: "\ue88e" }
     ]
 
