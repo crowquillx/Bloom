@@ -216,6 +216,12 @@ public:
         requestedContexts.append(requestContext);
     }
 
+    using LibraryService::getItems;
+    void getItems(const LibraryItemQuery &query) override
+    {
+        itemQueries.append(query);
+    }
+
     void getSeriesDetails(const QString &seriesId) override
     {
         requestedSeriesDetailsIds.append(seriesId);
@@ -247,6 +253,7 @@ public:
         return QStringLiteral("https://example.invalid/") + itemId;
     }
 
+    QList<LibraryItemQuery> itemQueries;
     QString activeConnectionIdValue;
     QStringList requestedSeriesIds;
     QStringList requestedExcludeIds;
@@ -564,6 +571,8 @@ private slots:
     void embeddedVideoShrinkToggleEmitsAndPersists();
     void playbackTogglesSendMpvCycleValuesCommands();
     void requestPlaybackPromptsForVersionSelection();
+    void switchPlaybackVersionRestartsAtCurrentPosition();
+    void adjacentEpisodesCrossSeasonBoundaries();
     void requestPlaybackRecoversLibraryProfileFromSeriesDetails();
     void remoteMountStartupBufferingAppendsMpvArgs();
     void remoteMountStartupCacheReadyWhileBufferingUnpausesAndPlays();
@@ -2420,6 +2429,203 @@ void PlayerControllerAutoplayContextTest::requestPlaybackPromptsForVersionSelect
     QCOMPARE(options.size(), 2);
     QCOMPARE(options.at(0).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("source-1080p"));
     QCOMPARE(options.at(1).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("source-4k"));
+}
+
+void PlayerControllerAutoplayContextTest::switchPlaybackVersionRestartsAtCurrentPosition()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+    authService.restoreSession(QStringLiteral("https://example.invalid"),
+                               QStringLiteral("user-1"),
+                               QStringLiteral("token-1"));
+
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("movie-1")},
+        {QStringLiteral("libraryId"), QStringLiteral("library-1")},
+        {QStringLiteral("overlayTitle"), QStringLiteral("Movie")},
+        {QStringLiteral("isMovie"), true},
+        {QStringLiteral("allowVersionPrompt"), false}
+    });
+    const MediaSourceInfo versionA = buildMediaSourceInfo(
+        QStringLiteral("source-1080p"), QStringLiteral("1080p"),
+        QStringLiteral("/library/movie/1080p.mkv"), {});
+    const MediaSourceInfo versionB = buildMediaSourceInfo(
+        QStringLiteral("source-4k"), QStringLiteral("4K"),
+        QStringLiteral("/library/movie/4k.mkv"), {});
+    const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
+    emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("movie-1"),
+                                                      buildPlaybackInfo({versionA, versionB}),
+                                                      requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("movie-1"), QVariantList{}, requestId);
+
+    controller.m_currentItemId = QStringLiteral("movie-1");
+    QVariantList versions = controller.playbackVersions();
+    QCOMPARE(versions.size(), 2);
+    QString selectedId;
+    QString otherId;
+    for (const QVariant &value : versions) {
+        const QVariantMap version = value.toMap();
+        if (version.value(QStringLiteral("selected")).toBool()) {
+            QVERIFY(selectedId.isEmpty());
+            selectedId = version.value(QStringLiteral("id")).toString();
+        } else {
+            otherId = version.value(QStringLiteral("id")).toString();
+        }
+    }
+    QVERIFY(!selectedId.isEmpty());
+    QVERIFY(!otherId.isEmpty());
+
+    // Versions are scoped to the item they were resolved for.
+    controller.m_currentItemId = QStringLiteral("other-item");
+    QVERIFY(controller.playbackVersions().isEmpty());
+    controller.m_currentItemId = QStringLiteral("movie-1");
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentPosition = 42.5;
+    controller.m_pendingPlaybackRequests.clear();
+
+    controller.switchPlaybackVersion(selectedId);
+    controller.switchPlaybackVersion(QStringLiteral("unknown-source"));
+    QVERIFY(controller.m_pendingPlaybackRequests.isEmpty());
+
+    controller.switchPlaybackVersion(otherId);
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    const auto pending = controller.m_pendingPlaybackRequests.constBegin().value();
+    QCOMPARE(pending.itemId, QStringLiteral("movie-1"));
+    QCOMPARE(pending.chosenMediaSourceId, otherId);
+    QCOMPARE(pending.startPositionMs, qint64(42500));
+    QCOMPARE(pending.libraryId, QStringLiteral("library-1"));
+    QCOMPARE(pending.overlayTitle, QStringLiteral("Movie"));
+    QVERIFY(pending.isMovie);
+    QVERIFY(!pending.allowVersionPrompt);
+}
+
+void PlayerControllerAutoplayContextTest::adjacentEpisodesCrossSeasonBoundaries()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    libraryService.activeConnectionIdValue = QStringLiteral("conn-1");
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    const auto row = [](const QString &id, const QString &mediaType, const QString &seasonId,
+                        int seasonNumber, int number) {
+        return QVariantMap{
+            {QStringLiteral("itemId"), id},
+            {QStringLiteral("mediaType"), mediaType},
+            {QStringLiteral("seasonId"), seasonId},
+            {QStringLiteral("seriesName"), QStringLiteral("Show")},
+            {QStringLiteral("name"), QStringLiteral("Episode ") + id},
+            {QStringLiteral("parentIndexNumber"), seasonNumber},
+            {QStringLiteral("indexNumber"), number}
+        };
+    };
+    const auto keyFor = [&libraryService](const QString &parentId) {
+        for (const LibraryItemQuery &query : std::as_const(libraryService.itemQueries)) {
+            if (query.parentId == parentId) return query.requestKey;
+        }
+        return QString();
+    };
+
+    controller.m_currentItemId = QStringLiteral("s1e2");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_currentSeasonId = QStringLiteral("season-1");
+    controller.m_currentLibraryId = QStringLiteral("library-1");
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_selectedAudioTrack = 3;
+
+    QSignalSpy changedSpy(&controller, &PlayerController::adjacentEpisodesChanged);
+    controller.refreshAdjacentEpisodes();
+    QCOMPARE(libraryService.itemQueries.size(), 2);
+    QVERIFY(controller.hasEpisodeNavigation());
+    QVERIFY(!controller.hasPreviousEpisode());
+    QVERIFY(!controller.hasNextEpisode());
+    QVERIFY(changedSpy.count() >= 1);
+
+    const QString seasonKey = keyFor(QStringLiteral("season-1"));
+    const QString seriesKey = keyFor(QStringLiteral("series-1"));
+    QVERIFY(!seasonKey.isEmpty());
+    QVERIFY(!seriesKey.isEmpty());
+
+    const QVariantList seasonOne{
+        row(QStringLiteral("s1e1"), QStringLiteral("Episode"), QStringLiteral("season-1"), 1, 1),
+        row(QStringLiteral("s1e2"), QStringLiteral("Episode"), QStringLiteral("season-1"), 1, 2)
+    };
+    // Responses for another connection or for view-model queries are ignored.
+    emit libraryService.canonicalItemsLoadedForConnection(
+        QStringLiteral("conn-2"), QStringLiteral("season-1"), seasonKey, seasonOne, 2);
+    emit libraryService.canonicalItemsLoadedForConnection(
+        QStringLiteral("conn-1"), QStringLiteral("season-1"), QStringLiteral("season-1"), seasonOne, 2);
+    QVERIFY(!controller.hasPreviousEpisode());
+
+    emit libraryService.canonicalItemsLoadedForConnection(
+        QStringLiteral("conn-1"), QStringLiteral("season-1"), seasonKey, seasonOne, 2);
+    QVERIFY(controller.hasPreviousEpisode());
+    QVERIFY(!controller.hasNextEpisode());
+
+    // The last episode of a season continues into the next non-special season.
+    emit libraryService.canonicalItemsLoadedForConnection(
+        QStringLiteral("conn-1"), QStringLiteral("series-1"), seriesKey,
+        QVariantList{row(QStringLiteral("specials"), QStringLiteral("Season"), QString(), -1, 0),
+                     row(QStringLiteral("season-1"), QStringLiteral("Season"), QString(), -1, 1),
+                     row(QStringLiteral("season-2"), QStringLiteral("Season"), QString(), -1, 2)},
+        3);
+    QCOMPARE(libraryService.itemQueries.size(), 3);
+    const QString nextSeasonKey = keyFor(QStringLiteral("season-2"));
+    QVERIFY(!nextSeasonKey.isEmpty());
+    emit libraryService.canonicalItemsLoadedForConnection(
+        QStringLiteral("conn-1"), QStringLiteral("season-2"), nextSeasonKey,
+        QVariantList{row(QStringLiteral("s2e1"), QStringLiteral("Episode"), QStringLiteral("season-2"), 2, 1),
+                     row(QStringLiteral("s2e2"), QStringLiteral("Episode"), QStringLiteral("season-2"), 2, 2)},
+        2);
+    QVERIFY(controller.hasNextEpisode());
+    QCOMPARE(controller.m_nextEpisode.value(QStringLiteral("itemId")).toString(), QStringLiteral("s2e1"));
+
+    controller.skipToNextEpisode();
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    const auto pending = controller.m_pendingPlaybackRequests.constBegin().value();
+    QCOMPARE(pending.itemId, QStringLiteral("s2e1"));
+    QCOMPARE(pending.seriesId, QStringLiteral("series-1"));
+    QCOMPARE(pending.seasonId, QStringLiteral("season-2"));
+    QCOMPARE(pending.libraryId, QStringLiteral("library-1"));
+    QCOMPARE(pending.preferredAudioIndex, 3);
+    QCOMPARE(pending.overlayTitle, QStringLiteral("Show"));
+    QCOMPARE(pending.overlaySubtitle, QStringLiteral("S2 E1 - Episode s2e1"));
+    QVERIFY(!pending.isMovie);
+    QVERIFY(!pending.allowVersionPrompt);
+
+    // A movie has no episode navigation and issues no listing requests.
+    controller.m_currentItemId = QStringLiteral("movie-1");
+    controller.m_currentSeriesId.clear();
+    controller.m_currentSeasonId.clear();
+    controller.refreshAdjacentEpisodes();
+    QVERIFY(!controller.hasEpisodeNavigation());
+    QVERIFY(!controller.hasNextEpisode());
+    QCOMPARE(libraryService.itemQueries.size(), 3);
 }
 
 void PlayerControllerAutoplayContextTest::requestPlaybackRecoversLibraryProfileFromSeriesDetails()

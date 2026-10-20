@@ -99,6 +99,35 @@ struct PrefetchedEpisodeInput
                                             const VersionAffinity &affinity);
 [[nodiscard]] QVariantList primaryPresentationSources(const QVariantList &mediaSources);
 
+/// In-playback version picker entries ({id, title, subtitle, selected}) for
+/// the primary presentation sources of the playing item.
+[[nodiscard]] QVariantList playbackVersionOptions(const QVariantList &primarySources,
+                                                  const QString &activeSourceId);
+
+struct AdjacentEpisodes
+{
+    bool currentFound = false;
+    QVariantMap previous;
+    QVariantMap next;
+    /// The current episode opens/closes its season, so the neighbour lives
+    /// in the adjacent season.
+    bool previousInAdjacentSeason = false;
+    bool nextInAdjacentSeason = false;
+};
+
+/// Neighbours of `currentItemId` in a season listing (provider order).
+/// Non-episode rows are ignored.
+[[nodiscard]] AdjacentEpisodes resolveAdjacentEpisodes(const QVariantList &seasonItems,
+                                                       const QString &currentItemId);
+/// The season before (`direction < 0`) or after the current one in a series
+/// listing. Empty seasons are skipped, and so are specials (season 0) unless
+/// the current season is the specials season.
+[[nodiscard]] QString adjacentSeasonId(const QVariantList &seriesItems,
+                                       const QString &currentSeasonId,
+                                       int direction);
+/// First (`fromEnd == false`) or last episode of a season listing.
+[[nodiscard]] QVariantMap boundaryEpisode(const QVariantList &seasonItems, bool fromEnd);
+
 [[nodiscard]] bool meetsCompletionThreshold(const CompletionInput &input);
 [[nodiscard]] bool shouldPrefetchNextEpisode(const PrefetchInput &input);
 [[nodiscard]] bool isUsablePrefetchedEpisode(const PrefetchedEpisodeInput &input);

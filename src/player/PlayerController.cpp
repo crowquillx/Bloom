@@ -194,7 +194,14 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             this, &PlayerController::onChaptersLoaded);
     connect(m_libraryService, &LibraryService::chaptersFailed,
             this, &PlayerController::onChaptersFailed);
-    
+    connect(m_libraryService, &LibraryService::canonicalItemsLoadedForConnection,
+            this, &PlayerController::onAdjacentEpisodeItemsLoaded);
+    // Version and episode navigation state is scoped to the item it was built for.
+    connect(this, &PlayerController::currentItemIdChanged,
+            this, &PlayerController::playbackVersionsChanged);
+    connect(this, &PlayerController::currentItemIdChanged,
+            this, &PlayerController::adjacentEpisodesChanged);
+
     // Connect to PlaybackService for metadata and asynchronous provider plans.
     connect(m_playbackService, &PlaybackService::playbackInfoLoaded,
             this, &PlayerController::onPlaybackInfoLoaded);
@@ -2164,6 +2171,8 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     pending.isMovie = request.value(QStringLiteral("isMovie")).toBool();
     pending.allowVersionPrompt = request.value(QStringLiteral("allowVersionPrompt"), true).toBool();
     pending.useAffinityFallback = request.value(QStringLiteral("useAffinityFallback"), false).toBool();
+    // A forced version skips the prompt (in-playback quality switch).
+    pending.chosenMediaSourceId = request.value(QStringLiteral("mediaSourceId")).toString();
     pending.restoreFocusTarget = qobject_cast<QObject *>(request.value(QStringLiteral("restoreFocusTarget")).value<QObject *>());
     pending.awaitedPlaybackInfoIds.insert(itemId);
 
@@ -2357,6 +2366,10 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
                                                                   request.chosenMediaSourceId,
                                                                   request.useAffinityFallback);
     updateVersionAffinityFromMediaSource(primarySource);
+    setPlaybackVersions(request.itemId,
+                        PlayerPolicy::playbackVersionOptions(
+                            primaryMediaSources,
+                            primarySource.value(QStringLiteral("id")).toString()));
 
     const QVariantList segments = buildMultipartSegments(QVariantMap{
                                                             {QStringLiteral("itemId"), request.itemId},
@@ -2694,19 +2707,10 @@ QVariantMap PlayerController::buildPlaybackVersionDialogModel(const QString &req
         return QVariantMap{};
     }
 
-    QVariantList options;
     const PlaybackInfoResponse playbackInfo = it->playbackInfos.value(it->itemId);
-    const QVariantList mediaSources =
-        PlayerPolicy::primaryPresentationSources(
-            playbackInfo.getMediaSourcesVariant());
-    for (const QVariant &mediaSourceVariant : mediaSources) {
-        const QVariantMap mediaSource = mediaSourceVariant.toMap();
-        options.append(QVariantMap{
-            {QStringLiteral("id"), mediaSource.value(QStringLiteral("id")).toString()},
-            {QStringLiteral("title"), mediaSource.value(QStringLiteral("name")).toString().trimmed()},
-            {QStringLiteral("subtitle"), buildVersionSubtitle(mediaSource)}
-        });
-    }
+    const QVariantList options = PlayerPolicy::playbackVersionOptions(
+        PlayerPolicy::primaryPresentationSources(playbackInfo.getMediaSourcesVariant()),
+        QString());
 
     return QVariantMap{
         {QStringLiteral("title"), tr("Select Version")},
@@ -3089,10 +3093,7 @@ void PlayerController::playNextEpisode(const QVariantMap &episodeData, const QSt
     qCDebug(lcPlayback) << "PlayerController: Playing next episode from Up Next screen:" << seriesName
              << "S" << seasonNumber << "E" << episodeNumber << "-" << episodeName;
     
-    QString subtitle = QStringLiteral("S%1 E%2").arg(seasonNumber).arg(episodeNumber);
-    if (!episodeName.isEmpty()) {
-        subtitle += QStringLiteral(" - ") + episodeName;
-    }
+    const QString subtitle = episodeOverlaySubtitle(episodeData);
     const QString overlayLogoUrl = (m_libraryService && !seriesId.isEmpty())
         ? m_libraryService->getCachedImageUrlWithWidth(seriesId, QStringLiteral("Logo"), 600)
         : QString();
@@ -3428,6 +3429,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_currentSeasonId = seasonId;
         m_currentLibraryId = libraryId;
         m_pendingUrl = url;
+        refreshAdjacentEpisodes();
         m_currentPosition = 0;
         m_duration = 0;
         m_hasReportedStart = false;
@@ -4118,6 +4120,273 @@ void PlayerController::seekToPlaybackChapter(int index)
     const QVariantMap chapter = m_playbackChapters.at(index).toMap();
     const qint64 startMs = chapter.value(QStringLiteral("startMs")).toLongLong();
     seek(static_cast<double>(startMs) / 1000.0);
+}
+
+QString PlayerController::episodeOverlaySubtitle(const QVariantMap &episode)
+{
+    const int seasonNumber = episode.value(QStringLiteral("parentIndexNumber")).toInt();
+    const int episodeNumber = episode.value(QStringLiteral("indexNumber")).toInt();
+    const QString episodeName = episode.value(QStringLiteral("name")).toString();
+    QString subtitle = QStringLiteral("S%1 E%2").arg(seasonNumber).arg(episodeNumber);
+    if (!episodeName.isEmpty()) {
+        subtitle += QStringLiteral(" - ") + episodeName;
+    }
+    return subtitle;
+}
+
+QVariantList PlayerController::playbackVersions() const
+{
+    return m_playbackVersionsItemId == m_currentItemId ? m_playbackVersions : QVariantList{};
+}
+
+void PlayerController::setPlaybackVersions(const QString &itemId, const QVariantList &versions)
+{
+    if (m_playbackVersionsItemId == itemId && m_playbackVersions == versions) {
+        return;
+    }
+    m_playbackVersionsItemId = itemId;
+    m_playbackVersions = versions;
+    emit playbackVersionsChanged();
+}
+
+void PlayerController::switchPlaybackVersion(const QString &mediaSourceId)
+{
+    if (mediaSourceId.isEmpty() || m_currentItemId.isEmpty() || !isPlaybackActive()) {
+        return;
+    }
+    bool known = false;
+    for (const QVariant &value : playbackVersions()) {
+        const QVariantMap version = value.toMap();
+        if (version.value(QStringLiteral("id")).toString() != mediaSourceId) {
+            continue;
+        }
+        if (version.value(QStringLiteral("selected")).toBool()) {
+            return;
+        }
+        known = true;
+        break;
+    }
+    if (!known) {
+        qCWarning(lcPlayback) << "switchPlaybackVersion: unknown version" << mediaSourceId;
+        return;
+    }
+
+    qCInfo(lcPlayback) << "Switching playback version"
+                       << "itemId=" << m_currentItemId
+                       << "mediaSourceId=" << mediaSourceId
+                       << "positionSeconds=" << m_currentPosition;
+    // Track indices are per version, so the new version resolves tracks from
+    // the saved scope preferences instead of carrying raw indices across.
+    requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), m_currentItemId},
+        {QStringLiteral("seriesId"), m_currentSeriesId},
+        {QStringLiteral("seasonId"), m_currentSeasonId},
+        {QStringLiteral("libraryId"), m_currentLibraryId},
+        {QStringLiteral("startPositionMs"), qMax<qint64>(0, qRound64(m_currentPosition * 1000.0))},
+        {QStringLiteral("overlayTitle"), m_overlayTitle},
+        {QStringLiteral("overlaySubtitle"), m_overlaySubtitle},
+        {QStringLiteral("overlayBackdropUrl"), m_overlayBackdropUrl},
+        {QStringLiteral("overlayLogoUrl"), m_overlayLogoUrl},
+        {QStringLiteral("isMovie"), m_currentSeriesId.isEmpty()},
+        {QStringLiteral("allowVersionPrompt"), false},
+        {QStringLiteral("mediaSourceId"), mediaSourceId}
+    });
+}
+
+bool PlayerController::hasEpisodeNavigation() const
+{
+    return !m_currentSeriesId.isEmpty() && !m_currentSeasonId.isEmpty()
+        && m_adjacentEpisodesItemId == m_currentItemId && !m_currentItemId.isEmpty();
+}
+
+bool PlayerController::hasPreviousEpisode() const
+{
+    return hasEpisodeNavigation() && !m_previousEpisode.isEmpty();
+}
+
+bool PlayerController::hasNextEpisode() const
+{
+    return hasEpisodeNavigation() && !m_nextEpisode.isEmpty();
+}
+
+namespace {
+const QString kAdjacentEpisodesKeyPrefix = QStringLiteral("player-adjacent-episodes");
+const QString kAdjacentCurrentSeason = QStringLiteral("season");
+const QString kAdjacentSeries = QStringLiteral("series");
+const QString kAdjacentPreviousSeason = QStringLiteral("previous-season");
+const QString kAdjacentNextSeason = QStringLiteral("next-season");
+}
+
+void PlayerController::refreshAdjacentEpisodes()
+{
+    const bool hadEpisodes = !m_previousEpisode.isEmpty() || !m_nextEpisode.isEmpty();
+    const bool wasAvailable = !m_adjacentEpisodesItemId.isEmpty();
+    m_adjacentListings.clear();
+    m_adjacentListingsRequested.clear();
+    m_previousEpisode.clear();
+    m_nextEpisode.clear();
+    m_adjacentEpisodesItemId.clear();
+    m_adjacentEpisodesConnectionId.clear();
+
+    if (m_libraryService && !m_currentItemId.isEmpty()
+        && !m_currentSeriesId.isEmpty() && !m_currentSeasonId.isEmpty()) {
+        m_adjacentEpisodesItemId = m_currentItemId;
+        m_adjacentEpisodesConnectionId = m_libraryService->getActiveConnectionId();
+        requestAdjacentEpisodeListing(m_currentSeasonId, kAdjacentCurrentSeason);
+        requestAdjacentEpisodeListing(m_currentSeriesId, kAdjacentSeries);
+    }
+
+    if (hadEpisodes || wasAvailable || !m_adjacentEpisodesItemId.isEmpty()) {
+        emit adjacentEpisodesChanged();
+    }
+}
+
+void PlayerController::requestAdjacentEpisodeListing(const QString &parentId, const QString &kind)
+{
+    const QString requestedKey = kind + QLatin1Char('|') + parentId;
+    if (parentId.isEmpty() || m_adjacentListingsRequested.contains(requestedKey)) {
+        return;
+    }
+    m_adjacentListingsRequested.insert(requestedKey);
+
+    // Same light listing the season view uses; the private request key keeps
+    // the response out of view-model request bookkeeping.
+    LibraryItemQuery query;
+    query.parentId = parentId;
+    query.includeHeavyFields = false;
+    query.requestKey = kAdjacentEpisodesKeyPrefix + QLatin1Char('\n')
+        + m_adjacentEpisodesItemId + QLatin1Char('\n') + kind;
+    m_libraryService->getItems(query);
+}
+
+void PlayerController::onAdjacentEpisodeItemsLoaded(const QString &connectionId,
+                                                    const QString &parentId,
+                                                    const QString &queryKey,
+                                                    const QVariantList &items,
+                                                    int totalRecordCount)
+{
+    Q_UNUSED(parentId);
+    Q_UNUSED(totalRecordCount);
+    const QStringList parts = queryKey.split(QLatin1Char('\n'));
+    if (parts.size() != 3 || parts.at(0) != kAdjacentEpisodesKeyPrefix) {
+        return;
+    }
+    if (parts.at(1) != m_adjacentEpisodesItemId || m_adjacentEpisodesItemId.isEmpty()
+        || connectionId != m_adjacentEpisodesConnectionId) {
+        return;
+    }
+    m_adjacentListings.insert(parts.at(2), items);
+    resolveAdjacentEpisodes();
+}
+
+void PlayerController::resolveAdjacentEpisodes()
+{
+    if (!m_adjacentListings.contains(kAdjacentCurrentSeason)) {
+        return;
+    }
+    const PlayerPolicy::AdjacentEpisodes adjacent = PlayerPolicy::resolveAdjacentEpisodes(
+        m_adjacentListings.value(kAdjacentCurrentSeason), m_adjacentEpisodesItemId);
+    QVariantMap previous = adjacent.previous;
+    QVariantMap next = adjacent.next;
+
+    if (adjacent.currentFound && m_adjacentListings.contains(kAdjacentSeries)) {
+        const QVariantList seriesItems = m_adjacentListings.value(kAdjacentSeries);
+        if (adjacent.previousInAdjacentSeason) {
+            const QString seasonId =
+                PlayerPolicy::adjacentSeasonId(seriesItems, m_currentSeasonId, -1);
+            if (m_adjacentListings.contains(kAdjacentPreviousSeason)) {
+                previous = PlayerPolicy::boundaryEpisode(
+                    m_adjacentListings.value(kAdjacentPreviousSeason), true);
+            } else {
+                requestAdjacentEpisodeListing(seasonId, kAdjacentPreviousSeason);
+            }
+        }
+        if (adjacent.nextInAdjacentSeason) {
+            const QString seasonId =
+                PlayerPolicy::adjacentSeasonId(seriesItems, m_currentSeasonId, 1);
+            if (m_adjacentListings.contains(kAdjacentNextSeason)) {
+                next = PlayerPolicy::boundaryEpisode(
+                    m_adjacentListings.value(kAdjacentNextSeason), false);
+            } else {
+                requestAdjacentEpisodeListing(seasonId, kAdjacentNextSeason);
+            }
+        }
+    }
+
+    if (previous == m_previousEpisode && next == m_nextEpisode) {
+        return;
+    }
+    m_previousEpisode = previous;
+    m_nextEpisode = next;
+    emit adjacentEpisodesChanged();
+}
+
+void PlayerController::skipToPreviousEpisode()
+{
+    if (hasPreviousEpisode()) {
+        requestAdjacentEpisodePlayback(m_previousEpisode);
+    }
+}
+
+void PlayerController::skipToNextEpisode()
+{
+    if (hasNextEpisode()) {
+        requestAdjacentEpisodePlayback(m_nextEpisode);
+    }
+}
+
+void PlayerController::requestAdjacentEpisodePlayback(const QVariantMap &episode)
+{
+    const QString episodeId = episode.value(QStringLiteral("itemId")).toString();
+    if (episodeId.isEmpty()) {
+        return;
+    }
+    QString seasonId = episode.value(QStringLiteral("seasonId")).toString();
+    if (seasonId.isEmpty()) {
+        seasonId = episode.value(QStringLiteral("parentId")).toString();
+    }
+    if (seasonId.isEmpty()) {
+        seasonId = m_currentSeasonId;
+    }
+    const QString seriesName = episode.value(QStringLiteral("seriesName")).toString();
+    const QString overlayTitle = !seriesName.isEmpty() ? seriesName : m_overlayTitle;
+    const QString overlayLogoUrl = !m_overlayLogoUrl.isEmpty()
+        ? m_overlayLogoUrl
+        : m_libraryService->getCachedImageUrlWithWidth(m_currentSeriesId, QStringLiteral("Logo"), 600);
+
+    // Carry the current tracks forward the same way autoplay does: audio by
+    // index, subtitles only when the season scope holds an explicit choice.
+    int subtitleOverride = -2;
+    switch (m_trackPrefs->getSeasonPreferences(m_currentSeasonId).subtitle.mode) {
+    case TrackPreferenceMode::Off:
+        subtitleOverride = -1;
+        break;
+    case TrackPreferenceMode::ExplicitStream:
+        subtitleOverride = m_selectedSubtitleTrack;
+        break;
+    default:
+        break;
+    }
+
+    qCInfo(lcPlayback) << "Skipping to adjacent episode"
+                       << "fromItemId=" << m_currentItemId
+                       << "toItemId=" << episodeId;
+    requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), episodeId},
+        {QStringLiteral("seriesId"), m_currentSeriesId},
+        {QStringLiteral("seasonId"), seasonId},
+        {QStringLiteral("libraryId"), m_currentLibraryId},
+        {QStringLiteral("startPositionMs"), resumePositionMs(episode)},
+        {QStringLiteral("overlayTitle"), overlayTitle},
+        {QStringLiteral("overlaySubtitle"), episodeOverlaySubtitle(episode)},
+        {QStringLiteral("overlayBackdropUrl"), m_overlayBackdropUrl},
+        {QStringLiteral("overlayLogoUrl"), overlayLogoUrl},
+        {QStringLiteral("isMovie"), false},
+        {QStringLiteral("allowVersionPrompt"), false},
+        {QStringLiteral("useAffinityFallback"), true},
+        {QStringLiteral("preferredAudioIndex"), m_selectedAudioTrack},
+        {QStringLiteral("preferredSubtitleIndex"), subtitleOverride}
+    });
 }
 
 void PlayerController::toggleMute()
@@ -6564,6 +6833,9 @@ void PlayerController::onTrickplayProcessingComplete(const QString &itemId, int 
     m_currentTrickplayInfo.width = width;
     m_currentTrickplayInfo.height = height;
     m_trickplayBinaryPath = filePath;
+    m_trickplayFrameUrlCache.clear();
+    m_trickplayFrameUrlOrder.clear();
+    m_trickplayFrameCachePath = filePath;
     m_hasTrickplayInfo = true;
     m_currentTrickplayFrameIndex = -1;
     updateTrickplayPreviewForPosition(
@@ -6641,12 +6913,7 @@ void PlayerController::updateTrickplayPreviewForPosition(double seconds)
         return;
     }
 
-    const QString previewUrl = buildTrickplayPreviewDataUrl(
-        m_trickplayBinaryPath,
-        frameIndex,
-        m_currentTrickplayInfo.width,
-        m_currentTrickplayInfo.height
-    );
+    const QString previewUrl = cachedTrickplayFrameUrl(frameIndex);
 
     if (previewUrl.isEmpty()) {
         qCWarning(lcPlayback) << "PlayerController: Failed to load trickplay frame" << frameIndex << "for item" << m_currentItemId;
@@ -6665,6 +6932,55 @@ void PlayerController::updateTrickplayPreviewForPosition(double seconds)
         m_trickplayPreviewUrl = previewUrl;
         emit trickplayPreviewChanged();
     }
+}
+
+QString PlayerController::cachedTrickplayFrameUrl(int frameIndex)
+{
+    // Filmstrip scrubbing re-requests neighbouring frames on every step; keep
+    // a small window of encoded frames so each step encodes about one frame.
+    static constexpr int kMaxCachedFrames = 32;
+    if (m_trickplayFrameCachePath != m_trickplayBinaryPath) {
+        m_trickplayFrameUrlCache.clear();
+        m_trickplayFrameUrlOrder.clear();
+        m_trickplayFrameCachePath = m_trickplayBinaryPath;
+    }
+    const auto cached = m_trickplayFrameUrlCache.constFind(frameIndex);
+    if (cached != m_trickplayFrameUrlCache.constEnd()) {
+        return cached.value();
+    }
+
+    const QString url = buildTrickplayPreviewDataUrl(m_trickplayBinaryPath,
+                                                     frameIndex,
+                                                     m_currentTrickplayInfo.width,
+                                                     m_currentTrickplayInfo.height);
+    if (url.isEmpty()) {
+        return url;
+    }
+    if (m_trickplayFrameUrlOrder.size() >= kMaxCachedFrames) {
+        m_trickplayFrameUrlCache.remove(m_trickplayFrameUrlOrder.takeFirst());
+    }
+    m_trickplayFrameUrlCache.insert(frameIndex, url);
+    m_trickplayFrameUrlOrder.append(frameIndex);
+    return url;
+}
+
+QString PlayerController::trickplayPreviewUrlAt(double seconds)
+{
+    if (!m_hasTrickplayInfo
+        || m_trickplayBinaryPath.isEmpty()
+        || m_currentTrickplayInfo.interval <= 0
+        || m_currentTrickplayInfo.thumbnailCount <= 0
+        || m_currentTrickplayInfo.width <= 0
+        || m_currentTrickplayInfo.height <= 0
+        || seconds < 0.0) {
+        return QString();
+    }
+    const int requestedMs = static_cast<int>(seconds * 1000.0);
+    const int frameIndex = requestedMs / m_currentTrickplayInfo.interval;
+    if (frameIndex >= m_currentTrickplayInfo.thumbnailCount) {
+        return QString();
+    }
+    return cachedTrickplayFrameUrl(frameIndex);
 }
 
 void PlayerController::clearTrickplayPreview()

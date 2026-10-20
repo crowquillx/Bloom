@@ -80,6 +80,9 @@ private slots:
     void filtersMultipartSourcesAndBuildsSubtitles();
     void evaluatesCompletionAndPrefetchThresholds();
     void validatesPrefetchedEpisodesAndContexts();
+    void resolvesAdjacentEpisodesWithinSeason();
+    void resolvesAdjacentSeasonsSkippingSpecials();
+    void buildsPlaybackVersionOptions();
     void describesDolbyVisionProfiles();
     void dolbyVisionFilterFollowsSourceType_data();
     void dolbyVisionFilterFollowsSourceType();
@@ -409,6 +412,96 @@ void PlaybackPolicyTest::evaluatesCompletionAndPrefetchThresholds()
     prefetch.playbackActive = true;
     prefetch.alreadyRequested = true;
     QVERIFY(!PlayerPolicy::shouldPrefetchNextEpisode(prefetch));
+}
+
+namespace {
+
+QVariantMap libraryRow(const QString &id, const QString &mediaType, int indexNumber, int childCount = -1)
+{
+    QVariantMap row{
+        {QStringLiteral("itemId"), id},
+        {QStringLiteral("mediaType"), mediaType},
+        {QStringLiteral("indexNumber"), indexNumber}
+    };
+    if (childCount >= 0) row.insert(QStringLiteral("childCount"), childCount);
+    return row;
+}
+
+} // namespace
+
+void PlaybackPolicyTest::resolvesAdjacentEpisodesWithinSeason()
+{
+    const QVariantList season{
+        libraryRow(QStringLiteral("e1"), QStringLiteral("Episode"), 1),
+        libraryRow(QStringLiteral("folder"), QStringLiteral("Folder"), 0),
+        libraryRow(QStringLiteral("e2"), QStringLiteral("Episode"), 2),
+        libraryRow(QStringLiteral("e3"), QStringLiteral("Episode"), 3)
+    };
+
+    const auto middle = PlayerPolicy::resolveAdjacentEpisodes(season, QStringLiteral("e2"));
+    QVERIFY(middle.currentFound);
+    QCOMPARE(middle.previous.value(QStringLiteral("itemId")).toString(), QStringLiteral("e1"));
+    QCOMPARE(middle.next.value(QStringLiteral("itemId")).toString(), QStringLiteral("e3"));
+    QVERIFY(!middle.previousInAdjacentSeason);
+    QVERIFY(!middle.nextInAdjacentSeason);
+
+    const auto first = PlayerPolicy::resolveAdjacentEpisodes(season, QStringLiteral("e1"));
+    QVERIFY(first.previous.isEmpty());
+    QVERIFY(first.previousInAdjacentSeason);
+    QCOMPARE(first.next.value(QStringLiteral("itemId")).toString(), QStringLiteral("e2"));
+
+    const auto last = PlayerPolicy::resolveAdjacentEpisodes(season, QStringLiteral("e3"));
+    QVERIFY(last.next.isEmpty());
+    QVERIFY(last.nextInAdjacentSeason);
+
+    const auto missing = PlayerPolicy::resolveAdjacentEpisodes(season, QStringLiteral("other"));
+    QVERIFY(!missing.currentFound);
+    QVERIFY(!missing.previousInAdjacentSeason);
+    QVERIFY(!missing.nextInAdjacentSeason);
+
+    QCOMPARE(PlayerPolicy::boundaryEpisode(season, false).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("e1"));
+    QCOMPARE(PlayerPolicy::boundaryEpisode(season, true).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("e3"));
+    QVERIFY(PlayerPolicy::boundaryEpisode({}, true).isEmpty());
+}
+
+void PlaybackPolicyTest::resolvesAdjacentSeasonsSkippingSpecials()
+{
+    const QVariantList series{
+        libraryRow(QStringLiteral("specials"), QStringLiteral("Season"), 0, 4),
+        libraryRow(QStringLiteral("s1"), QStringLiteral("Season"), 1, 10),
+        libraryRow(QStringLiteral("empty"), QStringLiteral("Season"), 2, 0),
+        libraryRow(QStringLiteral("s3"), QStringLiteral("Season"), 3, 8)
+    };
+
+    QVERIFY(PlayerPolicy::adjacentSeasonId(series, QStringLiteral("s1"), -1).isEmpty());
+    QCOMPARE(PlayerPolicy::adjacentSeasonId(series, QStringLiteral("s1"), 1), QStringLiteral("s3"));
+    QCOMPARE(PlayerPolicy::adjacentSeasonId(series, QStringLiteral("s3"), -1), QStringLiteral("s1"));
+    QVERIFY(PlayerPolicy::adjacentSeasonId(series, QStringLiteral("s3"), 1).isEmpty());
+    // Inside specials, the regular seasons are still reachable.
+    QCOMPARE(PlayerPolicy::adjacentSeasonId(series, QStringLiteral("specials"), 1), QStringLiteral("s1"));
+    QVERIFY(PlayerPolicy::adjacentSeasonId(series, QStringLiteral("unknown"), 1).isEmpty());
+}
+
+void PlaybackPolicyTest::buildsPlaybackVersionOptions()
+{
+    const QVariantList sources{
+        mediaSource(QStringLiteral("v1"), QStringLiteral(" 1080p "), QStringLiteral("/a.mkv")),
+        mediaSource(QString(), QStringLiteral("broken"), QStringLiteral("/b.mkv")),
+        mediaSource(QStringLiteral("v2"), QStringLiteral("4K"), QStringLiteral("/c.mkv"))
+    };
+
+    const QVariantList options = PlayerPolicy::playbackVersionOptions(sources, QStringLiteral("v2"));
+    QCOMPARE(options.size(), 2);
+    QCOMPARE(options.at(0).toMap().value(QStringLiteral("title")).toString(), QStringLiteral("1080p"));
+    QVERIFY(!options.at(0).toMap().value(QStringLiteral("selected")).toBool());
+    QCOMPARE(options.at(1).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("v2"));
+    QVERIFY(options.at(1).toMap().value(QStringLiteral("selected")).toBool());
+
+    const QVariantList unselected = PlayerPolicy::playbackVersionOptions(sources, QString());
+    QVERIFY(!unselected.at(0).toMap().value(QStringLiteral("selected")).toBool());
+    QVERIFY(!unselected.at(1).toMap().value(QStringLiteral("selected")).toBool());
 }
 
 void PlaybackPolicyTest::validatesPrefetchedEpisodesAndContexts()

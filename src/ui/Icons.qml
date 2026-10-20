@@ -45,6 +45,8 @@ QtObject {
     readonly property string fastForward: "\ue01f"
     readonly property string fastRewind: "\ue020"
     readonly property string replay: "\ue042"
+    readonly property string replay10: "\ue059"
+    readonly property string forward10: "\ue056"
     readonly property string shuffle: "\ue043"
     readonly property string repeat: "\ue040"
     readonly property string volumeUp: "\ue050"

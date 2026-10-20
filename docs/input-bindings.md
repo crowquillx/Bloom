@@ -21,8 +21,8 @@ Runtime
 - SDL2 gamepad input is polled in C++ when SDL2 is available at build time. The backend handles hotplug and disconnect, reports `gamepadAvailable`, and repeats held navigation/seek/volume inputs while keeping toggles edge-triggered.
 - Controller navigation actions synthesize the same Qt key events already used by QML focus handlers.
 - Playback controller actions emit `InputBindingManager.actionTriggeredWithContext(actionId, "playback")` and are handled by `EmbeddedPlaybackOverlay.qml`.
-- Default controller playback bindings: D-pad/left stick move or seek based on overlay state, A selects the focused playback control or active Skip Intro/Credits prompt, B mirrors Escape dismissal/stop behavior, Start play/pause, LB/RB seek, LT/RT chapters, Y audio selector, X subtitle selector, Back/View volume panel, right stick volume, L3 subtitle ASS override, R3 deband.
-- In the subtitle selector, D-pad/left stick moves through subtitle tracks and the delay controls. The delay row adjusts the current season/movie subtitle delay in 1 ms steps and persists it with subtitle preferences.
+- Default controller playback bindings: D-pad/left stick move or seek based on overlay state, A selects the focused playback control or active Skip Intro/Credits prompt, B mirrors Escape dismissal/stop behavior, Start play/pause, LB/RB seek, LT/RT chapters, Y opens the Audio page and X the Subtitles page of the playback settings pop-out, Back/View volume control, right stick volume, L3 subtitle ASS override, R3 deband.
+- In the settings pop-out, D-pad/left stick Up/Down move through rows, Right or A opens a category page, A selects an option, and Left returns to the root list. On the Subtitles page, Left/Right on the delay row adjust the current season/movie subtitle delay in 1 ms steps (persisted with subtitle preferences) and A resets it.
 
 Settings UI
 - Settings > Input edits bindings by context and device.

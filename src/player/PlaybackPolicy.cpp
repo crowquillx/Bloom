@@ -548,6 +548,97 @@ QVariantList primaryPresentationSources(const QVariantList &mediaSources)
     return result;
 }
 
+QVariantList playbackVersionOptions(const QVariantList &primarySources,
+                                    const QString &activeSourceId)
+{
+    QVariantList options;
+    for (const QVariant &value : primarySources) {
+        const QVariantMap source = value.toMap();
+        const QString id = source.value(QStringLiteral("id")).toString();
+        if (id.isEmpty()) continue;
+        options.append(QVariantMap{
+            {QStringLiteral("id"), id},
+            {QStringLiteral("title"), source.value(QStringLiteral("name")).toString().trimmed()},
+            {QStringLiteral("subtitle"), buildVersionSubtitle(source)},
+            {QStringLiteral("selected"), !activeSourceId.isEmpty() && id == activeSourceId}
+        });
+    }
+    return options;
+}
+
+namespace {
+
+QVariantList episodeRows(const QVariantList &items)
+{
+    QVariantList episodes;
+    for (const QVariant &value : items) {
+        const QVariantMap item = value.toMap();
+        if (item.value(QStringLiteral("mediaType")).toString() == QStringLiteral("Episode")
+            && !item.value(QStringLiteral("itemId")).toString().isEmpty()) {
+            episodes.append(item);
+        }
+    }
+    return episodes;
+}
+
+} // namespace
+
+AdjacentEpisodes resolveAdjacentEpisodes(const QVariantList &seasonItems,
+                                         const QString &currentItemId)
+{
+    AdjacentEpisodes result;
+    if (currentItemId.isEmpty()) return result;
+    const QVariantList episodes = episodeRows(seasonItems);
+    for (int i = 0; i < episodes.size(); ++i) {
+        if (episodes.at(i).toMap().value(QStringLiteral("itemId")).toString() != currentItemId) {
+            continue;
+        }
+        result.currentFound = true;
+        if (i > 0) result.previous = episodes.at(i - 1).toMap();
+        else result.previousInAdjacentSeason = true;
+        if (i + 1 < episodes.size()) result.next = episodes.at(i + 1).toMap();
+        else result.nextInAdjacentSeason = true;
+        break;
+    }
+    return result;
+}
+
+QString adjacentSeasonId(const QVariantList &seriesItems,
+                         const QString &currentSeasonId,
+                         int direction)
+{
+    if (currentSeasonId.isEmpty() || direction == 0) return QString();
+    QList<QVariantMap> seasons;
+    int currentIndex = -1;
+    for (const QVariant &value : seriesItems) {
+        const QVariantMap item = value.toMap();
+        if (item.value(QStringLiteral("mediaType")).toString() != QStringLiteral("Season")) continue;
+        const QString id = item.value(QStringLiteral("itemId")).toString();
+        if (id.isEmpty()) continue;
+        if (id == currentSeasonId) currentIndex = int(seasons.size());
+        seasons.append(item);
+    }
+    if (currentIndex < 0) return QString();
+    const bool currentIsSpecials =
+        seasons.at(currentIndex).value(QStringLiteral("indexNumber"), -1).toInt() == 0;
+    const int step = direction < 0 ? -1 : 1;
+    for (int i = currentIndex + step; i >= 0 && i < seasons.size(); i += step) {
+        const QVariantMap season = seasons.at(i);
+        if (season.contains(QStringLiteral("childCount"))
+            && season.value(QStringLiteral("childCount")).toInt() == 0) continue;
+        if (!currentIsSpecials && season.value(QStringLiteral("indexNumber"), -1).toInt() == 0) continue;
+        return season.value(QStringLiteral("itemId")).toString();
+    }
+    return QString();
+}
+
+QVariantMap boundaryEpisode(const QVariantList &seasonItems, bool fromEnd)
+{
+    const QVariantList episodes = episodeRows(seasonItems);
+    if (episodes.isEmpty()) return QVariantMap{};
+    return (fromEnd ? episodes.last() : episodes.first()).toMap();
+}
+
 bool meetsCompletionThreshold(const CompletionInput &input)
 {
     return !input.alreadyEvaluated
