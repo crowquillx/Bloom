@@ -99,6 +99,7 @@ Every theme resolves to the same semantic roles. New QML should use these roles 
 | Status | `errorColor`, `successColor`, `warningColor`, `favoriteColor` | |
 | Progress | `progressTrack`, `progressFill`, `progressTrackOnArtwork`, `progressHeight` | |
 | Scrims | `scrimModal`, `scrimStrong`, `scrimMedium`, `scrimSoft`, `scrimClear` | Derived from `backgroundPrimary`, so light flavors get light scrims |
+| Elevation | `elevationShadow` | Blurred drop shadow under raised surfaces (focused hero card) |
 | Artwork | `artworkPlaceholder`, `artworkPlaceholderIcon` | Missing or loading art |
 | Rail | `navRailBackground`, `navRailBackgroundCollapsed` | |
 
@@ -109,6 +110,7 @@ Older tokens (`cardBackground`, `buttonPrimaryBackground`, `focusBorder`, `butto
 - **Selection** (current page, active tab, chosen option, checked filter) uses `selectionBackground` plus a `selectionIndicator` bar, underline or check mark.
 - A control can be both. Never signal focus with accent color alone.
 - Inside clipped containers such as lists, popups and the rail, use `FocusRing { inset: true }` so the ring is not clipped.
+- The Home hero carousel is the one exception. A ring cuts across its full-bleed artwork, so focus lights its side edges and shows Left/Right paddles instead (see `docs/hero-banner.md`). The paddles are a shape cue, so focus does not rely on color alone.
 
 ### Shared Components
 Shared building blocks live in `src/ui/` and are registered in the `BloomUI` module:
@@ -212,5 +214,5 @@ Migrating from old `dpiScale` system:
 - **Soft glass**: `GlassPanel` / `surfaceGlass*` for panels and controls; avoid heavy borders.
 - **Rounded artwork**: `radiusArtwork` for posters and thumbnails, `radiusPanel` for panels.
 - **Restrained color**: accent is for selection, progress and small highlights. Primary actions use the inverse fill.
-- **Clear focus**: the `FocusRing` is the only focus signal and must remain visible on every surface.
+- **Clear focus**: the `FocusRing` is the focus signal everywhere except the Home hero carousel, and it must remain visible on every surface.
 - **High contrast and large text**: designed for 10-foot viewing; every theme, including light flavors, must stay readable.

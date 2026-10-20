@@ -445,6 +445,8 @@ QtObject {
     property color scrimMedium: withAlpha(backgroundPrimary, 0.72)
     property color scrimSoft: withAlpha(backgroundPrimary, 0.38)
     property color scrimClear: withAlpha(backgroundPrimary, 0.0)
+    // Soft drop shadow under raised surfaces (focused hero card).
+    property color elevationShadow: Qt.rgba(0, 0, 0, themeIsLight ? 0.30 : 0.65)
 
     // ============================
     // Actions

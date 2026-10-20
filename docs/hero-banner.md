@@ -45,7 +45,9 @@ before being attached to episode hero items.
 
 ## Focus
 
-The hero card receives initial Home focus when enabled and populated. Focus is two-tier:
+The hero receives initial Home focus when enabled and populated. Hero items arrive after the shelves load, so on first activation My Media holds provisional focus until the hero has content, and the hero then takes over. If the user moves off My Media first (another tile, another row, or the rail), the hand-off is cancelled and late hero data never steals focus. Returning to Home restores the last focused section instead.
+
+Focus is two-tier:
 
 - **Carousel mode** (hero card focused): Left/Right changes the hero item. Enter/Return enters
   Play/Details. Down moves to My Media.
@@ -53,6 +55,8 @@ The hero card receives initial Home focus when enabled and populated. Focus is t
   the focused button. Esc or Up returns to carousel mode. Down moves to My Media.
 
 Leaving the hero resets to carousel mode. Auto-cycle pauses during focus, scrolling, and playback.
+
+Carousel focus is not drawn with `FocusRing`, which cut across the full-bleed artwork. Instead, each side edge of the hero shows a half-ellipse of accent light (`HeroEdgeCue`) with a glass chevron paddle in the page margin. A paddle flashes when Left/Right cycles in its direction, and the current page dot takes the accent color. With a single item, only the edge light shows. In card mode the card also rises a few pixels on a blurred `Theme.elevationShadow`. Action buttons keep their own `ActionButton` focus ring.
 
 When backdrop synchronization is enabled, the selected hero image drives Home's existing
 cross-fading backdrop and pauses normal backdrop rotation. Settings are stored below

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
+import QtQuick.Shapes
 import BloomUI
 
 FocusScope {
@@ -170,6 +171,7 @@ FocusScope {
 
     function cycle(delta) {
         if (!hasContent || heroModel.length < 2) return
+        (delta < 0 ? leadingEdgeCue : trailingEdgeCue).flash()
         transitionToIndex((currentIndex + delta + heroModel.length) % heroModel.length, delta)
         cycleTimer.stop()
         manualPause.restart()
@@ -435,6 +437,99 @@ FocusScope {
         }
     }
 
+    // Carousel focus cue for one side edge. A focus ring cut across the
+    // full-bleed artwork, so focus instead lights the hero's edges, and
+    // paddles show that Left/Right browse featured items.
+    component HeroEdgeCue: Item {
+        id: cue
+
+        /// -1 for the leading (left) edge, 1 for the trailing (right) edge.
+        property int side: 1
+        property bool showPaddle: true
+        property real pulse: 0
+
+        function flash() { pulseAnimation.restart() }
+
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.left: side < 0 ? parent.left : undefined
+        anchors.right: side > 0 ? parent.right : undefined
+        width: Theme.pageMarginX
+        z: 3
+        enabled: false
+        opacity: root.carouselFocused ? 1.0 : 0.0
+        visible: opacity > 0
+
+        Behavior on opacity {
+            enabled: Theme.uiAnimationsEnabled
+            NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutQuad }
+        }
+
+        // Half-ellipse of accent light spilling inwards from the edge. Drawn
+        // as a circle of radius `radius` and stretched to `reach` wide.
+        Shape {
+            id: glow
+            readonly property real radius: Math.max(1, cue.height * 0.42)
+            readonly property real reach: Theme.pageMarginX * 3
+            width: radius
+            height: radius * 2
+            anchors.verticalCenter: parent.verticalCenter
+            x: cue.side < 0 ? 0 : cue.width - width
+            opacity: 0.6 + 0.4 * cue.pulse
+            transform: Scale {
+                origin.x: cue.side < 0 ? 0 : glow.width
+                xScale: glow.reach / glow.radius
+            }
+
+            ShapePath {
+                strokeColor: "transparent"
+                fillGradient: RadialGradient {
+                    centerX: cue.side < 0 ? 0 : glow.width
+                    centerY: glow.radius
+                    centerRadius: glow.radius
+                    focalX: centerX
+                    focalY: centerY
+                    GradientStop { position: 0.0; color: Theme.withAlpha(Theme.accentPrimary, 0.62) }
+                    GradientStop { position: 0.4; color: Theme.withAlpha(Theme.accentPrimary, 0.22) }
+                    GradientStop { position: 1.0; color: Theme.withAlpha(Theme.accentPrimary, 0.0) }
+                }
+                startX: 0; startY: 0
+                PathLine { x: glow.width; y: 0 }
+                PathLine { x: glow.width; y: glow.height }
+                PathLine { x: 0; y: glow.height }
+                PathLine { x: 0; y: 0 }
+            }
+        }
+
+        Rectangle {
+            visible: cue.showPaddle
+            width: Math.round(48 * Theme.layoutScale)
+            height: width
+            radius: width / 2
+            anchors.centerIn: parent
+            anchors.horizontalCenterOffset: (1 - cue.opacity) * cue.side * Theme.spacingSmall
+            color: Theme.mix(Theme.surfaceGlassStrong, Theme.accentPrimary, cue.pulse)
+            border.width: Theme.borderWidth
+            border.color: Theme.surfaceBorderStrong
+            scale: 1 + 0.12 * cue.pulse
+            antialiasing: true
+
+            Text {
+                anchors.centerIn: parent
+                text: cue.side < 0 ? Icons.chevronLeft : Icons.chevronRight
+                font.family: Theme.fontIcon
+                font.pixelSize: Theme.fontSizeIcon
+                color: Theme.textPrimary
+            }
+        }
+
+        SequentialAnimation {
+            id: pulseAnimation
+            NumberAnimation { target: cue; property: "pulse"; to: 1; duration: Theme.durationShort; easing.type: Easing.OutQuad }
+            NumberAnimation { target: cue; property: "pulse"; to: 0; duration: Theme.durationNormal * 2; easing.type: Easing.InOutQuad }
+        }
+    }
+
     Component {
         id: combinedLayoutComponent
         Item {
@@ -451,7 +546,6 @@ FocusScope {
                 centerLarge: root.logoPlacement === "centerLarge"
                 edgeMargin: root.contentEdgeMargin
                 extraBottomInset: root.carouselBottomInset
-                focusFramed: root.cinematic && root.carouselFocused
                 HeroBadge { layoutBlockAlignment: combinedHost.contentLayoutAlignment }
                 HeroLogoSection { blockPlacement: root.logoPlacement }
                 HeroMetadataRow { layoutBlockAlignment: combinedHost.contentLayoutAlignment }
@@ -498,7 +592,6 @@ FocusScope {
                 placement: root.infoPlacement
                 edgeMargin: root.contentEdgeMargin
                 extraBottomInset: root.carouselBottomInset
-                focusFramed: root.cinematic && root.carouselFocused
                 HeroBadge { layoutBlockAlignment: infoHost.contentLayoutAlignment }
                 HeroMetadataRow { layoutBlockAlignment: infoHost.contentLayoutAlignment }
                 HeroSynopsisText { layoutBlockAlignment: infoHost.contentLayoutAlignment }
@@ -628,6 +721,30 @@ FocusScope {
         target.source = currentBackdropUrl
     }
 
+    // Card mode: carousel focus raises the card on a soft shadow.
+    property real cardRaise: !cinematic && carouselFocused ? 1.0 : 0.0
+    Behavior on cardRaise {
+        enabled: Theme.uiAnimationsEnabled
+        NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic }
+    }
+    readonly property real cardRaiseY: -cardRaise * Math.round(6 * Theme.layoutScale)
+
+    Rectangle {
+        anchors.fill: heroCard
+        radius: heroCard.radius
+        color: Theme.elevationShadow
+        visible: !root.cinematic && root.cardRaise > 0
+        opacity: root.cardRaise
+        transform: Translate { y: root.cardRaiseY + Math.round(14 * Theme.layoutScale) * root.cardRaise }
+        layer.enabled: visible && GraphicsInfo.api !== GraphicsInfo.Software
+        layer.effect: MultiEffect {
+            blurEnabled: true
+            blur: 1.0
+            blurMax: 48
+            autoPaddingEnabled: true
+        }
+    }
+
     Rectangle {
         id: heroCard
         anchors.fill: parent
@@ -636,6 +753,7 @@ FocusScope {
         radius: root.cinematic ? 0 : Theme.radiusPanel
         color: root.cinematic ? "transparent" : Theme.artworkPlaceholder
         antialiasing: true
+        transform: Translate { y: root.cardRaiseY }
 
         property bool showBackdropA: true
         property bool showBackdropNeutral: true
@@ -744,12 +862,6 @@ FocusScope {
             }
         }
 
-        // Card mode: focus is a ring around the whole panel.
-        FocusRing {
-            active: !root.cinematic && root.carouselFocused
-            radius: heroCard.radius
-        }
-
         Loader {
             id: contentLoader
             anchors.fill: parent
@@ -761,7 +873,8 @@ FocusScope {
             onSourceComponentChanged: Qt.callLater(root.reapplyHeroPlacements)
         }
 
-        // Page indicator. Left/Right hints appear while the carousel has focus.
+        // Page indicator. The current dot takes the accent while the carousel
+        // has focus.
         Row {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -771,16 +884,6 @@ FocusScope {
             visible: root.heroModel.length > 1
             z: 2
 
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: Icons.chevronLeft
-                font.family: Theme.fontIcon
-                font.pixelSize: Theme.fontSizeIcon
-                color: Theme.textPrimary
-                opacity: root.carouselFocused ? 0.9 : 0.0
-                Behavior on opacity { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
-            }
-
             Repeater {
                 model: root.heroModel.length
                 Rectangle {
@@ -788,21 +891,24 @@ FocusScope {
                     width: index === root.currentIndex ? Theme.spacingLarge : Theme.spacingSmall + Theme.spacingXSmall
                     height: Theme.spacingSmall + Theme.spacingXSmall
                     radius: height / 2
-                    color: index === root.currentIndex ? Theme.textPrimary : Theme.withAlpha(Theme.textPrimary, 0.38)
+                    color: index !== root.currentIndex ? Theme.withAlpha(Theme.textPrimary, 0.38)
+                           : (root.carouselFocused ? Theme.accentPrimary : Theme.textPrimary)
                     Behavior on width { NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic } enabled: Theme.uiAnimationsEnabled }
                     Behavior on color { ColorAnimation { duration: Theme.durationNormal } enabled: Theme.uiAnimationsEnabled }
                 }
             }
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: Icons.chevronRight
-                font.family: Theme.fontIcon
-                font.pixelSize: Theme.fontSizeIcon
-                color: Theme.textPrimary
-                opacity: root.carouselFocused ? 0.9 : 0.0
-                Behavior on opacity { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
-            }
         }
+    }
+
+    HeroEdgeCue {
+        id: leadingEdgeCue
+        side: -1
+        showPaddle: root.heroModel.length > 1
+    }
+
+    HeroEdgeCue {
+        id: trailingEdgeCue
+        side: 1
+        showPaddle: root.heroModel.length > 1
     }
 }

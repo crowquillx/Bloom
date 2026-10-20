@@ -187,6 +187,42 @@ FocusScope {
     property int lastFocusedIndex: 0
     property real lastContentY: 0  // Remember scroll position
 
+    // First activation lands on the hero. Hero content arrives after the
+    // shelves load, so My Media holds provisional focus until then; any user
+    // navigation away from it cancels the hand-off so late hero data never
+    // steals focus.
+    property bool initialFocusPending: true
+    property bool initialFocusProvisional: false
+
+    function applyInitialFocus() {
+        if (!initialFocusPending || root.StackView.status !== StackView.Active)
+            return
+        if (heroBanner.visible) {
+            initialFocusPending = false
+            initialFocusProvisional = false
+            heroBanner.resetToCarousel()
+            heroBanner.forceActiveFocus()
+            ensureSectionVisible(heroBanner)
+            return
+        }
+        if (myMediaList.count > 0 && !myMediaList.activeFocus) {
+            myMediaList.forceActiveFocus()
+            ensureSectionVisible(myMediaSection)
+            initialFocusProvisional = true
+        }
+        if (!ConfigManager.heroBannerEnabled && myMediaList.activeFocus) {
+            initialFocusPending = false
+            initialFocusProvisional = false
+        }
+    }
+
+    function cancelInitialFocus() {
+        if (!initialFocusProvisional)
+            return
+        initialFocusPending = false
+        initialFocusProvisional = false
+    }
+
     function getRecentlyAddedDelegateMeta(index) {
         var item = recentlyAddedRepeater.itemAt(index)
         return {
@@ -341,7 +377,10 @@ FocusScope {
             console.log("[FocusDebug] HomeScreen now active")
             
             // Restore focus IMMEDIATELY when returning to home screen
-            restoreFocusState()
+            if (hasBeenActivated)
+                restoreFocusState()
+            else
+                applyInitialFocus()
             
             // Only refresh if we've been away for a while (30+ seconds)
             if (hasBeenActivated) {
@@ -782,6 +821,7 @@ FocusScope {
                         heroBanner.resetToCarousel()
                     }
                 }
+                onVisibleChanged: if (visible) Qt.callLater(root.applyInitialFocus)
                 onMoveDownRequested: myMediaList.forceActiveFocus()
                 onDetailsRequested: function(item) { root.handleHeroSelection(item) }
                 onPlayRequested: function(item) { root.playHeroItem(item) }
@@ -941,8 +981,14 @@ FocusScope {
                         }
                     }
 
-                    onCurrentIndexChanged: root.ensureListItemVisible(myMediaList)
-                    onActiveFocusChanged: if (activeFocus) root.ensureSectionVisible(myMediaSection)
+                    onCurrentIndexChanged: {
+                        root.ensureListItemVisible(myMediaList)
+                        if (activeFocus) root.cancelInitialFocus()
+                    }
+                    onActiveFocusChanged: {
+                        if (activeFocus) root.ensureSectionVisible(myMediaSection)
+                        else root.cancelInitialFocus()
+                    }
                 }
             }
             
@@ -1625,22 +1671,7 @@ FocusScope {
                 if (myMediaList.currentIndex < 0) {
                     myMediaList.currentIndex = 0
                 }
-                // Only apply default My Media focus on initial screen activation.
-                // Returning from detail screens should use restoreFocusState().
-                if (!hasBeenActivated && lastFocusedSection === "myMedia" && root.StackView.status === StackView.Active) {
-                    Qt.callLater(function() {
-                        if (!hasBeenActivated && lastFocusedSection === "myMedia" && root.StackView.status === StackView.Active) {
-                            if (heroBanner.visible) {
-                                heroBanner.resetToCarousel()
-                                heroBanner.forceActiveFocus()
-                                root.ensureSectionVisible(heroBanner)
-                            } else {
-                                myMediaList.forceActiveFocus()
-                                root.ensureSectionVisible(myMediaSection)
-                            }
-                        }
-                    })
-                }
+                Qt.callLater(root.applyInitialFocus)
             }
             
             // Fetch Next Up
