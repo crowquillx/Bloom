@@ -156,6 +156,10 @@ Focus behavior: Left at a page's edge calls `Sidebar.focusRail()`, which lands o
 - `playbackTimePrimary`
 - `playbackTimeSecondary`
 - `playbackIconColor`
+- `playbackAccent`, `playbackAccentGlow` (lavender accent lifted for light themes)
+- `playbackChromeSurface`, `playbackChromeTray`, `playbackChromeDivider` (unified control bar, transport tray, group dividers)
+- `playbackHeroBackground`, `playbackHeroIcon` (play/pause button)
+- `playbackSkipBackground`, `playbackSkipText` (Skip Intro/Credits control)
 
 Use these instead of hardcoded playback overlay colors so built-in themes remain consistent. `playbackOverlayShadowTint` resolves to black for light themes and the theme background base for dark themes; `playbackOverlayAccentShadowTint` adds a subtle themed accent to active playback chrome shadows.
 

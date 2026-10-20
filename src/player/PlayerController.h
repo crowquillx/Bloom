@@ -96,6 +96,14 @@ class PlayerController : public QObject
     Q_PROPERTY(QVariantList playbackChapters READ playbackChapters NOTIFY playbackChaptersChanged)
     Q_PROPERTY(bool hasPlaybackChapters READ hasPlaybackChapters NOTIFY playbackChaptersChanged)
     Q_PROPERTY(int currentPlaybackChapterIndex READ currentPlaybackChapterIndex NOTIFY currentPlaybackChapterIndexChanged)
+    // Versions of the current item for the in-playback quality picker. Each entry
+    // is {id, title, subtitle, selected}; fewer than two entries means no choice.
+    Q_PROPERTY(QVariantList playbackVersions READ playbackVersions NOTIFY playbackVersionsChanged)
+    // Previous/next episode of the playing episode, resolved from its season
+    // listing (crossing into adjacent seasons at the boundaries).
+    Q_PROPERTY(bool hasEpisodeNavigation READ hasEpisodeNavigation NOTIFY adjacentEpisodesChanged)
+    Q_PROPERTY(bool hasPreviousEpisode READ hasPreviousEpisode NOTIFY adjacentEpisodesChanged)
+    Q_PROPERTY(bool hasNextEpisode READ hasNextEpisode NOTIFY adjacentEpisodesChanged)
     
     // Track selection properties
     Q_PROPERTY(int selectedAudioTrack READ selectedAudioTrack WRITE setSelectedAudioTrack NOTIFY selectedAudioTrackChanged)
@@ -228,6 +236,10 @@ public:
     QVariantList playbackChapters() const { return m_playbackChapters; }
     bool hasPlaybackChapters() const { return !m_playbackChapters.isEmpty(); }
     int currentPlaybackChapterIndex() const { return m_currentPlaybackChapterIndex; }
+    QVariantList playbackVersions() const;
+    bool hasEpisodeNavigation() const;
+    bool hasPreviousEpisode() const;
+    bool hasNextEpisode() const;
     Q_INVOKABLE void setAudioDelay(int ms);
     Q_INVOKABLE bool attachEmbeddedVideoTarget(QObject *target);
     Q_INVOKABLE void detachEmbeddedVideoTarget(QObject *target = nullptr);
@@ -308,6 +320,11 @@ public:
     Q_INVOKABLE void previousChapter();
     Q_INVOKABLE void nextChapter();
     Q_INVOKABLE void seekToPlaybackChapter(int index);
+    /// Restarts the current item on another version at the current position.
+    Q_INVOKABLE void switchPlaybackVersion(const QString &mediaSourceId);
+    /// Replaces the playing episode with its previous/next episode.
+    Q_INVOKABLE void skipToPreviousEpisode();
+    Q_INVOKABLE void skipToNextEpisode();
     Q_INVOKABLE void toggleMute();
     Q_INVOKABLE void setMuted(bool muted);
     Q_INVOKABLE void setVolume(int volume);
@@ -325,6 +342,9 @@ public:
     Q_INVOKABLE void clearOverlayMetadata();
     Q_INVOKABLE void setTrickplayPreviewPositionSeconds(double seconds);
     Q_INVOKABLE void clearTrickplayPreviewPositionOverride();
+    /// Trickplay frame URL for an arbitrary position (filmstrip neighbours);
+    /// empty when trickplay is unavailable. Does not move the preview cursor.
+    Q_INVOKABLE QString trickplayPreviewUrlAt(double seconds);
     
     // Legacy convenience getters retained for existing QML/tests.
     Q_INVOKABLE int getLastAudioTrackForSeason(const QString &seasonId) const;
@@ -372,7 +392,9 @@ signals:
     void overlayMetadataChanged();
     void playbackChaptersChanged();
     void currentPlaybackChapterIndexChanged();
-    
+    void playbackVersionsChanged();
+    void adjacentEpisodesChanged();
+
     // Track selection signals
     void selectedAudioTrackChanged();
     void selectedSubtitleTrackChanged();
@@ -451,6 +473,11 @@ private slots:
     void onAutoplayPlaybackInfoTimeout();
     void onItemLibraryResolved(const QString &itemId, const QString &libraryId);
     void onItemLibraryResolutionFailed(const QString &itemId, const QString &error);
+    void onAdjacentEpisodeItemsLoaded(const QString &connectionId,
+                                      const QString &parentId,
+                                      const QString &queryKey,
+                                      const QVariantList &items,
+                                      int totalRecordCount);
     void onRecoveryTick();
     void resumeFromRecoveryContext();
     
@@ -609,6 +636,15 @@ private:
      * Clear any active trickplay preview override and associated preview URL/state.
      */
     void clearTrickplayPreview();
+    /// Cached data URL for one trickplay frame; empty on failure.
+    QString cachedTrickplayFrameUrl(int frameIndex);
+    /// Requests the season/series listings used for previous/next episode.
+    void refreshAdjacentEpisodes();
+    void resolveAdjacentEpisodes();
+    void requestAdjacentEpisodeListing(const QString &parentId, const QString &kind);
+    void requestAdjacentEpisodePlayback(const QVariantMap &episode);
+    void setPlaybackVersions(const QString &itemId, const QVariantList &versions);
+    static QString episodeOverlaySubtitle(const QVariantMap &episode);
     /**
      * Re-evaluate and update flags that indicate whether the player is currently inside intro/outro or other skip segments.
      */
@@ -1053,6 +1089,22 @@ private:
     QString m_trickplayPreviewUrl;
     bool m_hasTrickplayPreviewPositionOverride = false;
     double m_trickplayPreviewPositionOverrideSeconds = 0.0;
+    // Encoded trickplay frames keyed by frame index, valid for m_trickplayFrameCachePath.
+    QHash<int, QString> m_trickplayFrameUrlCache;
+    QList<int> m_trickplayFrameUrlOrder;
+    QString m_trickplayFrameCachePath;
+
+    // In-playback version picker state, scoped to the item it was built for.
+    QString m_playbackVersionsItemId;
+    QVariantList m_playbackVersions;
+
+    // Previous/next episode lookup, scoped to m_adjacentEpisodesItemId.
+    QString m_adjacentEpisodesItemId;
+    QString m_adjacentEpisodesConnectionId;
+    QHash<QString, QVariantList> m_adjacentListings;   // kind -> items
+    QSet<QString> m_adjacentListingsRequested;          // kind|parentId
+    QVariantMap m_previousEpisode;
+    QVariantMap m_nextEpisode;
 };
 
 // Hash functions required for QHash with enum types

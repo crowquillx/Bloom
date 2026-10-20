@@ -525,6 +525,18 @@ QtObject {
     property color playbackTimePrimary: Qt.rgba(1, 1, 1, 0.92)
     property color playbackTimeSecondary: Qt.rgba(1, 1, 1, 0.70)
     property color playbackIconColor: "#ffffff"
+    // Unified control bar: an outer glass panel holding the scrub row, an
+    // inner transport tray, and the settings pop-out. Light themes lift the
+    // accent so it still reads as a light tint over video.
+    property color playbackAccent: themeIsLight ? mix(accentPrimary, Qt.rgba(1, 1, 1, 1), 0.45) : accentPrimary
+    property color playbackAccentGlow: withAlpha(playbackAccent, 0.55)
+    property color playbackChromeSurface: Qt.rgba(0.07, 0.06, 0.10, 0.62)
+    property color playbackChromeTray: Qt.rgba(1, 1, 1, 0.06)
+    property color playbackChromeDivider: Qt.rgba(1, 1, 1, 0.16)
+    property color playbackHeroBackground: "#ffffff"
+    property color playbackHeroIcon: Qt.rgba(0.09, 0.07, 0.13, 1)
+    property color playbackSkipBackground: mix(playbackAccent, Qt.rgba(1, 1, 1, 1), 0.35)
+    property color playbackSkipText: Qt.rgba(0.09, 0.07, 0.13, 1)
 
     // UI element properties (legacy names map onto the semantic tokens)
     property color focusBorder: focusRing

@@ -773,6 +773,16 @@ void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
     QCOMPARE(seasonsRequest.relativeEndpoint,
              QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons"));
 
+    // Season listings keyed only by the season id (player episode navigation).
+    ProviderCatalogQuery seasonEpisodesQuery;
+    seasonEpisodesQuery.parentId = QStringLiteral("season/one");
+    seasonEpisodesQuery.includeItemTypes = {QStringLiteral("Episode")};
+    const ProviderCatalogRequest seasonEpisodesRequest =
+        provider.createRequest(ProviderCatalogOperation::Items, seasonEpisodesQuery);
+    QVERIFY(seasonEpisodesRequest.supported);
+    QCOMPARE(seasonEpisodesRequest.relativeEndpoint,
+             QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes"));
+
     ProviderCatalogQuery query;
     query.seriesId = QStringLiteral("series/one");
     query.parentId = QStringLiteral("0");
