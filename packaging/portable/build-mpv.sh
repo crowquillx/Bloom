@@ -13,11 +13,14 @@ apt-get install -y --no-install-recommends \
     libass-dev libasound2-dev libdav1d-dev libdrm-dev libegl1-mesa-dev \
     libepoxy-dev libexpat1-dev libffi-dev libgbm-dev glslang-dev \
     libgnutls28-dev libjpeg-dev liblcms2-dev libpulse-dev libva-dev \
-    libvdpau-dev libxinerama-dev libxml2-dev libxpresent-dev libxrandr-dev libxss-dev
+    libvdpau-dev libxinerama-dev libxml2-dev libxpresent-dev libxrandr-dev libxss-dev libzimg-dev
 
 export PATH="$PREFIX/bin:$PATH"
 export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
 export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+mkdir -p "$PREFIX/share/licenses/zimg"
+cp /usr/share/doc/libzimg2/copyright "$PREFIX/share/licenses/zimg/COPYING"
 
 fetch_source() {
     local name="$1" url="$2" hash="$3"
@@ -73,7 +76,7 @@ make -C "$SOURCES/nv-codec-headers" install PREFIX="$PREFIX"
     ./configure --prefix="$PREFIX" --enable-shared --disable-static \
         --disable-programs --disable-doc --disable-debug --enable-gnutls \
         --enable-libdav1d --enable-libdrm --enable-vaapi --enable-ffnvcodec \
-        --enable-nvdec --disable-vulkan
+        --enable-nvdec --enable-libzimg --disable-vulkan
     make -j "${BLOOM_BUILD_JOBS:-4}"
     make install
 )

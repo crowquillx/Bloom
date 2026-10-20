@@ -61,6 +61,18 @@ modules:
       # FFmpeg 9.0 is the first release with the `dovi_split` BSF that mpv
       # needs to split the Profile 7 EL. Installed under /app with its own
       # sonames, so it does not replace the runtime FFmpeg used by Qt.
+      - name: zimg
+        config-opts:
+          - --disable-static
+        post-install:
+          - install -Dm644 COPYING /app/share/licenses/zimg/COPYING
+        cleanup:
+          - /include
+          - /lib/pkgconfig
+        sources:
+          - type: archive
+            url: https://github.com/sekrit-twc/zimg/archive/refs/tags/release-3.0.6.tar.gz
+            sha256: be89390f13a5c9b2388ce0f44a5e89364a20c1c57ce46d382b1fcc3967057577
       - name: ffmpeg
         config-opts:
           - --enable-shared
@@ -74,6 +86,7 @@ modules:
           - --enable-vaapi
           - --enable-ffnvcodec
           - --enable-nvdec
+          - --enable-libzimg
           - --disable-vulkan
         cleanup:
           - /include
@@ -119,3 +132,5 @@ modules:
         path: ../..
     post-install:
       - mv /app/bin/Bloom /app/bin/bloom
+      - test -x /app/bin/bloom-seek-preview
+      - /app/bin/bloom-seek-preview --self-test

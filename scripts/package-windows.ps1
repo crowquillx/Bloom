@@ -122,6 +122,10 @@ New-Item -ItemType Directory -Path $OutputDir | Out-Null
 
 # Stage runtime files from install/bin to portable package root.
 Copy-Item -Path (Join-Path $installBin "*") -Destination $OutputDir -Recurse -Force
+$previewHelper = Join-Path $OutputDir "bloom-seek-preview.exe"
+if (-not (Test-Path $previewHelper -PathType Leaf)) {
+    throw "Bloom-Windows package has no seek preview helper."
+}
 
 # Stage optional shared assets if they exist.
 $installShare = Join-Path $InstallDir "share"
@@ -197,5 +201,10 @@ Prefix=.
 Plugins=plugins
 Qml2Imports=qml
 "@ | Set-Content -Path (Join-Path $OutputDir "qt.conf") -NoNewline
+
+& $previewHelper --self-test
+if ($LASTEXITCODE -ne 0) {
+    throw "Seek preview helper self-test failed with exit code $LASTEXITCODE"
+}
 
 Write-Host "Portable package staged at: $OutputDir" -ForegroundColor Green

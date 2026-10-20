@@ -18,6 +18,7 @@
 #include "backend/IPlayerBackend.h"
 #include "PlaybackPolicy.h"
 #include "TrickplayProcessor.h"
+#include "LocalSeekPreview.h"
 #include "../network/Types.h"
 #include "../models/MediaModels.h"
 #include "../utils/ConfigManager.h"
@@ -88,6 +89,7 @@ class PlayerController : public QObject
     Q_PROPERTY(bool hasTrickplay READ hasTrickplay NOTIFY trickplayStateChanged)
     Q_PROPERTY(int trickplayIntervalMs READ trickplayIntervalMs NOTIFY trickplayStateChanged)
     Q_PROPERTY(QString trickplayPreviewUrl READ trickplayPreviewUrl NOTIFY trickplayPreviewChanged)
+    Q_PROPERTY(quint64 trickplayFrameRevision READ trickplayFrameRevision NOTIFY trickplayFramesChanged)
     Q_PROPERTY(QString currentItemId READ currentItemId NOTIFY currentItemIdChanged)
     Q_PROPERTY(QString overlayTitle READ overlayTitle NOTIFY overlayMetadataChanged)
     Q_PROPERTY(QString overlaySubtitle READ overlaySubtitle NOTIFY overlayMetadataChanged)
@@ -225,9 +227,10 @@ public:
     bool isInIntroSegment() const { return m_isInIntroSegment; }
     bool isInOutroSegment() const { return m_isInOutroSegment; }
     bool hasActiveSkipSegment() const { return m_isInIntroSegment || m_isInOutroSegment; }
-    bool hasTrickplay() const { return m_hasTrickplayInfo; }
-    int trickplayIntervalMs() const { return m_hasTrickplayInfo ? m_currentTrickplayInfo.interval : 0; }
+    bool hasTrickplay() const { return m_hasTrickplayInfo || m_useLocalTrickplay; }
+    int trickplayIntervalMs() const { return m_hasTrickplayInfo ? m_currentTrickplayInfo.interval : (m_useLocalTrickplay ? LocalSeekPreview::intervalMs : 0); }
     QString trickplayPreviewUrl() const { return m_trickplayPreviewUrl; }
+    quint64 trickplayFrameRevision() const { return m_trickplayFrameRevision; }
     QString currentItemId() const { return m_currentItemId; }
     QString overlayTitle() const { return m_overlayTitle; }
     QString overlaySubtitle() const { return m_overlaySubtitle; }
@@ -344,7 +347,7 @@ public:
     Q_INVOKABLE void clearTrickplayPreviewPositionOverride();
     /// Trickplay frame URL for an arbitrary position (filmstrip neighbours);
     /// empty when trickplay is unavailable. Does not move the preview cursor.
-    Q_INVOKABLE QString trickplayPreviewUrlAt(double seconds);
+    Q_INVOKABLE QString trickplayPreviewUrlAt(double seconds, quint64 revision = 0);
     
     // Legacy convenience getters retained for existing QML/tests.
     Q_INVOKABLE int getLastAudioTrackForSeason(const QString &seasonId) const;
@@ -388,6 +391,7 @@ signals:
     void skipSegmentsChanged();
     void trickplayStateChanged();
     void trickplayPreviewChanged();
+    void trickplayFramesChanged();
     void currentItemIdChanged();
     void overlayMetadataChanged();
     void playbackChaptersChanged();
@@ -638,6 +642,7 @@ private:
     void clearTrickplayPreview();
     /// Cached data URL for one trickplay frame; empty on failure.
     QString cachedTrickplayFrameUrl(int frameIndex);
+    void enableLocalTrickplay();
     /// Requests the season/series listings used for previous/next episode.
     void refreshAdjacentEpisodes();
     void resolveAdjacentEpisodes();
@@ -1084,6 +1089,9 @@ private:
     bool m_hasAutoSkippedOutroForCurrentItem = false;
     TrickplayTileInfo m_currentTrickplayInfo;
     bool m_hasTrickplayInfo = false;
+    LocalSeekPreview *m_localSeekPreview = nullptr;
+    bool m_useLocalTrickplay = false;
+    quint64 m_trickplayFrameRevision = 0;
     QString m_trickplayBinaryPath;
     int m_currentTrickplayFrameIndex = -1;
     QString m_trickplayPreviewUrl;

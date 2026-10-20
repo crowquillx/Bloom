@@ -126,6 +126,9 @@ function(bloom_use_production_libraries test_target)
        OR player_policy_source IN_LIST test_sources)
         target_link_libraries(${test_target} PRIVATE Bloom::PlayerPolicy)
     endif()
+    if(player_controller_source IN_LIST test_sources)
+        target_link_libraries(${test_target} PRIVATE Bloom::SeekPreview)
+    endif()
     set(responsive_layout_manager_source
         ${CMAKE_SOURCE_DIR}/src/ui/ResponsiveLayoutManager.cpp)
     if(responsive_layout_manager_source IN_LIST test_sources)
@@ -1291,3 +1294,19 @@ add_test(NAME AudioPolicyTest COMMAND AudioPolicyTest)
 add_executable(AudioOutputServiceTest AudioOutputServiceTest.cpp)
 target_link_libraries(AudioOutputServiceTest PRIVATE Bloom::AudioOutput Qt6::Test)
 add_test(NAME AudioOutputServiceTest COMMAND AudioOutputServiceTest)
+
+add_executable(LocalSeekPreviewTest LocalSeekPreviewTest.cpp)
+target_link_libraries(LocalSeekPreviewTest PRIVATE Bloom::SeekPreview Qt6::Test)
+target_compile_definitions(LocalSeekPreviewTest PRIVATE
+    BLOOM_SEEK_PREVIEW_HELPER="$<TARGET_FILE:BloomSeekPreviewHelper>"
+    BLOOM_SEEK_PREVIEW_HDR_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/seek-preview-hdr.mkv")
+add_dependencies(LocalSeekPreviewTest BloomSeekPreviewHelper)
+add_test(NAME LocalSeekPreviewTest COMMAND LocalSeekPreviewTest)
+
+target_compile_definitions(PlayerControllerAutoplayContextTest PRIVATE
+    BLOOM_SEEK_PREVIEW_HDR_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/seek-preview-hdr.mkv")
+add_dependencies(PlayerControllerAutoplayContextTest BloomSeekPreviewHelper)
+add_custom_command(TARGET PlayerControllerAutoplayContextTest POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:BloomSeekPreviewHelper>
+        $<TARGET_FILE_DIR:PlayerControllerAutoplayContextTest>)

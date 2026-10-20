@@ -1987,7 +1987,7 @@ FocusScope {
                                         anchors.fill: parent
                                         radius: Math.round(12 * Theme.layoutScale)
                                         source: root.trickplayStripVisible && frame.inRange
-                                                ? PlayerController.trickplayPreviewUrlAt(frame.frameSeconds)
+                                                ? PlayerController.trickplayPreviewUrlAt(frame.frameSeconds, PlayerController.trickplayFrameRevision)
                                                 : ""
                                         mode: "shader"
                                         preferPreRounded: false

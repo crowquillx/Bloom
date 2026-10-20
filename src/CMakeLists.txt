@@ -230,6 +230,12 @@ if(EXISTS "${_bloom_dependency_pins}")
 endif()
 
 target_link_libraries(Bloom PRIVATE Bloom::MpvRuntime)
+target_link_libraries(Bloom PRIVATE Bloom::SeekPreview)
+
+add_executable(BloomSeekPreviewHelper player/SeekPreviewHelper.cpp)
+set_target_properties(BloomSeekPreviewHelper PROPERTIES OUTPUT_NAME bloom-seek-preview)
+target_link_libraries(BloomSeekPreviewHelper PRIVATE Bloom::MpvRuntime Qt6::Core)
+add_dependencies(Bloom BloomSeekPreviewHelper)
 
 if(UNIX AND NOT APPLE)
     target_sources(Bloom PRIVATE
@@ -480,7 +486,7 @@ endif()
 # Copy config file to build directory for easy access during development
 file(COPY ${CMAKE_SOURCE_DIR}/config/app.example.json DESTINATION ${CMAKE_BINARY_DIR}/config)
 
-install(TARGETS Bloom
+install(TARGETS Bloom BloomSeekPreviewHelper
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     BUNDLE DESTINATION .
 )

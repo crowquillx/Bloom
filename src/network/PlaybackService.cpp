@@ -1408,7 +1408,7 @@ void PlaybackService::getTrickplayInfo(const QString &itemId, const QString &fil
             }
             emit trickplayInfoLoaded(itemId, trickplayInfo);
         },
-        FailureHandler(),
+        [this, itemId](const NetworkError &) { emit trickplayInfoLoaded(itemId, {}); },
         0,
         true,
         RetrySafety::Idempotent);

@@ -9,6 +9,7 @@
 #include <QImage>
 #include <QFile>
 #include <QMap>
+#include <QPointer>
 #include "../network/PlaybackService.h" // For TrickplayTileInfo data struct
 
 class AuthenticationService;
@@ -16,15 +17,9 @@ class PlaybackService;
 
 /**
  * @class TrickplayProcessor
- * @brief Processes Jellyfin trickplay tiles into raw BGRA data for mpv overlay
- * 
- * This class implements the same approach as jellyfin-mpv-shim:
- * 1. When trickplay info is received, downloads all tile JPEGs
- * 2. Extracts individual thumbnails from each tile
- * 3. Converts RGBA → BGRA (channel swap required by mpv)
- * 4. Writes all frames sequentially to a single binary file
- * 5. Sends configuration to Lua script via mpv IPC
- * 
+ * @brief Downloads server trickplay sheets and converts them to BGRA frames
+ * for the native playback filmstrip.
+ *
  * The binary file format is:
  * - Sequential frames, each frame is width * height * 4 bytes (BGRA)
  * - Frame N starts at offset: N * width * height * 4
@@ -41,7 +36,7 @@ public:
 
     /**
      * @brief Start processing trickplay data for an item
-     * @param itemId The Jellyfin item ID
+     * @param itemId The provider item ID
      * @param info The trickplay tile information
      */
     void startProcessing(const QString &itemId, const TrickplayTileInfo &info);
@@ -132,6 +127,8 @@ private:
     
     // Downloaded tile data
     QMap<int, QByteArray> m_downloadedTiles;
+    QList<QPointer<QNetworkReply>> m_replies;
+    quint64 m_generation = 0;
     int m_totalTiles;
     int m_tilesDownloaded;
     

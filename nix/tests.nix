@@ -11,6 +11,7 @@
   mpv,
   sqlite,
   qt6,
+  glibcLocales,
 }:
 
 stdenv.mkDerivation {
@@ -81,6 +82,7 @@ stdenv.mkDerivation {
       NavigationRailTest \
       AudioPolicyTest \
       AudioOutputServiceTest \
+      LocalSeekPreviewTest \
       DisplayManagerTest \
       PlayerControllerAutoplayContextTest \
       MediaSegmentProviderServiceTest \
@@ -93,6 +95,7 @@ stdenv.mkDerivation {
     runHook postBuild
   '';
   doCheck = true;
+  LOCALE_ARCHIVE = "${glibcLocales}/lib/locale/locale-archive";
   checkPhase = ''
     runHook preCheck
     python3 "$src/tests/contracts/provider_contracts_test.py"

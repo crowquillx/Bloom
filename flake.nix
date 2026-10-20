@@ -148,6 +148,7 @@
                 test "$output" = "Bloom ${bloom.version}"
                 help_output="$(${bloom}/bin/bloom --help 2>&1)"
                 printf '%s\n' "$help_output" | grep -F -- "--verbose, -v"
+                ${bloom}/bin/bloom-seek-preview --self-test
                 touch "$out"
               '';
           automation-lint =
@@ -198,6 +199,7 @@
                   (.mpv.version | type == "string") and
                   (.mpv.source_revision | length == 40) and
                   (.mpv.windows_sdk_sha256 | length == 64) and
+                  (.zimg.sha256 | length == 64) and
                   (.dolby_vision_fel.mpv_merge_commit | length == 40) and
                   (.portable.image | startswith("docker://")) and
                   (.flatpak.sdk_commit | length == 64) and
