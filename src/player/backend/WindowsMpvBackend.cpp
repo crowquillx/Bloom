@@ -1,5 +1,6 @@
 #include "WindowsMpvBackend.h"
 #include "player/AudioPolicy.h"
+#include "ui/ResponsiveLayoutPolicy.h"
 
 #include <QAbstractNativeEventFilter>
 #include <QCoreApplication>
@@ -7,6 +8,8 @@
 #include <QEvent>
 #include <QMetaObject>
 #include <QMetaType>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QVector>
 #include <QtMath>
 #include <QtGlobal>
@@ -130,6 +133,7 @@ public:
         case WM_SIZE:
         case WM_MOVE:
         case WM_WINDOWPOSCHANGED:
+        case WM_DPICHANGED:
             if (m_onGeometryChanged) {
                 m_onGeometryChanged(static_cast<quint32>(nativeMessage->message),
                                     static_cast<quintptr>(nativeMessage->wParam));
@@ -176,6 +180,9 @@ WindowsMpvBackend::WindowsMpvBackend(QObject *parent)
         }
         case WM_WINDOWPOSCHANGED:
             beginTransitionMitigation("wm-windowposchanged", 75);
+            break;
+        case WM_DPICHANGED:
+            beginTransitionMitigation("wm-dpichanged", 90);
             break;
         case WM_MOVE:
             scheduleGeometrySync();
@@ -524,7 +531,22 @@ void WindowsMpvBackend::syncContainerGeometry()
         return;
     }
 
-    const QRect viewportRect = m_lastViewport.toAlignedRect();
+    // The viewport is in Qt logical pixels, but SetWindowPos positions the
+    // child in the container's physical client pixels (Qt is per-monitor DPI
+    // aware). Without this mapping the video covers only 1/DPR of each axis.
+    qreal devicePixelRatio = 1.0;
+    if (const auto *item = qobject_cast<QQuickItem *>(m_videoTarget.data()); item && item->window()) {
+        devicePixelRatio = item->window()->devicePixelRatio();
+    }
+
+    QSize nativeClientSize;
+    RECT clientRect{};
+    if (GetClientRect(reinterpret_cast<HWND>(m_containerWinId), &clientRect)) {
+        nativeClientSize = QSize(clientRect.right - clientRect.left, clientRect.bottom - clientRect.top);
+    }
+
+    const QRect viewportRect = Bloom::ResponsiveLayoutPolicy::toNativePixelRect(
+        m_lastViewport, devicePixelRatio, nativeClientSize);
     if (viewportRect.width() < 1 || viewportRect.height() < 1) {
         ShowWindow(hostWindow, SW_HIDE);
         return;
@@ -542,7 +564,9 @@ void WindowsMpvBackend::syncContainerGeometry()
         << "Geometry sync checkpoint"
         << "containerWinId=" << static_cast<qulonglong>(m_containerWinId)
         << "hostWinId=" << static_cast<qulonglong>(m_videoHostWinId)
-        << "viewport=" << m_lastViewport;
+        << "viewport=" << m_lastViewport
+        << "devicePixelRatio=" << devicePixelRatio
+        << "nativeRect=" << viewportRect;
 #endif
 }
 

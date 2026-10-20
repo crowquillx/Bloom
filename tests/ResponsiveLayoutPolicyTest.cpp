@@ -5,6 +5,7 @@
 #include "ui/ResponsiveLayoutPolicy.h"
 
 using Bloom::ResponsiveLayoutPolicy::computeLayout;
+using Bloom::ResponsiveLayoutPolicy::toNativePixelRect;
 
 namespace {
 
@@ -86,6 +87,56 @@ private slots:
         const auto overridden = computeLayout(1920, 1080, 0.5);
         QCOMPARE(overridden.baseLayoutScale, automatic.baseLayoutScale);
         QVERIFY(std::abs(overridden.layoutScale - automatic.layoutScale * 0.5) < 1e-9);
+    }
+
+    // The Windows mpv host is a native child window positioned in physical
+    // pixels. Passing logical pixels made video cover 1/3 x 1/3 of a 4K
+    // screen at 300% and 2/3 x 2/3 at 150%.
+    void fullWindowViewportCoversNativeClient_data()
+    {
+        QTest::addColumn<QSize>("nativeClient");
+        QTest::addColumn<qreal>("osScale");
+
+        QTest::newRow("4k-100") << QSize(3840, 2160) << 1.0;
+        QTest::newRow("4k-150") << QSize(3840, 2160) << 1.5;
+        QTest::newRow("4k-300") << QSize(3840, 2160) << 3.0;
+        QTest::newRow("4k-work-area-300") << QSize(3840, 2016) << 3.0;
+        QTest::newRow("1080p-125") << QSize(1920, 1080) << 1.25;
+        QTest::newRow("odd-150") << QSize(1003, 565) << 1.5;
+        QTest::newRow("odd-175") << QSize(1001, 667) << 1.75;
+    }
+
+    void fullWindowViewportCoversNativeClient()
+    {
+        QFETCH(QSize, nativeClient);
+        QFETCH(qreal, osScale);
+
+        // Qt rounds the logical window size, so it may not divide exactly.
+        const QRectF logical(0, 0, qRound(nativeClient.width() / osScale),
+                             qRound(nativeClient.height() / osScale));
+        QCOMPARE(toNativePixelRect(logical, osScale, nativeClient), QRect(QPoint(0, 0), nativeClient));
+    }
+
+    void insetViewportScalesPositionAndSize()
+    {
+        // Credits shrink mode: 72% of the window, inset from the bottom right.
+        const QRectF logical(339.2, 155.52, 921.6, 518.4);
+        QCOMPARE(toNativePixelRect(logical, 3.0, QSize(3840, 2160)), QRect(1018, 467, 2764, 1555));
+        QCOMPARE(toNativePixelRect(logical, 1.0, QSize()), QRect(339, 156, 922, 518));
+    }
+
+    void adjacentRectsTileWithoutGaps()
+    {
+        const QRect leftHalf = toNativePixelRect(QRectF(0, 0, 333.5, 100), 1.5, QSize());
+        const QRect rightHalf = toNativePixelRect(QRectF(333.5, 0, 333.5, 100), 1.5, QSize());
+        QCOMPARE(leftHalf.right() + 1, rightHalf.left());
+    }
+
+    void clampsToNativeClient()
+    {
+        const QRect native = toNativePixelRect(QRectF(-20, -20, 2000, 2000), 2.0, QSize(1920, 1080));
+        QCOMPARE(native, QRect(0, 0, 1920, 1080));
+        QCOMPARE(toNativePixelRect(QRectF(0, 0, 640, 360), 0.0, QSize()), QRect(0, 0, 640, 360));
     }
 };
 

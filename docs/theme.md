@@ -15,6 +15,9 @@ The new responsive system, driven by `ResponsiveLayoutManager`, replaces the old
   or OS display scaling (10-foot / Kodi-style).
 - Calculated from the logical window size only; Qt already applies
   `devicePixelRatio`, so Bloom never multiplies it a second time.
+- Exception: native child windows (the Windows embedded mpv host) are placed in
+  physical pixels. Convert with `ResponsiveLayoutPolicy::toNativePixelRect`
+  instead of passing logical geometry to Win32.
 - Replaces `Theme.dpiScale`.
 - Usage: every pixel size must be a Theme token or be multiplied by `Theme.layoutScale`.
   ```qml

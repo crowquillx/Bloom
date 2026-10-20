@@ -176,8 +176,9 @@ target_link_libraries(BloomPlayerPolicy
         Qt6::Core
 )
 
-# Pure responsive layout math. Inputs are logical pixels only so OS display
-# scaling (device pixel ratio) cannot be applied twice.
+# Pure responsive layout math. Layout inputs are logical pixels only so OS
+# display scaling (device pixel ratio) cannot be applied twice;
+# toNativePixelRect is the one logical-to-native mapping for native windows.
 add_library(BloomResponsiveLayoutPolicy STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/ResponsiveLayoutPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/ResponsiveLayoutPolicy.h

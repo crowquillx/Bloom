@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace Bloom::ResponsiveLayoutPolicy {
 
@@ -44,6 +45,29 @@ LayoutMetrics computeLayout(int logicalWidth, int logicalHeight, qreal manualSca
 
     metrics.sidebarDefaultMode = QStringLiteral("rail");
     return metrics;
+}
+
+QRect toNativePixelRect(const QRectF &logicalRect, qreal devicePixelRatio, const QSize &nativeClientSize)
+{
+    const qreal dpr = devicePixelRatio > 0.0 ? devicePixelRatio : 1.0;
+
+    int left = qRound(logicalRect.left() * dpr);
+    int top = qRound(logicalRect.top() * dpr);
+    int right = qRound(logicalRect.right() * dpr);
+    int bottom = qRound(logicalRect.bottom() * dpr);
+
+    if (nativeClientSize.isValid()) {
+        const int slack = static_cast<int>(std::ceil(dpr));
+        const auto snap = [slack](int edge, int bound) {
+            return std::abs(edge - bound) <= slack ? bound : edge;
+        };
+        left = std::clamp(snap(left, 0), 0, nativeClientSize.width());
+        top = std::clamp(snap(top, 0), 0, nativeClientSize.height());
+        right = std::clamp(snap(right, nativeClientSize.width()), left, nativeClientSize.width());
+        bottom = std::clamp(snap(bottom, nativeClientSize.height()), top, nativeClientSize.height());
+    }
+
+    return QRect(left, top, right - left, bottom - top);
 }
 
 } // namespace Bloom::ResponsiveLayoutPolicy

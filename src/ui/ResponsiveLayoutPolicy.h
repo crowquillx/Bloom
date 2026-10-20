@@ -1,5 +1,8 @@
 #pragma once
 
+#include <QRect>
+#include <QRectF>
+#include <QSize>
 #include <QString>
 
 namespace Bloom::ResponsiveLayoutPolicy {
@@ -31,5 +34,21 @@ struct LayoutMetrics
  * @param manualScaleOverride User override multiplied into layoutScale.
  */
 LayoutMetrics computeLayout(int logicalWidth, int logicalHeight, qreal manualScaleOverride);
+
+/**
+ * @brief Maps a rect in a window's logical pixels to its native client pixels.
+ *
+ * Native child windows (the Windows embedded mpv host) are positioned in
+ * physical pixels, while Qt Quick reports item geometry in logical pixels.
+ * Edges are rounded independently so the result tiles without gaps, then
+ * snapped to the client bounds when within one logical pixel: Qt rounds the
+ * native window size, so a full-window viewport can otherwise land a pixel
+ * short of, or past, the client edge.
+ *
+ * @param logicalRect Rect in window-relative logical pixels.
+ * @param devicePixelRatio The window's device pixel ratio; values <= 0 mean 1.
+ * @param nativeClientSize Native client size; an invalid size skips snapping.
+ */
+QRect toNativePixelRect(const QRectF &logicalRect, qreal devicePixelRatio, const QSize &nativeClientSize);
 
 } // namespace Bloom::ResponsiveLayoutPolicy

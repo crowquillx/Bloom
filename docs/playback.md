@@ -48,6 +48,7 @@ Windows embedded backend details
 - Added `WindowsMpvBackend` scaffold under `src/player/backend/`.
 - Selector token: `win-libmpv`.
 - Windows backend now resolves target `winId` from `MpvVideoItem`, creates a dedicated child host window, and keeps host geometry synced to `VideoSurface` viewport updates for embedded playback.
+- `VideoSurface` reports the viewport in Qt logical pixels; the backend maps it to the container's physical client pixels with `Bloom::ResponsiveLayoutPolicy::toNativePixelRect` and the window's `devicePixelRatio` before `SetWindowPos`. Skipping that mapping shrinks the video to 1/DPR of each axis (one third of a 4K screen at 300%). `WM_DPICHANGED` also triggers a resync.
 - Windows backend now attempts a direct libmpv control path first (`mpv_create`/`mpv_initialize`/`mpv_command_node_async`/`mpv_observe_property`/`mpv_wait_event`) while preserving the `PlayerController` contract.
 - If direct libmpv initialization/load fails (or libmpv is unavailable at build time), `win-libmpv` reports an error; no implicit alternate backend is used.
 - Playback controls are now exercised through the direct Windows backend command path in the same migration slice: play/pause/resume/seek/stop plus audio/subtitle property commands.
