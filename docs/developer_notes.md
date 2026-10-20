@@ -1,7 +1,6 @@
 Developer Notes & Conventions
 
-Purpose
-- Keep this doc short — examples and code snippets are small references. Prefer component-specific examples in the code or dedicated how-to docs.
+Detailed QML, focus, C++, and logging conventions. `AGENTS.md` carries the short version and the subsystem ownership map.
 
 QML & Focus
 - Use `FocusScope` as the root of navigable views; QML `Item` should be used if the view is not intended to be focusable.
@@ -22,27 +21,16 @@ QML & Focus
 
 C++ conventions
 - PascalCase class names, camelCase method names, `m_` prefix for member variables.
-- Prefer smart pointers and use `QObject` parent ownership where appropriate.
 - Use `Q_PROPERTY` for values that will be bound in QML; emit change signals on setter change.
 - Keep playback/track-selection policy in C++ where possible. QML should render available options and forward explicit user intent, not duplicate track mapping or default-resolution logic.
 
 ViewModels & Models
 - Use `QAbstractListModel` for heavy lists and expose roles via `roleNames()`.
 - Loading/error state conventions: see `docs/viewmodels.md` for `BaseViewModel` usage and migration notes.
-- Use `ListView` with `cacheBuffer` tweaks for long lists (optimize based on device perf).
 - Use a simple pattern for SWR: serve cached data immediately, background refresh for fresh data, update UI only if data changed.
 
 Performance
-- Lazy-load images and cache them (image caching service exists in project).
 - Offload heavy JSON parsing or expensive calculations to background threads and report results back to the UI thread.
-- Reuse delegates and avoid excessive property bindings that cause frequent re-evaluations.
-- Home rotating backdrops should use `LibraryService.getHomeBackdropItems(limit)` (single lightweight random query over recursive media) instead of only section-bound lists like Next Up/Latest.
-- Screensaver artwork should use `LibraryService.getScreensaverItems(limit)` so the Home backdrop query stays lightweight while the screensaver gets synopsis/logo metadata.
-
-Coding style
-- Keep components small and single-purpose.
-- QML: props down, events up. Expose events via signals.
-- Write small unit tests for C++ core logic and integration tests for critical flows if feasible.
 
 Useful utilities
 - `PlayerProcessManager` for external mpv lifecycle. Link `Bloom::PlayerProcess`
@@ -62,9 +50,3 @@ Logging
 - Bloom routes Qt diagnostics through `Logger` with a default `info` level. Chatty areas use `Q_LOGGING_CATEGORY` (for example `bloom.imagecache`, `bloom.library`); debug for those categories is off unless you set `settings.logging.level` to `debug`, pass `--verbose`, or add rules under `settings.logging.qt_rules`.
 - Include `utils/BloomLogging.h` and use the declared categories (`lcImageCache`, `lcViewModels`, etc.) — never bare `qDebug()` in new code.
 - Prefer `qCDebug(category)` over bare `qDebug()` for high-volume paths so logs can be filtered without silencing the whole app.
-
-Where to add new docs
-- For new architectural changes, add a targeted doc under `/docs` and link it from `AGENTS.md`.
-
-Contact & credits
-- Add contributor credits and the LICENSE file as the canonical source for licensing.

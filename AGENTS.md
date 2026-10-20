@@ -1,149 +1,140 @@
-Bloom — Project Rules & Architecture (Condensed)
+# Bloom
 
-Purpose: Single-page developer reference for architecture, conventions, and quick build/run steps. Keep this file short — deep dives live in `docs/` (playback, theme, services, config, developer_notes).
+10-foot HTPC media client for Jellyfin and Silo servers: high-quality mpv
+playback, Wayland-first Linux, Windows via embedded libmpv. Every screen MUST be
+fully keyboard/gamepad navigable.
 
-Goals: 10-foot media HTPC client for Jellyfin and Silo servers; high-quality mpv playback; Wayland-first Linux support. MUST be completely keyboard/gamepad navigable.
+Stack: C++23, Qt 6/QML, CMake, mpv (external JSON IPC or embedded libmpv).
+Logic (network, data models, services, policy) lives in C++; QML is UI,
+animation, and theming.
 
-QML & Focus
-- Use `FocusScope` as the root of navigable views; QML `Item` should be used if the view is not intended to be focusable.
-- For keyboard/remote UX, `InputModeManager` should detect pointer vs keyboard navigation; hide cursor while navigating via keyboard.
-- Use `Qt.callLater` to restore focus after async view/model updates or cache reloads.
-- UI scale is resolution- and OS-scaling-independent (10-foot, Kodi-style): size everything with `Theme` tokens or `Math.round(N * Theme.layoutScale)`, never bare pixels. See `docs/responsive.md`.
-- Global navigation is the floating left rail (`Sidebar.qml`). Pages reserve `Theme.navRailReservedWidth`, and the rail expands as an overlay without shifting content. Show focus only with the shared `FocusRing` (the Home hero carousel uses lit edge cues instead; see `docs/hero-banner.md`) and selection with `selection*` tokens. Use semantic Theme tokens and shared components (`ActionButton`, `BloomMenu`, `DialogSurface`, `StateMessage`, ...) instead of one-off styling. See `docs/theme.md`.
+## Build, test, verify
 
-Stack: C++23 (Qt 6/QML) • CMake • mpv (external JSON IPC)
-Keep as much logic as possible in C++ (network, data models, services); QML for UI, animations, and theming.
+All builds go through Nix; run CMake/Ninja only via `./scripts/dev-build.sh`.
 
-Key files: `src/core/ServiceLocator.h`, `utils/ConfigManager.*`, `src/providers/ServerConnection.*`, `src/security/CredentialStore.*`, `src/network/AuthenticationService.*`, `player/*`, `ui/Theme.qml`, `ui/ResponsiveLayoutManager.*`, `src/ui/ScreensaverController.*`, `src/ui/ScreensaverOverlay.qml`.
+- Incremental build: `./scripts/dev-build.sh` (`--run` to launch, `--tests` to
+  build test targets into `build-dev/`).
+- Run tests: from `build-dev/`,
+  `LC_ALL=C QT_QPA_PLATFORM=offscreen nix develop .. --command ctest --output-on-failure`
+  (add `-R '^NameTest$'` for one test). `LC_ALL=C` is required: under a UTF-8
+  locale `mpv_create()` returns null and libmpv tests fail spuriously.
+- `VisualRegressionTest` always skips locally, so its pass proves nothing.
+  `./src/Bloom --test-mode` ignores SIGTERM; kill it explicitly.
+- QML lint: `nix build .#checks.x86_64-linux.qml-lint`.
+- Final verification: `nix flake check` (tests, QML lint, release smoke, pins).
+  CI runs the same checks; sanitizers, TSAN, clang-tidy and coverage run in the
+  scheduled deep-analysis workflow.
+- Live server, display, GPU, and playback contracts are manual validation
+  (`docs/manual-validation.md`); an unavailable environment is not a pass.
 
-Conventions: C++ PascalCase classes, camelCase methods, `m_` prefix; QML PascalCase components, camelCase props; use `FocusScope` for navigable views; keep `Theme.qml` as the single source for tokens.
+Tests link the narrowest production `Bloom::*` target instead of compiling
+shared `.cpp` files. Library dependencies stay acyclic: models →
+configuration/transport → providers → network services.
 
-Playback & API: Provider-owned playback lifecycle/report routing serializes each provider's wire contract; key Jellyfin endpoints include `/Users/{userId}/Items`, `/Shows/NextUp`, `/PlaybackInfo`, `/Sessions/Playing`.
+## UI rules
 
-Network policy: `HttpTransport` requests have bounded attempt and unauthorized-recovery deadlines. Retries are opt-in by operation semantics, not inferred from HTTP methods: safe reads (including read-only `POST` queries) use `Idempotent`, mutations default to `Never`, and replayable mutations require a stable idempotency mechanism. `RetryPolicy::maxAttempts` includes the initial attempt; keep provider parsing outside the transport and preserve separated network, HTTP, and provider error fields.
+- Navigable views use a `FocusScope` root; non-focusable views use `Item`.
+  Restore focus with `Qt.callLater` after async model updates.
+- Size everything with `Theme` tokens or `Math.round(N * Theme.layoutScale)`.
+  Scaling is resolution- and OS-scaling-independent (`docs/responsive.md`).
+- Show focus with the shared `FocusRing` and selection with `selection*` tokens
+  (the Home hero uses edge light cues instead). Build from shared components
+  (`ActionButton`, `BloomMenu`, `DialogSurface`, `StateMessage`, ...) and
+  semantic tokens in `src/ui/Theme.qml`, the single token source.
+- Pages reserve `Theme.navRailReservedWidth`; the `Sidebar.qml` rail expands as
+  an overlay without shifting content.
+- Full QML/focus conventions: `docs/developer_notes.md`.
 
-Windows embedded playback guardrail (regression prevention):
-- When using `win-libmpv` embedded playback (`--wid` child window), playback controls MUST render in a dedicated transparent top-level overlay `Window` synced to the app window geometry.
-- Any app-level overlay that must be visible during Windows embedded playback (for example the screensaver while paused) MUST also render in a synced top-level overlay `Window`.
-- Do NOT rely on in-scene sibling layering above `VideoSurface` for Windows embedded playback; native child-window composition can occlude QML overlays.
-- Any PR touching Windows playback layering/geometry (`src/ui/Main.qml`, `src/ui/VideoSurface.qml`, `src/ui/EmbeddedPlaybackOverlay.qml`, `src/player/backend/WindowsMpvBackend.*`) must include manual runtime validation: controls visible above video, and no video move/clip during show/hide, resize, minimize/restore, maximize, and fullscreen transitions.
+## Ownership map
 
-Backend policy (high level): Windows always uses embedded libmpv (`win-libmpv`) for playback. Linux embedded libmpv remains experimental/validation-only; keep current Linux fallback behavior (Wayland defaults to `external-mpv-ipc` unless explicitly opted in for validation, and unsupported embedded runtime conditions fall back to `external-mpv-ipc`).
+Each area has one owner. Read its doc before changing it.
 
-External mpv process/IPC lifecycle is owned by `Bloom::PlayerProcess`. It is
-fully event-driven: never add UI-thread `QProcess::waitFor*` calls. Preserve the
-graceful-quit/escalation sequence, queued replacement playback, bounded IPC
-deadlines/queues, and per-user/per-instance private endpoints documented in
-`docs/playback.md`.
+- **External mpv process/IPC**: `Bloom::PlayerProcess` (`docs/playback.md`).
+  Fully event-driven; no UI-thread `QProcess::waitFor*`. Preserve graceful
+  quit/escalation, queued replacement playback, bounded IPC deadlines/queues,
+  and per-user/per-instance private endpoints.
+- **Playback backend selection** (`docs/playback.md`): Windows always uses
+  embedded `win-libmpv`. Linux embedded libmpv is validation-only; Wayland
+  defaults to `external-mpv-ipc`, and unsupported embedded conditions fall back
+  to it.
+- **Playback policy**: `Bloom::PlayerPolicy` (`docs/playback.md`). Language,
+  track, HDR, version, completion, and autoplay decisions stay Qt-Core-only,
+  free of I/O and `QObject`. `PlayerController` remains the QML-facing facade.
+- **Display/HDR**: `Bloom::Display`. Asynchronous and generation-safe; external
+  display commands keep deadlines and bounded output. HDR is applied before
+  refresh at startup and restored before refresh.
+- **Audio output**: policy in `Bloom::PlayerPolicy`, endpoints in
+  `Bloom::AudioOutput` (`docs/audio.md`). Provider decode claims stay
+  independent of encoded output support. Selectors list only the active mpv
+  driver's endpoints. A missing saved device resolves to `auto` without being
+  overwritten. Only WASAPI gets exclusive access; every other driver keeps
+  `audio-exclusive=no`.
+- **HTTP**: `HttpTransport` (`docs/services.md`). Bounded attempt and
+  unauthorized-recovery deadlines. Retries are chosen by operation semantics:
+  safe reads (including read-only `POST` queries) use `Idempotent`, mutations
+  default to `Never`, replayable mutations need a stable idempotency mechanism.
+  `RetryPolicy::maxAttempts` includes the first attempt. Provider parsing stays
+  outside the transport; network, HTTP, and provider error fields stay separate.
+- **Providers** (`docs/provider-architecture.md`,
+  `docs/canonical-models.md`): wire DTOs stay inside provider adapters and
+  `LibraryService` request handling; view models, QML, and player code consume
+  connection-scoped canonical projections only, with camelCase keys. Providers
+  own playback lifecycle and report serialization. Jellyfin requests use only
+  non-obsolete operations and parameters from the pinned OpenAPI contract
+  (`docs/provider-compatibility.md`).
+- **Image cache**: `Bloom::ImageCache`. SQLite and disk files
+  belong to its dedicated worker; its `QSqlDatabase` stays on that thread.
+  Provider image jobs coalesce identical identity-and-size requests; QML
+  responses subscribe to jobs and own no download/decode work.
+- **Updates**: `Bloom::Updater` (`docs/updates.md`). Manifests stay
+  Ed25519-signed, HTTPS/origin-restricted, and size/deadline-bounded. Installer
+  bytes are hashed incrementally and finalized atomically before any Windows
+  elevation.
 
-Display/HDR lifecycle is owned by `Bloom::Display`. Keep HDR, refresh matching,
-and restoration asynchronous and generation-safe; external display commands
-must retain deadlines and bounded output, and `PlayerController` must preserve
-HDR-before-refresh startup plus HDR-before-refresh restoration ordering.
+## Windows embedded playback guardrail
 
-Audio output policy is owned by `Bloom::PlayerPolicy`; endpoint discovery is
-owned by `Bloom::AudioOutput`. Keep provider decode claims independent from
-encoded output support. Output selectors list only the active mpv driver's
-endpoints (never raw ALSA under a sound server); a missing saved device resolves
-to `auto` without being overwritten. Exclusive access is WASAPI-only; keep
-`audio-exclusive=no` for every other driver. See `docs/audio.md` for planning,
-device selection, runtime checks and hotplug/resume validation.
+With `win-libmpv` (`--wid` child window), native composition occludes in-scene
+QML layered above `VideoSurface`. Render playback controls, and any app overlay
+that must show during playback (for example the paused screensaver), in a
+dedicated transparent top-level `Window` synced to the app window geometry.
 
-Pure playback decisions are owned by the Qt-Core-only `Bloom::PlayerPolicy`
-target. Keep language, track, HDR, version, completion, and autoplay policy free
-of I/O and `QObject`; `PlayerController` remains the stable QML-facing facade
-and state coordinator documented in `docs/playback.md`.
+Changes to `src/ui/Main.qml`, `src/ui/VideoSurface.qml`,
+`src/ui/EmbeddedPlaybackOverlay.qml`, or `src/player/backend/WindowsMpvBackend.*`
+need manual runtime validation: controls visible above video, and no video
+move/clip across show/hide, resize, minimize/restore, maximize, and fullscreen.
 
-Provider wire DTOs stay inside provider adapters and `LibraryService` request
-handling. Migrated view models, QML, and player code consume connection-scoped
-canonical projections only; do not reintroduce raw DTO signals or PascalCase
-wire-key fallbacks. Jellyfin client requests must use only endpoints listed in
-the pinned official OpenAPI contract and must not use operations or parameters
-marked obsolete there; record the pin and detailed compatibility notes in
-`docs/provider-compatibility.md`.
+## Conventions
 
-Update trust and bounded download lifecycle are owned by `Bloom::Updater`.
-Release manifests must remain Ed25519-signed, HTTPS/origin restricted, and
-size/deadline bounded; installer bytes are incrementally hashed and atomically
-finalized before any Windows elevation. See `docs/updates.md` for key rotation.
+- C++: PascalCase classes, camelCase methods, `m_` members. QML: PascalCase
+  components, camelCase properties.
+- Commits follow Conventional Commits (`docs/conventional-commits.md`).
+- Update the relevant `docs/` page in the same change. A new major component
+  gets its own page plus a line below. Edit this file only for architecture or
+  global-policy changes.
 
-Build & run (blessed path):
-```
-nix build
-nix run
-nix flake check
-```
-Use the flake for development, builds, tests, and packaging. For local builds
-after making code changes, `./scripts/dev-build.sh` is the blessed incremental
-build path; it runs CMake/Ninja inside `nix develop` and keeps a persistent
-build directory. Do not run CMake or Make directly for supported Linux builds.
-Use `nix build` and `nix flake check` for clean final verification. Portable
-Linux artifacts are orchestrated by Nix through a pinned Ubuntu compatibility
-container; Windows remains a native MSVC build.
+## Docs
 
-CMake production code is organized into reusable `Bloom::*` libraries. Tests
-must link production targets instead of compiling shared `.cpp` files
-independently and should prefer the narrowest practical target; keep dependency
-direction acyclic from models through configuration/transport, providers, and
-network services.
-
-Image-cache SQLite and disk-file lifecycle is owned by the dedicated worker
-behind `Bloom::ImageCache`; never share its `QSqlDatabase` across threads.
-Provider-owned image jobs coalesce identical identity-and-size requests; QML
-responses subscribe to those jobs and must not own shared download/decode work.
-
-When to update: Only edit this file for architecture, conventions, or global policy changes. Implementation details live in `docs/*` and should be updated there.
-
-Documentation & update policy:
-- Keep `AGENTS.md` as a short, high-level reference only. All implementation details, guides and examples belong in `docs/*`.
-- When adding a new feature, component, or public API: update the relevant page(s) in `docs/`. If you add a new major component, create a `docs/` page describing it and link that file from `AGENTS.md` (short summary only).
-- For small changes (UI tweaks, single-property changes): update the relevant `docs/` file (or add a small note). Include documentation updates in the same PR whenever practical.
-- For major architecture or convention changes: update `AGENTS.md` (briefly), update relevant `docs/*` pages with details, and include a short migration/compatibility note.
-
-If making a commit, use Conventional Commits spec. See [docs/conventional-commits.md](docs/conventional-commits.md) for the canonical guidance.
-
-PR checklist (docs):
-- [ ] Documentation updated in the appropriate `docs/` page(s).
-- [ ] `AGENTS.md` updated if the change is architectural or alters project conventions.
-- [ ] Link new docs in the PR description (or include the doc change in the PR).
-- [ ] Ask a maintainer or reviewer to confirm that docs accurately reflect changes.
-- [ ] (Optional) Add or update a changelog entry for large changes.
-
-If unsure whether a change requires `AGENTS.md` or `docs/` updates, open an issue or tag a maintainer and include a short explanation and proposed doc edits.
-
-See also:
-- docs/build.md     — Nix build, packaging, CI, and Windows instructions
-- docs/audio.md — audio metadata, early output policy, endpoint detection and HTPC validation
-- docs/playback.md  — mpv and playback/reporting integration
-- docs/dolby-vision.md — pinned mpv stacks, DV/FEL capability checks, renderer limits, and sample verification
-- docs/provider-compatibility.md — provider-neutral server contract matrix, reproducible Jellyfin/Silo pins, and native API assumptions
-- docs/manual-validation.md — v0.8.0 release-graduation ledger, commands, evidence, and unavailable gates
-- docs/provider-architecture.md — connection identity, credential migration, and incremental provider adapter boundaries
-- docs/profiles.md — Bloom profiles (workspace memberships distinct from provider profiles)
-- docs/canonical-models.md — Bloom-owned media, artwork, and playback model contracts
-- docs/media-segments.md — External intro/recap/credits provider integration and precedence
-- docs/hero-banner.md — Home hero sources, settings, focus behavior, and backdrop synchronization
-- docs/theme.md     — Theme.qml tokens and design system
-- docs/services.md  — ServiceLocator pattern & initialization order
-- docs/updates.md   — Windows updater flow, release manifests, channels, and notify-only behavior
-- docs/config.md    — ConfigManager Q_PROPERTY and runtime settings
-- docs/seerr.md     — Seerr/Jellyseerr integration (search, request flow, and similar-title hook)
-- docs/responsive.md — Deprecated: see docs/theme.md for ResponsiveLayoutManager
-- docs/developer_notes.md — Conventions, focus, QML patterns, and best practices
-- docs/viewmodels.md — BaseViewModel patterns and MovieDetailsViewModel
-- docs/screensaver.md — in-app OLED-safe screensaver controller, arming rules, focus contract, and known limitations
-- docs/input-bindings.md — configurable keyboard/controller action bindings and SDL gamepad dispatch
-- docs/conventional-commits.md — commit messages must follow the Conventional Commits spec so tooling and changelogs stay accurate
-
-License: See `LICENSE`.
-
-Testing policy:
-- The Nix `.#checks.x86_64-linux.tests` derivation runs automatically in CI,
-  alongside structural QML lint and the offscreen Release startup smoke;
-  `nix flake check` remains the blessed local command for the full check suite.
-- Targeted clang-tidy, ASan/UBSan, concurrency-focused TSAN, and coverage run
-  in the scheduled/on-demand deep-analysis workflow. Keep those checks scoped
-  to meaningful ownership boundaries and do not make normal PR CI unbounded.
-- Live provider/server, display, GPU, and playback contracts requiring hosts or
-  runtime hardware remain manual validation; unavailable environments are not
-  automated passes.
+- Building, packaging, CI, Windows MSVC → `docs/build.md`,
+  `docs/WINDOWS-BUILD.md`, `docs/WINDOWS-README.md`
+- mpv, playback, reporting → `docs/playback.md`; Dolby Vision/FEL and mpv pins
+  → `docs/dolby-vision.md`
+- Audio metadata, output policy, device selection → `docs/audio.md`
+- Service registration and init order → `docs/services.md`
+- Settings and `ConfigManager` properties → `docs/config.md`
+- Server connections, credentials, adapters → `docs/provider-architecture.md`;
+  Jellyfin/Silo contract pins → `docs/provider-compatibility.md`
+- Canonical media/artwork/playback models → `docs/canonical-models.md`
+- Bloom profiles vs provider profiles → `docs/profiles.md`
+- View models and loading/error state → `docs/viewmodels.md`
+- Theme tokens, rail, shared components → `docs/theme.md`; scaling math and
+  ultrawide layout → `docs/responsive.md`
+- QML, focus, logging conventions → `docs/developer_notes.md`
+- Keyboard/controller bindings → `docs/input-bindings.md`
+- Accessibility roles and names → `CONTRIBUTING.md`
+- Home hero → `docs/hero-banner.md`; screensaver → `docs/screensaver.md`
+- Rounded images and the `ImageCacheProvider` path → `docs/images.md`
+- Intro/recap/credits segments → `docs/media-segments.md`
+- Seerr requests → `docs/seerr.md`
+- Updater, manifests, key rotation → `docs/updates.md`
+- Credential storage, keyring troubleshooting → `docs/SECURITY.md`
+- Release validation ledger → `docs/manual-validation.md`

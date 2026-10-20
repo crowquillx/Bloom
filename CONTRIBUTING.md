@@ -29,7 +29,7 @@ Always providing dynamic names based on the model data:
 ```qml
 ItemDelegate {
     Accessible.role: Accessible.ListItem
-    Accessible.name: modelData.Name
+    Accessible.name: modelData.name
     Accessible.description: "Press to view details"
 }
 ```

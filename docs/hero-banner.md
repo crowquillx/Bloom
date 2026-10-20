@@ -62,6 +62,11 @@ When backdrop synchronization is enabled, the selected hero image drives Home's 
 cross-fading backdrop and pauses normal backdrop rotation. Settings are stored below
 `settings.ui.hero_banner` and exposed on the Settings > Home page.
 
+Normal backdrop rotation draws from `LibraryService.getHomeBackdropItems(limit)`, a single
+lightweight random query over recursive media, rather than section-bound lists such as Next
+Up or Latest. The screensaver uses its own `getScreensaverItems(limit)` query for
+synopsis/logo metadata so this one stays light.
+
 ## Transitions
 
 When the hero item changes (manual cycle via Left/Right, or auto-cycle), the banner
