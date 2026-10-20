@@ -226,6 +226,10 @@ private slots:
     void removingConnectionAffectsOnlyThatAccount();
     void pooledMemberArtworkUsesOwnServerAndToken();
     void mergedWorkspaceActiveAtStartupLoadsMemberSessions();
+    void signedOutMemberLosesPooledSession();
+    void routeNeedingSignInFailsWithoutSticking();
+    void switchNeedingSignInFinishesAfterLogin();
+    void skippedMemberKeepsRestoringUntilNextFinishes();
 
 private:
     void seedAccounts();
@@ -561,6 +565,96 @@ void WorkspaceRoutingTest::mergedWorkspaceActiveAtStartupLoadsMemberSessions()
 
     m_merged->refreshViews();
     QTRY_VERIFY(!m_merged->viewsLoading() && m_merged->views().size() == 3);
+}
+
+void WorkspaceRoutingTest::signedOutMemberLosesPooledSession()
+{
+    QVERIFY(!createMergedWorkspace().isEmpty());
+    waitForMembersReady();
+    QTRY_VERIFY(!m_auth->sessionPool()->isLoading(QStringLiteral("alice")));
+
+    m_auth->logout();
+    QVERIFY(!m_auth->isAuthenticated());
+    // The pool also held the live member; signing out must not leave its
+    // token reachable for merged reads once another member is live.
+    QVERIFY(!m_auth->hasSessionForConnection(QStringLiteral("alice")));
+    QVERIFY(m_auth->hasSessionForConnection(QStringLiteral("bob")));
+}
+
+void WorkspaceRoutingTest::routeNeedingSignInFailsWithoutSticking()
+{
+    QVERIFY(!createMergedWorkspace().isEmpty());
+    waitForMembersReady();
+
+    QSignalSpy failed(m_workspaces.get(), &WorkspaceController::routeFailed);
+    QSignalSpy ready(m_workspaces.get(), &WorkspaceController::routeReady);
+    QVERIFY(!m_workspaces->routeTo(QStringLiteral("carol")));
+    QVERIFY(m_workspaces->isSwitching());
+    // The restored session reached a provider profile or PIN prompt.
+    emit m_auth->signInRequired(QStringLiteral("carol"));
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(failed.at(0).at(0).toString(), QStringLiteral("carol"));
+    QVERIFY(!m_workspaces->isSwitching());
+
+    QTRY_VERIFY(m_auth->isAuthenticated());
+    QTest::qWait(50);
+    QCOMPARE(ready.count(), 0);
+    QVERIFY(!m_workspaces->isSwitching());
+}
+
+void WorkspaceRoutingTest::switchNeedingSignInFinishesAfterLogin()
+{
+    const QString single = m_workspaces->createProfile(
+        QStringLiteral("Carol"), {QStringLiteral("carol")}, false);
+    QVERIFY(!single.isEmpty());
+
+    QSignalSpy switched(m_workspaces.get(), &WorkspaceController::workspaceSwitched);
+    QSignalSpy failed(m_workspaces.get(), &WorkspaceController::switchFailed);
+    QVERIFY(m_workspaces->switchProfile(single));
+    QVERIFY(m_workspaces->isSwitching());
+    emit m_auth->signInRequired(QStringLiteral("carol"));
+    // Profile edits and repairs keep working while the login screen is up.
+    QVERIFY(!m_workspaces->isSwitching());
+    QCOMPARE(switched.count(), 0);
+
+    // The login screen finishes signing in to the awaited member.
+    QTRY_VERIFY(m_auth->isAuthenticated());
+    QCOMPARE(m_auth->activeConnectionId(), QStringLiteral("carol"));
+    QTRY_COMPARE(switched.count(), 1);
+    QCOMPARE(failed.count(), 0);
+    QCOMPARE(m_workspaces->activeProfileId(), single);
+}
+
+void WorkspaceRoutingTest::skippedMemberKeepsRestoringUntilNextFinishes()
+{
+    // A saved account with no stored sign-in, as the workspace default.
+    m_config->upsertConnection(
+        connection(QStringLiteral("erin"), QStringLiteral("media.test"), QStringLiteral("u-erin")),
+        false);
+    const QString id = m_workspaces->createProfile(
+        QStringLiteral("Erin first"), {QStringLiteral("erin"), QStringLiteral("carol")}, true);
+    QVERIFY(!id.isEmpty());
+
+    bool erinFailed = false;
+    QList<bool> restoringAfterFailure;
+    connect(m_auth.get(), &AuthenticationService::connectionActivationFailed, this,
+            [&](const QString &connectionId) {
+        erinFailed = erinFailed || connectionId == QStringLiteral("erin");
+    });
+    connect(m_auth.get(), &AuthenticationService::isRestoringSessionChanged, this, [&]() {
+        if (erinFailed) {
+            restoringAfterFailure.append(m_auth->isRestoringSession());
+        }
+    });
+    QSignalSpy switched(m_workspaces.get(), &WorkspaceController::workspaceSwitched);
+    QVERIFY(m_workspaces->switchProfile(id));
+    QTRY_COMPARE(switched.count(), 1);
+    QCOMPARE(m_auth->activeConnectionId(), QStringLiteral("carol"));
+    // Carol's restoration starts inside erin's failure; erin's finished
+    // handler must not then report restoring as done while carol's runs.
+    QVERIFY(erinFailed);
+    QCOMPARE(restoringAfterFailure.count(false), 1);
+    QVERIFY(!m_auth->isRestoringSession());
 }
 
 QTEST_GUILESS_MAIN(WorkspaceRoutingTest)

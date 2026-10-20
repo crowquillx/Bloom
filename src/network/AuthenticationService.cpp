@@ -337,6 +337,7 @@ void AuthenticationService::startRestoration()
 {
     ConfigManager *configManager = m_configManager;
     m_isRestoringSession = true;
+    const quint64 restorationGeneration = ++m_restorationGeneration;
     emit isRestoringSessionChanged();
 
     const ConfigManager::SessionData session = configManager->getJellyfinSession();
@@ -393,7 +394,7 @@ void AuthenticationService::startRestoration()
 
     m_restorationWatcher.disconnect(this);
     connect(&m_restorationWatcher, &QFutureWatcher<RestorationResult>::finished,
-            this, [this, configManager]() {
+            this, [this, configManager, restorationGeneration]() {
         const RestorationResult result = m_restorationWatcher.result();
         const auto currentConnection = configManager->getActiveConnection();
         const bool connectionChanged = result.connection.isValid()
@@ -432,8 +433,12 @@ void AuthenticationService::startRestoration()
             qCWarning(lcAuth) << "Legacy credential cleanup failed:"
                               << result.cleanupError;
         }
-        m_isRestoringSession = false;
-        emit isRestoringSessionChanged();
+        // A fallback or next-member activation started inside failRestoration
+        // owns the flag now.
+        if (restorationGeneration == m_restorationGeneration) {
+            m_isRestoringSession = false;
+            emit isRestoringSessionChanged();
+        }
     });
 
     m_restorationWatcher.setFuture(future);
@@ -1678,6 +1683,11 @@ void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
         : (m_configManager
                ? m_configManager->getActiveConnection().value_or(ServerConnection{})
                : ServerConnection{});
+    if (removeCredentials && connection.isValid()) {
+        // Merged reads fall back to pooled tokens once another member is live;
+        // a signed-out account must not stay reachable through them.
+        m_sessionPool->forget(connection.connectionId);
+    }
     if (removeCredentials && m_secretStore && connection.isValid()) {
         const QString deviceId = m_configManager ? m_configManager->getDeviceId() : QString();
         removeAllCredentialsAsync(connection, deviceId);
@@ -1734,9 +1744,9 @@ void AuthenticationService::updateAuthenticationStep(const QString &step)
         && (step == QStringLiteral("profiles") || step == QStringLiteral("pin"))) {
         // The saved provider profile is gone or needs a PIN: hand the
         // half-restored session to the login screen instead of failing.
-        m_activatingConnectionId.clear();
+        const QString connectionId = std::exchange(m_activatingConnectionId, QString());
         m_activationFallbackConnectionId.clear();
-        emit signInRequired();
+        emit signInRequired(connectionId);
     }
 }
 

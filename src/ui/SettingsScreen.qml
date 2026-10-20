@@ -25,6 +25,7 @@ FocusScope {
     readonly property string buildId: typeof appBuildId !== "undefined" ? appBuildId : ""
     readonly property string buildQtVersion: typeof qtVersion !== "undefined" ? qtVersion : ""
     property bool focusUpdatesOnActivate: false
+    property bool focusWorkspacesOnActivate: false
     property bool saveToastArmed: false
     property string pendingSettingsToastMessage: qsTr("Settings saved")
 
@@ -229,6 +230,9 @@ FocusScope {
             if (focusUpdatesOnActivate) {
                 requestUpdateSectionFocus()
                 focusUpdatesOnActivate = false
+            } else if (focusWorkspacesOnActivate) {
+                requestWorkspaceSectionFocus()
+                focusWorkspacesOnActivate = false
             } else {
                 settingsRail.focusRail()
             }

@@ -99,6 +99,16 @@ FocusScope {
     property string currentNavigation: "home"
     /// Current active library id (derived from currentNavigation when applicable)
     property string currentLibraryId: ""
+    /// Connection that owns the open library; merged rails list the same
+    /// library ID once per account on a shared server.
+    property string currentLibraryConnectionId: ""
+
+    function isCurrentLibrary(library) {
+        if (!library || currentNavigation !== ("library:" + (library.itemId || "")))
+            return false
+        return !library.connectionId || currentLibraryConnectionId === ""
+                || library.connectionId === currentLibraryConnectionId
+    }
 
     // Library ordering state
     property var libraryItems: []
@@ -232,6 +242,7 @@ FocusScope {
         currentNavigation = navigationId
         if (navigationId.indexOf("library:") !== 0) {
             currentLibraryId = ""
+            currentLibraryConnectionId = ""
         }
         navigationRequested(navigationId)
         if (hadFocus)
@@ -246,6 +257,7 @@ FocusScope {
         pinnedOpen = false
         currentNavigation = "library:" + (library.itemId || "")
         currentLibraryId = library.itemId || ""
+        currentLibraryConnectionId = library.connectionId || ""
         // A merged library opens on the connection that owns it.
         libraryRouter.run(library.connectionId || "", function() {
             root.libraryRequested(library.itemId || "", library.name || "")
@@ -298,7 +310,7 @@ FocusScope {
         }
         if (currentLibraryId !== "") {
             for (var i = 0; i < libraryItems.length; ++i) {
-                if (libraryItems[i] && libraryItems[i].itemId === currentLibraryId) {
+                if (isCurrentLibrary(libraryItems[i])) {
                     var libraryEntry = libraryRepeater.itemAt(i)
                     if (libraryEntry) {
                         libraryEntry.forceActiveFocus()
@@ -837,7 +849,7 @@ FocusScope {
                             sublabel: reordering ? qsTr("Up/Down to move, Enter to finish")
                                                  : (modelData.sourceLabel || "")
                             toolTipLabel: modelData.name || ""
-                            selected: root.currentNavigation === ("library:" + (modelData.itemId || ""))
+                            selected: root.isCurrentLibrary(modelData)
                             reordering: root.reorderModeActive && root.reorderingIndex === index
                             libraryIndex: index
                             Accessible.description: root.mergedLibraries

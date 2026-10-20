@@ -170,7 +170,7 @@ signals:
     void connectionActivationFailed(const QString &connectionId, const QString &error);
     /// An activated connection needs interactive input (provider profile or
     /// PIN); the login screen continues from the current step.
-    void signInRequired();
+    void signInRequired(const QString &connectionId);
 
     void serverUrlChanged();
     void userIdChanged();
@@ -215,6 +215,9 @@ private:
     std::shared_ptr<ISecretStore> m_secretStore;
     ServerConnection m_activeConnection;
     bool m_isRestoringSession = false;
+    // Identifies the newest restoration; a superseded one must not clear
+    // m_isRestoringSession while its replacement is still running.
+    quint64 m_restorationGeneration = 0;
     ConfigManager *m_configManager = nullptr;
     quint64 m_stateGeneration = 0;
     ConnectionSessionPool *m_sessionPool = nullptr;

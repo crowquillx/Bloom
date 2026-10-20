@@ -329,6 +329,44 @@ Window {
         })
     }
 
+    // Pages that show one connection's items (they declare ownerConnectionId)
+    // are stamped with the live connection when first shown. Routing to
+    // another member of a merged workspace keeps the stack, so a page left
+    // behind would run its actions through the wrong account: Back skips it.
+    function liveConnectionId() {
+        return typeof Workspaces !== "undefined" ? Workspaces.activeConnectionId : ""
+    }
+
+    function isStalePage(item) {
+        return !!item && !!item["ownerConnectionId"]
+                && item["ownerConnectionId"] !== liveConnectionId()
+    }
+
+    function trackPageOwner(item) {
+        if (!item || item["ownerConnectionId"] === undefined)
+            return
+        if (item["ownerConnectionId"] === "") {
+            item["ownerConnectionId"] = liveConnectionId()
+        } else if (isStalePage(item)) {
+            Qt.callLater(dropStalePages)
+        }
+    }
+
+    function dropStalePages() {
+        if (!window.isLoggedIn || stackView.depth <= 1
+                || (typeof Workspaces !== "undefined" && Workspaces.switching)
+                || !isStalePage(stackView.currentItem)) {
+            return
+        }
+        for (var i = stackView.depth - 1; i >= 0; --i) {
+            var item = stackView.get(i)
+            if (item && !isStalePage(item)) {
+                stackView.pop(item, StackView.Immediate)
+                return
+            }
+        }
+    }
+
     // A different workspace is live: pages from the previous one hold
     // another connection's items, so start again from a fresh Home.
     function resetToWorkspaceHome() {
@@ -561,6 +599,7 @@ Window {
             
             onCurrentItemChanged: {
                 console.log("[FocusDebug] StackView.currentItemChanged:", currentItem ? currentItem.toString() : "null", "sidebar.expanded:", sidebarProxy.expanded)
+                window.trackPageOwner(currentItem)
                 // Let screens with restoreFocusState handle their own focus restoration
                 // This allows HomeScreen to restore focus to the previously selected item
                 if (currentItem && !sidebarProxy.expanded) {
@@ -1009,7 +1048,8 @@ Window {
             toast.show(qsTr("Couldn't switch workspace. %1").arg(error))
         }
         function onRouteReady(connectionId) {
-            // Routing keeps the workspace; the open pages stay valid.
+            // Routing keeps the workspace; pages owned by the previous
+            // member are skipped on Back (dropStalePages).
             window.workspaceResetPending = false
         }
         function onRouteFailed(connectionId, error) {
@@ -1352,6 +1392,7 @@ Window {
         property int sidebarWidth: 0
         property string currentNavigation: "home"
         property string currentLibraryId: ""
+        property string currentLibraryConnectionId: ""
         function focusNavigation() {}
         function focusRail() {}
         function focusDialogOrigin() {}
@@ -1437,8 +1478,10 @@ Window {
         sidebarProxy.currentNavigation = navigationId
         if (navigationId && navigationId.indexOf("library:") === 0) {
             sidebarProxy.currentLibraryId = navigationId.substring("library:".length)
+            sidebarProxy.currentLibraryConnectionId = item["ownerConnectionId"] || ""
         } else {
             sidebarProxy.currentLibraryId = ""
+            sidebarProxy.currentLibraryConnectionId = ""
         }
     }
 
@@ -1452,7 +1495,10 @@ Window {
         options = options || {}
         playPointerSelectSound()
         stackView.push("SettingsScreen.qml", {
-            focusUpdatesOnActivate: !!options.focusUpdatesOnActivate
+            focusUpdatesOnActivate: !!options.focusUpdatesOnActivate,
+            // Read on activation like the updates request: a later call would
+            // lose focus to the rail when the push transition finishes.
+            focusWorkspacesOnActivate: !!options.focusWorkspaces
         })
         Qt.callLater(function() {
             var settingsScreen = stackView.currentItem
@@ -1465,9 +1511,6 @@ Window {
             }
             if (settingsScreen && options.focusUpdatesOnActivate && typeof settingsScreen["requestUpdateSectionFocus"] === "function") {
                 settingsScreen["requestUpdateSectionFocus"]()
-            }
-            if (settingsScreen && options.focusWorkspaces && typeof settingsScreen["requestWorkspaceSectionFocus"] === "function") {
-                settingsScreen["requestWorkspaceSectionFocus"]()
             }
         })
         updateSidebarNavigation()

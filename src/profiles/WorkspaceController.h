@@ -101,6 +101,7 @@ private:
     void handleAuthenticated();
     void handleConnectionActivated(const QString &connectionId);
     void handleActivationFailed(const QString &connectionId, const QString &error);
+    void handleSignInRequired(const QString &connectionId);
     void startSwitch(const BloomProfile &profile);
     void activateNextCandidate();
     void finishSwitch();
@@ -122,6 +123,8 @@ private:
     QString m_switchingConnectionId;
     QString m_previousProfileId;
     QString m_previousConnectionId;
+    // A switch handed to the login screen; finishes when this member signs in.
+    QString m_switchAwaitingSignIn;
 
     QString m_routeTarget;
 

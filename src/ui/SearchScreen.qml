@@ -61,6 +61,17 @@ FocusScope {
         seriesResults = failed ? [] : (series || [])
     }
 
+    function startLibrarySearch(term) {
+        pendingLibraryConnectionId = mergedMode ? "" : LibraryService.getActiveConnectionId()
+        pendingLibrarySearchTerm = term
+        waitingForLibrarySearch = true
+        hasSearched = false
+        if (mergedMode)
+            MergedCatalog.search(term)
+        else
+            LibraryService.search(term)
+    }
+
     SourceRouter {
         id: sourceRouter
     }
@@ -101,14 +112,7 @@ FocusScope {
         onTriggered: {
             const normalizedSearchTerm = searchTerm.trim()
             if (normalizedSearchTerm.length > 0) {
-                pendingLibraryConnectionId = mergedMode ? "" : LibraryService.getActiveConnectionId()
-                pendingLibrarySearchTerm = normalizedSearchTerm
-                waitingForLibrarySearch = true
-                hasSearched = false
-                if (mergedMode)
-                    MergedCatalog.search(normalizedSearchTerm)
-                else
-                    LibraryService.search(normalizedSearchTerm)
+                root.startLibrarySearch(normalizedSearchTerm)
 
                 if (SeerrService.isConfigured()) {
                     waitingForSeerrSearch = true
@@ -217,6 +221,18 @@ FocusScope {
             if (!root.mergedMode || term !== root.pendingLibrarySearchTerm)
                 return
             root.applyLibrarySearchResults(term, [], [], true)
+        }
+
+        // Editing the workspace's sources drops in-flight member requests and
+        // invalidates shown results; search the new source list again.
+        function onActiveChanged() {
+            const term = root.searchTerm.trim()
+            if (term.length === 0 || (!root.waitingForLibrarySearch && !root.hasSearched))
+                return
+            // Results from a removed or disabled source must not stay selectable.
+            root.movieResults = []
+            root.seriesResults = []
+            root.startLibrarySearch(term)
         }
     }
 

@@ -43,6 +43,8 @@ WorkspaceController::WorkspaceController(AuthenticationService *authService,
                 this, &WorkspaceController::handleConnectionActivated);
         connect(m_authService, &AuthenticationService::connectionActivationFailed,
                 this, &WorkspaceController::handleActivationFailed);
+        connect(m_authService, &AuthenticationService::signInRequired,
+                this, &WorkspaceController::handleSignInRequired);
         connect(m_authService, &AuthenticationService::userIdChanged,
                 this, &WorkspaceController::activeConnectionChanged);
     }
@@ -458,6 +460,12 @@ void WorkspaceController::handleAuthenticated()
     if (connectionId.isEmpty()) {
         return;
     }
+    const QString awaitedSignIn = std::exchange(m_switchAwaitingSignIn, QString());
+    if (!awaitedSignIn.isEmpty() && awaitedSignIn == connectionId && !m_addingConnection) {
+        // The switch finished on the login screen (provider profile or PIN).
+        finishSwitch();
+        return;
+    }
     if (m_addingConnection) {
         finishAddConnection(connectionId);
         return;
@@ -523,9 +531,34 @@ void WorkspaceController::handleActivationFailed(const QString &connectionId,
     failSwitch(error);
 }
 
+void WorkspaceController::handleSignInRequired(const QString &connectionId)
+{
+    if (!m_routeTarget.isEmpty() && connectionId == m_routeTarget) {
+        // A routed action cannot wait for an interactive sign-in; the login
+        // screen continues as a plain sign-in for that account.
+        m_routeTarget.clear();
+        setSwitching(false);
+        emit routeFailed(connectionId, tr("This account needs you to sign in again."));
+        return;
+    }
+    if (!m_switching || connectionId != m_switchingConnectionId) {
+        return;
+    }
+    // The workspace is selected; the switch completes once the login screen
+    // authenticates this member. Leaving the switching state keeps profile
+    // edits and repairs working meanwhile.
+    m_switchCandidates.clear();
+    m_switchingConnectionId.clear();
+    m_previousProfileId.clear();
+    m_previousConnectionId.clear();
+    m_switchAwaitingSignIn = connectionId;
+    setSwitching(false);
+}
+
 void WorkspaceController::startSwitch(const BloomProfile &profile)
 {
     m_switchCandidates.clear();
+    m_switchAwaitingSignIn.clear();
     QString defaultConnection;
     for (const BloomProfileMember &member : profile.members) {
         if (!member.enabled) {
