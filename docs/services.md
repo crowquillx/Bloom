@@ -30,6 +30,7 @@ Key services
 - `SeerrService` — Seerr/Jellyseerr search integration, request-option loading, request submission, and similar-title provider endpoints.
 - `PlayerController` — Orchestrates playback using `IPlayerBackend` and services; owns `TrickplayProcessor`.
 - `TrickplayProcessor` — Uses `AuthenticationService` (network) + `PlaybackService` (tile URLs) to build trickplay binaries.
+- `LocalSeekPreview` — Owned by `PlayerController`. Uses the selected canonical playback descriptor to generate the full preview timeline through the isolated `bloom-seek-preview` helper when server trickplay is unavailable. See [seek previews](seek-previews.md).
 - `ThemeSongManager` — Uses `LibraryService` for theme songs plus `ConfigManager` and `PlayerController` for state.
 - `InputModeManager` — Pointer/keyboard detection and cursor management.
 - `InputBindingManager` — Configurable keyboard/controller action bindings and SDL-backed gamepad dispatch.

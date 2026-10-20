@@ -237,6 +237,20 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             this, &PlayerController::onTrickplayProcessingComplete);
     connect(m_trickplayProcessor, &TrickplayProcessor::processingFailed,
             this, &PlayerController::onTrickplayProcessingFailed);
+    m_localSeekPreview = new LocalSeekPreview(this);
+    connect(m_localSeekPreview, &LocalSeekPreview::framesChanged, this, [this] {
+        ++m_trickplayFrameRevision;
+        emit trickplayFramesChanged();
+        if (m_useLocalTrickplay) {
+            updateTrickplayPreviewForPosition(m_hasTrickplayPreviewPositionOverride
+                ? m_trickplayPreviewPositionOverrideSeconds : m_currentPosition);
+        }
+    });
+    connect(m_localSeekPreview, &LocalSeekPreview::unavailable, this, [this] {
+        m_useLocalTrickplay = false;
+        clearTrickplayPreview();
+        emit trickplayStateChanged();
+    });
     
     // Setup timeout timers
     m_loadingTimeoutTimer->setSingleShot(true);
@@ -1161,8 +1175,8 @@ void PlayerController::onPositionChanged(double seconds)
         emit timelineChanged();
     }
 
-    if (m_hasTrickplayInfo && !m_hasTrickplayPreviewPositionOverride) {
-        updateTrickplayPreviewForPosition(seconds);
+    if (hasTrickplay() && !m_hasTrickplayPreviewPositionOverride) {
+        updateTrickplayPreviewForPosition(aggregatePosition);
     }
     
     // First position update - transition from Loading to Buffering
@@ -1334,6 +1348,11 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
     m_terminalPrefetchedReady = false;
     ++m_terminalTransitionGeneration;
     m_pendingTerminalReason = reason;
+
+    m_useLocalTrickplay = false;
+    m_localSeekPreview->clear();
+    m_trickplayProcessor->clear();
+    emit trickplayStateChanged();
 
     reportPlaybackStop();
 
@@ -2064,6 +2083,17 @@ void PlayerController::onPlaybackAudioSwitchedForRequest(const QString &sessionI
         m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("url")] = m_pendingUrl;
         m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("audioIndex")] =
             m_selectedAudioTrack;
+        auto descriptor = m_playbackSegments[m_activePlaybackSegmentIndex]
+            .value(QStringLiteral("descriptor")).value<Bloom::PlaybackDescriptor>();
+        descriptor.stream.url = reloadUrl;
+        m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("descriptor")] =
+            QVariant::fromValue(descriptor);
+        if (m_useLocalTrickplay) {
+            m_localSeekPreview->updateStream(descriptor.stream);
+            m_useLocalTrickplay = m_localSeekPreview->isAvailable();
+            if (!m_useLocalTrickplay) clearTrickplayPreview();
+            emit trickplayStateChanged();
+        }
     }
     // Native audio switching reloads the media URL. Rebuild the source-to-mpv
     // maps from the active source while retaining them when no source metadata
@@ -2603,17 +2633,27 @@ void PlayerController::onPlaybackDescriptorLoadedForRequest(
             : descriptor.mediaVersionId;
         const QString sessionId = descriptor.playbackSessionId.isEmpty()
             ? m_pendingAutoplayDescriptorSessionId : descriptor.playbackSessionId;
-        QVariantList autoplaySubtitleTracks = m_pendingAutoplayDescriptorSubtitleTracks;
-        int autoplaySubtitleIndex = m_pendingAutoplayDescriptorSubtitleIndex;
-        appendDescriptorExternalSubtitleTracks(autoplaySubtitleTracks,
-                                               descriptor,
-                                               &autoplaySubtitleIndex);
+        QVariantMap autoplaySegment{
+            {QStringLiteral("itemId"), itemId},
+            {QStringLiteral("mediaSourceId"), mediaSourceId},
+            {QStringLiteral("playSessionId"), sessionId},
+            {QStringLiteral("mediaSource"), m_pendingAutoplayDescriptorSource},
+            {QStringLiteral("audioIndex"), m_pendingAutoplayDescriptorAudioIndex},
+            {QStringLiteral("subtitleIndex"), m_pendingAutoplayDescriptorSubtitleIndex},
+            {QStringLiteral("availableAudioTracks"), m_pendingAutoplayDescriptorAudioTracks},
+            {QStringLiteral("availableSubtitleTracks"), m_pendingAutoplayDescriptorSubtitleTracks}
+        };
+        applyPlaybackDescriptorToSegment(autoplaySegment, descriptor);
+        const QVariantList autoplaySubtitleTracks =
+            autoplaySegment.value(QStringLiteral("availableSubtitleTracks")).toList();
+        const int autoplaySubtitleIndex = autoplaySegment.value(QStringLiteral("subtitleIndex"), -1).toInt();
         stopAutoplayPlaybackInfoWait();
         m_nextPlaybackMethod = Bloom::playbackMethodName(descriptor.stream.method);
         m_nextStreamPinsAudioTrack = descriptor.stream.pinsAudioTrack;
         m_nextStreamPinsSubtitleTrack = descriptor.stream.pinsSubtitleTrack;
         m_nextPinnedAudioTrack = parsePinnedTrackId(descriptor.stream.pinnedAudioTrackId);
         m_nextPinnedSubtitleTrack = parsePinnedTrackId(descriptor.stream.pinnedSubtitleTrackId);
+        m_nextPlaybackSegments = {autoplaySegment};
         playUrlWithTracks(url,
                           itemId,
                           m_pendingAutoplayDescriptorStartPositionMs,
@@ -2889,6 +2929,9 @@ QVariantList PlayerController::buildMultipartSegments(const QVariantMap &request
 
 void PlayerController::clearPlaybackSegments()
 {
+    m_useLocalTrickplay = false;
+    m_localSeekPreview->clear();
+    m_trickplayProcessor->clear();
     m_playbackSegments.clear();
     m_activePlaybackSegmentIndex = -1;
     m_activePlaybackSegmentOffsetMs = 0;
@@ -2928,6 +2971,9 @@ void PlayerController::applyPlaybackSegment(int index, bool reportSegmentStart)
     m_segmentRelativePosition = 0.0;
 
     const QVariantMap segment = m_playbackSegments.at(index);
+    m_useLocalTrickplay = false;
+    m_trickplayProcessor->clear();
+    m_localSeekPreview->clear();
     m_mediaSourceId = segment.value(QStringLiteral("mediaSourceId")).toString();
     m_playSessionId = segment.value(QStringLiteral("playSessionId")).toString();
     const QString segmentPlayMethod = segment.value(QStringLiteral("playMethod")).toString();
@@ -6733,12 +6779,16 @@ void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<
 
 void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<int, TrickplayTileInfo> &trickplayInfo)
 {
-    if (itemId != activePlaybackSegmentItemId()) {
+    if (itemId != activePlaybackSegmentItemId() || m_terminalTransitionActive) {
         qCDebug(lcPlayback) << "PlayerController: Ignoring trickplay info for different item:" << itemId;
         return;
     }
 
-    const bool wasTrickplayReady = m_hasTrickplayInfo;
+    const bool wasTrickplayReady = hasTrickplay();
+    if (trickplayInfo.isEmpty()
+        && (m_useLocalTrickplay || m_hasTrickplayInfo || m_trickplayProcessor->isProcessing())) return;
+    m_useLocalTrickplay = false;
+    m_localSeekPreview->clear();
     
     if (trickplayInfo.isEmpty()) {
         qCDebug(lcPlayback) << "PlayerController: No trickplay info available for item:" << itemId;
@@ -6750,6 +6800,7 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
         m_trickplayPreviewPositionOverrideSeconds = 0.0;
         clearTrickplayPreview();
         emit trickplayStateChanged();
+        enableLocalTrickplay();
         return;
     }
     
@@ -6786,6 +6837,7 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
         m_trickplayPreviewPositionOverrideSeconds = 0.0;
         clearTrickplayPreview();
         emit trickplayStateChanged();
+        enableLocalTrickplay();
         return;
     }
     
@@ -6822,7 +6874,7 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
 void PlayerController::onTrickplayProcessingComplete(const QString &itemId, int count, int intervalMs,
                                                       int width, int height, const QString &filePath)
 {
-    if (itemId != activePlaybackSegmentItemId()) {
+    if (itemId != activePlaybackSegmentItemId() || m_terminalTransitionActive) {
         qCDebug(lcPlayback) << "PlayerController: Ignoring trickplay processing result for different item:" << itemId;
         return;
     }
@@ -6842,10 +6894,13 @@ void PlayerController::onTrickplayProcessingComplete(const QString &itemId, int 
         m_trickplayPreviewPositionOverrideSeconds = 0.0;
         clearTrickplayPreview();
         emit trickplayStateChanged();
+        enableLocalTrickplay();
         return;
     }
 
     m_currentTrickplayInfo.thumbnailCount = count;
+    m_useLocalTrickplay = false;
+    m_localSeekPreview->clear();
     m_currentTrickplayInfo.interval = intervalMs;
     m_currentTrickplayInfo.width = width;
     m_currentTrickplayInfo.height = height;
@@ -6863,11 +6918,12 @@ void PlayerController::onTrickplayProcessingComplete(const QString &itemId, int 
 
 void PlayerController::onTrickplayProcessingFailed(const QString &itemId, const QString &error)
 {
-    if (itemId != activePlaybackSegmentItemId()) {
+    if (itemId != activePlaybackSegmentItemId() || m_terminalTransitionActive) {
         return;
     }
     
     qCWarning(lcPlayback) << "PlayerController: Trickplay processing failed for item:" << itemId << "error:" << error;
+    m_trickplayProcessor->clear();
     // Trickplay thumbnails won't be available, but playback continues normally
     m_hasTrickplayInfo = false;
     m_trickplayBinaryPath.clear();
@@ -6876,13 +6932,38 @@ void PlayerController::onTrickplayProcessingFailed(const QString &itemId, const 
     m_trickplayPreviewPositionOverrideSeconds = 0.0;
     clearTrickplayPreview();
     emit trickplayStateChanged();
+    enableLocalTrickplay();
+}
+
+void PlayerController::enableLocalTrickplay()
+{
+    if (m_useLocalTrickplay) return;
+    clearTrickplayPreview();
+    const QVariantMap segment = activePlaybackSegment();
+    const auto hdrKind = PlayerPolicy::classifyMediaSourceHdr(
+        segment.value(QStringLiteral("mediaSource")).toMap());
+    // The software preview path cannot convert Dolby Vision's IPT base layer.
+    if (hdrKind == PlayerPolicy::HdrContentKind::DolbyVisionUnsupported) {
+        emit trickplayStateChanged();
+        return;
+    }
+    m_localSeekPreview->setSource(
+        segment.value(QStringLiteral("descriptor")).value<Bloom::PlaybackDescriptor>(),
+        PlayerPolicy::isHdr(hdrKind));
+    if (!embeddedLinuxTrickplayAllowed(m_playerBackend) || !m_localSeekPreview->isAvailable()) {
+        emit trickplayStateChanged();
+        return;
+    }
+    m_useLocalTrickplay = true;
+    m_localSeekPreview->start();
+    emit trickplayStateChanged();
 }
 
 void PlayerController::setTrickplayPreviewPositionSeconds(double seconds)
 {
     m_hasTrickplayPreviewPositionOverride = true;
     m_trickplayPreviewPositionOverrideSeconds = qMax(0.0, seconds);
-    if (m_hasTrickplayInfo) {
+    if (hasTrickplay()) {
         updateTrickplayPreviewForPosition(m_trickplayPreviewPositionOverrideSeconds);
     }
 }
@@ -6895,13 +6976,21 @@ void PlayerController::clearTrickplayPreviewPositionOverride()
 
     m_hasTrickplayPreviewPositionOverride = false;
     m_trickplayPreviewPositionOverrideSeconds = 0.0;
-    if (m_hasTrickplayInfo) {
+    if (hasTrickplay()) {
         updateTrickplayPreviewForPosition(m_currentPosition);
     }
 }
 
 void PlayerController::updateTrickplayPreviewForPosition(double seconds)
 {
+    if (m_useLocalTrickplay) {
+        const QString url = trickplayPreviewUrlAt(seconds);
+        if (m_trickplayPreviewUrl != url) {
+            m_trickplayPreviewUrl = url;
+            emit trickplayPreviewChanged();
+        }
+        return;
+    }
     if (!m_hasTrickplayInfo
         || m_trickplayBinaryPath.isEmpty()
         || m_currentTrickplayInfo.interval <= 0
@@ -6920,10 +7009,12 @@ void PlayerController::updateTrickplayPreviewForPosition(double seconds)
         m_trickplayPreviewPositionOverrideSeconds = 0.0;
         clearTrickplayPreview();
         emit trickplayStateChanged();
+        enableLocalTrickplay();
         return;
     }
 
-    const int requestedMs = qMax(0, static_cast<int>(seconds * 1000.0));
+    const double segmentSeconds = seconds - static_cast<double>(m_activePlaybackSegmentOffsetMs) / 1000.0;
+    const int requestedMs = qMax(0, static_cast<int>(segmentSeconds * 1000.0));
     int frameIndex = requestedMs / m_currentTrickplayInfo.interval;
     frameIndex = qBound(0, frameIndex, m_currentTrickplayInfo.thumbnailCount - 1);
     if (frameIndex == m_currentTrickplayFrameIndex && !m_trickplayPreviewUrl.isEmpty()) {
@@ -6941,6 +7032,7 @@ void PlayerController::updateTrickplayPreviewForPosition(double seconds)
         m_trickplayPreviewPositionOverrideSeconds = 0.0;
         clearTrickplayPreview();
         emit trickplayStateChanged();
+        enableLocalTrickplay();
         return;
     }
 
@@ -6981,8 +7073,13 @@ QString PlayerController::cachedTrickplayFrameUrl(int frameIndex)
     return url;
 }
 
-QString PlayerController::trickplayPreviewUrlAt(double seconds)
+QString PlayerController::trickplayPreviewUrlAt(double seconds, quint64 revision)
 {
+    Q_UNUSED(revision); // QML binding dependency for asynchronously generated frames.
+    seconds -= static_cast<double>(m_activePlaybackSegmentOffsetMs) / 1000.0;
+    if (m_useLocalTrickplay) {
+        return m_localSeekPreview->frameUrlAt(seconds);
+    }
     if (!m_hasTrickplayInfo
         || m_trickplayBinaryPath.isEmpty()
         || m_currentTrickplayInfo.interval <= 0

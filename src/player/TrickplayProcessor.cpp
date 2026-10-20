@@ -7,6 +7,7 @@
 #include <QImage>
 #include <QBuffer>
 #include <QFileInfo>
+#include <utility>
 #if __has_include(<span>)
 #include <span>
 #endif
@@ -40,6 +41,7 @@ void TrickplayProcessor::startProcessing(const QString &itemId, const TrickplayT
     
     if (!m_authService || !m_playbackService || !m_nam) {
         qCWarning(lcPlaybackTrickplay) << "TrickplayProcessor: Missing services, cannot process trickplay";
+        locker.unlock();
         emit processingFailed(itemId, "Missing playback/auth services");
         return;
     }
@@ -65,6 +67,7 @@ void TrickplayProcessor::startProcessing(const QString &itemId, const TrickplayT
     if (thumbnailsPerTile <= 0) {
         qCWarning(lcPlaybackTrickplay) << "TrickplayProcessor: Invalid tile dimensions";
         m_isProcessing = false;
+        locker.unlock();
         emit processingFailed(itemId, "Invalid tile dimensions");
         return;
     }
@@ -90,6 +93,7 @@ void TrickplayProcessor::startProcessing(const QString &itemId, const TrickplayT
     // Store copies of data needed for async operations
     QString currentItemId = m_currentItemId;
     int width = m_trickplayInfo.width;
+    const quint64 generation = m_generation;
     
     locker.unlock();
     
@@ -97,11 +101,15 @@ void TrickplayProcessor::startProcessing(const QString &itemId, const TrickplayT
     for (int i = 0; i < m_totalTiles; ++i) {
         QString tileUrl = m_playbackService->getTrickplayTileUrl(currentItemId, width, i);
         QNetworkRequest request(tileUrl);
+        request.setTransferTimeout(10000);
         request.setAttribute(QNetworkRequest::User, i);  // Store tile index
         
         QNetworkReply *reply = m_nam->get(request);
-        connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-            onTileDownloaded(reply);
+        m_replies.append(reply);
+        connect(reply, &QNetworkReply::finished, this, [this, reply, generation]() {
+            m_replies.removeAll(reply);
+            if (generation == m_generation) onTileDownloaded(reply);
+            else reply->deleteLater();
         });
     }
 }
@@ -109,6 +117,8 @@ void TrickplayProcessor::startProcessing(const QString &itemId, const TrickplayT
 void TrickplayProcessor::clear()
 {
     QMutexLocker locker(&m_mutex);
+    ++m_generation;
+    const auto replies = std::exchange(m_replies, {});
     
     m_currentItemId.clear();
     m_downloadedTiles.clear();
@@ -125,6 +135,9 @@ void TrickplayProcessor::clear()
     m_binaryFilePath.clear();
     
     locker.unlock();
+    for (const auto &reply : replies) {
+        if (reply) reply->abort();
+    }
     emit cleared();
 }
 
@@ -138,6 +151,12 @@ bool TrickplayProcessor::isReady() const
 {
     QMutexLocker locker(&m_mutex);
     return m_isReady;
+}
+
+bool TrickplayProcessor::isProcessing() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_isProcessing;
 }
 
 void TrickplayProcessor::onTileDownloaded(QNetworkReply *reply)
@@ -181,6 +200,7 @@ void TrickplayProcessor::onTileDownloaded(QNetworkReply *reply)
             QMutexLocker locker2(&m_mutex);
             m_isReady = true;
             m_isProcessing = false;
+            locker2.unlock();
             
             emit processingComplete(itemId, m_trickplayInfo.thumbnailCount,
                                     m_trickplayInfo.interval,

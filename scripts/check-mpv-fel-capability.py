@@ -130,10 +130,21 @@ def check_pins(deps: dict, flatpak_manifest: Path | None, portable_script: Path 
         require(f"ffmpeg-{ffmpeg_version}.tar" in text or f"/n{ffmpeg_version}" in text,
                 "Flatpak manifest does not build FFmpeg at mpv.linux_ffmpeg_version")
         require("v0.41.0.tar.gz" not in text, "Flatpak manifest still references the mpv 0.41.0 release")
+        zimg = deps.get("zimg", {})
+        require(bool(zimg.get("version")) and re.fullmatch(r"[0-9a-f]{64}", zimg.get("sha256", "")) is not None,
+                "zimg source pin is required for HDR seek previews")
+        require(f"release-{zimg.get('version')}.tar.gz" in text
+                and zimg.get("sha256", "missing") in text and "--enable-libzimg" in text,
+                "Flatpak must build the pinned zimg and enable FFmpeg zscale")
+        require("/app/bin/bloom-seek-preview --self-test" in text,
+                "Flatpak must check the deployed seek preview helper")
 
     if portable_script is not None:
         text = portable_script.read_text(encoding="utf-8")
         portable = deps.get("portable", {})
+        require("--executable /build/stage/usr/bin/bloom-seek-preview" in text
+                and '"$APPDIR/usr/bin/bloom-seek-preview" --self-test' in text,
+                "portable build must deploy and check the seek preview helper")
         uses_distribution_mpv = re.search(r"\blibmpv-dev\b", text) is not None
         if portable.get("fel_capable", False):
             require(not uses_distribution_mpv,

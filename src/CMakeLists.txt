@@ -230,6 +230,12 @@ if(EXISTS "${_bloom_dependency_pins}")
 endif()
 
 target_link_libraries(Bloom PRIVATE Bloom::MpvRuntime)
+target_link_libraries(Bloom PRIVATE Bloom::SeekPreview)
+
+add_executable(BloomSeekPreviewHelper player/SeekPreviewHelper.cpp)
+set_target_properties(BloomSeekPreviewHelper PROPERTIES OUTPUT_NAME bloom-seek-preview)
+target_link_libraries(BloomSeekPreviewHelper PRIVATE Bloom::MpvRuntime Qt6::Core)
+add_dependencies(Bloom BloomSeekPreviewHelper)
 
 if(UNIX AND NOT APPLE)
     target_sources(Bloom PRIVATE
@@ -259,13 +265,21 @@ if(UNIX AND NOT APPLE)
                 VERBATIM
             )
 
-            install(FILES ${BLOOM_LINUX_MPV_RUNTIME}
-                DESTINATION ${CMAKE_INSTALL_LIBDIR}/bloom
-            )
+            set(_bloom_mpv_install_directory "${CMAKE_INSTALL_LIBDIR}/bloom")
+            if(NOT IS_ABSOLUTE "${CMAKE_INSTALL_LIBDIR}")
+                set(_bloom_mpv_install_directory "\${CMAKE_INSTALL_PREFIX}/${_bloom_mpv_install_directory}")
+            endif()
+            install(CODE "file(INSTALL
+                DESTINATION \"${_bloom_mpv_install_directory}\"
+                TYPE SHARED_LIBRARY FOLLOW_SYMLINK_CHAIN
+                FILES \"${BLOOM_LINUX_MPV_RUNTIME}\")")
 
-            # Ensure bundled runtime libs are discoverable from bin/Bloom.
-            set_property(TARGET Bloom APPEND PROPERTY BUILD_RPATH "$ORIGIN")
-            set_property(TARGET Bloom APPEND PROPERTY INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/bloom")
+            file(RELATIVE_PATH _bloom_mpv_relative_directory
+                "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/bloom")
+            foreach(_bloom_executable IN ITEMS Bloom BloomSeekPreviewHelper)
+                set_property(TARGET ${_bloom_executable} APPEND PROPERTY BUILD_RPATH "$ORIGIN")
+                set_property(TARGET ${_bloom_executable} APPEND PROPERTY INSTALL_RPATH "$ORIGIN/${_bloom_mpv_relative_directory}")
+            endforeach()
         elseif(BLOOM_BUNDLE_LIBMPV)
             message(WARNING "libmpv runtime library path not found; Linux embedded backend may fail on systems without system libmpv.")
         endif()
@@ -480,7 +494,7 @@ endif()
 # Copy config file to build directory for easy access during development
 file(COPY ${CMAKE_SOURCE_DIR}/config/app.example.json DESTINATION ${CMAKE_BINARY_DIR}/config)
 
-install(TARGETS Bloom
+install(TARGETS Bloom BloomSeekPreviewHelper
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     BUNDLE DESTINATION .
 )

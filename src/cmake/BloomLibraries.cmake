@@ -201,6 +201,13 @@ add_library(Bloom::MpvRuntime ALIAS BloomMpvRuntime)
 target_include_directories(BloomMpvRuntime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(BloomMpvRuntime PUBLIC Bloom::PlayerPolicy Qt6::Core ${CMAKE_DL_LIBS})
 
+add_library(BloomSeekPreview STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/LocalSeekPreview.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/LocalSeekPreview.h
+)
+add_library(Bloom::SeekPreview ALIAS BloomSeekPreview)
+target_link_libraries(BloomSeekPreview PUBLIC Bloom::MpvRuntime Bloom::Models Qt6::Gui)
+
 add_library(BloomUpdater STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/updates/IUpdateProvider.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/updates/IUpdateProvider.h

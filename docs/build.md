@@ -191,6 +191,10 @@ environment. Versions, URLs, hashes, and the container digest live in
 `packaging/dependencies.json`.
 
 Portable builds compile the pinned post-FEL mpv, libplacebo, and FFmpeg stack.
+They enable FFmpeg's libzimg support for HDR seek preview conversion and deploy
+`bloom-seek-preview` next to `bloom`. Packaging runs the helper's `--self-test`
+against the deployed libraries. The same check runs in Flatpak and Windows
+packaging. See [seek previews](seek-previews.md) for cache and process ownership.
 They bundle the required Wayland client libraries and Vulkan loader while
 retaining host GPU drivers. The executable linker searches `/opt/bloom-mpv/lib`
 first for indirect dependencies. This prevents the Qt SDK's older Wayland

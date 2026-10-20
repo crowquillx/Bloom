@@ -533,6 +533,8 @@ private slots:
     void initTestCase();
     void cleanupTestCase();
     void playbackServiceReportsMissingProvider();
+    void localPreviewsStartWithoutSeekingAndYieldToServer();
+    void autoplayRetainsDescriptorForLocalPreviews();
     void thresholdMetRequestsNextEpisodeDirectly();
     void userStopPastThresholdRequestsNextEpisode();
     void userStopBelowThresholdWaitsForBackendExit();
@@ -690,6 +692,166 @@ void PlayerControllerAutoplayContextTest::playbackServiceReportsMissingProvider(
     QCOMPARE(errorSpy.count(), 1);
     QCOMPARE(errorSpy.first().at(0).toString(), QStringLiteral("createPlaybackDescriptor"));
     QVERIFY(!errorSpy.first().at(1).toString().isEmpty());
+}
+
+void PlayerControllerAutoplayContextTest::localPreviewsStartWithoutSeekingAndYieldToServer()
+{
+#if !defined(BLOOM_HAS_LIBMPV)
+    QSKIP("Local preview decoding requires libmpv.");
+#endif
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+    Bloom::PlaybackDescriptor descriptor;
+    descriptor.media = { QStringLiteral("connection"), QStringLiteral("item") };
+    descriptor.mediaVersionId = QStringLiteral("version");
+    descriptor.stream.url = QUrl::fromLocalFile(QString::fromUtf8(BLOOM_SEEK_PREVIEW_HDR_FIXTURE));
+    descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
+    descriptor.durationMs = 11000;
+    controller.m_currentItemId = descriptor.media.itemId;
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_playbackSegments = { QVariantMap {
+        { QStringLiteral("itemId"), descriptor.media.itemId },
+        { QStringLiteral("descriptor"), QVariant::fromValue(descriptor) }
+    } };
+    controller.m_activePlaybackSegmentIndex = 0;
+    QSignalSpy frames(&controller, &PlayerController::trickplayFramesChanged);
+    controller.onTrickplayInfoLoaded(descriptor.media.itemId, {});
+    QVERIFY(controller.hasTrickplay());
+    QVERIFY(controller.m_useLocalTrickplay);
+    QTRY_COMPARE_WITH_TIMEOUT(frames.count(), 2, 15000);
+    QVERIFY(!controller.trickplayPreviewUrlAt(10).isEmpty());
+    const QString beforeAudioSwitch = controller.trickplayPreviewUrlAt(10);
+    controller.m_playSessionId = QStringLiteral("session");
+    controller.m_pendingAudioSwitchContext = QStringLiteral("audio-refresh");
+    controller.onPlaybackAudioSwitchedForRequest(QStringLiteral("session"),
+        QUrl::fromLocalFile(QStringLiteral("/missing/audio-only-replacement")), QStringLiteral("audio-refresh"));
+    QVERIFY(controller.m_useLocalTrickplay);
+    QCOMPARE(controller.trickplayPreviewUrlAt(10), beforeAudioSwitch);
+    controller.m_activePlaybackSegmentOffsetMs = 60000;
+    QVERIFY(controller.trickplayPreviewUrlAt(10).isEmpty());
+    QVERIFY(!controller.trickplayPreviewUrlAt(70).isEmpty());
+    controller.onPositionChanged(10);
+    QCOMPARE(controller.trickplayPreviewUrl(), controller.trickplayPreviewUrlAt(70));
+    controller.m_activePlaybackSegmentOffsetMs = 0;
+
+    TrickplayTileInfo serverInfo;
+    serverInfo.width = 2;
+    serverInfo.height = 2;
+    serverInfo.interval = 10000;
+    serverInfo.thumbnailCount = 1;
+    serverInfo.tileWidth = 1;
+    serverInfo.tileHeight = 1;
+    controller.onTrickplayInfoLoaded(descriptor.media.itemId, { { 2, serverInfo } });
+    QVERIFY(controller.m_trickplayProcessor->isProcessing());
+    QVERIFY(!controller.m_useLocalTrickplay);
+    controller.onTrickplayInfoLoaded(descriptor.media.itemId, {});
+    QVERIFY(controller.m_trickplayProcessor->isProcessing());
+    QVERIFY(!controller.m_useLocalTrickplay);
+    QVERIFY(!controller.m_localSeekPreview->isAvailable());
+    controller.m_trickplayProcessor->clear();
+
+    QTemporaryDir directory;
+    QFile binary(directory.filePath(QStringLiteral("server.bin")));
+    QVERIFY(binary.open(QIODevice::WriteOnly));
+    binary.write(QByteArray(16, static_cast<char>(128)));
+    binary.close();
+    controller.onTrickplayProcessingComplete(descriptor.media.itemId, 1, 10000, 2, 2, binary.fileName());
+    QVERIFY(controller.hasTrickplay());
+    QVERIFY(!controller.m_useLocalTrickplay);
+    QVERIFY(controller.trickplayPreviewUrlAt(0).startsWith(QStringLiteral("data:image/")));
+    controller.onTrickplayInfoLoaded(descriptor.media.itemId, {});
+    QVERIFY(controller.hasTrickplay());
+    QVERIFY(!controller.m_useLocalTrickplay);
+    QVERIFY(controller.trickplayPreviewUrlAt(0).startsWith(QStringLiteral("data:image/")));
+    controller.m_activePlaybackSegmentOffsetMs = 60000;
+    QVERIFY(controller.trickplayPreviewUrlAt(0).isEmpty());
+    QVERIFY(controller.trickplayPreviewUrlAt(60).startsWith(QStringLiteral("data:image/")));
+    controller.m_activePlaybackSegmentOffsetMs = 0;
+    QVERIFY(!controller.m_localSeekPreview->isAvailable());
+
+    controller.onTrickplayProcessingFailed(descriptor.media.itemId, QStringLiteral("server tile failed"));
+    QVERIFY(controller.m_useLocalTrickplay);
+    controller.m_terminalTransitionActive = true;
+    controller.m_useLocalTrickplay = false;
+    controller.m_localSeekPreview->clear();
+    controller.onTrickplayInfoLoaded(descriptor.media.itemId, {});
+    QVERIFY(!controller.hasTrickplay());
+    QVERIFY(!controller.m_localSeekPreview->isAvailable());
+}
+
+void PlayerControllerAutoplayContextTest::autoplayRetainsDescriptorForLocalPreviews()
+{
+#if !defined(BLOOM_HAS_LIBMPV)
+    QSKIP("Local preview decoding requires libmpv.");
+#endif
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+    Bloom::PlaybackDescriptor descriptor;
+    descriptor.media = {QStringLiteral("connection"), QStringLiteral("autoplay-item")};
+    descriptor.mediaVersionId = QStringLiteral("autoplay-version");
+    descriptor.playbackSessionId = QStringLiteral("autoplay-session");
+    descriptor.stream.url = QUrl::fromLocalFile(QString::fromUtf8(BLOOM_SEEK_PREVIEW_HDR_FIXTURE));
+    descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
+    descriptor.stream.headers = {{QStringLiteral("X-Preview-Test"), QStringLiteral("retained")}};
+    descriptor.durationMs = 11000;
+    Bloom::PlaybackTrack externalSubtitle;
+    externalSubtitle.trackId = QStringLiteral("external-subtitle");
+    externalSubtitle.isExternal = true;
+    externalSubtitle.externalUrl = QUrl(QStringLiteral("https://example.invalid/autoplay.srt"));
+    descriptor.subtitleTracks = {externalSubtitle};
+    descriptor.selectedSubtitleTrackId = externalSubtitle.trackId;
+    const QVariantList audioTracks = {QVariantMap{{QStringLiteral("index"), 4}}};
+    const QVariantList subtitleTracks = {QVariantMap{{QStringLiteral("index"), 9}}};
+    const QVariantMap mediaSource = buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 4}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 9}}
+    });
+    const QString context = QStringLiteral("autoplay|descriptor|autoplay-item|1");
+    controller.m_pendingAutoplayDescriptorContext = context;
+    controller.m_pendingAutoplayDescriptorItemId = descriptor.media.itemId;
+    controller.m_pendingAutoplayDescriptorSource = mediaSource;
+    controller.m_pendingAutoplayDescriptorAudioIndex = 4;
+    controller.m_pendingAutoplayDescriptorSubtitleIndex = 9;
+    controller.m_pendingAutoplayDescriptorAudioTracks = audioTracks;
+    controller.m_pendingAutoplayDescriptorSubtitleTracks = subtitleTracks;
+    controller.onPlaybackDescriptorLoadedForRequest(descriptor.media.itemId, descriptor, context);
+
+    const QVariantMap segment = controller.activePlaybackSegment();
+    const auto stored = segment.value(QStringLiteral("descriptor")).value<Bloom::PlaybackDescriptor>();
+    QCOMPARE(stored.media.connectionId, descriptor.media.connectionId);
+    QCOMPARE(stored.media.itemId, descriptor.media.itemId);
+    QCOMPARE(stored.stream.url, descriptor.stream.url);
+    QCOMPARE(stored.stream.headers, descriptor.stream.headers);
+    QCOMPARE(segment.value(QStringLiteral("mediaSourceId")).toString(), descriptor.mediaVersionId);
+    QCOMPARE(segment.value(QStringLiteral("playSessionId")).toString(), descriptor.playbackSessionId);
+    QCOMPARE(segment.value(QStringLiteral("mediaSource")).toMap(), mediaSource);
+    QCOMPARE(segment.value(QStringLiteral("audioIndex")).toInt(), 4);
+    QCOMPARE(segment.value(QStringLiteral("subtitleIndex")).toInt(), -1000);
+    QCOMPARE(segment.value(QStringLiteral("availableAudioTracks")).toList(), audioTracks);
+    const auto storedSubtitleTracks = segment.value(QStringLiteral("availableSubtitleTracks")).toList();
+    QCOMPARE(storedSubtitleTracks.size(), 2);
+    QCOMPARE(storedSubtitleTracks.first(), subtitleTracks.first());
+    QCOMPARE(storedSubtitleTracks.last().toMap().value(QStringLiteral("trackId")).toString(),
+             externalSubtitle.trackId);
+    QSignalSpy frames(&controller, &PlayerController::trickplayFramesChanged);
+    controller.onTrickplayInfoLoaded(descriptor.media.itemId, {});
+    QVERIFY(controller.m_useLocalTrickplay);
+    QTRY_COMPARE_WITH_TIMEOUT(frames.count(), 2, 15000);
+    QVERIFY(!controller.trickplayPreviewUrlAt(10).isEmpty());
 }
 
 void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectly()

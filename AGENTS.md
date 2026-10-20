@@ -118,6 +118,7 @@ move/clip across show/hide, resize, minimize/restore, maximize, and fullscreen.
   `docs/WINDOWS-BUILD.md`, `docs/WINDOWS-README.md`
 - mpv, playback, reporting → `docs/playback.md`; Dolby Vision/FEL and mpv pins
   → `docs/dolby-vision.md`
+- Server and local seek previews → `docs/seek-previews.md`
 - Audio metadata, output policy, device selection → `docs/audio.md`
 - Service registration and init order → `docs/services.md`
 - Settings and `ConfigManager` properties → `docs/config.md`

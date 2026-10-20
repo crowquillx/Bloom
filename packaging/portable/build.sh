@@ -79,6 +79,7 @@ EXTRA_PLATFORM_PLUGINS="libqoffscreen.so;libqwayland.so" \
 linuxdeploy \
     --appdir "$APPDIR" \
     --executable /build/stage/usr/bin/bloom \
+    --executable /build/stage/usr/bin/bloom-seek-preview \
     --executable /opt/bloom-mpv/bin/mpv \
     --desktop-file /build/stage/usr/share/applications/com.github.crowquillx.Bloom.desktop \
     --icon-file /build/stage/usr/share/icons/hicolor/scalable/apps/com.github.crowquillx.Bloom.svg \
@@ -116,6 +117,8 @@ QT_PLUGIN_PATH="$APPDIR/usr/plugins" \
 QT_QPA_PLATFORM=offscreen \
 "$APPDIR/usr/bin/bloom" --version
 "$APPDIR/usr/bin/mpv" --version
+test -x "$APPDIR/usr/bin/bloom-seek-preview"
+"$APPDIR/usr/bin/bloom-seek-preview" --self-test
 
 python3 -I /build/scripts/check-mpv-fel-capability.py \
     --dependencies "$DEPS" \
