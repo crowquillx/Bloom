@@ -19,6 +19,21 @@ export PATH="$PREFIX/bin:$PATH"
 export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
 export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
+check_fel() {
+    python3 -I "$ROOT/scripts/check-mpv-fel-capability.py" --dependencies "$DEPS" \
+        --mpv "$PREFIX/bin/mpv" --library "$PREFIX/lib/libmpv.so" \
+        --library "$PREFIX/lib/libavcodec.so" --library "$PREFIX/lib/libplacebo.so" \
+        --require-fel --require-pin
+}
+
+# BLOOM_MPV_CACHE names an archive of a finished prefix. CI keys it on this
+# script and the dependency pins; a restored prefix still passes the FEL check.
+if [[ -n "${BLOOM_MPV_CACHE:-}" && -f "$BLOOM_MPV_CACHE" ]]; then
+    tar -xf "$BLOOM_MPV_CACHE" -C "$PREFIX"
+    check_fel
+    exit 0
+fi
+
 mkdir -p "$PREFIX/share/licenses/zimg"
 cp /usr/share/doc/libzimg2/copyright "$PREFIX/share/licenses/zimg/COPYING"
 
@@ -111,7 +126,8 @@ done
 mkdir -p "$PREFIX/share/licenses/nv-codec-headers"
 cp "$SOURCES/nv-codec-headers/include/ffnvcodec/"*.h "$PREFIX/share/licenses/nv-codec-headers/"
 
-python3 -I "$ROOT/scripts/check-mpv-fel-capability.py" --dependencies "$DEPS" \
-    --mpv "$PREFIX/bin/mpv" --library "$PREFIX/lib/libmpv.so" \
-    --library "$PREFIX/lib/libavcodec.so" --library "$PREFIX/lib/libplacebo.so" \
-    --require-fel --require-pin
+check_fel
+if [[ -n "${BLOOM_MPV_CACHE:-}" ]]; then
+    mkdir -p "$(dirname "$BLOOM_MPV_CACHE")"
+    tar -cf "$BLOOM_MPV_CACHE" -C "$PREFIX" .
+fi

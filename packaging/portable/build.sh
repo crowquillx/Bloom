@@ -4,7 +4,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-    build-essential ca-certificates cmake curl file fuse3 git libfuse2 \
+    build-essential ca-certificates ccache cmake curl file fuse3 git libfuse2 \
     libdbus-1-3 libfontconfig1 libfreetype6 libgl1-mesa-dev libglib2.0-0t64 \
     libgthread-2.0-0 libice6 libsecret-1-dev libsdl2-dev libsm6 \
     libsqlite3-dev libwayland-client0 libwayland-cursor0 libwayland-dev \
@@ -22,6 +22,17 @@ LINUXDEPLOY_VERSION="$(jq_read "['portable']['linuxdeploy_version']")"
 LINUXDEPLOY_SHA="$(jq_read "['portable']['linuxdeploy_sha256']")"
 QT_PLUGIN_VERSION="$(jq_read "['portable']['linuxdeploy_qt_version']")"
 QT_PLUGIN_SHA="$(jq_read "['portable']['linuxdeploy_qt_sha256']")"
+
+# /cache is mounted only when the caller passes BLOOM_PORTABLE_CACHE_DIR. It
+# holds the finished mpv prefix and a ccache directory for the Bloom compile.
+CMAKE_CACHE_ARGS=()
+if [[ -d /cache ]]; then
+    export BLOOM_MPV_CACHE=/cache/bloom-mpv.tar
+    export CCACHE_DIR=/cache/ccache CCACHE_MAXSIZE=1G
+    CMAKE_CACHE_ARGS=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
+    # The container runs as root; keep the cache readable by the host user.
+    trap 'chmod -R a+rwX /cache' EXIT
+fi
 
 bash /workspace/packaging/portable/build-mpv.sh
 export PATH="/opt/bloom-mpv/bin:$PATH"
@@ -60,8 +71,10 @@ cmake -S /build -B /build/out -G Ninja \
     -DBUILD_TESTING=OFF \
     -DBLOOM_BUILD_CHANNEL="$BLOOM_BUILD_CHANNEL" \
     -DBLOOM_BUILD_ID="$BLOOM_BUILD_ID" \
-    -DBLOOM_GIT_SHA="$BLOOM_GIT_SHA"
+    -DBLOOM_GIT_SHA="$BLOOM_GIT_SHA" \
+    "${CMAKE_CACHE_ARGS[@]}"
 cmake --build /build/out --parallel
+[[ ! -d /cache ]] || ccache --show-stats
 DESTDIR=/build/stage cmake --install /build/out
 
 mv /build/stage/usr/bin/Bloom /build/stage/usr/bin/bloom

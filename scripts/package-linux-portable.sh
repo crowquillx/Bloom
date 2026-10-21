@@ -43,7 +43,15 @@ fi
 mkdir -p "$OUTPUT"
 
 ENGINE_ARGS=(run --rm --network=host)
+# BLOOM_PORTABLE_CACHE_DIR persists the built mpv stack and ccache between runs.
+CACHE_ARGS=()
+if [[ -n "${BLOOM_PORTABLE_CACHE_DIR:-}" ]]; then
+    mkdir -p "$BLOOM_PORTABLE_CACHE_DIR"
+    CACHE_ARGS=(-v "$(realpath "$BLOOM_PORTABLE_CACHE_DIR"):/cache")
+fi
 if [[ "$CONTAINER_ENGINE" == podman ]]; then
+    # The commas belong to podman's keep-id option value.
+    # shellcheck disable=SC2054
     ENGINE_ARGS+=(--userns=keep-id:uid=0,gid=0)
 fi
 
@@ -60,6 +68,7 @@ fi
     -e BLOOM_GIT_SHA="$GIT_SHA" \
     -v "$ROOT:/workspace:ro" \
     -v "$OUTPUT:/output" \
+    "${CACHE_ARGS[@]}" \
     "$IMAGE" \
     bash /workspace/packaging/portable/build.sh
 

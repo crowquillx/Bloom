@@ -160,6 +160,13 @@ checks from saturating interactive workstations. CI uses four compile jobs to
 match the hosted runner; controlled builders can choose another value with
 `--option cores`.
 
+The `nix` job is a matrix of three groups, each on its own runner: `app`
+(the `bloom` package plus the smoke, seek-preview, and FEL checks that use
+it), `tests`, and `lint` (QML lint, automation lint, metadata, release
+manifest, and dependency pins). Each group compiles Bloom separately, so
+running them on one runner serialized three full builds (about 20 minutes);
+in parallel the gate takes about as long as one build.
+
 The portable Linux, Flatpak, and Windows packaging jobs start as soon as build
 metadata is resolved and run in parallel with the `nix` validation job. The
 `release` job depends only on `nix` and the Windows build. It publishes the
@@ -171,6 +178,35 @@ A failed Linux or Flatpak build marks the run as failed but does not withdraw
 or block the release. Rerun the failed jobs to attach the missing assets. Each
 attach job skips the upload if a newer `main` push has already moved
 `dev-latest` to another commit.
+
+### Packaging caches
+
+Packaging jobs reuse GitHub Actions caches so unchanged work is not rebuilt:
+
+| Job | Cache | Key | Saved |
+|---|---|---|---|
+| Windows | sccache directory | per run, restores the newest | `main` pushes only |
+| Flatpak | `.flatpak-builder/{cache,downloads,git}` stages | manifest + `dependencies.json` | once per key |
+| Flatpak | `.flatpak-builder/ccache` (Bloom module) | per run, restores the newest | `main` pushes only |
+| Portable Linux | finished `/opt/bloom-mpv` prefix archive | `build-mpv.sh` + `dependencies.json` | once per key |
+| Portable Linux | ccache directory (Bloom compile) | per run, restores the newest | `main` pushes only |
+
+Compiler caches are saved only from `main` so pull requests and tags reuse
+them without filling the repository's cache quota. Build metadata
+(`BLOOM_BUILD_ID`, `BLOOM_GIT_SHA`, channel) reaches only the files that
+include the generated `version.h`, so the rest of the build stays cacheable;
+keep it out of global compile definitions. Release MSVC flags carry no `/Zi`,
+which sccache cannot cache. A restored portable mpv prefix still passes the
+FEL capability check before it is used, and flatpak-builder validates its own
+stage checksums, so a stale cache only causes a rebuild.
+
+Locally, `BLOOM_PORTABLE_CACHE_DIR=<dir> nix run .#package-linux` mounts
+`<dir>` at `/cache` in the packaging container to get the same reuse.
+`package-flatpak` always enables flatpak-builder's ccache and caps it at
+1 GB through `.flatpak-builder/ccache/ccache.conf`. It writes the
+channel-patched manifest to the stable, ignored
+`packaging/flatpak/.build-manifest.yml`: flatpak-builder names its stage-cache
+refs after the manifest file, so a randomized name would never hit the cache.
 
 ## Portable Linux artifacts
 

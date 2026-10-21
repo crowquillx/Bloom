@@ -52,14 +52,22 @@ flatpak update --user --noninteractive --commit="$SDK_COMMIT" "$SDK_ID/x86_64/$B
 flatpak update --user --noninteractive --commit="$PLATFORM_COMMIT" "$PLATFORM_ID/x86_64/$BRANCH"
 
 rm -rf "$ROOT/.flatpak-builder/build" "$ROOT/.flatpak-builder/repo"
-MANIFEST="$(mktemp "$ROOT/packaging/flatpak/.ci-manifest.XXXXXX.yml")"
+# flatpak-builder names its stage-cache refs after the manifest file, so a
+# stable name lets later builds reuse unchanged dependency stages.
+MANIFEST="$ROOT/packaging/flatpak/.build-manifest.yml"
 trap 'rm -f "$MANIFEST"' EXIT
 sed \
     -e "s|-DBLOOM_BUILD_CHANNEL=stable|-DBLOOM_BUILD_CHANNEL=$CHANNEL|" \
     -e "/-DBLOOM_BUILD_CHANNEL=$CHANNEL/a\\      - -DBLOOM_BUILD_ID=$BUILD_ID\\
       - -DBLOOM_GIT_SHA=$GIT_SHA" \
     "$ROOT/packaging/flatpak/com.github.crowquillx.Bloom.yml" > "$MANIFEST"
-flatpak-builder --user --force-clean --repo="$ROOT/.flatpak-builder/repo" \
+# Unchanged dependency modules come from flatpak-builder's stage cache in
+# .flatpak-builder/cache; ccache covers the Bloom module, which changes every
+# build. Bound ccache so a persisted directory does not grow to its 5 GB default.
+mkdir -p "$ROOT/.flatpak-builder/ccache"
+[[ -f "$ROOT/.flatpak-builder/ccache/ccache.conf" ]] ||
+    echo "max_size = 1G" > "$ROOT/.flatpak-builder/ccache/ccache.conf"
+flatpak-builder --user --force-clean --ccache --repo="$ROOT/.flatpak-builder/repo" \
     "$ROOT/.flatpak-builder/build" "$MANIFEST"
 flatpak-builder --run "$ROOT/.flatpak-builder/build" \
     "$MANIFEST" \

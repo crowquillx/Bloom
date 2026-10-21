@@ -62,9 +62,21 @@ jobs:
             echo "is_tagged_release=$IS_TAGGED_RELEASE"
           } >> "$GITHUB_OUTPUT"
 
+  # Each group compiles Bloom separately, so the groups run on their own runners
+  # instead of serializing three full builds on one.
   nix:
-    name: Nix build and validation
+    name: Nix build and validation (${{ matrix.group }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: app
+            checks: bloom release-smoke seek-preview-no-scripting mpv-fel-capability
+          - group: tests
+            checks: tests
+          - group: lint
+            checks: qml-lint automation-lint metadata release-manifest dependency-pins
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -78,7 +90,9 @@ jobs:
           name: ${{ env.CACHIX_CACHE }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: ${{ github.event_name == 'pull_request' }}
-      - name: Build checks and application
+      - name: Build ${{ matrix.group }} checks
+        env:
+          CHECKS: ${{ matrix.checks }}
         run: |
           set -euo pipefail
           # cache.nixos.org nar downloads occasionally drop mid-transfer on
@@ -108,20 +122,14 @@ jobs:
               delay=$((delay * 2))
             done
           }
-          retry nix build \
-            .#checks.x86_64-linux.automation-lint \
-            .#checks.x86_64-linux.qml-lint \
-            .#checks.x86_64-linux.tests \
-            .#checks.x86_64-linux.metadata \
-            .#checks.x86_64-linux.release-manifest \
-            .#checks.x86_64-linux.release-smoke \
-            .#checks.x86_64-linux.seek-preview-no-scripting \
-            .#checks.x86_64-linux.mpv-fel-capability \
-            .#checks.x86_64-linux.dependency-pins \
+          targets=()
+          for check in $CHECKS; do
+            targets+=(".#checks.x86_64-linux.$check")
+          done
+          retry nix build "${targets[@]}" \
             --print-build-logs --option max-jobs 1 --option cores 4
-          retry nix build .#bloom --print-build-logs --option max-jobs 1 --option cores 4
       - name: Pin current main build
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: matrix.group == 'app' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |
@@ -145,13 +153,31 @@ jobs:
           image="$(jq -r .portable.image packaging/dependencies.json)"
           image="${image#docker://}"
           docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image" >/dev/null
+      - name: Cache portable mpv stack
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/portable-cache/bloom-mpv.tar
+          key: portable-mpv-${{ hashFiles('packaging/portable/build-mpv.sh', 'packaging/dependencies.json') }}
+      - name: Restore portable compiler cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/portable-cache/ccache
+          key: portable-ccache-${{ github.run_id }}
+          restore-keys: portable-ccache-
       - name: Build AppImage, deb, and tarball
         env:
+          BLOOM_PORTABLE_CACHE_DIR: ${{ runner.temp }}/portable-cache
           BLOOM_CONTAINER_ENGINE: docker
           BLOOM_BUILD_CHANNEL: ${{ needs.metadata.outputs.channel }}
           BLOOM_BUILD_ID: ${{ needs.metadata.outputs.build_id }}
           BLOOM_GIT_SHA: ${{ needs.metadata.outputs.git_sha }}
         run: nix run .#package-linux -- --output dist
+      - name: Save portable compiler cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/portable-cache/ccache
+          key: portable-ccache-${{ github.run_id }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Bloom-Linux
@@ -180,12 +206,34 @@ jobs:
         run: |
           nix shell --inputs-from . nixpkgs#bubblewrap --command \
             bwrap --unshare-user --unshare-net --ro-bind / / true
+      # Dependency stages (FFmpeg, libplacebo, mpv, ...) only change with the
+      # manifest or pins, so this cache is saved once per dependency set.
+      - name: Cache Flatpak dependency stages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .flatpak-builder/cache
+            .flatpak-builder/downloads
+            .flatpak-builder/git
+          key: flatpak-stages-${{ hashFiles('packaging/flatpak/com.github.crowquillx.Bloom.yml', 'packaging/dependencies.json') }}
+      - name: Restore Flatpak compiler cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .flatpak-builder/ccache
+          key: flatpak-ccache-${{ github.run_id }}
+          restore-keys: flatpak-ccache-
       - name: Build Flatpak bundle
         env:
           BLOOM_BUILD_CHANNEL: ${{ needs.metadata.outputs.channel }}
           BLOOM_BUILD_ID: ${{ needs.metadata.outputs.build_id }}
           BLOOM_GIT_SHA: ${{ needs.metadata.outputs.git_sha }}
         run: nix run .#package-flatpak -- --output dist
+      - name: Save Flatpak compiler cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .flatpak-builder/ccache
+          key: flatpak-ccache-${{ github.run_id }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Bloom-Flatpak
@@ -251,8 +299,24 @@ jobs:
       - name: Install build tools
         shell: pwsh
         run: choco install ninja 7zip -y --no-progress
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      # Only main pushes save compiler caches, so pull requests and tags reuse
+      # the latest main cache without filling the repository cache quota.
+      - name: Restore compiler cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}\sccache
+          key: sccache-windows-${{ github.run_id }}
+          restore-keys: sccache-windows-
       - name: Build and install
         shell: pwsh
+        env:
+          # Release flags carry no /Zi, so every MSVC compile is cacheable.
+          # Build metadata reaches only the few files that include version.h.
+          CMAKE_C_COMPILER_LAUNCHER: sccache
+          CMAKE_CXX_COMPILER_LAUNCHER: sccache
+          SCCACHE_DIR: ${{ runner.temp }}\sccache
+          SCCACHE_CACHE_SIZE: 1G
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found at $vswhere" }
@@ -268,6 +332,14 @@ jobs:
             -BuildChannel "${{ needs.metadata.outputs.channel }}" `
             -BuildId "${{ needs.metadata.outputs.build_id }}" `
             -GitSha "${{ needs.metadata.outputs.git_sha }}" -Clean -RequireFelCapableMpv
+          # Stopping the server prints the hit rate and flushes the cache to disk.
+          sccache --stop-server
+      - name: Save compiler cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}\sccache
+          key: sccache-windows-${{ github.run_id }}
       - name: Package portable build
         shell: pwsh
         run: |
