@@ -27,11 +27,14 @@ check_fel() {
 }
 
 # BLOOM_MPV_CACHE names an archive of a finished prefix. CI keys it on this
-# script and the dependency pins; a restored prefix still passes the FEL check.
+# script and the dependency pins. A restored prefix must still pass the FEL
+# check; a damaged or failing archive is treated as a miss and rebuilt.
 if [[ -n "${BLOOM_MPV_CACHE:-}" && -f "$BLOOM_MPV_CACHE" ]]; then
-    tar -xf "$BLOOM_MPV_CACHE" -C "$PREFIX"
-    check_fel
-    exit 0
+    if tar -xf "$BLOOM_MPV_CACHE" -C "$PREFIX" && check_fel; then
+        exit 0
+    fi
+    echo "Cached mpv prefix $BLOOM_MPV_CACHE is unusable; rebuilding." >&2
+    find "$PREFIX" -mindepth 1 -delete
 fi
 
 mkdir -p "$PREFIX/share/licenses/zimg"

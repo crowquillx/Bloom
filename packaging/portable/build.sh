@@ -30,8 +30,11 @@ if [[ -d /cache ]]; then
     export BLOOM_MPV_CACHE=/cache/bloom-mpv.tar
     export CCACHE_DIR=/cache/ccache CCACHE_MAXSIZE=1G
     CMAKE_CACHE_ARGS=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
-    # The container runs as root; keep the cache readable by the host user.
-    trap 'chmod -R a+rwX /cache' EXIT
+    # Under Docker the container runs as real root; hand the cache back to the
+    # calling user. Podman's keep-id mapping already writes as that user.
+    if [[ -n "${BLOOM_CACHE_OWNER:-}" ]]; then
+        trap 'chown -R "$BLOOM_CACHE_OWNER" /cache' EXIT
+    fi
 fi
 
 bash /workspace/packaging/portable/build-mpv.sh

@@ -48,6 +48,9 @@ CACHE_ARGS=()
 if [[ -n "${BLOOM_PORTABLE_CACHE_DIR:-}" ]]; then
     mkdir -p "$BLOOM_PORTABLE_CACHE_DIR"
     CACHE_ARGS=(-v "$(realpath "$BLOOM_PORTABLE_CACHE_DIR"):/cache")
+    if [[ "$CONTAINER_ENGINE" == docker ]]; then
+        CACHE_ARGS+=(-e "BLOOM_CACHE_OWNER=$(id -u):$(id -g)")
+    fi
 fi
 if [[ "$CONTAINER_ENGINE" == podman ]]; then
     # The commas belong to podman's keep-id option value.
