@@ -9,11 +9,13 @@
 #include "providers/IProviderRequestFactory.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include <algorithm>
+#include <utility>
 #include <QCoreApplication>
 #include <QDebug>
 #include <QJsonDocument>
 #include <QNetworkRequest>
 #include <QPointer>
+#include <QRegularExpression>
 #include <QSysInfo>
 #include <QUrl>
 #include "../utils/BloomLogging.h"
@@ -525,6 +527,16 @@ void AuthenticationService::authenticate(const QString &serverUrl,
 {
     clearAccountStateInternal(false, false);
     m_serverUrl = normalizeUrl(serverUrl);
+    m_schemeFallbackUrl.clear();
+    // A bare host ("media.example.com:8096") tries HTTPS first and falls back
+    // to HTTP only when HTTPS produces no HTTP response at all. An explicit
+    // scheme is used as typed and never downgraded.
+    static const QRegularExpression schemePattern(
+        QStringLiteral("^[A-Za-z][A-Za-z0-9+.-]*://"));
+    if (!m_serverUrl.isEmpty() && !schemePattern.match(m_serverUrl).hasMatch()) {
+        m_schemeFallbackUrl = QStringLiteral("http://") + m_serverUrl;
+        m_serverUrl = QStringLiteral("https://") + m_serverUrl;
+    }
     emit serverUrlChanged();
     const quint64 generation = m_stateGeneration;
 
@@ -533,6 +545,34 @@ void AuthenticationService::authenticate(const QString &serverUrl,
         return;
     }
 
+    startLogin(username, password, generation);
+}
+
+bool AuthenticationService::retryWithSchemeFallback(const NetworkError &error,
+                                                     const QString &username,
+                                                     const QString &password,
+                                                     quint64 generation)
+{
+    if (error.httpStatus != 0) {
+        // The server answered over HTTPS, so the scheme is settled.
+        m_schemeFallbackUrl.clear();
+        return false;
+    }
+    if (generation != m_stateGeneration || m_schemeFallbackUrl.isEmpty()
+        || error.networkErrorCode == static_cast<int>(QNetworkReply::OperationCanceledError)) {
+        return false;
+    }
+    qCInfo(lcAuth) << "HTTPS unreachable without a scheme; retrying over HTTP";
+    m_serverUrl = std::exchange(m_schemeFallbackUrl, QString());
+    emit serverUrlChanged();
+    startLogin(username, password, generation);
+    return true;
+}
+
+void AuthenticationService::startLogin(const QString &username,
+                                        const QString &password,
+                                        quint64 generation)
+{
     if (m_providerSelection == QStringLiteral("auto")) {
         probeProviderAndLogin(username, password, generation);
         return;
@@ -595,6 +635,8 @@ void AuthenticationService::probeProviderAndLogin(const QString &username,
             if (generation != m_stateGeneration) {
                 return;
             }
+            // Any HTTP response confirms the scheme.
+            m_schemeFallbackUrl.clear();
             if (probeStep < 2) {
                 probeProviderAndLogin(username, password, generation, probeStep + 1);
                 return;
@@ -612,7 +654,10 @@ void AuthenticationService::probeProviderAndLogin(const QString &username,
             m_detectionResult = *detected;
             performLogin(username, password, generation);
         },
-        [fallback](const NetworkError &) {
+        [this, username, password, generation, fallback](const NetworkError &error) {
+            if (retryWithSchemeFallback(error, username, password, generation)) {
+                return;
+            }
             fallback();
         },
         options);
@@ -654,8 +699,11 @@ void AuthenticationService::performLogin(const QString &username,
             }
             handleAuthenticationResult(authentication, generation);
         },
-        [this, generation](const NetworkError &error) {
+        [this, username, password, generation](const NetworkError &error) {
             if (generation != m_stateGeneration) {
+                return;
+            }
+            if (retryWithSchemeFallback(error, username, password, generation)) {
                 return;
             }
             if (error.code == 401) {

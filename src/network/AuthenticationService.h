@@ -196,6 +196,8 @@ private:
     const IProviderRequestFactory *m_requestFactory = nullptr;
     const IProviderAuthenticator *m_providerAuthenticator = nullptr;
     QString m_serverUrl;
+    // HTTP form of a scheme-less server URL, tried if HTTPS gets no response.
+    QString m_schemeFallbackUrl;
     QString m_accessToken;
     QString m_refreshToken;
     QString m_profileToken;
@@ -281,6 +283,11 @@ private:
     bool activateProvider(IProviderAdapter *adapter);
     void probeProviderAndLogin(
         const QString &username, const QString &password, quint64 generation, int probeStep = 0);
+    void startLogin(const QString &username, const QString &password, quint64 generation);
+    bool retryWithSchemeFallback(const NetworkError &error,
+                                 const QString &username,
+                                 const QString &password,
+                                 quint64 generation);
     void performLogin(const QString &username,
                       const QString &password,
                       quint64 generation);

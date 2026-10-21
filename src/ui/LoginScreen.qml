@@ -11,7 +11,6 @@ FocusScope {
     signal loginSuccess()
 
     readonly property string authenticationStep: AuthenticationService.authenticationStep
-    readonly property string providerSelection: AuthenticationService.providerSelection
     readonly property var availableProfiles: AuthenticationService.profiles || []
     property string selectedProfileName: ""
     property string selectedProfileAvatar: ""
@@ -27,30 +26,6 @@ FocusScope {
                                                 && (addingConnection || hasSavedWorkspaces)
     property bool statusIsError: false
 
-    function providerTitle() {
-        if (providerSelection === "jellyfin")
-            return qsTr("Sign in to Jellyfin")
-        if (providerSelection === "silo")
-            return qsTr("Sign in to Silo (Experimental)")
-        return qsTr("Connect your media server")
-    }
-
-    function providerDescription() {
-        if (providerSelection === "jellyfin")
-            return qsTr("Connect directly to your Jellyfin server.")
-        if (providerSelection === "silo")
-            return qsTr("Sign in to your Silo account, then choose a household profile. Native Silo support is experimental.")
-        return qsTr("Bloom will detect whether this server uses Jellyfin or Silo. Native Silo support is experimental.")
-    }
-
-    function selectedProviderButton() {
-        if (providerSelection === "jellyfin")
-            return jellyfinButton
-        if (providerSelection === "silo")
-            return siloButton
-        return autoButton
-    }
-
     function setStatus(message, isError) {
         statusMessage = message
         statusIsError = isError
@@ -58,14 +33,6 @@ FocusScope {
 
     function clearStatus() {
         setStatus("", false)
-    }
-
-    function selectProvider(provider) {
-        clearStatus()
-        AuthenticationService.setProviderSelection(provider)
-        Qt.callLater(function() {
-            selectedProviderButton().forceActiveFocus()
-        })
     }
 
     function submitCredentials() {
@@ -187,7 +154,7 @@ FocusScope {
                 syncSelectedProfile()
                 pinField.forceActiveFocus()
             } else {
-                selectedProviderButton().forceActiveFocus()
+                serverField.forceActiveFocus()
             }
         })
     }
@@ -302,7 +269,7 @@ FocusScope {
             Text {
                 text: authenticationStep === "profiles" ? qsTr("Who’s watching?")
                       : authenticationStep === "pin" ? qsTr("Enter profile PIN")
-                      : providerTitle()
+                      : qsTr("Connect your media server")
                 color: Theme.textPrimary
                 font.family: Theme.fontPrimary
                 font.pixelSize: Theme.fontSizeHeader
@@ -319,7 +286,7 @@ FocusScope {
                         ? (selectedProfileName.length > 0
                            ? qsTr("Unlock %1 to continue.").arg(selectedProfileName)
                            : qsTr("Unlock this profile to continue."))
-                        : providerDescription()
+                        : qsTr("Bloom will detect whether this server uses Jellyfin or Silo. Native Silo support is experimental.")
                 color: Theme.textSecondary
                 font.family: Theme.fontPrimary
                 font.pixelSize: Theme.fontSizeSmall
@@ -337,84 +304,19 @@ FocusScope {
                 ColumnLayout {
                     spacing: Theme.spacingSmall
 
-                    Text {
-                        text: qsTr("Server type")
-                        color: Theme.textSecondary
-                        font.family: Theme.fontPrimary
-                        font.pixelSize: Theme.fontSizeCaption
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignLeft
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingSmall
-
-                        ActionButton {
-                            id: autoButton
-                            variant: "secondary"
-                            selected: root.providerSelection === "auto"
-                            text: qsTr("Auto")
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.buttonHeightMedium
-                            focusPolicy: Qt.StrongFocus
-                            KeyNavigation.left: siloButton
-                            KeyNavigation.right: jellyfinButton
-                            KeyNavigation.up: root.showWorkspaceAction ? workspaceActionButton : credentialCancelButton
-                            KeyNavigation.down: serverField
-                            KeyNavigation.tab: jellyfinButton
-                            KeyNavigation.backtab: credentialCancelButton
-                            onClicked: root.selectProvider("auto")
-                        }
-
-                        ActionButton {
-                            id: jellyfinButton
-                            variant: "secondary"
-                            selected: root.providerSelection === "jellyfin"
-                            text: qsTr("Jellyfin")
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.buttonHeightMedium
-                            focusPolicy: Qt.StrongFocus
-                            KeyNavigation.left: autoButton
-                            KeyNavigation.right: siloButton
-                            KeyNavigation.up: root.showWorkspaceAction ? workspaceActionButton : credentialCancelButton
-                            KeyNavigation.down: serverField
-                            KeyNavigation.tab: siloButton
-                            KeyNavigation.backtab: autoButton
-                            onClicked: root.selectProvider("jellyfin")
-                        }
-
-                        ActionButton {
-                            id: siloButton
-                            variant: "secondary"
-                            selected: root.providerSelection === "silo"
-                            text: qsTr("Silo (Experimental)")
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.buttonHeightMedium
-                            focusPolicy: Qt.StrongFocus
-                            KeyNavigation.left: jellyfinButton
-                            KeyNavigation.right: autoButton
-                            KeyNavigation.up: root.showWorkspaceAction ? workspaceActionButton : credentialCancelButton
-                            KeyNavigation.down: serverField
-                            KeyNavigation.tab: serverField
-                            KeyNavigation.backtab: jellyfinButton
-                            onClicked: root.selectProvider("silo")
-                        }
-                    }
-
                     TextField {
                         id: serverField
-                        placeholderText: qsTr("https://media.example.com")
+                        placeholderText: qsTr("media.example.com")
                         placeholderTextColor: Theme.textTertiary
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         color: Theme.textPrimary
-                        KeyNavigation.up: root.selectedProviderButton()
+                        KeyNavigation.up: root.showWorkspaceAction ? workspaceActionButton : connectButton
                         KeyNavigation.down: userField
                         KeyNavigation.tab: userField
-                        KeyNavigation.backtab: root.selectedProviderButton()
+                        KeyNavigation.backtab: root.showWorkspaceAction ? workspaceActionButton : credentialCancelButton
                         onAccepted: userField.forceActiveFocus()
                         leftPadding: Theme.spacingMedium
                         rightPadding: Theme.spacingMedium
@@ -422,7 +324,7 @@ FocusScope {
                     }
 
                     Text {
-                        text: qsTr("Enter the full server URL. A custom port is optional.")
+                        text: qsTr("Enter your server address. Bloom tries HTTPS, then HTTP; a custom port is optional.")
                         color: Theme.textSecondary
                         font.family: Theme.fontPrimary
                         font.pixelSize: Theme.fontSizeCaption
@@ -432,7 +334,7 @@ FocusScope {
 
                     TextField {
                         id: userField
-                        placeholderText: root.providerSelection === "silo" ? qsTr("Silo account username") : qsTr("Username")
+                        placeholderText: qsTr("Username")
                         placeholderTextColor: Theme.textTertiary
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.buttonHeightMedium
@@ -481,10 +383,10 @@ FocusScope {
                             Layout.preferredHeight: Theme.buttonHeightLarge
                             focusPolicy: Qt.StrongFocus
                             KeyNavigation.up: passField
-                            KeyNavigation.down: root.showWorkspaceAction ? workspaceActionButton : root.selectedProviderButton()
+                            KeyNavigation.down: root.showWorkspaceAction ? workspaceActionButton : serverField
                             KeyNavigation.left: connectButton
                             KeyNavigation.right: connectButton
-                            KeyNavigation.tab: root.selectedProviderButton()
+                            KeyNavigation.tab: serverField
                             KeyNavigation.backtab: passField
                             onClicked: {
                                 serverField.clear()
@@ -503,7 +405,7 @@ FocusScope {
                             Layout.preferredHeight: Theme.buttonHeightLarge
                             focusPolicy: Qt.StrongFocus
                             KeyNavigation.up: passField
-                            KeyNavigation.down: root.showWorkspaceAction ? workspaceActionButton : root.selectedProviderButton()
+                            KeyNavigation.down: root.showWorkspaceAction ? workspaceActionButton : serverField
                             KeyNavigation.left: credentialCancelButton
                             KeyNavigation.right: credentialCancelButton
                             KeyNavigation.tab: credentialCancelButton
@@ -522,8 +424,8 @@ FocusScope {
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         focusPolicy: Qt.StrongFocus
                         KeyNavigation.up: connectButton
-                        KeyNavigation.down: root.selectedProviderButton()
-                        KeyNavigation.tab: root.selectedProviderButton()
+                        KeyNavigation.down: serverField
+                        KeyNavigation.tab: serverField
                         KeyNavigation.backtab: connectButton
                         Keys.onReturnPressed: clicked()
                         Keys.onEnterPressed: clicked()
@@ -860,10 +762,6 @@ FocusScope {
     Connections {
         target: AuthenticationService
         ignoreUnknownSignals: true
-
-        function onProviderSelectionChanged() {
-            Qt.callLater(root.restoreStepFocus)
-        }
 
         function onProfilesChanged() {
             Qt.callLater(function() {

@@ -179,6 +179,9 @@ private slots:
     void emptyProfilesAfterSwitchLeaveVisibleErrorAndAuthenticatedStep();
     void restoreRejectsValidationForAnotherAccount();
     void refreshWithoutRotationRetainsPreviousToken();
+    void schemelessAddressFallsBackToHttpWhenHttpsIsUnreachable();
+    void schemelessAddressStaysOnHttpsOnceTheServerAnswers();
+    void explicitHttpsIsNeverDowngraded();
 };
 
 void SiloAuthenticationTest::adapterExposesNativeAuthenticationBoundaries()
@@ -995,6 +998,68 @@ void SiloAuthenticationTest::problemEnvelopesIgnoreExtensionsAndUnknownTypes()
     auto malformed = problem;
     malformed["type"] = 42;
     QVERIFY(!authenticator.parseErrorResponse(QJsonDocument(malformed).toJson()).isValid());
+}
+
+void SiloAuthenticationTest::schemelessAddressFallsBackToHttpWhenHttpsIsUnreachable()
+{
+    FakeNetworkAccessManager manager;
+    manager.responses = {
+        {0, {}, QNetworkReply::ConnectionRefusedError},
+        response(200, successfulLogin()),
+        response(200, singleUnlockedProfile())
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+
+    service.setProviderSelection(QStringLiteral("silo"));
+    service.authenticate(QStringLiteral("silo.example.test:8096/"),
+                         QStringLiteral("Alice"),
+                         QStringLiteral("password"));
+
+    QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
+    QCOMPARE(service.getServerUrl(), QStringLiteral("http://silo.example.test:8096"));
+    QVERIFY(manager.requests.size() >= 2);
+    QCOMPARE(manager.requests.at(0).request.url().scheme(), QStringLiteral("https"));
+    QCOMPARE(manager.requests.at(1).request.url().scheme(), QStringLiteral("http"));
+}
+
+void SiloAuthenticationTest::schemelessAddressStaysOnHttpsOnceTheServerAnswers()
+{
+    FakeNetworkAccessManager manager;
+    manager.responses = { response(401, QByteArray()) };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    QSignalSpy errors(&service, &AuthenticationService::loginError);
+
+    service.setProviderSelection(QStringLiteral("silo"));
+    service.authenticate(QStringLiteral("silo.example.test"),
+                         QStringLiteral("Alice"),
+                         QStringLiteral("wrong"));
+
+    QTRY_COMPARE_WITH_TIMEOUT(errors.size(), 1, 1000);
+    QCOMPARE(manager.requests.size(), 1);
+    QCOMPARE(service.getServerUrl(), QStringLiteral("https://silo.example.test"));
+}
+
+void SiloAuthenticationTest::explicitHttpsIsNeverDowngraded()
+{
+    FakeNetworkAccessManager manager;
+    manager.responses = { {0, {}, QNetworkReply::ConnectionRefusedError} };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    QSignalSpy errors(&service, &AuthenticationService::loginError);
+
+    service.setProviderSelection(QStringLiteral("silo"));
+    service.authenticate(QStringLiteral("https://silo.example.test"),
+                         QStringLiteral("Alice"),
+                         QStringLiteral("password"));
+
+    QTRY_COMPARE_WITH_TIMEOUT(errors.size(), 1, 1000);
+    QCOMPARE(manager.requests.size(), 1);
+    QCOMPARE(service.getServerUrl(), QStringLiteral("https://silo.example.test"));
 }
 
 QTEST_MAIN(SiloAuthenticationTest)
