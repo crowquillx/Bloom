@@ -76,7 +76,17 @@ FocusScope {
         return ordered
     }
 
+    /// Merged workspaces list every source's libraries in member-priority
+    /// order; the per-server saved order and reordering do not apply there.
+    readonly property bool mergedLibraries: typeof MergedCatalog !== "undefined" && MergedCatalog.active
+
     function syncLibraryItems() {
+        if (mergedLibraries) {
+            orderedLibraryItems = MergedCatalog.views || []
+            libraryItems = orderedLibraryItems
+            finishReorder()
+            return
+        }
         var views = LibraryViewModel.views || []
         orderedLibraryItems = computeOrderedLibraries(views)
         libraryItems = orderedLibraryItems
@@ -89,6 +99,16 @@ FocusScope {
     property string currentNavigation: "home"
     /// Current active library id (derived from currentNavigation when applicable)
     property string currentLibraryId: ""
+    /// Connection that owns the open library; merged rails list the same
+    /// library ID once per account on a shared server.
+    property string currentLibraryConnectionId: ""
+
+    function isCurrentLibrary(library) {
+        if (!library || currentNavigation !== ("library:" + (library.itemId || "")))
+            return false
+        return !library.connectionId || currentLibraryConnectionId === ""
+                || library.connectionId === currentLibraryConnectionId
+    }
 
     // Library ordering state
     property var libraryItems: []
@@ -104,6 +124,8 @@ FocusScope {
     signal libraryRequested(string libraryId, string libraryName)
     /// Signal emitted when user requests to sign out
     signal signOutRequested()
+    /// Signal emitted when the account entry opens the workspace picker
+    signal workspacePickerRequested()
     /// Signal emitted when user requests to exit the app
     signal exitRequested()
 
@@ -137,6 +159,17 @@ FocusScope {
         function onLibraryOrderChanged() {
             syncLibraryItems()
         }
+    }
+
+    Connections {
+        target: typeof MergedCatalog !== "undefined" ? MergedCatalog : null
+        ignoreUnknownSignals: true
+        function onViewsChanged() { syncLibraryItems() }
+        function onActiveChanged() { syncLibraryItems() }
+    }
+
+    SourceRouter {
+        id: libraryRouter
     }
 
     Timer {
@@ -209,6 +242,7 @@ FocusScope {
         currentNavigation = navigationId
         if (navigationId.indexOf("library:") !== 0) {
             currentLibraryId = ""
+            currentLibraryConnectionId = ""
         }
         navigationRequested(navigationId)
         if (hadFocus)
@@ -223,7 +257,11 @@ FocusScope {
         pinnedOpen = false
         currentNavigation = "library:" + (library.itemId || "")
         currentLibraryId = library.itemId || ""
-        libraryRequested(library.itemId || "", library.name || "")
+        currentLibraryConnectionId = library.connectionId || ""
+        // A merged library opens on the connection that owns it.
+        libraryRouter.run(library.connectionId || "", function() {
+            root.libraryRequested(library.itemId || "", library.name || "")
+        })
         if (hadFocus)
             Qt.callLater(restoreMainContentFocus)
     }
@@ -272,7 +310,7 @@ FocusScope {
         }
         if (currentLibraryId !== "") {
             for (var i = 0; i < libraryItems.length; ++i) {
-                if (libraryItems[i] && libraryItems[i].itemId === currentLibraryId) {
+                if (isCurrentLibrary(libraryItems[i])) {
                     var libraryEntry = libraryRepeater.itemAt(i)
                     if (libraryEntry) {
                         libraryEntry.forceActiveFocus()
@@ -359,6 +397,7 @@ FocusScope {
 
     readonly property string accountName: (typeof ConfigManager !== "undefined" && ConfigManager.username)
                                           ? ConfigManager.username : ""
+    readonly property string workspaceName: typeof Workspaces !== "undefined" ? Workspaces.activeProfileName : ""
 
     // ========================================
     // Rail entry
@@ -807,15 +846,18 @@ FocusScope {
                             width: libraryColumn.width
                             iconGlyph: root.libraryIcon(modelData)
                             label: modelData.name || ""
-                            sublabel: reordering ? qsTr("Up/Down to move, Enter to finish") : ""
+                            sublabel: reordering ? qsTr("Up/Down to move, Enter to finish")
+                                                 : (modelData.sourceLabel || "")
                             toolTipLabel: modelData.name || ""
-                            selected: root.currentNavigation === ("library:" + (modelData.itemId || ""))
+                            selected: root.isCurrentLibrary(modelData)
                             reordering: root.reorderModeActive && root.reorderingIndex === index
                             libraryIndex: index
-                            Accessible.description: qsTr("Open library %1. Shift+Enter to reorder.").arg(modelData.name || "")
+                            Accessible.description: root.mergedLibraries
+                                                    ? qsTr("Open library %1 from %2.").arg(modelData.name || "").arg(modelData.sourceLabel || "")
+                                                    : qsTr("Open library %1. Shift+Enter to reorder.").arg(modelData.name || "")
 
                             onActivated: function(withShift) {
-                                if (withShift) {
+                                if (withShift && !root.mergedLibraries) {
                                     if (reordering)
                                         root.finishReorder()
                                     else
@@ -873,15 +915,18 @@ FocusScope {
                 objectName: "railEntry_account"
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.navRailItemHeight
-                avatar: root.accountName !== ""
-                iconGlyph: root.accountName !== "" ? root.accountName.charAt(0).toUpperCase() : Icons.logout
-                label: root.accountName !== "" ? root.accountName : qsTr("Sign Out")
-                sublabel: root.accountName !== "" ? qsTr("Sign out") : ""
-                toolTipLabel: root.accountName !== "" ? qsTr("Sign out %1").arg(root.accountName) : qsTr("Sign out")
+                // Opens the workspace picker (switch, add an account, sign out).
+                readonly property string title: root.workspaceName !== "" ? root.workspaceName : root.accountName
+                avatar: title !== ""
+                iconGlyph: title !== "" ? title.charAt(0).toUpperCase() : Icons.account
+                label: title !== "" ? title : qsTr("Account")
+                sublabel: qsTr("Switch workspace")
+                toolTipLabel: title !== "" ? qsTr("%1: switch workspace or sign out").arg(title)
+                                            : qsTr("Switch workspace or sign out")
                 onActivated: {
                     root.pinnedOpen = false
                     root.dialogOriginEntry = accountEntry
-                    root.signOutRequested()
+                    root.workspacePickerRequested()
                 }
             }
 

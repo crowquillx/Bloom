@@ -13,8 +13,6 @@ qt_add_executable(Bloom
     main.cpp
     core/ServiceLocator.h
     core/ServiceLocator.cpp
-    profiles/BloomProfileRepository.h
-    profiles/BloomProfileRepository.cpp
     providers/IProviderAdapter.h
     providers/ICatalogProvider.h
     providers/IArtworkProvider.h
@@ -183,6 +181,7 @@ qt_add_qml_module(Bloom
         ui/settings/VideoSettings.qml
         ui/settings/MpvSettings.qml
         ui/settings/IntegrationsSettings.qml
+        ui/settings/WorkspaceSettings.qml
         ui/settings/InputSettings.qml
         ui/settings/AboutAccountSettings.qml
         ui/settings/NewProfileDialog.qml
@@ -194,11 +193,14 @@ qt_add_qml_module(Bloom
         ui/SeerrRequestDialog.qml
         ui/SeerrComboBox.qml
         ui/SearchResultCard.qml
+        ui/SourceBadge.qml
+        ui/SourceRouter.qml
         ui/UnwatchedBadge.qml
         ui/RetryButton.qml
         ui/Theme.qml
         ui/Icons.qml
         ui/Sidebar.qml
+        ui/WorkspacePickerDialog.qml
         ui/MediaProgressBar.qml
         ui/MpvProfileEditor.qml
         ui/VideoSurface.qml
@@ -446,6 +448,7 @@ target_link_libraries(Bloom
     Bloom::ImageCache
     Bloom::Display
     Bloom::Network
+    Bloom::Workspace
     Bloom::PlayerPolicy
     Bloom::PlayerProcess
     Bloom::ResponsiveLayoutPolicy

@@ -34,6 +34,7 @@ mpv config directory
 ## Session management
 - Config v28 stores versioned provider-neutral records under `settings.connections`; see [provider architecture](provider-architecture.md).
 - Config v30 stores Bloom workspaces under `settings.bloom_profiles` schema `1`; see [profiles](profiles.md). `getBloomProfilesConfig` / `setBloomProfilesConfig` are raw accessors — `BloomProfileRepository` owns validation and CRUD.
+- `removeConnection(connectionId)` drops one connection's metadata and clears `connections.active` when it was active. It keeps the connection's `connection_state` scope. Callers delete credentials first (`WorkspaceController::removeConnection`).
 - `setJellyfinSession()`, `getJellyfinSession()`, and `clearJellyfinSession()` are temporary compatibility façades over the active connection.
 - Credentials are stored by `CredentialStore`, never in a connection, Bloom profile, or new `app.json` writes. `app.json` stores provider-neutral connection metadata (`provider`, `protocol_mode`, normalized URL, account/profile IDs, capabilities, and opaque credential reference). Legacy `settings.jellyfin` metadata remains only until its secure-store migration is verified.
 - On restoration, `CredentialStore` prefers provider-neutral credentials, then the legacy Jellyfin key, and may import a legacy plaintext token once when secure entries are absent. It writes and reads back the secure entry before deleting old keychain/config material; failed verification keeps rollback material and retries later.

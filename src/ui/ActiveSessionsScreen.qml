@@ -5,6 +5,8 @@ import BloomUI
 
 FocusScope {
     id: root
+    // Connection whose items this page shows; Main.qml stamps it when shown.
+    property string ownerConnectionId: ""
     focus: true
 
     property var sessionService: null

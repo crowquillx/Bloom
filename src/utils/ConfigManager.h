@@ -206,6 +206,8 @@ public:
     void upsertConnection(const ServerConnection &connection, bool makeActive = true);
     bool setActiveConnection(const QString &connectionId);
     void clearActiveConnection();
+    /// Drops connection metadata only; callers delete credentials first.
+    bool removeConnection(const QString &connectionId);
     bool hasPendingLegacyJellyfinMigration() const;
     void finalizeLegacyJellyfinMigration();
 

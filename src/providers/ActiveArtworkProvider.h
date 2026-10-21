@@ -20,7 +20,7 @@ public:
                         RefreshCallback completion) const override;
 
 private:
-    IArtworkProvider *activeProvider() const;
+    IArtworkProvider *providerFor(const Bloom::ArtworkRef &artwork) const;
 
     AuthenticationService *m_authService = nullptr;
     std::unique_ptr<JellyfinArtworkProvider> m_jellyfinProvider;

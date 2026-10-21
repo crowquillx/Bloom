@@ -3,6 +3,7 @@
 #include "network/AuthenticationService.h"
 #include "providers/jellyfin/JellyfinArtworkProvider.h"
 #include "providers/silo/SiloArtworkProvider.h"
+#include "utils/ConfigManager.h"
 
 #include <utility>
 
@@ -18,7 +19,7 @@ ActiveArtworkProvider::~ActiveArtworkProvider() = default;
 std::optional<QNetworkRequest> ActiveArtworkProvider::resolveArtwork(
     const Bloom::ArtworkRef &artwork) const
 {
-    IArtworkProvider *provider = activeProvider();
+    IArtworkProvider *provider = providerFor(artwork);
     return provider ? provider->resolveArtwork(artwork) : std::nullopt;
 }
 
@@ -30,7 +31,7 @@ void ActiveArtworkProvider::refreshArtwork(
         return;
     }
 
-    IArtworkProvider *provider = activeProvider();
+    IArtworkProvider *provider = providerFor(artwork);
     if (!provider) {
         deferRefresh(std::move(completion));
         return;
@@ -38,13 +39,19 @@ void ActiveArtworkProvider::refreshArtwork(
     provider->refreshArtwork(artwork, std::move(completion));
 }
 
-IArtworkProvider *ActiveArtworkProvider::activeProvider() const
+IArtworkProvider *ActiveArtworkProvider::providerFor(const Bloom::ArtworkRef &artwork) const
 {
     if (!m_authService) {
         return nullptr;
     }
 
-    switch (m_authService->activeProviderKind()) {
+    // Merged Bloom profiles show artwork from several connections at once, so
+    // the owning connection, not the active session, selects the provider.
+    ConfigManager *config = m_authService->configManager();
+    const auto connection = config ? config->getConnection(artwork.connectionId) : std::nullopt;
+    const ProviderKind kind = connection.has_value()
+        ? connection->providerKind : m_authService->activeProviderKind();
+    switch (kind) {
     case ProviderKind::Jellyfin:
         return m_jellyfinProvider.get();
     case ProviderKind::Silo:

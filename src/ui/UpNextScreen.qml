@@ -18,6 +18,8 @@ import BloomUI
  */
 FocusScope {
     id: root
+    // Connection whose items this page shows; Main.qml stamps it when shown.
+    property string ownerConnectionId: ""
 
     // ---- Properties set by Main.qml when the screen is pushed ----
     property var episodeData: ({})

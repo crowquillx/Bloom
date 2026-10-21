@@ -7,6 +7,8 @@
 #include <QMetaType>
 #include <QString>
 
+#include "providers/ServerConnection.h"
+
 /**
  * @brief Workspace composition mode for a Bloom profile.
  *
@@ -65,6 +67,14 @@ struct BloomProfile {
     static QString createDeterministicProfileId(const QString &connectionId);
     static QString createDeterministicMemberId(const QString &profileId,
                                                const QString &connectionId);
+
+    // Display-only labels. Two users on one server stay distinguishable because
+    // the account name always leads.
+    static QString connectionServerLabel(const ServerConnection &connection);
+    static QString connectionAccountLabel(const ServerConnection &connection);
+    static QString connectionLabel(const ServerConnection &connection);
+    static QString memberLabel(const BloomProfileMember &member,
+                               const ServerConnection &connection);
 };
 
 /**

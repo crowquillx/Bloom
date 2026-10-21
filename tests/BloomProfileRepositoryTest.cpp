@@ -181,6 +181,8 @@ private slots:
     void orderingAndDefaultMemberRepair();
     void singleModeUpsertRetainsDefaultOrFirstMember();
     void crudPersistsAcrossReload();
+    void profileOrderPersistsAndRejectsPartialLists();
+    void removedConnectionDropsOnlyItsMemberships();
     void requestContextGenerationStaleGuard();
     void validExternalReloadEmitsAndInvalidatesActiveContext();
     void disabledDefaultCannotBecomeRequestTarget();
@@ -730,6 +732,103 @@ void BloomProfileRepositoryTest::crudPersistsAcrossReload()
     QCOMPARE(reloaded.profiles().size(), 1);
     QCOMPARE(reloaded.activeProfile()->name, QStringLiteral("Beta"));
     QCOMPARE(reloaded.activeProfile()->members.size(), 2);
+}
+
+void BloomProfileRepositoryTest::profileOrderPersistsAndRejectsPartialLists()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation isolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    config.upsertConnection(makeConnection(QStringLiteral("conn-1"),
+                                           QStringLiteral("https://one.example.test"),
+                                           QStringLiteral("one"),
+                                           QStringLiteral("One")),
+                            true);
+
+    BloomProfileRepository repo(&config);
+    QStringList ids;
+    for (const QString &name : {QStringLiteral("A"), QStringLiteral("B"), QStringLiteral("C")}) {
+        BloomProfile profile;
+        profile.name = name;
+        BloomProfileMember member;
+        member.connectionId = QStringLiteral("conn-1");
+        profile.members = {member};
+        QVERIFY(repo.upsertProfile(profile));
+        ids.append(profile.id);
+    }
+    const QString activeId = repo.activeProfile()->id;
+    const quint64 generation = repo.generation();
+
+    QVERIFY(!repo.reorderProfiles({ids.at(2), ids.at(0)}));
+    QVERIFY(!repo.reorderProfiles({ids.at(2), ids.at(0), ids.at(0)}));
+    QVERIFY(repo.reorderProfiles({ids.at(2), ids.at(0), ids.at(1)}));
+    // Picker order is not a request-context change.
+    QCOMPARE(repo.generation(), generation);
+    QCOMPARE(repo.activeProfile()->id, activeId);
+
+    BloomProfileRepository reloaded(&config);
+    QCOMPARE(reloaded.profiles().at(0).name, QStringLiteral("C"));
+    QCOMPARE(reloaded.profiles().at(1).name, QStringLiteral("A"));
+    QCOMPARE(reloaded.profiles().at(2).name, QStringLiteral("B"));
+}
+
+void BloomProfileRepositoryTest::removedConnectionDropsOnlyItsMemberships()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation isolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    // Two users on one physical server plus a second server.
+    config.upsertConnection(makeConnection(QStringLiteral("conn-alice"),
+                                           QStringLiteral("https://media.example.test"),
+                                           QStringLiteral("alice"),
+                                           QStringLiteral("Alice")),
+                            true);
+    config.upsertConnection(makeConnection(QStringLiteral("conn-bob"),
+                                           QStringLiteral("https://media.example.test"),
+                                           QStringLiteral("bob"),
+                                           QStringLiteral("Bob")),
+                            false);
+    config.upsertConnection(makeConnection(QStringLiteral("conn-other"),
+                                           QStringLiteral("https://other.example.test"),
+                                           QStringLiteral("carol"),
+                                           QStringLiteral("Carol")),
+                            false);
+
+    BloomProfileRepository repo(&config);
+    BloomProfile merged;
+    merged.name = QStringLiteral("Household");
+    merged.mode = BloomProfileMode::Merged;
+    for (const QString &id : {QStringLiteral("conn-alice"), QStringLiteral("conn-bob"),
+                              QStringLiteral("conn-other")}) {
+        BloomProfileMember member;
+        member.connectionId = id;
+        merged.members.append(member);
+    }
+    QVERIFY(repo.upsertProfile(merged));
+    BloomProfile bobOnly;
+    bobOnly.name = QStringLiteral("Bob");
+    BloomProfileMember bob;
+    bob.connectionId = QStringLiteral("conn-bob");
+    bobOnly.members = {bob};
+    QVERIFY(repo.upsertProfile(bobOnly));
+
+    QVERIFY(config.removeConnection(QStringLiteral("conn-bob")));
+    QVERIFY(!config.getConnection(QStringLiteral("conn-bob")).has_value());
+    // The same-server sibling account is untouched.
+    QVERIFY(config.getConnection(QStringLiteral("conn-alice")).has_value());
+
+    QCOMPARE(repo.profiles().size(), 1);
+    const BloomProfile remaining = repo.profiles().first();
+    QCOMPARE(remaining.name, QStringLiteral("Household"));
+    QCOMPARE(remaining.members.size(), 2);
+    QCOMPARE(remaining.members.at(0).connectionId, QStringLiteral("conn-alice"));
+    QCOMPARE(remaining.members.at(1).connectionId, QStringLiteral("conn-other"));
 }
 
 void BloomProfileRepositoryTest::requestContextGenerationStaleGuard()

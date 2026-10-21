@@ -25,6 +25,7 @@ FocusScope {
     readonly property string buildId: typeof appBuildId !== "undefined" ? appBuildId : ""
     readonly property string buildQtVersion: typeof qtVersion !== "undefined" ? qtVersion : ""
     property bool focusUpdatesOnActivate: false
+    property bool focusWorkspacesOnActivate: false
     property bool saveToastArmed: false
     property string pendingSettingsToastMessage: qsTr("Settings saved")
 
@@ -153,6 +154,14 @@ FocusScope {
         return 0
     }
 
+    // Open the Workspaces section (picker "Manage workspaces").
+    function requestWorkspaceSectionFocus() {
+        settingsRail.currentSection = findSectionIndex(settingsRail.workspacesSectionKey)
+        Qt.callLater(function() {
+            workspacesSection.enterFromRail()
+        })
+    }
+
     // Navigate to the About & Account section and focus updates controls.
     // Called by Main.qml when navigating to settings via "updates" sidebar item.
     function requestUpdateSectionFocus() {
@@ -190,7 +199,8 @@ FocusScope {
         case 4: return mpvSection
         case 5: return inputSection
         case 6: return integrationsSection
-        case 7: return aboutAccountSection
+        case 7: return workspacesSection
+        case 8: return aboutAccountSection
         default: return null
         }
     }
@@ -220,6 +230,9 @@ FocusScope {
             if (focusUpdatesOnActivate) {
                 requestUpdateSectionFocus()
                 focusUpdatesOnActivate = false
+            } else if (focusWorkspacesOnActivate) {
+                requestWorkspaceSectionFocus()
+                focusWorkspacesOnActivate = false
             } else {
                 settingsRail.focusRail()
             }
@@ -497,6 +510,11 @@ FocusScope {
 
             IntegrationsSettings {
                 id: integrationsSection
+                onRequestReturnToRail: root.returnToRail()
+            }
+
+            WorkspaceSettings {
+                id: workspacesSection
                 onRequestReturnToRail: root.returnToRail()
             }
 

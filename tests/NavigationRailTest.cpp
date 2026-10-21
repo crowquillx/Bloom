@@ -144,7 +144,7 @@ Item {
     readonly property int itemHeight: Theme.navRailItemHeight
     readonly property real layoutScale: Theme.layoutScale
     property string lastNavigation: ""
-    property int signOutRequests: 0
+    property int workspacePickerRequests: 0
 
     FocusScope {
         id: content
@@ -176,7 +176,7 @@ Item {
         mainContent: content
         onNavigationRequested: function(navigationId) { scene.lastNavigation = navigationId }
         onLibraryRequested: function(libraryId, libraryName) { scene.lastNavigation = "library:" + libraryId }
-        onSignOutRequested: scene.signOutRequests++
+        onWorkspacePickerRequested: scene.workspacePickerRequests++
     }
 }
 )QML";
@@ -230,7 +230,8 @@ void NavigationRailTest::initTestCase()
     const QDir module(root.filePath(QStringLiteral("BloomUI")));
     const QDir sourceDir(QStringLiteral(BLOOM_UI_SOURCE_DIR));
     for (const auto &file : {QStringLiteral("Theme.qml"), QStringLiteral("Icons.qml"),
-                             QStringLiteral("FocusRing.qml"), QStringLiteral("Sidebar.qml")}) {
+                             QStringLiteral("FocusRing.qml"), QStringLiteral("Sidebar.qml"),
+                             QStringLiteral("SourceRouter.qml")}) {
         QVERIFY2(QFile::copy(sourceDir.filePath(file), module.filePath(file)), qPrintable(file));
     }
     QFile qmldir(module.filePath(QStringLiteral("qmldir")));
@@ -239,7 +240,8 @@ void NavigationRailTest::initTestCase()
                  "singleton Theme 1.0 Theme.qml\n"
                  "singleton Icons 1.0 Icons.qml\n"
                  "FocusRing 1.0 FocusRing.qml\n"
-                 "Sidebar 1.0 Sidebar.qml\n");
+                 "Sidebar 1.0 Sidebar.qml\n"
+                 "SourceRouter 1.0 SourceRouter.qml\n");
     qmldir.close();
 
     QFile scene(root.filePath(QStringLiteral("Scene.qml")));
@@ -442,12 +444,13 @@ void NavigationRailTest::activationNavigatesAndReturnsToCurrentEntry()
     QCOMPARE(item(QStringLiteral("railLibrary_1"))->property("selected").toBool(), true);
     QCOMPARE(item(QStringLiteral("railEntry_search"))->property("selected").toBool(), false);
 
-    // Account access stays in the rail.
+    // Account access stays in the rail: the entry opens the workspace
+    // picker, which also offers sign-out.
     press(Qt::Key_Down);
     press(Qt::Key_Down);
     QCOMPARE(focusedName(), QStringLiteral("railEntry_account"));
     press(Qt::Key_Return);
-    QCOMPARE(scene->property("signOutRequests").toInt(), 1);
+    QCOMPARE(scene->property("workspacePickerRequests").toInt(), 1);
 
     // A cancelled confirmation dialog hands focus back to the entry that
     // opened it, not to the current page's entry.

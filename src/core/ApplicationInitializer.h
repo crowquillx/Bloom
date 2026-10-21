@@ -6,6 +6,8 @@
 class QGuiApplication;
 class ConfigManager;
 class BloomProfileRepository;
+class MergedCatalogService;
+class WorkspaceController;
 class DisplayManager;
 class ResponsiveLayoutManager;
 class TrackPreferencesManager;
@@ -121,6 +123,8 @@ private:
     std::unique_ptr<SeerrService> m_seerrService;
     std::unique_ptr<PlayerController> m_playerController;
     std::unique_ptr<ThemeSongManager> m_themeSongManager;
+    std::unique_ptr<MergedCatalogService> m_mergedCatalogService;
+    std::unique_ptr<WorkspaceController> m_workspaceController;
     std::unique_ptr<InputModeManager> m_inputModeManager;
     std::unique_ptr<InputBindingManager> m_inputBindingManager;
     std::unique_ptr<LibraryViewModel> m_libraryViewModel;

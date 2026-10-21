@@ -2,6 +2,8 @@
 #include "ServiceLocator.h"
 #include "utils/ConfigManager.h"
 #include "profiles/BloomProfileRepository.h"
+#include "profiles/MergedCatalogService.h"
+#include "profiles/WorkspaceController.h"
 #include "utils/DisplayManager.h"
 #include "ui/ResponsiveLayoutManager.h"
 #include "utils/TrackPreferencesManager.h"
@@ -274,6 +276,18 @@ void ApplicationInitializer::registerServices()
         ServiceLocator::registerService<ThemeSongManager>(m_themeSongManager.get());
     }
     
+    // 4.6 Bloom profile workspace facade and merged reads - depend on
+    // AuthenticationService and BloomProfileRepository
+    AuthenticationService *workspaceAuth = isTestMode
+        ? static_cast<AuthenticationService *>(m_mockAuthService.get())
+        : m_authService.get();
+    m_mergedCatalogService = std::make_unique<MergedCatalogService>(
+        workspaceAuth, m_bloomProfileRepository.get(), m_configManager.get());
+    ServiceLocator::registerService<MergedCatalogService>(m_mergedCatalogService.get());
+    m_workspaceController = std::make_unique<WorkspaceController>(
+        workspaceAuth, m_bloomProfileRepository.get(), m_configManager.get());
+    ServiceLocator::registerService<WorkspaceController>(m_workspaceController.get());
+
     // 5. InputModeManager - Depends on QGuiApplication
     m_inputModeManager = std::make_unique<InputModeManager>(m_app);
     ServiceLocator::registerService<InputModeManager>(m_inputModeManager.get());
@@ -405,9 +419,13 @@ void ApplicationInitializer::initializeServices()
     } else {
         m_authService->initialize(m_configManager.get());
         if (m_authService->isRestoringSession()) {
-            connect(m_authService.get(), &AuthenticationService::isRestoringSessionChanged,
-                    this, [this]() {
+            // Workspace switches restore sessions again later; only the
+            // startup restore gates SessionManager.
+            auto connection = std::make_shared<QMetaObject::Connection>();
+            *connection = connect(m_authService.get(), &AuthenticationService::isRestoringSessionChanged,
+                    this, [this, connection]() {
                 if (!m_authService->isRestoringSession()) {
+                    disconnect(*connection);
                     m_sessionManager->initialize();
                 }
             });

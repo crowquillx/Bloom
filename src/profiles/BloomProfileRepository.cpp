@@ -155,6 +155,31 @@ bool BloomProfileRepository::setActiveProfile(const QString &id)
     return true;
 }
 
+bool BloomProfileRepository::reorderProfiles(const QStringList &orderedProfileIds)
+{
+    if (!m_configManager || orderedProfileIds.size() != m_store.items.size()) {
+        return false;
+    }
+    QList<BloomProfile> reordered;
+    QSet<QString> seen;
+    for (const QString &id : orderedProfileIds) {
+        const QString normalized = id.trimmed();
+        const auto existing = profile(normalized);
+        if (!existing.has_value() || seen.contains(normalized)) {
+            return false;
+        }
+        seen.insert(normalized);
+        reordered.append(*existing);
+    }
+    if (reordered.size() != m_store.items.size()) {
+        return false;
+    }
+    m_store.items = reordered;
+    persistStore(m_store);
+    emit profilesChanged();
+    return true;
+}
+
 bool BloomProfileRepository::addMember(const QString &profileId, BloomProfileMember member)
 {
     auto existing = profile(profileId);

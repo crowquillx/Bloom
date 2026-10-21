@@ -1,4 +1,5 @@
 #include "AuthenticationService.h"
+#include "ConnectionSessionPool.h"
 #include "HttpTransport.h"
 #include "models/MediaModels.h"
 #include "../security/ISecretStore.h"
@@ -71,6 +72,7 @@ AuthenticationService::AuthenticationService(std::shared_ptr<ISecretStore> secre
     , m_providerAuthenticator(m_providerAdapter->authenticator())
     , m_secretStore(secretStore)
 {
+    m_sessionPool = new ConnectionSessionPool(m_secretStore, this);
     configureTransport();
 }
 
@@ -86,6 +88,7 @@ AuthenticationService::AuthenticationService(std::shared_ptr<ISecretStore> secre
     , m_providerAuthenticator(providerAdapter ? providerAdapter->authenticator() : nullptr)
     , m_secretStore(secretStore)
 {
+    m_sessionPool = new ConnectionSessionPool(m_secretStore, this);
     configureTransport();
 }
 
@@ -104,6 +107,7 @@ AuthenticationService::AuthenticationService(
         initial = m_providerAdapters.constFirst();
     }
     activateProvider(initial);
+    m_sessionPool = new ConnectionSessionPool(m_secretStore, this);
     configureTransport();
 }
 
@@ -323,7 +327,17 @@ void AuthenticationService::initialize(ConfigManager *configManager)
     }
 
     m_configManager = configManager;
+    if (!m_memberConnectionIds.isEmpty()) {
+        setMemberConnections(m_memberConnectionIds);
+    }
+    startRestoration();
+}
+
+void AuthenticationService::startRestoration()
+{
+    ConfigManager *configManager = m_configManager;
     m_isRestoringSession = true;
+    const quint64 restorationGeneration = ++m_restorationGeneration;
     emit isRestoringSessionChanged();
 
     const ConfigManager::SessionData session = configManager->getJellyfinSession();
@@ -380,13 +394,14 @@ void AuthenticationService::initialize(ConfigManager *configManager)
 
     m_restorationWatcher.disconnect(this);
     connect(&m_restorationWatcher, &QFutureWatcher<RestorationResult>::finished,
-            this, [this, configManager]() {
+            this, [this, configManager, restorationGeneration]() {
         const RestorationResult result = m_restorationWatcher.result();
         const auto currentConnection = configManager->getActiveConnection();
         const bool connectionChanged = result.connection.isValid()
             && (!currentConnection.has_value()
                 || currentConnection->connectionId != result.connection.connectionId);
 
+        QString failure;
         if (connectionChanged) {
             qCInfo(lcAuth) << "Ignoring stale session restoration result after connection switch";
         } else if (result.success && activateProvider(
@@ -403,16 +418,27 @@ void AuthenticationService::initialize(ConfigManager *configManager)
                            result.username);
         } else if (!result.error.isEmpty()) {
             qCWarning(lcAuth) << "Session restoration failed:" << result.error;
+            failure = result.error;
         } else if (result.success) {
             qCWarning(lcAuth)
                 << "No provider adapter is registered for the stored connection";
+            failure = tr("This server type is not available.");
+        } else {
+            failure = tr("This account has no saved sign-in. Sign in again.");
+        }
+        if (!connectionChanged && !failure.isEmpty() && !m_activatingConnectionId.isEmpty()) {
+            failRestoration(failure);
         }
         if (!result.cleanupError.isEmpty()) {
             qCWarning(lcAuth) << "Legacy credential cleanup failed:"
                               << result.cleanupError;
         }
-        m_isRestoringSession = false;
-        emit isRestoringSessionChanged();
+        // A fallback or next-member activation started inside failRestoration
+        // owns the flag now.
+        if (restorationGeneration == m_restorationGeneration) {
+            m_isRestoringSession = false;
+            emit isRestoringSessionChanged();
+        }
     });
 
     m_restorationWatcher.setFuture(future);
@@ -907,6 +933,167 @@ void AuthenticationService::finishAuthentication()
     emit userIdChanged();
     updateAuthenticationStep(QStringLiteral("authenticated"));
     emit loginSuccess(m_userId, m_accessToken, m_username);
+    finishActivation();
+}
+
+void AuthenticationService::finishActivation()
+{
+    if (m_activatingConnectionId.isEmpty()) {
+        return;
+    }
+    const QString activated = std::exchange(m_activatingConnectionId, QString());
+    m_activationFallbackConnectionId.clear();
+    emit connectionActivated(activated);
+}
+
+void AuthenticationService::failRestoration(const QString &error)
+{
+    if (m_activatingConnectionId.isEmpty()) {
+        clearAccountStateInternal(true, true);
+        return;
+    }
+
+    // An explicit switch never deletes credentials: the server may only be
+    // unreachable. Fall back to the session the user switched away from.
+    const QString failed = std::exchange(m_activatingConnectionId, QString());
+    const QString fallback = std::exchange(m_activationFallbackConnectionId, QString());
+    clearAccountStateInternal(false, false);
+    emit connectionActivationFailed(
+        failed, error.isEmpty() ? tr("Could not sign in to this server.") : error);
+    if (!m_activatingConnectionId.isEmpty()) {
+        // A listener chose another connection (for example the next member
+        // of a Bloom profile); that choice replaces the fallback.
+        return;
+    }
+    if (!fallback.isEmpty() && fallback != failed && m_configManager
+        && m_configManager->getConnection(fallback).has_value()) {
+        activateConnection(fallback);
+        // A failed fallback ends at the login screen rather than looping.
+        m_activationFallbackConnectionId.clear();
+    } else {
+        emit loggedOut();
+    }
+}
+
+QString AuthenticationService::activeConnectionId() const
+{
+    if (m_activeConnection.isValid()) {
+        return m_activeConnection.connectionId;
+    }
+    const auto connection = m_configManager
+        ? m_configManager->getActiveConnection() : std::nullopt;
+    return connection.has_value() ? connection->connectionId : QString();
+}
+
+void AuthenticationService::setMemberConnections(const QStringList &connectionIds)
+{
+    // Kept so initialize() can resolve members requested before ConfigManager
+    // was attached (services are constructed before session restore).
+    m_memberConnectionIds = connectionIds;
+    QList<ServerConnection> connections;
+    if (m_configManager) {
+        for (const QString &connectionId : connectionIds) {
+            if (const auto connection = m_configManager->getConnection(connectionId)) {
+                connections.append(*connection);
+            }
+        }
+    }
+    m_sessionPool->setConnections(connections);
+}
+
+bool AuthenticationService::hasSessionForConnection(const QString &connectionId) const
+{
+    return requestContextForConnection(connectionId).has_value();
+}
+
+std::optional<ProviderRequestContext> AuthenticationService::requestContextForConnection(
+    const QString &connectionId) const
+{
+    if (connectionId.isEmpty()) {
+        return std::nullopt;
+    }
+    if (isAuthenticated() && connectionId == activeConnectionId()) {
+        return requestContext(true);
+    }
+    const auto connection = m_sessionPool->connection(connectionId);
+    const auto credentials = m_sessionPool->credentials(connectionId);
+    if (!connection.has_value() || !credentials.has_value()) {
+        return std::nullopt;
+    }
+    // Device fields are installation-wide; only server and account differ.
+    ProviderRequestContext context = requestContext(false);
+    context.baseUrl = connection->baseUrl;
+    context.accessToken = credentials->accessToken;
+    context.profileId = connection->profileId;
+    if (!context.profileId.isEmpty()) {
+        context.profileToken = credentials->profileToken;
+    }
+    return context;
+}
+
+IProviderAdapter *AuthenticationService::providerForConnection(const QString &connectionId) const
+{
+    if (connectionId.isEmpty()) {
+        return nullptr;
+    }
+    if (connectionId == activeConnectionId() && m_providerAdapter) {
+        return m_providerAdapter;
+    }
+    const auto connection = m_configManager
+        ? m_configManager->getConnection(connectionId) : std::nullopt;
+    return connection.has_value() ? providerForKind(connection->providerKind) : nullptr;
+}
+
+std::optional<QNetworkRequest> AuthenticationService::createRequestForConnection(
+    const QString &connectionId, const QString &endpoint) const
+{
+    const auto context = requestContextForConnection(connectionId);
+    IProviderAdapter *adapter = providerForConnection(connectionId);
+    if (!context.has_value() || !adapter || !adapter->requestFactory()) {
+        return std::nullopt;
+    }
+    return adapter->requestFactory()->createRequest(*context, endpoint);
+}
+
+void AuthenticationService::activateConnection(const QString &connectionId)
+{
+    if (!m_configManager) {
+        return;
+    }
+    const QString normalized = connectionId.trimmed();
+    if (!m_configManager->getConnection(normalized).has_value()) {
+        emit connectionActivationFailed(
+            normalized, tr("This server connection no longer exists."));
+        return;
+    }
+    if (isAuthenticated() && activeConnectionId() == normalized) {
+        emit connectionActivated(normalized);
+        return;
+    }
+
+    const QString previous = isAuthenticated() ? activeConnectionId() : QString();
+    clearAccountStateInternal(false, false);
+    m_activatingConnectionId = normalized;
+    m_activationFallbackConnectionId = previous;
+    m_configManager->setActiveConnection(normalized);
+    startRestoration();
+}
+
+void AuthenticationService::suspendSession()
+{
+    clearAccountStateInternal(false, true);
+}
+
+void AuthenticationService::removeStoredCredentials(const ServerConnection &connection)
+{
+    if (!connection.isValid()) {
+        return;
+    }
+    m_sessionPool->forget(connection.connectionId);
+    if (m_secretStore) {
+        removeAllCredentialsAsync(
+            connection, m_configManager ? m_configManager->getDeviceId() : QString());
+    }
 }
 
 void AuthenticationService::loadProfiles(bool finishWhenUnavailable)
@@ -1402,7 +1589,7 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
             }
             if (!refreshed) {
                 qCWarning(lcAuth) << "Stored session is invalid or expired";
-                clearAccountStateInternal(true, true);
+                failRestoration(QString());
                 return;
             }
             validateAccessToken([this, generation, finishRestore](bool refreshValid) {
@@ -1412,7 +1599,7 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
                 if (refreshValid) {
                     finishRestore();
                 } else {
-                    clearAccountStateInternal(true, true);
+                    failRestoration(QString());
                 }
             });
         });
@@ -1488,12 +1675,19 @@ void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
     Bloom::ArtworkRef::clearTransientSourceUrls();
     const bool wasAuthenticated = isAuthenticated();
     ++m_stateGeneration;
+    m_activatingConnectionId.clear();
+    m_activationFallbackConnectionId.clear();
 
     const ServerConnection connection = m_activeConnection.isValid()
         ? m_activeConnection
         : (m_configManager
                ? m_configManager->getActiveConnection().value_or(ServerConnection{})
                : ServerConnection{});
+    if (removeCredentials && connection.isValid()) {
+        // Merged reads fall back to pooled tokens once another member is live;
+        // a signed-out account must not stay reachable through them.
+        m_sessionPool->forget(connection.connectionId);
+    }
     if (removeCredentials && m_secretStore && connection.isValid()) {
         const QString deviceId = m_configManager ? m_configManager->getDeviceId() : QString();
         removeAllCredentialsAsync(connection, deviceId);
@@ -1545,6 +1739,14 @@ void AuthenticationService::updateAuthenticationStep(const QString &step)
     emit authenticationStepChanged();
     if (wasAuthenticated != isAuthenticated()) {
         emit authenticatedChanged();
+    }
+    if (!m_activatingConnectionId.isEmpty()
+        && (step == QStringLiteral("profiles") || step == QStringLiteral("pin"))) {
+        // The saved provider profile is gone or needs a PIN: hand the
+        // half-restored session to the login screen instead of failing.
+        const QString connectionId = std::exchange(m_activatingConnectionId, QString());
+        m_activationFallbackConnectionId.clear();
+        emit signInRequired(connectionId);
     }
 }
 

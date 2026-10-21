@@ -19,6 +19,12 @@ FocusScope {
     property bool serviceLoginReported: false
     property bool completionEmitted: false
     property string statusMessage: ""
+    // Signing in to an additional server keeps the previous sign-in; offer a
+    // way back. Signed out with saved workspaces, offer to reopen one.
+    readonly property bool addingConnection: typeof Workspaces !== "undefined" && Workspaces.addingConnection
+    readonly property bool hasSavedWorkspaces: typeof Workspaces !== "undefined" && Workspaces.profiles.length > 0
+    readonly property bool showWorkspaceAction: authenticationStep === "credentials"
+                                                && (addingConnection || hasSavedWorkspaces)
     property bool statusIsError: false
 
     function providerTitle() {
@@ -226,6 +232,12 @@ FocusScope {
     }
 
     Keys.onEscapePressed: function(event) {
+        if (addingConnection && authenticationStep === "credentials") {
+            clearStatus()
+            Workspaces.cancelAddConnection()
+            event.accepted = true
+            return
+        }
         if (authenticationStep !== "authenticated") {
             cancelAuthentication()
             event.accepted = true
@@ -233,6 +245,12 @@ FocusScope {
     }
 
     Keys.onBackPressed: function(event) {
+        if (addingConnection && authenticationStep === "credentials") {
+            clearStatus()
+            Workspaces.cancelAddConnection()
+            event.accepted = true
+            return
+        }
         if (authenticationStep !== "authenticated") {
             cancelAuthentication()
             event.accepted = true
@@ -258,7 +276,8 @@ FocusScope {
         id: loginCard
         anchors.centerIn: parent
         width: Math.min(Math.round(780 * Theme.layoutScale), parent.width - Theme.spacingLarge * 2)
-        height: Math.min(Math.round(800 * Theme.layoutScale), parent.height - Theme.spacingLarge * 2)
+        height: Math.min(Math.round((root.showWorkspaceAction ? 876 : 800) * Theme.layoutScale),
+                         parent.height - Theme.spacingLarge * 2)
         radius: Theme.radiusPanel
         color: Theme.surfaceGlassStrong
         border.color: Theme.surfaceBorder
@@ -341,7 +360,7 @@ FocusScope {
                             focusPolicy: Qt.StrongFocus
                             KeyNavigation.left: siloButton
                             KeyNavigation.right: jellyfinButton
-                            KeyNavigation.up: credentialCancelButton
+                            KeyNavigation.up: root.showWorkspaceAction ? workspaceActionButton : credentialCancelButton
                             KeyNavigation.down: serverField
                             KeyNavigation.tab: jellyfinButton
                             KeyNavigation.backtab: credentialCancelButton
@@ -358,7 +377,7 @@ FocusScope {
                             focusPolicy: Qt.StrongFocus
                             KeyNavigation.left: autoButton
                             KeyNavigation.right: siloButton
-                            KeyNavigation.up: credentialCancelButton
+                            KeyNavigation.up: root.showWorkspaceAction ? workspaceActionButton : credentialCancelButton
                             KeyNavigation.down: serverField
                             KeyNavigation.tab: siloButton
                             KeyNavigation.backtab: autoButton
@@ -375,7 +394,7 @@ FocusScope {
                             focusPolicy: Qt.StrongFocus
                             KeyNavigation.left: jellyfinButton
                             KeyNavigation.right: autoButton
-                            KeyNavigation.up: credentialCancelButton
+                            KeyNavigation.up: root.showWorkspaceAction ? workspaceActionButton : credentialCancelButton
                             KeyNavigation.down: serverField
                             KeyNavigation.tab: serverField
                             KeyNavigation.backtab: jellyfinButton
@@ -462,7 +481,7 @@ FocusScope {
                             Layout.preferredHeight: Theme.buttonHeightLarge
                             focusPolicy: Qt.StrongFocus
                             KeyNavigation.up: passField
-                            KeyNavigation.down: root.selectedProviderButton()
+                            KeyNavigation.down: root.showWorkspaceAction ? workspaceActionButton : root.selectedProviderButton()
                             KeyNavigation.left: connectButton
                             KeyNavigation.right: connectButton
                             KeyNavigation.tab: root.selectedProviderButton()
@@ -484,12 +503,37 @@ FocusScope {
                             Layout.preferredHeight: Theme.buttonHeightLarge
                             focusPolicy: Qt.StrongFocus
                             KeyNavigation.up: passField
-                            KeyNavigation.down: root.selectedProviderButton()
+                            KeyNavigation.down: root.showWorkspaceAction ? workspaceActionButton : root.selectedProviderButton()
                             KeyNavigation.left: credentialCancelButton
                             KeyNavigation.right: credentialCancelButton
                             KeyNavigation.tab: credentialCancelButton
                             KeyNavigation.backtab: passField
                             onClicked: root.submitCredentials()
+                        }
+                    }
+
+                    ActionButton {
+                        id: workspaceActionButton
+                        visible: root.showWorkspaceAction
+                        variant: "ghost"
+                        iconGlyph: root.addingConnection ? Icons.arrowBack : Icons.group
+                        text: root.addingConnection ? qsTr("Cancel and go back") : qsTr("Open a saved workspace")
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.buttonHeightMedium
+                        focusPolicy: Qt.StrongFocus
+                        KeyNavigation.up: connectButton
+                        KeyNavigation.down: root.selectedProviderButton()
+                        KeyNavigation.tab: root.selectedProviderButton()
+                        KeyNavigation.backtab: connectButton
+                        Keys.onReturnPressed: clicked()
+                        Keys.onEnterPressed: clicked()
+                        onClicked: {
+                            if (root.addingConnection) {
+                                root.clearStatus()
+                                Workspaces.cancelAddConnection()
+                            } else {
+                                loginWorkspacePicker.open()
+                            }
                         }
                     }
                 }
@@ -795,6 +839,15 @@ FocusScope {
                 }
             }
         }
+    }
+
+    WorkspacePickerDialog {
+        id: loginWorkspacePicker
+        parent: Overlay.overlay
+        allowSignOut: false
+        allowManage: false
+        allowAdd: false
+        onClosed: root.restoreStepFocus()
     }
 
     Component.onCompleted: restoreStepFocus()
