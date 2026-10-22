@@ -55,6 +55,9 @@ private slots:
     void windowsEmbeddedShaderListUsesResolvedGlslShadersOption();
     void embeddedVideoFilterListOperationsAreDeferred();
     void linkedRuntimePreservesVideoFilterOrder();
+    void streamFailureLogsIncludeCurlTransferErrors();
+    void streamFailureExplainsEofAfterCacheDrains();
+    void streamFailureIgnoresGenuineEndAfterRecovery();
     void externalBackendRuntimeIsUnknownUntilProbed();
     void externalBackendEnumeratesAudioDevicesWhileIdle();
     void linkedRuntimeEnumeratesAudioDevices();
@@ -433,6 +436,66 @@ void PlayerBackendFactoryTest::embeddedVideoFilterListOperationsAreDeferred()
     QCOMPARE(ordered.at(1).operation, QStringLiteral("set"));
     QCOMPARE(ordered.at(1).value, QStringLiteral("vflip"));
     QCOMPARE(ordered.at(2).operation, QStringLiteral("append"));
+}
+
+void PlayerBackendFactoryTest::streamFailureLogsIncludeCurlTransferErrors()
+{
+    QVERIFY(BloomBackend::isStreamFailureLog(
+        QStringLiteral("warn"), QStringLiteral("curl"),
+        QStringLiteral("Transferred a partial file, retrying (#1) from 2013074767")));
+    QVERIFY(BloomBackend::isStreamFailureLog(
+        QStringLiteral("error"), QStringLiteral("curl"),
+        QStringLiteral("transfer failed: Server returned nothing (no headers, no data)")));
+    QVERIFY(BloomBackend::isStreamFailureLog(
+        QStringLiteral("warn"), QStringLiteral("ffmpeg"),
+        QStringLiteral("http: Will reconnect at 941435779 in 0 second(s), error=End of file.")));
+    QVERIFY(!BloomBackend::isStreamFailureLog(
+        QStringLiteral("v"), QStringLiteral("curl"), QStringLiteral("Opening https://example.invalid/video.mkv")));
+    QVERIFY(!BloomBackend::isStreamFailureLog(
+        QStringLiteral("warn"), QStringLiteral("ao/wasapi"),
+        QStringLiteral("This appears to require a weird Windows 7 hack. Retrying.")));
+}
+
+void PlayerBackendFactoryTest::streamFailureExplainsEofAfterCacheDrains()
+{
+    // Field log: curl gave up at 530 s with the cache filled to 713 s, and
+    // the demuxer played that cache for three minutes before reaching EOF.
+    BloomBackend::StreamFailureTracker tracker;
+    tracker.observeDuration(3719.55);
+    tracker.observePosition(530.0);
+    tracker.observeCacheEnd(713.0);
+    QVERIFY(!tracker.explainsEof(0));
+    QVERIFY(tracker.recordLog(QStringLiteral("error"), QStringLiteral("curl"),
+                              QStringLiteral("transfer failed: Server returned nothing (no headers, no data)"),
+                              1000));
+    tracker.observePosition(713.046);
+    QVERIFY(tracker.explainsEof(1000 + 184000));
+    QVERIFY(tracker.failureText().contains(QStringLiteral("transfer failed")));
+
+    tracker.clear();
+    QVERIFY(!tracker.hasFailure());
+    QVERIFY(!tracker.explainsEof(1000 + 184000));
+}
+
+void PlayerBackendFactoryTest::streamFailureIgnoresGenuineEndAfterRecovery()
+{
+    BloomBackend::StreamFailureTracker tracker;
+    tracker.observePosition(100.0);
+    tracker.observeCacheEnd(160.0);
+    QVERIFY(tracker.recordLog(QStringLiteral("warn"), QStringLiteral("curl"),
+                              QStringLiteral("Transferred a partial file, retrying (#1) from 49283072"), 0));
+    // The retry succeeded and the cache kept growing well past the failure.
+    tracker.observeCacheEnd(2400.0);
+    tracker.observePosition(2000.0);
+    QVERIFY(!tracker.explainsEof(1900000));
+
+    // EOF at the known duration is the file ending, even right after a failure.
+    tracker.observeDuration(3719.55);
+    tracker.observePosition(3719.0);
+    QVERIFY(tracker.recordLog(QStringLiteral("warn"), QStringLiteral("curl"),
+                              QStringLiteral("Server returned nothing (no headers, no data), retrying (#1) from 1"),
+                              3600000));
+    QVERIFY(!tracker.explainsEof(3600500));
 }
 
 void PlayerBackendFactoryTest::linkedRuntimePreservesVideoFilterOrder()

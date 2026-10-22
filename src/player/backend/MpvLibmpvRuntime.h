@@ -35,6 +35,38 @@ struct VideoFilterListOperation
 // after mpv_initialize() through the `vf <operation>` command instead.
 [[nodiscard]] QList<VideoFilterListOperation> takeVideoFilterListOperations(QStringList *args);
 
+// True for an mpv log line reporting a network stream failure, from either
+// FFmpeg's http protocol or mpv's libcurl stream backend.
+[[nodiscard]] bool isStreamFailureLog(const QString &level, const QString &prefix, const QString &text);
+
+// Decides whether an EOF is the stream dying rather than the file ending.
+// After a stream fails, the demuxer keeps playing its cache, so the EOF can
+// arrive minutes after the failure. An EOF counts as premature when it lands
+// shortly after the failure or no later than where the cache ended at
+// failure time. An EOF at the known duration is always genuine.
+class StreamFailureTracker
+{
+public:
+    void observePosition(double seconds);
+    void observeDuration(double seconds);
+    void observeCacheEnd(double seconds);
+    // Records `text` when it is a stream failure; returns whether it was.
+    bool recordLog(const QString &level, const QString &prefix, const QString &text, qint64 nowMs);
+    [[nodiscard]] bool explainsEof(qint64 nowMs) const;
+    [[nodiscard]] bool hasFailure() const { return !m_failureText.isEmpty(); }
+    [[nodiscard]] QString failureText() const { return m_failureText; }
+    // Forgets the failure and the observed timeline (new file or teardown).
+    void clear();
+
+private:
+    double m_position = -1.0;
+    double m_duration = -1.0;
+    double m_cacheEnd = -1.0;
+    double m_cacheEndAtFailure = -1.0;
+    qint64 m_failureTimeMs = 0;
+    QString m_failureText;
+};
+
 #if defined(BLOOM_HAS_LIBMPV)
 // Cached per process: creates an uninitialized handle, test-parses the
 // vf=format Dolby Vision options, and destroys it. Cheap (no VO/playback).

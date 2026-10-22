@@ -81,6 +81,81 @@ QList<VideoFilterListOperation> takeVideoFilterListOperations(QStringList *args)
     return operations;
 }
 
+bool isStreamFailureLog(const QString &level, const QString &prefix, const QString &text)
+{
+    // mpv's curl backend logs only transfer problems at warn/error: retries
+    // ("Transferred a partial file, retrying (#1) from ...") and the final
+    // "transfer failed: ..." once its retries run out.
+    if (prefix == QStringLiteral("curl")
+        && (level == QStringLiteral("warn") || level == QStringLiteral("error"))) {
+        return true;
+    }
+    const QString haystack = QStringList{level, prefix, text}.join(QLatin1Char(' ')).toLower();
+    return haystack.contains(QStringLiteral("stream ends prematurely"))
+        || haystack.contains(QStringLiteral("will reconnect"))
+        || haystack.contains(QStringLiteral("http error 5"))
+        || haystack.contains(QStringLiteral("i/o error"))
+        || haystack.contains(QStringLiteral("io error"));
+}
+
+namespace {
+constexpr qint64 kStreamFailureGraceMs = 30000;
+// The EOF lands where the cached data ran out, up to a demuxer packet or so
+// past the last observed cache end.
+constexpr double kCacheEndSlackSeconds = 5.0;
+constexpr double kGenuineEndSlackSeconds = 2.0;
+} // namespace
+
+void StreamFailureTracker::observePosition(double seconds)
+{
+    m_position = seconds;
+}
+
+void StreamFailureTracker::observeDuration(double seconds)
+{
+    m_duration = seconds;
+}
+
+void StreamFailureTracker::observeCacheEnd(double seconds)
+{
+    m_cacheEnd = seconds;
+}
+
+bool StreamFailureTracker::recordLog(const QString &level, const QString &prefix, const QString &text,
+                                     qint64 nowMs)
+{
+    if (!isStreamFailureLog(level, prefix, text)) {
+        return false;
+    }
+    m_failureTimeMs = nowMs;
+    m_cacheEndAtFailure = m_cacheEnd;
+    m_failureText = QStringLiteral("[%1][%2] %3")
+                        .arg(level.isEmpty() ? QStringLiteral("unknown") : level,
+                             prefix.isEmpty() ? QStringLiteral("unknown") : prefix,
+                             text);
+    return true;
+}
+
+bool StreamFailureTracker::explainsEof(qint64 nowMs) const
+{
+    if (m_failureText.isEmpty()) {
+        return false;
+    }
+    if (m_duration > 0.0 && m_position >= m_duration - kGenuineEndSlackSeconds) {
+        return false;
+    }
+    if (nowMs - m_failureTimeMs <= kStreamFailureGraceMs) {
+        return true;
+    }
+    return m_cacheEndAtFailure >= 0.0 && m_position >= 0.0
+        && m_position <= m_cacheEndAtFailure + kCacheEndSlackSeconds;
+}
+
+void StreamFailureTracker::clear()
+{
+    *this = StreamFailureTracker{};
+}
+
 #if defined(BLOOM_HAS_LIBMPV)
 
 PlayerPolicy::FormatFilterSupport probeLinkedFormatFilterSupport()

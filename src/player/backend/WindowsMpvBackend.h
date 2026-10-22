@@ -90,8 +90,6 @@ private:
     void setDirectRunning(bool running);
     void logLifecycleCheckpoint(const char *checkpoint) const;
     void recordMpvLogMessage(const QString &level, const QString &prefix, const QString &text);
-    void clearRecentStreamFailure();
-    [[nodiscard]] bool hasRecentStreamFailure() const;
 
     static void wakeupCallback(void *ctx);
 
@@ -127,8 +125,7 @@ private:
     bool m_videoHostDestroyDeferred = false;
     quint64 m_pendingStopReplyUserdata = 0;
     quint64 m_stopTeardownGeneration = 0;
-    qint64 m_recentStreamFailureTimeMs = 0;
-    QString m_recentStreamFailureText;
+    BloomBackend::StreamFailureTracker m_streamFailures;
     QString m_currentProfileName = QStringLiteral("unknown");
     QString m_currentWindowsRenderApi = QStringLiteral("auto");
     QString m_effectiveVo = QStringLiteral("gpu-next");

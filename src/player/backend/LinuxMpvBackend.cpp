@@ -34,7 +34,6 @@ extern "C" {
 
 
 namespace {
-constexpr qint64 kRecentStreamFailureWindowMs = 30000;
 
 bool isTruthyEnv(const char *name)
 {
@@ -90,16 +89,6 @@ const char *endFileReasonToString(int reason)
     }
 }
 #endif
-
-bool isRecoverableStreamFailureLog(const QString &level, const QString &prefix, const QString &text)
-{
-    const QString haystack = QStringList{level, prefix, text}.join(QLatin1Char(' ')).toLower();
-    return haystack.contains(QStringLiteral("stream ends prematurely"))
-        || haystack.contains(QStringLiteral("will reconnect"))
-        || haystack.contains(QStringLiteral("http error 5"))
-        || haystack.contains(QStringLiteral("i/o error"))
-        || haystack.contains(QStringLiteral("io error"));
-}
 
 }
 
@@ -158,7 +147,7 @@ void LinuxMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, c
     m_renderMode = m_forceSoftwareRender ? RenderMode::Software : RenderMode::OpenGL;
     m_playlistPosition = -1;
     m_playlistCount = 0;
-    clearRecentStreamFailure();
+    m_streamFailures.clear();
     m_swRenderImage = QImage();
     m_swFrameDispatchQueued.store(false, std::memory_order_release);
     {
@@ -604,7 +593,7 @@ void LinuxMpvBackend::teardownMpv(bool emitStateChange)
 #if defined(BLOOM_HAS_LIBMPV)
     m_propertySnapshots.reset();
 #endif
-    clearRecentStreamFailure();
+    m_streamFailures.clear();
 
     if (m_running && emitStateChange) {
         m_running = false;
@@ -660,7 +649,7 @@ void LinuxMpvBackend::processMpvEvents()
             const bool recoverablePrematureEof = endFile != nullptr
                 && reachedTerminalPlaybackState
                 && !isIntentionalEnd
-                && hasRecentStreamFailure();
+                && m_streamFailures.explainsEof(QDateTime::currentMSecsSinceEpoch());
 
             if (endFile) {
                 qCInfo(lcLinuxLibmpvBackend)
@@ -668,16 +657,16 @@ void LinuxMpvBackend::processMpvEvents()
                     << "error=" << QString::fromUtf8(mpv_error_string(endFile->error))
                     << "hasRemainingPlaylistItems=" << hasRemainingPlaylistItems
                     << "recoverablePrematureEof=" << recoverablePrematureEof
-                    << "recentStreamFailure=" << m_recentStreamFailureText;
+                    << "recentStreamFailure=" << m_streamFailures.failureText();
             } else {
                 qCInfo(lcLinuxLibmpvBackend) << "MPV_EVENT_END_FILE (no data)";
             }
 
             if (recoverablePrematureEof) {
                 const QString errorMessage = QStringLiteral("recoverable-stream-ended-prematurely: %1")
-                                                 .arg(m_recentStreamFailureText);
+                                                 .arg(m_streamFailures.failureText());
                 qCWarning(lcLinuxLibmpvBackend) << errorMessage;
-                clearRecentStreamFailure();
+                m_streamFailures.clear();
                 teardownMpv(false);
                 emit errorOccurred(errorMessage);
                 return;
@@ -934,11 +923,13 @@ bool LinuxMpvBackend::queueLoadFile(const QString &mediaUrl)
 void LinuxMpvBackend::handlePropertyChange(const QString &name, const QVariant &value)
 {
     if (name == QStringLiteral("time-pos")) {
+        m_streamFailures.observePosition(value.toDouble());
         emit positionChanged(value.toDouble());
         return;
     }
 
     if (name == QStringLiteral("duration")) {
+        m_streamFailures.observeDuration(value.toDouble());
         emit durationChanged(value.toDouble());
         return;
     }
@@ -994,35 +985,14 @@ void LinuxMpvBackend::handlePropertyChange(const QString &name, const QVariant &
     }
 
     if (name == QStringLiteral("demuxer-cache-time")) {
+        m_streamFailures.observeCacheEnd(value.toDouble());
         emit cacheEndChanged(value.toDouble());
     }
 }
 
 void LinuxMpvBackend::recordMpvLogMessage(const QString &level, const QString &prefix, const QString &text)
 {
-    if (!isRecoverableStreamFailureLog(level, prefix, text)) {
-        return;
-    }
-
-    m_recentStreamFailureTimeMs = QDateTime::currentMSecsSinceEpoch();
-    m_recentStreamFailureText = QStringLiteral("[%1][%2] %3")
-                                    .arg(level.isEmpty() ? QStringLiteral("unknown") : level,
-                                         prefix.isEmpty() ? QStringLiteral("unknown") : prefix,
-                                         text);
-}
-
-void LinuxMpvBackend::clearRecentStreamFailure()
-{
-    m_recentStreamFailureTimeMs = 0;
-    m_recentStreamFailureText.clear();
-}
-
-bool LinuxMpvBackend::hasRecentStreamFailure() const
-{
-    if (m_recentStreamFailureTimeMs <= 0 || m_recentStreamFailureText.isEmpty()) {
-        return false;
-    }
-    return QDateTime::currentMSecsSinceEpoch() - m_recentStreamFailureTimeMs <= kRecentStreamFailureWindowMs;
+    m_streamFailures.recordLog(level, prefix, text, QDateTime::currentMSecsSinceEpoch());
 }
 
 void LinuxMpvBackend::handleWindowChanged(QQuickWindow *window)

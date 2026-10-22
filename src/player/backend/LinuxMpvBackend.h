@@ -62,8 +62,6 @@ private:
     bool queueLoadFile(const QString &mediaUrl);
     void handlePropertyChange(const QString &name, const QVariant &value);
     void recordMpvLogMessage(const QString &level, const QString &prefix, const QString &text);
-    void clearRecentStreamFailure();
-    [[nodiscard]] bool hasRecentStreamFailure() const;
     void handleWindowChanged(QQuickWindow *window);
     void initializeRenderContextIfNeeded();
     void teardownRenderContext();
@@ -105,8 +103,7 @@ private:
     std::atomic_bool m_swFrameDispatchQueued{false};
     int m_playlistPosition = -1;
     int m_playlistCount = 0;
-    qint64 m_recentStreamFailureTimeMs = 0;
-    QString m_recentStreamFailureText;
+    BloomBackend::StreamFailureTracker m_streamFailures;
     QStringList m_pendingEmbeddedShaderPaths;
     QList<BloomBackend::VideoFilterListOperation> m_pendingVideoFilterOperations;
     Bloom::PlaybackPolicy::MpvRuntimeInfo m_runtimeInfo;

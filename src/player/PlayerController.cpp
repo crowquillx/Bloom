@@ -6336,6 +6336,13 @@ void PlayerController::initiateMpvStart()
     // Build final args: Bloom config args + profile args
     QStringList finalArgs;
     finalArgs << m_config->getMpvConfigArgs();  // mpv.conf, input.conf, scripts
+    if (m_playerBackend->backendName() == QStringLiteral("win-libmpv")) {
+        // The Windows mpv build streams HTTP through libcurl, which retries a
+        // dropped transfer only a few times with no delay and then ends the
+        // stream. FFmpeg's http protocol honors the --stream-lavf-o reconnect
+        // backoff, so mpv buffers through server hiccups instead of hitting EOF.
+        finalArgs << QStringLiteral("--curl-enabled=no");
+    }
     finalArgs << profileArgs;                        // Profile-specific args
 
     const bool remoteMountStartupBuffering =
