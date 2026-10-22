@@ -719,6 +719,9 @@ FocusScope {
             return
         }
         target.source = currentBackdropUrl
+        // A pixmap-cache hit loads synchronously, and Ready -> Ready emits no
+        // statusChanged, so check here or the previous item's artwork stays up.
+        heroCard.checkBackdropStatus(target)
     }
 
     // Card mode: carousel focus raises the card on a soft shadow.

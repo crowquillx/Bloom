@@ -824,6 +824,13 @@ Window {
         onClosed: restoreHomeFocus()
         onRejected: close()
 
+        // Esc pressed while Home is still settling opens this before Home's
+        // own focus restore runs; keep that restore from stranding focus.
+        ModalFocusGuard {
+            popup: homePowerDialog
+            fallbackItem: quitButton
+        }
+
         // Opaque so page text behind the modal cannot bleed through the dialog copy.
         background: DialogSurface {}
         Overlay.modal: ModalScrim {}
@@ -933,6 +940,11 @@ Window {
             } else {
                 homePowerDialog.restoreHomeFocus()
             }
+        }
+
+        ModalFocusGuard {
+            popup: signOutDialog
+            fallbackItem: signOutCancelButton
         }
 
         // Opaque so page text behind the modal cannot bleed through the dialog copy.

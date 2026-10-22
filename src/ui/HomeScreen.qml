@@ -91,9 +91,15 @@ FocusScope {
     property bool loadingGlobalBackdropPool: false
     property bool useSectionBackdropFallback: false
     property bool fullBackdropIndexRequested: false
+    // Not heroBanner.visible: that turns false while another page covers Home,
+    // and the page backdrop must keep following the hero meanwhile.
     readonly property bool heroBackdropActive: ConfigManager.heroBannerEnabled
                                                 && ConfigManager.heroBannerBackdropSyncEnabled
-                                                && heroBanner.visible && heroBanner.currentBackdropUrl !== ""
+                                                && heroProvider.hasContent && heroBanner.currentBackdropUrl !== ""
+    // Derived, not copied on change, so the page backdrop always matches the
+    // hero text no matter what cycled or rotated while Home was covered.
+    readonly property string displayedBackdropUrl: heroBackdropActive ? heroBanner.currentBackdropUrl
+                                                                      : currentBackdropUrl
 
     HeroBannerProvider {
         id: heroProvider
@@ -579,11 +585,11 @@ FocusScope {
 
         function checkStatus(img) {
             // Only act if this image is loading the CURRENT requested url
-            if (img.source.toString() !== root.currentBackdropUrl) return
+            if (img.source.toString() !== root.displayedBackdropUrl) return
 
-            if (img.status === Image.Ready || (img.status === Image.Null && root.currentBackdropUrl === "")) {
-                if (img.status === Image.Ready && root.currentBackdropUrl !== "") {
-                    homeBackdropSettings.lastBackdropUrl = root.currentBackdropUrl
+            if (img.status === Image.Ready || (img.status === Image.Null && root.displayedBackdropUrl === "")) {
+                if (img.status === Image.Ready && root.displayedBackdropUrl !== "") {
+                    homeBackdropSettings.lastBackdropUrl = root.displayedBackdropUrl
                 }
                 // New image loaded (or cleared), switch to it
                 if (img === backdrop1) showBackdrop1 = true
@@ -645,18 +651,21 @@ FocusScope {
         }
     }
 
-    onCurrentBackdropUrlChanged: {
+    onDisplayedBackdropUrlChanged: {
         // Load the new URL into the INACTIVE image
         var target = backdropContainer.showBackdrop1 ? backdrop2 : backdrop1
-        
+
         // If the target is already displaying this URL, just switch immediately
-        if (target.source.toString() === currentBackdropUrl && target.status === Image.Ready) {
+        if (target.source.toString() === displayedBackdropUrl && target.status === Image.Ready) {
              if (target === backdrop1) backdropContainer.showBackdrop1 = true
              else backdropContainer.showBackdrop1 = false
              return
         }
 
-        target.source = currentBackdropUrl
+        target.source = displayedBackdropUrl
+        // A pixmap-cache hit loads synchronously, and Ready -> Ready emits no
+        // statusChanged, so check here or the old artwork stays on screen.
+        backdropContainer.checkStatus(target)
     }
     
     // Fallback solid background (visible when no backdrop loaded)
@@ -864,9 +873,6 @@ FocusScope {
                 visible: ConfigManager.heroBannerEnabled && heroProvider.hasContent
                 heroModel: heroProvider.heroModel
                 scrolling: mainFlickable.moving
-                onCurrentBackdropUrlChanged: {
-                    if (root.heroBackdropActive) root.currentBackdropUrl = currentBackdropUrl
-                }
                 onActiveFocusChanged: {
                     if (activeFocus) {
                         root.lastFocusedSection = "hero"

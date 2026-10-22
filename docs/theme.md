@@ -121,6 +121,7 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `FocusRing` | Focus indicator; place it inside a focusable item's background. |
 | `GlassPanel` | Rounded glass surface (`strong`, `bordered`). |
 | `DialogSurface` / `ModalScrim` | `Dialog`/`Popup` background and `Overlay.modal`. |
+| `ModalFocusGuard` | Keeps focus inside an open modal `Dialog` when the page behind it restores focus late (`popup`, optional `fallbackItem`). |
 | `BloomMenu` / `BloomMenuItem` | Context menus and submenus (`iconGlyph`, `destructive`, `marked`). |
 | `BloomCheckIndicator` | Check box indicator for `CheckBox`/`CheckDelegate`. |
 | `FieldBackground` | Text field and combo box backgrounds with focus and error states. |

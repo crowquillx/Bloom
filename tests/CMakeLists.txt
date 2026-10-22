@@ -784,6 +784,29 @@ set_tests_properties(NavigationRailTest PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
 
+add_executable(ModalFocusGuardTest
+    ModalFocusGuardTest.cpp
+)
+
+target_compile_definitions(ModalFocusGuardTest PRIVATE
+    BLOOM_UI_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/ui"
+)
+
+target_link_libraries(ModalFocusGuardTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::QuickControls2
+        Qt6::Test
+)
+
+add_test(NAME ModalFocusGuardTest COMMAND ModalFocusGuardTest)
+set_tests_properties(ModalFocusGuardTest PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
+
 add_executable(DisplayManagerTest
     DisplayManagerTest.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp

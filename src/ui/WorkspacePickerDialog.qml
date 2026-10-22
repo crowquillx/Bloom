@@ -87,6 +87,11 @@ Dialog {
             buttons[index].forceActiveFocus()
     }
 
+    ModalFocusGuard {
+        popup: root
+        fallbackItem: root.workspaceList.length > 0 ? workspaceView : (root.actionButtons()[0] || null)
+    }
+
     onOpened: Qt.callLater(focusInitial)
 
     header: Item {

@@ -59,7 +59,10 @@ Leaving the hero resets to carousel mode. Auto-cycle pauses during focus, scroll
 Carousel focus is not drawn with `FocusRing`, which cut across the full-bleed artwork. Instead, each side edge of the hero shows a half-ellipse of accent light (`HeroEdgeCue`) with a glass chevron paddle in the page margin. A paddle flashes when Left/Right cycles in its direction, and the current page dot takes the accent color. With a single item, only the edge light shows. In card mode the card also rises a few pixels on a blurred `Theme.elevationShadow`. Action buttons keep their own `ActionButton` focus ring.
 
 When backdrop synchronization is enabled, the selected hero image drives Home's existing
-cross-fading backdrop and pauses normal backdrop rotation. Settings are stored below
+cross-fading backdrop and pauses normal backdrop rotation. Home binds the displayed backdrop
+(`displayedBackdropUrl`) to the hero's current URL rather than copying it on change, and the
+sync stays active while another page covers Home, so the artwork always matches the hero text
+on return. Settings are stored below
 `settings.ui.hero_banner` and exposed on the Settings > Home page.
 
 Normal backdrop rotation draws from `LibraryService.getHomeBackdropItems(limit)`, a single

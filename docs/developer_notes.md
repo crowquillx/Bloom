@@ -12,6 +12,7 @@ QML & Focus
 - Settings dropdowns should use `SettingsComboBox` instead of raw `ComboBox` so primitive and role-based models render the selected text reliably after async model/index updates.
 - Settings boolean controls should use `SettingsToggleRow` for consistent focus treatment, accessibility metadata, and keyboard/gamepad toggling.
 - Global app-shell shortcuts live in `Main.qml`; ESC on the root home screen opens the power menu, while deeper screens keep the normal back-stack behavior.
+- Modal dialogs opened over a page that restores focus asynchronously (Home, after loads or a pop transition) declare a `ModalFocusGuard`, so a late page restore cannot strand focus behind the modal.
 - The sidebar's Exit entry opens the same power menu, and Sign Out (sidebar or Settings → About & Account) opens a confirmation dialog with Cancel focused, so a stray Select press never signs out or quits.
 - The sidebar is a floating navigation rail (see `docs/theme.md#navigation-rail`). Moving Left into it (`Sidebar.focusRail()`) focuses the current page's entry (Home, Search, the active library, or Settings). Cancelling a sign-out or power dialog opened from the rail returns focus to the entry that opened it (`Sidebar.focusDialogOrigin()`).
 - Pages reserve `Theme.navRailReservedWidth` on the left and never respond to rail expansion. Full-bleed backdrops extend under the rail with a negative left margin.

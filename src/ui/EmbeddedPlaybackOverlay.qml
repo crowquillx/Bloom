@@ -67,6 +67,10 @@ FocusScope {
     readonly property bool inlineVolumeSliderAvailable: transportTray.roomForVolumeSlider
     property bool hasPrimedPointerPosition: false
     property real lastPointerY: -1
+    // Last real pointer position. Synthetic hover events, sent whenever the
+    // scene repaints under a resting pointer, repeat it and are not movement.
+    property real lastCursorX: -1
+    property real lastCursorY: -1
 
     // Pointer scrubbing on the progress bar.
     property bool scrubHovered: false
@@ -96,6 +100,7 @@ FocusScope {
     property double skipPopupWindowEndEpochMs: 0
 
     property int controlsAutoHideMs: 2500
+    property int cursorIdleHideMs: 2500
     property int controlsHideAnimMs: 180
     property int seekPreviewHoldMs: 1800
     property int volumeOsdHoldMs: 1800
@@ -1052,10 +1057,12 @@ FocusScope {
             hasPrimedPointerPosition = false
             lastPointerY = -1
             showSkipPopupIfEligible()
+            restartCursorIdleTimer()
         } else {
             hideTimer.stop()
             seekPreviewTimer.stop()
             skipPopupTimer.stop()
+            cursorIdleTimer.stop()
             settingsMenuOpen = false
             settingsPage = "root"
             settingsPageFromRoot = false
@@ -1153,6 +1160,38 @@ FocusScope {
         }
     }
 
+    // A stray mouse nudge must not leave the cursor parked over the video:
+    // once the pointer rests off the chrome, hide it as a key press would.
+    // Gated on visibility because the inline and detached overlays both exist.
+    function restartCursorIdleTimer() {
+        if (overlayActive && visible && InputModeManager.pointerActive)
+            cursorIdleTimer.restart()
+        else
+            cursorIdleTimer.stop()
+    }
+
+    Timer {
+        id: cursorIdleTimer
+        interval: root.cursorIdleHideMs
+        repeat: false
+        onTriggered: {
+            if (!root.overlayActive || !root.visible || !InputModeManager.pointerActive)
+                return
+            if (root.chromeHovered || root.scrubPressed) {
+                restart()
+                return
+            }
+            InputModeManager.hideCursor(true)
+        }
+    }
+
+    Connections {
+        target: InputModeManager
+        function onPointerActiveChanged() { root.restartCursorIdleTimer() }
+    }
+
+    onVisibleChanged: restartCursorIdleTimer()
+
     Timer {
         id: volumeOsdTimer
         interval: root.volumeOsdHoldMs
@@ -1178,6 +1217,11 @@ FocusScope {
         onPositionChanged: function(mouse) {
             if (!root.overlayActive) {
                 return
+            }
+            if (mouse.x !== root.lastCursorX || mouse.y !== root.lastCursorY) {
+                root.lastCursorX = mouse.x
+                root.lastCursorY = mouse.y
+                root.restartCursorIdleTimer()
             }
             if (!root.hasPrimedPointerPosition) {
                 root.hasPrimedPointerPosition = true

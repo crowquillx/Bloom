@@ -82,6 +82,7 @@ stdenv.mkDerivation {
       PlaybackPolicyTest \
       ResponsiveLayoutPolicyTest \
       NavigationRailTest \
+      ModalFocusGuardTest \
       AudioPolicyTest \
       AudioOutputServiceTest \
       LocalSeekPreviewTest \
@@ -111,7 +112,7 @@ stdenv.mkDerivation {
         qt6.qtimageformats
       ]
     }''${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
-    # QML scene tests (NavigationRailTest) import QtQuick.Controls.
+    # QML scene tests (NavigationRailTest, ModalFocusGuardTest) import QtQuick.Controls.
     export QML2_IMPORT_PATH="${qt6.qtdeclarative}/lib/qt-6/qml''${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
     ctest --output-on-failure \
       --exclude-regex '^(VisualRegressionTest|SeriesDetailsCacheTest)$'

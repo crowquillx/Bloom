@@ -153,6 +153,7 @@ qt_add_qml_module(Bloom
         ui/ArtworkLogo.qml
         ui/DialogSurface.qml
         ui/ModalScrim.qml
+        ui/ModalFocusGuard.qml
         ui/BloomMenu.qml
         ui/BloomMenuItem.qml
         ui/BloomCheckIndicator.qml
