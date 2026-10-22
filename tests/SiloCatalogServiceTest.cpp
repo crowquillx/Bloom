@@ -171,6 +171,7 @@ private slots:
     void themeGrantFlowUsesProfileAndFreshGrant();
     void playbackSurvivesAccessRefreshDuringCapabilityRead();
     void staleFirstPageCannotReplaceCurrentCursor();
+    void hierarchyAndRandomFallbacksUseCatalogRoutes();
     void structuredFiltersUseNativeQueryBody();
     void bookQueriesUseEbookType();
     void unsupportedFiltersAreExplicit();
@@ -465,6 +466,16 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     QCOMPARE(
         request.relativeEndpoint, QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes"));
 
+    // LibraryService::getSeasons / getSeasonEpisodes send only a parent and
+    // one item type; both must use hierarchy routes, never library_id.
+    ProviderCatalogQuery seasonEpisodes;
+    seasonEpisodes.parentId = QStringLiteral("season/one");
+    seasonEpisodes.includeItemTypes = {QStringLiteral("Episode")};
+    request = provider.createRequest(ProviderCatalogOperation::Items, seasonEpisodes);
+    QVERIFY(request.supported);
+    QCOMPARE(
+        request.relativeEndpoint, QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes"));
+
     ProviderCatalogQuery state;
     state.itemId = QStringLiteral("content-42");
     state.stateValue = true;
@@ -651,7 +662,7 @@ void SiloCatalogServiceTest::unsupportedFiltersAreExplicit()
         ProviderCatalogOperation::NextUp, query);
     QVERIFY(nextUp.supported);
     QCOMPARE(nextUp.method, ProviderHttpMethod::Get);
-    QCOMPARE(nextUp.relativeEndpoint, QStringLiteral("/api/v2/home/sections/system-next-up/items"));
+    QCOMPARE(nextUp.relativeEndpoint, QStringLiteral("/api/v2/home/sections"));
     verifyUnsupported(ProviderCatalogOperation::RandomItems, query);
     verifyUnsupported(ProviderCatalogOperation::ResolveLibrary, query);
 }
@@ -769,6 +780,32 @@ void SiloCatalogServiceTest::nativeResponseShapesPreserveHomeLibrarySearchAndDet
              QStringLiteral("system-next-up"));
     QCOMPARE(home.rawItems.at(1).toObject().value(QStringLiteral("type")).toString(),
              QStringLiteral("library"));
+
+    // Next Up reads the home layout: video cards from Continue Watching
+    // (which folds in Next Up by default) and a separate Next Up section,
+    // without Continue Listening cards, other sections, or duplicates.
+    const ProviderCatalogResponse nextUp = provider.parseResponse(
+        ProviderCatalogOperation::NextUp,
+        QByteArrayLiteral(
+            R"({"sections":[)"
+            R"({"id":"default-continue-watching","section_type":"continue_watching","items":[)"
+            R"({"content_id":"movie:heat","type":"movie","title":"Heat","position_seconds":1200,"item_source":"in_progress"},)"
+            R"({"content_id":"episode:s1e2","type":"episode","title":"Two","item_source":"next_up"}]},)"
+            R"({"id":"default-continue-listening","section_type":"continue_watching","items":[)"
+            R"({"content_id":"audiobook:one","type":"audiobook","title":"Book"}]},)"
+            R"({"id":"system-next-up","section_type":"next_up","items":[)"
+            R"({"content_id":"episode:s1e2","type":"episode","title":"Two"},)"
+            R"({"content_id":"episode:x1","type":"episode","title":"Other"}]},)"
+            R"({"id":"recently_added","section_type":"recently_added","items":[)"
+            R"({"content_id":"movie:new","type":"movie","title":"New"}]}]})"));
+    QVERIFY(nextUp.valid);
+    QStringList nextUpIds;
+    for (const QJsonValue &value : nextUp.rawItems) {
+        nextUpIds.append(value.toObject().value(QStringLiteral("content_id")).toString());
+    }
+    QCOMPARE(nextUpIds, (QStringList{QStringLiteral("movie:heat"),
+                                     QStringLiteral("episode:s1e2"),
+                                     QStringLiteral("episode:x1")}));
 
     const ProviderCatalogResponse library = provider.parseResponse(ProviderCatalogOperation::Items,
         QByteArrayLiteral(
@@ -1145,6 +1182,95 @@ void SiloCatalogServiceTest::staleFirstPageCannotReplaceCurrentCursor()
     library.getItems(query);
     QCOMPARE(QUrlQuery(manager.requests.last().request.url()).queryItemValue(QStringLiteral("cursor")), QStringLiteral("current-cursor"));
     QTRY_COMPARE(loaded.count(), 3);
+}
+
+void SiloCatalogServiceTest::hierarchyAndRandomFallbacksUseCatalogRoutes()
+{
+    QTemporaryDir directory;
+    ScopedConfigIsolation isolation(directory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    const ResponsePlan seasons{200, QByteArrayLiteral(
+        R"({"items":[{"content_id":"season:1","season_number":1,"title":"Season 1","episode_count":2},)"
+        R"({"content_id":"season:2","season_number":2,"title":"Season 2","episode_count":1}]})")};
+    const ResponsePlan seasonOne{200, QByteArrayLiteral(
+        R"({"items":[{"content_id":"ep:1","season_number":1,"episode_number":1,"title":"One","runtime":30,"user_data":{"played":true}},)"
+        R"({"content_id":"ep:2","season_number":1,"episode_number":2,"title":"Two","runtime":30,"user_data":{"played":false}}]})")};
+    const ResponsePlan seasonTwo{200, QByteArrayLiteral(
+        R"({"items":[{"content_id":"ep:3","season_number":2,"episode_number":1,"title":"Three","runtime":30,"user_data":{"played":false}}]})")};
+    manager.responses = {
+        {200, QByteArrayLiteral(R"({"access_token":"token","refresh_token":"refresh","expires_in":900,"user":{"id":"account-1","username":"tester"}})"), false},
+        {200, QByteArrayLiteral(R"({"items":[{"id":"profile-1","name":"tester","has_pin":false}]})"), false},
+        seasons, seasonOne, seasonTwo,
+        seasons, seasonOne, seasonTwo
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    auth.initialize(&config);
+    QTRY_VERIFY(!auth.isRestoringSession());
+    auth.setProviderSelection(QStringLiteral("silo"));
+    auth.authenticate(QStringLiteral("https://silo.example.test"), QStringLiteral("tester"), QStringLiteral("password"));
+    QTRY_VERIFY(auth.isAuthenticated());
+    LibraryService library(&auth);
+
+    // Silo has no series-wide episode route: next-unplayed reads each season.
+    QSignalSpy next(&library, &LibraryService::canonicalNextUnplayedEpisodeLoaded);
+    const qsizetype firstRequest = manager.requests.size();
+    library.getNextUnplayedEpisode(QStringLiteral("series:x"));
+    QTRY_COMPARE(next.count(), 1);
+    QCOMPARE(manager.requests.at(firstRequest).request.url().path(QUrl::FullyEncoded),
+             QStringLiteral("/api/v2/catalog/series/series%3Ax/seasons"));
+    QCOMPARE(manager.requests.at(firstRequest + 1).request.url().path(QUrl::FullyEncoded),
+             QStringLiteral("/api/v2/catalog/items/season%3A1/episodes"));
+    QCOMPARE(manager.requests.at(firstRequest + 2).request.url().path(QUrl::FullyEncoded),
+             QStringLiteral("/api/v2/catalog/items/season%3A2/episodes"));
+    QVariantMap episode = next.first().at(2).toMap();
+    QCOMPARE(episode.value(QStringLiteral("itemId")).toString(), QStringLiteral("ep:2"));
+    QCOMPARE(episode.value(QStringLiteral("mediaType")).toString(), QStringLiteral("Episode"));
+
+    // Autoplay excludes the episode that just played.
+    library.getNextUnplayedEpisode(QStringLiteral("series:x"), QStringLiteral("ep:2"));
+    QTRY_COMPARE(next.count(), 2);
+    episode = next.at(1).at(2).toMap();
+    QCOMPARE(episode.value(QStringLiteral("itemId")).toString(), QStringLiteral("ep:3"));
+
+    // Untyped season cards map as seasons numbered by season_number.
+    const QVariantMap season = SiloModelMapper::mediaItem(
+        QJsonDocument::fromJson(seasons.payload).object()
+            .value(QStringLiteral("items")).toArray().at(1).toObject(),
+        QStringLiteral("silo"));
+    QCOMPARE(season.value(QStringLiteral("mediaType")).toString(), QStringLiteral("Season"));
+    QCOMPARE(season.value(QStringLiteral("indexNumber")).toInt(), 2);
+
+    // Hero items: count the library, then read a shuffled window at a random
+    // offset that stays inside the total.
+    QJsonArray window;
+    for (int index = 0; index < 10; ++index) {
+        window.append(QJsonObject{{QStringLiteral("content_id"), QStringLiteral("movie:%1").arg(index)},
+                                  {QStringLiteral("type"), QStringLiteral("movie")},
+                                  {QStringLiteral("title"), QStringLiteral("Movie %1").arg(index)}});
+    }
+    manager.responses = {
+        {200, QByteArrayLiteral(R"({"items":[{"content_id":"movie:0","type":"movie","title":"Movie 0"}],"total":250,"page":{"has_more":true,"next_cursor":"next"}})")},
+        {200, QJsonDocument(QJsonObject{{QStringLiteral("items"), window},
+                                        {QStringLiteral("total"), 250}})
+                  .toJson(QJsonDocument::Compact)}
+    };
+    QSignalSpy hero(&library, &LibraryService::canonicalHeroLibraryItemsLoaded);
+    const qsizetype heroRequest = manager.requests.size();
+    library.getHeroLibraryItems(5, {QStringLiteral("lib-1")}, false);
+    QTRY_COMPARE(hero.count(), 1);
+    QCOMPARE(hero.first().at(1).toList().size(), 5);
+    const QJsonObject countBody =
+        QJsonDocument::fromJson(manager.requests.at(heroRequest).body).object();
+    QCOMPARE(countBody.value(QStringLiteral("limit")).toInt(), 1);
+    QCOMPARE(countBody.value(QStringLiteral("library_id")).toString(), QStringLiteral("lib-1"));
+    const QJsonObject windowBody =
+        QJsonDocument::fromJson(manager.requests.at(heroRequest + 1).body).object();
+    QCOMPARE(windowBody.value(QStringLiteral("limit")).toInt(), 100);
+    const int seek = windowBody.value(QStringLiteral("seek")).toInt(0);
+    QVERIFY(seek >= 0 && seek <= 150);
 }
 
 QTEST_MAIN(SiloCatalogServiceTest)

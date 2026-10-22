@@ -3,7 +3,10 @@
 #include "providers/ICatalogProvider.h"
 #include "providers/silo/SiloModelMapper.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
+#include <QSet>
 #include <QDateTime>
 #include <QUrl>
 #include <QUrlQuery>
@@ -112,7 +115,11 @@ public:
                 return unsupported(QStringLiteral(
                     "Silo's Next Up home section does not accept catalog modifiers"));
             }
-            return get(QStringLiteral("/api/v2/home/sections/system-next-up/items"));
+            // Section IDs are profile layout data, not fixed routes: Silo
+            // folds Next Up cards into its Continue Watching section unless
+            // the profile shows Next Up separately. Read the layout and pick
+            // both section types in parseResponse.
+            return get(QStringLiteral("/api/v2/home/sections"));
         case ProviderCatalogOperation::HomeBackdrops:
         case ProviderCatalogOperation::ScreensaverItems:
         case ProviderCatalogOperation::RandomItems:
@@ -195,6 +202,17 @@ public:
         // unlike the Items operation's array/envelope responses. Parse that
         // envelope as an item even when the request originated as Items.
         const QJsonDocument document = QJsonDocument::fromJson(body);
+        if (operation == ProviderCatalogOperation::NextUp && document.isObject()
+            && document.object().value(QStringLiteral("sections")).isArray()) {
+            return SiloModelMapper::catalogResponse(
+                operation,
+                QJsonDocument(QJsonObject{
+                    {QStringLiteral("items"),
+                     continueWatchingItems(
+                         document.object().value(QStringLiteral("sections")).toArray())}})
+                    .toJson(QJsonDocument::Compact),
+                responseHeaders);
+        }
         if (document.isObject()
             && document.object().value(QStringLiteral("season")).isObject()) {
             ProviderCatalogResponse response = SiloModelMapper::catalogResponse(
@@ -217,6 +235,37 @@ private:
         QString op;
         QJsonValue value;
     };
+
+    // Video cards from the Continue Watching and Next Up home sections, in
+    // layout order. Continue Listening/Reading share the continue_watching
+    // section type, so only movie and episode cards are kept.
+    static QJsonArray continueWatchingItems(const QJsonArray &sections)
+    {
+        QJsonArray items;
+        QSet<QString> seen;
+        for (const QJsonValue &sectionValue : sections) {
+            const QJsonObject section = sectionValue.toObject();
+            const QString sectionType = section.value(QStringLiteral("section_type")).toString();
+            if (sectionType != QStringLiteral("continue_watching")
+                && sectionType != QStringLiteral("next_up")) {
+                continue;
+            }
+            for (const QJsonValue &itemValue : section.value(QStringLiteral("items")).toArray()) {
+                const QJsonObject item = itemValue.toObject();
+                const QString type = item.value(QStringLiteral("type")).toString().toLower();
+                if (type != QStringLiteral("movie") && type != QStringLiteral("episode")) {
+                    continue;
+                }
+                const QString contentId = item.value(QStringLiteral("content_id")).toString();
+                if (contentId.isEmpty() || seen.contains(contentId)) {
+                    continue;
+                }
+                seen.insert(contentId);
+                items.append(item);
+            }
+        }
+        return items;
+    }
 
     static ProviderCatalogRequest get(const QString &endpoint)
     {

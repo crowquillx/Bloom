@@ -241,9 +241,13 @@ QtObject {
                 pending[k] = pendingSeriesOverviewIds[k]
             }
         }
+        // Overviews load through the live session, so items another merged
+        // member owns keep their episode overview.
+        var liveConnectionId = LibraryService.getActiveConnectionId()
         for (var i = 0; i < items.length; i++) {
             var item = items[i]
             if (!item || item.mediaType !== "Episode") continue
+            if ((item.connectionId || "") !== liveConnectionId) continue
             var seriesId = item.seriesId || ""
             if (!seriesId) continue
             var key = seriesKey(item.connectionId, seriesId)

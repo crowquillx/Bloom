@@ -7,6 +7,7 @@
 #include "utils/ConfigManager.h"
 #include <QFutureWatcher>
 #include <QJsonObject>
+#include <QRandomGenerator>
 #include <QTimer>
 #include <QUrl>
 #include <QtConcurrent>
@@ -18,6 +19,10 @@
 #include "../utils/BloomLogging.h"
 
 namespace {
+
+// Window read per page when a provider has no native random or backdrop
+// selection; the Silo catalog caps GET pages Bloom sends at 100.
+constexpr int kRandomSampleWindow = 100;
 
 QString activeConnectionId(const AuthenticationService *authService)
 {
@@ -388,6 +393,68 @@ void LibraryService::sendCatalogRequest(
     m_catalogRequests.append(handle);
 }
 
+void LibraryService::sendRandomSampleRequest(
+    const QString &operationName,
+    ProviderCatalogOperation nativeOperation,
+    const ProviderCatalogQuery &query,
+    CatalogResponseHandler responseHandler,
+    FailureHandler failureHandler)
+{
+    const CatalogRequestIdentity identity = catalogRequestIdentity();
+    if (!identity.provider || identity.provider->createRequest(nativeOperation, query).supported) {
+        sendCatalogRequest(operationName, nativeOperation, query,
+                           std::move(responseHandler), std::move(failureHandler));
+        return;
+    }
+
+    // No native random selection (Silo): count the matching movies and
+    // series, read one window at a random offset, and shuffle it here.
+    ProviderCatalogQuery sampleQuery = baseCatalogQuery();
+    sampleQuery.parentId = query.parentId;
+    sampleQuery.unwatchedOnly = query.unwatchedOnly;
+    sampleQuery.includeItemTypes = {QStringLiteral("Movie"), QStringLiteral("Series")};
+    sampleQuery.limit = 1;
+    const int limit = qMax(1, query.limit);
+    sendCatalogRequest(
+        operationName,
+        ProviderCatalogOperation::Items,
+        sampleQuery,
+        [this, operationName, sampleQuery, limit, responseHandler, failureHandler](
+            const ProviderCatalogResponse &countResponse) {
+            const int total = qMax(countResponse.total, int(countResponse.rawItems.size()));
+            if (total <= countResponse.rawItems.size()) {
+                responseHandler(countResponse);
+                return;
+            }
+            ProviderCatalogQuery windowQuery = sampleQuery;
+            windowQuery.limit = kRandomSampleWindow;
+            windowQuery.startIndex = total > kRandomSampleWindow
+                ? int(QRandomGenerator::global()->bounded(total - kRandomSampleWindow + 1))
+                : 0;
+            sendCatalogRequest(
+                operationName,
+                ProviderCatalogOperation::Items,
+                windowQuery,
+                [limit, responseHandler](const ProviderCatalogResponse &windowResponse) {
+                    QList<QJsonValue> items(windowResponse.rawItems.cbegin(),
+                                            windowResponse.rawItems.cend());
+                    std::shuffle(items.begin(), items.end(), *QRandomGenerator::global());
+                    ProviderCatalogResponse sampled = windowResponse;
+                    sampled.rawItems = {};
+                    for (qsizetype index = 0; index < qMin<qsizetype>(limit, items.size());
+                         ++index) {
+                        sampled.rawItems.append(items.at(index));
+                    }
+                    sampled.total = int(sampled.rawItems.size());
+                    sampled.hasMore = false;
+                    sampled.nextCursor.clear();
+                    responseHandler(sampled);
+                },
+                failureHandler);
+        },
+        failureHandler);
+}
+
 void LibraryService::emitCatalogError(
     const QString &operationName,
     const QString &message,
@@ -455,6 +522,26 @@ void LibraryService::getItems(const QString &parentId, int startIndex, int limit
     query.sortBy = sortBy;
     query.sortOrder = sortOrder;
     query.includeHeavyFields = includeHeavyFields;
+    query.useCacheValidation = useCacheValidation;
+    getItems(query);
+}
+
+void LibraryService::getSeasons(const QString &seriesId, bool useCacheValidation)
+{
+    LibraryItemQuery query;
+    query.parentId = seriesId;
+    query.includeItemTypes = {QStringLiteral("Season")};
+    query.includeHeavyFields = false;
+    query.useCacheValidation = useCacheValidation;
+    getItems(query);
+}
+
+void LibraryService::getSeasonEpisodes(const QString &seasonId, bool useCacheValidation)
+{
+    LibraryItemQuery query;
+    query.parentId = seasonId;
+    query.includeItemTypes = {QStringLiteral("Episode")};
+    query.includeHeavyFields = false;
     query.useCacheValidation = useCacheValidation;
     getItems(query);
 }
@@ -679,7 +766,7 @@ void LibraryService::getHomeBackdropItems(int limit)
     if (requestedLimit > 0) {
         ProviderCatalogQuery query = baseCatalogQuery();
         query.limit = requestedLimit;
-        sendCatalogRequest(
+        sendRandomSampleRequest(
             QStringLiteral("getHomeBackdropItems"),
             ProviderCatalogOperation::HomeBackdrops,
             query,
@@ -705,9 +792,20 @@ void LibraryService::getHomeBackdropItems(int limit)
         ProviderCatalogQuery query = baseCatalogQuery();
         query.startIndex = startIndex;
         query.snapshot = snapshot;
+        // Without a native backdrop index (Silo), page movies and series
+        // through the plain catalog instead.
+        const CatalogRequestIdentity identity = catalogRequestIdentity();
+        const bool native = !identity.provider
+            || identity.provider->createRequest(
+                   ProviderCatalogOperation::HomeBackdrops, query).supported;
+        if (!native) {
+            query.includeItemTypes = {QStringLiteral("Movie"), QStringLiteral("Series")};
+            query.limit = kRandomSampleWindow;
+        }
         sendCatalogRequest(
             QStringLiteral("getHomeBackdropItems"),
-            ProviderCatalogOperation::HomeBackdrops,
+            native ? ProviderCatalogOperation::HomeBackdrops
+                   : ProviderCatalogOperation::Items,
             query,
             [this, connectionId, generation, fetchPage, startIndex, snapshot](
                 const ProviderCatalogResponse &response) {
@@ -747,7 +845,7 @@ void LibraryService::getScreensaverItems(int limit)
     const QString connectionId = activeConnectionId(m_authService);
     ProviderCatalogQuery query = baseCatalogQuery();
     query.limit = qBound(10, limit > 0 ? limit : 80, 200);
-    sendCatalogRequest(
+    sendRandomSampleRequest(
         QStringLiteral("getScreensaverItems"),
         ProviderCatalogOperation::ScreensaverItems,
         query,
@@ -936,6 +1034,13 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId,
     ProviderCatalogQuery query = baseCatalogQuery();
     query.seriesId = seriesId;
     query.excludeItemId = excludeItemId;
+    const CatalogRequestIdentity identity = catalogRequestIdentity();
+    if (identity.provider
+        && !identity.provider->createRequest(
+               ProviderCatalogOperation::NextUnplayedEpisode, query).supported) {
+        getNextUnplayedEpisodeFromHierarchy(seriesId, excludeItemId, requestContext);
+        return;
+    }
     sendCatalogRequest(
         QStringLiteral("getNextUnplayedEpisode"),
         ProviderCatalogOperation::NextUnplayedEpisode,
@@ -952,6 +1057,82 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId,
             emit nextUnplayedEpisodeFailed(
                 seriesId, error.userMessage, requestContext);
         });
+}
+
+void LibraryService::getNextUnplayedEpisodeFromHierarchy(const QString &seriesId,
+                                                         const QString &excludeItemId,
+                                                         const QString &requestContext)
+{
+    // Providers without a series-wide episode route (Silo) list seasons, then
+    // each season's episodes, and resolve over the whole series so specials
+    // placement and the excluded current episode behave as with Jellyfin.
+    const QString operationName = QStringLiteral("getNextUnplayedEpisode");
+    const QString connectionId = activeConnectionId(m_authService);
+    struct State {
+        QVariantList episodes;
+        int pending = 0;
+        bool failed = false;
+    };
+    auto state = std::make_shared<State>();
+    const auto fail = [this, seriesId, requestContext, state](const NetworkError &error) {
+        if (state->failed) {
+            return;
+        }
+        state->failed = true;
+        emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);
+    };
+
+    ProviderCatalogQuery seasonsQuery = baseCatalogQuery();
+    seasonsQuery.parentId = seriesId;
+    seasonsQuery.includeItemTypes = {QStringLiteral("Season")};
+    sendCatalogRequest(
+        operationName,
+        ProviderCatalogOperation::Items,
+        seasonsQuery,
+        [this, operationName, connectionId, seriesId, excludeItemId, requestContext,
+         state, fail](const ProviderCatalogResponse &response) {
+            QStringList seasonIds;
+            for (const QVariant &season :
+                 m_authService->mapMediaItems(response.rawItems, connectionId)) {
+                const QString seasonId = season.toMap().value(QStringLiteral("itemId")).toString();
+                if (!seasonId.isEmpty() && !seasonIds.contains(seasonId)) {
+                    seasonIds.append(seasonId);
+                }
+            }
+            if (seasonIds.isEmpty()) {
+                emit canonicalNextUnplayedEpisodeLoaded(
+                    connectionId, seriesId, QVariantMap(), requestContext);
+                return;
+            }
+            state->pending = seasonIds.size();
+            for (const QString &seasonId : std::as_const(seasonIds)) {
+                ProviderCatalogQuery episodesQuery = baseCatalogQuery();
+                episodesQuery.parentId = seasonId;
+                episodesQuery.includeItemTypes = {QStringLiteral("Episode")};
+                sendCatalogRequest(
+                    operationName,
+                    ProviderCatalogOperation::Items,
+                    episodesQuery,
+                    [this, connectionId, seriesId, excludeItemId, requestContext, state](
+                        const ProviderCatalogResponse &episodesResponse) {
+                        if (state->failed) {
+                            return;
+                        }
+                        state->episodes.append(
+                            m_authService->mapMediaItems(episodesResponse.rawItems, connectionId));
+                        if (--state->pending > 0) {
+                            return;
+                        }
+                        emit canonicalNextUnplayedEpisodeLoaded(
+                            connectionId, seriesId,
+                            NextEpisodeResolver::resolveBestNextEpisode(
+                                state->episodes, excludeItemId),
+                            requestContext);
+                    },
+                    fail);
+            }
+        },
+        fail);
 }
 
 void LibraryService::markSeriesWatched(const QString &seriesId)
@@ -1166,7 +1347,7 @@ void LibraryService::getRandomItems(int limit)
     const QString connectionId = activeConnectionId(m_authService);
     ProviderCatalogQuery query = baseCatalogQuery();
     query.limit = limit;
-    sendCatalogRequest(
+    sendRandomSampleRequest(
         QStringLiteral("getRandomItems"),
         ProviderCatalogOperation::RandomItems,
         query,
@@ -1215,7 +1396,7 @@ void LibraryService::getHeroLibraryItems(int limit,
         if (!ids.isEmpty()) {
             query.parentId = ids.constFirst();
         }
-        sendCatalogRequest(
+        sendRandomSampleRequest(
             QStringLiteral("getHeroLibraryItems"),
             ProviderCatalogOperation::HeroItems,
             query,
@@ -1268,7 +1449,7 @@ void LibraryService::getHeroLibraryItems(int limit,
         query.parentId = parentId;
         query.limit = clampedLimit;
         query.unwatchedOnly = unwatchedOnly;
-        sendCatalogRequest(
+        sendRandomSampleRequest(
             QStringLiteral("getHeroLibraryItems"),
             ProviderCatalogOperation::HeroItems,
             query,

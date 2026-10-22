@@ -398,7 +398,7 @@ FocusScope {
         if (targetSeasonId) {
             SeriesDetailsViewModel.refreshSeasonEpisodes(targetSeasonId)
         } else if (targetSeriesId) {
-            LibraryService.getItems(targetSeriesId, 0, 0)
+            LibraryService.getSeasons(targetSeriesId)
         }
 
         Qt.callLater(function() {

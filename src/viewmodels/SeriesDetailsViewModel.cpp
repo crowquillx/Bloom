@@ -727,7 +727,7 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
     
     // Load seasons
     m_seasonsTimer.restart();
-    m_libraryService->getItems(seriesId, 0, 0, QStringList(), QStringList(), QString(), QString(), /*includeHeavyFields*/false, /*useCacheValidation*/true);
+    m_libraryService->getSeasons(seriesId, /*useCacheValidation*/true);
     
     // Load next unplayed episode
     m_libraryService->getNextUnplayedEpisode(seriesId);
@@ -782,7 +782,7 @@ void SeriesDetailsViewModel::loadSeasonEpisodes(const QString &seasonId)
 
     qCDebug(lcViewModels) << "SeriesDetailsViewModel::loadSeasonEpisodes" << seasonId;
     m_episodesTimer.restart();
-    m_libraryService->getItems(seasonId, 0, 0, QStringList(), QStringList(), QString(), QString(), /*includeHeavyFields*/false, /*useCacheValidation*/true);
+    m_libraryService->getSeasonEpisodes(seasonId, /*useCacheValidation*/true);
 }
 
 void SeriesDetailsViewModel::refreshSeasonEpisodes(const QString &seasonId)
@@ -809,8 +809,7 @@ void SeriesDetailsViewModel::refreshSeasonEpisodes(const QString &seasonId)
 
     qCDebug(lcViewModels) << "SeriesDetailsViewModel::refreshSeasonEpisodes" << seasonId;
     m_episodesTimer.restart();
-    m_libraryService->getItems(seasonId, 0, 0, QStringList(), QStringList(), QString(), QString(),
-                               /*includeHeavyFields*/false, /*useCacheValidation*/false);
+    m_libraryService->getSeasonEpisodes(seasonId, /*useCacheValidation*/false);
 }
 
 void SeriesDetailsViewModel::setSelectedSeasonIndex(int index)
@@ -864,8 +863,7 @@ void SeriesDetailsViewModel::prefetchSeasonsAround(int startIndex, int radius)
 
         qCDebug(lcViewModels) << "SeriesDetailsViewModel: Prefetching season episodes for" << seasonId;
         m_prefetchSeasonIds.insert(prefetchKey);
-        m_libraryService->getItems(seasonId, 0, 0, QStringList(), QStringList(),
-                                   QString(), QString(), /*includeHeavyFields*/false, /*useCacheValidation*/true);
+        m_libraryService->getSeasonEpisodes(seasonId, /*useCacheValidation*/true);
     }
 }
 

@@ -133,7 +133,7 @@ Window {
             returnToHomeOnDirectBack: true
         })
         LibraryService.getSeriesDetails(seriesId)
-        LibraryService.getItems(seriesId, 0, 0)
+        LibraryService.getSeasons(seriesId)
         LibraryService.getNextUnplayedEpisode(seriesId)
     }
 
@@ -1560,7 +1560,7 @@ Window {
                 })
                 // Load series details, seasons, and next episode
                 LibraryService.getSeriesDetails(seriesId)
-                LibraryService.getItems(seriesId, 0, 0)  // Load seasons
+                LibraryService.getSeasons(seriesId)
                 LibraryService.getNextUnplayedEpisode(seriesId)
             })
         }
@@ -1748,7 +1748,7 @@ Window {
                         }, StackView.Immediate)
 
                         LibraryService.getSeriesDetails(normalizedSeriesId)
-                        LibraryService.getItems(normalizedSeriesId, 0, 0)
+                        LibraryService.getSeasons(normalizedSeriesId)
                     }
                     if (libraryScreen && libraryScreen.forceActiveFocus) {
                         Qt.callLater(function() {
@@ -1796,7 +1796,7 @@ Window {
                         preferStackPopOnDirectBack: true
                     }, StackView.Immediate)
                     LibraryService.getSeriesDetails(recommendedSeriesId)
-                    LibraryService.getItems(recommendedSeriesId, 0, 0)
+                    LibraryService.getSeasons(recommendedSeriesId)
                     LibraryService.getNextUnplayedEpisode(recommendedSeriesId)
                 })
             } else {

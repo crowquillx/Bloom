@@ -1169,6 +1169,19 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         communityRating = wireItem.value(QStringLiteral("rating_tmdb")).toDouble();
     }
 
+    // Series season and season episode collections omit the type; their
+    // required fields tell the two apart.
+    QString wireType = wireItem.value(QStringLiteral("type")).toString();
+    if (wireType.isEmpty()) {
+        if (wireItem.contains(QStringLiteral("episode_number"))) {
+            wireType = QStringLiteral("episode");
+        } else if (wireItem.contains(QStringLiteral("season_number"))
+                   && wireItem.contains(QStringLiteral("episode_count"))) {
+            wireType = QStringLiteral("season");
+        }
+    }
+    const bool isSeason = wireType.trimmed().toLower() == QStringLiteral("season");
+
     const QString seriesId = identityString(wireItem.value(QStringLiteral("series_id")));
     QVariantMap result{
         {QStringLiteral("media"), Bloom::MediaRef{connectionId, itemId}.toVariantMap()},
@@ -1181,13 +1194,14 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
              wireItem.value(QStringLiteral("title")).toString(
                  wireItem.value(QStringLiteral("name")).toString()))},
         {QStringLiteral("originalTitle"), wireItem.value(QStringLiteral("original_title")).toString()},
-        {QStringLiteral("mediaType"), canonicalMediaType(
-             wireItem.value(QStringLiteral("type")).toString())},
+        {QStringLiteral("mediaType"), canonicalMediaType(wireType)},
         {QStringLiteral("parentId"), identityString(wireItem.value(QStringLiteral("parent_id")))},
         {QStringLiteral("seriesId"), seriesId},
         {QStringLiteral("seasonId"), identityString(wireItem.value(QStringLiteral("season_id")))},
         {QStringLiteral("seriesName"), wireItem.value(QStringLiteral("series_title")).toString()},
-        {QStringLiteral("indexNumber"), wireItem.value(QStringLiteral("episode_number")).toInt(-1)},
+        {QStringLiteral("indexNumber"),
+         wireItem.value(isSeason ? QStringLiteral("season_number")
+                                 : QStringLiteral("episode_number")).toInt(-1)},
         {QStringLiteral("parentIndexNumber"), wireItem.value(QStringLiteral("season_number")).toInt(-1)},
         {QStringLiteral("overview"), wireItem.value(QStringLiteral("overview")).toString()},
         {QStringLiteral("tagline"), wireItem.value(QStringLiteral("tagline")).toString()},

@@ -74,6 +74,16 @@ void MockLibraryService::getItems(const LibraryItemQuery &query)
         items = m_movies["Items"].toArray();
     } else if (query.parentId == "library-shows") {
         items = m_series["Items"].toArray();
+    } else if (query.includeItemTypes == QStringList{QStringLiteral("Season")}
+               || query.includeItemTypes == QStringList{QStringLiteral("Episode")}) {
+        // Hierarchy children of a series or season
+        const QJsonObject &source = query.includeItemTypes.constFirst() == QStringLiteral("Season")
+            ? m_seasons : m_episodes;
+        for (const QJsonValue &val : source["Items"].toArray()) {
+            if (val.toObject().value("ParentId").toString() == query.parentId) {
+                items.append(val);
+            }
+        }
     } else {
         // Return all items for generic queries
         QJsonArray allItems;

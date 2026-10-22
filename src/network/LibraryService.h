@@ -86,6 +86,12 @@ public:
                                bool includeHeavyFields = true,
                                bool useCacheValidation = false);
     virtual void getItems(const LibraryItemQuery &query);
+    // Hierarchy children. The item type keeps the request unambiguous for
+    // providers that route seasons and episodes separately from library
+    // browsing (Silo). Results arrive through the getItems signals with
+    // the series or season ID as parentId.
+    Q_INVOKABLE void getSeasons(const QString &seriesId, bool useCacheValidation = false);
+    Q_INVOKABLE void getSeasonEpisodes(const QString &seasonId, bool useCacheValidation = false);
     Q_INVOKABLE virtual void getFilterOptions(const QString &parentId,
                                               const QStringList &includeItemTypes = QStringList(),
                                               bool recursive = true);
@@ -300,6 +306,9 @@ private:
     RetryPolicy m_retryPolicy;
 
     ProviderCatalogQuery baseCatalogQuery() const;
+    void getNextUnplayedEpisodeFromHierarchy(const QString &seriesId,
+                                             const QString &excludeItemId,
+                                             const QString &requestContext);
     CatalogRequestIdentity catalogRequestIdentity() const;
     bool isCurrent(const CatalogRequestIdentity &identity) const;
     void sendCatalogRequest(
@@ -309,6 +318,13 @@ private:
         CatalogResponseHandler responseHandler,
         FailureHandler failureHandler = FailureHandler(),
         CatalogNotModifiedHandler notModifiedHandler = CatalogNotModifiedHandler());
+    // Random selection for operations a provider cannot answer natively.
+    void sendRandomSampleRequest(
+        const QString &operationName,
+        ProviderCatalogOperation nativeOperation,
+        const ProviderCatalogQuery &query,
+        CatalogResponseHandler responseHandler,
+        FailureHandler failureHandler = FailureHandler());
     void emitCatalogError(const QString &operationName,
                           const QString &message,
                           FailureHandler failureHandler = FailureHandler(),
