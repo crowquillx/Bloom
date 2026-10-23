@@ -19,11 +19,11 @@ FocusScope {
     property bool completionEmitted: false
     property string statusMessage: ""
     // Signing in to an additional server keeps the previous sign-in; offer a
-    // way back. Signed out with saved workspaces, offer to reopen one.
+    // way back. Signed out with saved spaces, offer to reopen one.
     readonly property bool addingConnection: typeof Workspaces !== "undefined" && Workspaces.addingConnection
-    readonly property bool hasSavedWorkspaces: typeof Workspaces !== "undefined" && Workspaces.profiles.length > 0
-    readonly property bool showWorkspaceAction: authenticationStep === "credentials"
-                                                && (addingConnection || hasSavedWorkspaces)
+    readonly property bool hasSavedSpaces: typeof Workspaces !== "undefined" && Workspaces.profiles.length > 0
+    readonly property bool showSpaceAction: authenticationStep === "credentials"
+                                            && (addingConnection || hasSavedSpaces)
     property bool statusIsError: false
 
     function setStatus(message, isError) {
@@ -243,7 +243,7 @@ FocusScope {
         id: loginCard
         anchors.centerIn: parent
         width: Math.min(Math.round(780 * Theme.layoutScale), parent.width - Theme.spacingLarge * 2)
-        height: Math.min(Math.round((root.showWorkspaceAction ? 876 : 800) * Theme.layoutScale),
+        height: Math.min(Math.round((root.showSpaceAction ? 876 : 800) * Theme.layoutScale),
                          parent.height - Theme.spacingLarge * 2)
         radius: Theme.radiusPanel
         color: Theme.surfaceGlassStrong
@@ -313,10 +313,10 @@ FocusScope {
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         color: Theme.textPrimary
-                        KeyNavigation.up: root.showWorkspaceAction ? workspaceActionButton : connectButton
+                        KeyNavigation.up: root.showSpaceAction ? spaceActionButton : connectButton
                         KeyNavigation.down: userField
                         KeyNavigation.tab: userField
-                        KeyNavigation.backtab: root.showWorkspaceAction ? workspaceActionButton : credentialCancelButton
+                        KeyNavigation.backtab: root.showSpaceAction ? spaceActionButton : credentialCancelButton
                         onAccepted: userField.forceActiveFocus()
                         leftPadding: Theme.spacingMedium
                         rightPadding: Theme.spacingMedium
@@ -383,7 +383,7 @@ FocusScope {
                             Layout.preferredHeight: Theme.buttonHeightLarge
                             focusPolicy: Qt.StrongFocus
                             KeyNavigation.up: passField
-                            KeyNavigation.down: root.showWorkspaceAction ? workspaceActionButton : serverField
+                            KeyNavigation.down: root.showSpaceAction ? spaceActionButton : serverField
                             KeyNavigation.left: connectButton
                             KeyNavigation.right: connectButton
                             KeyNavigation.tab: serverField
@@ -405,7 +405,7 @@ FocusScope {
                             Layout.preferredHeight: Theme.buttonHeightLarge
                             focusPolicy: Qt.StrongFocus
                             KeyNavigation.up: passField
-                            KeyNavigation.down: root.showWorkspaceAction ? workspaceActionButton : serverField
+                            KeyNavigation.down: root.showSpaceAction ? spaceActionButton : serverField
                             KeyNavigation.left: credentialCancelButton
                             KeyNavigation.right: credentialCancelButton
                             KeyNavigation.tab: credentialCancelButton
@@ -415,11 +415,11 @@ FocusScope {
                     }
 
                     ActionButton {
-                        id: workspaceActionButton
-                        visible: root.showWorkspaceAction
+                        id: spaceActionButton
+                        visible: root.showSpaceAction
                         variant: "ghost"
                         iconGlyph: root.addingConnection ? Icons.arrowBack : Icons.group
-                        text: root.addingConnection ? qsTr("Cancel and go back") : qsTr("Open a saved workspace")
+                        text: root.addingConnection ? qsTr("Cancel and go back") : qsTr("Open a saved space")
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         focusPolicy: Qt.StrongFocus
@@ -434,7 +434,7 @@ FocusScope {
                                 root.clearStatus()
                                 Workspaces.cancelAddConnection()
                             } else {
-                                loginWorkspacePicker.open()
+                                loginSpacePicker.open()
                             }
                         }
                     }
@@ -743,8 +743,8 @@ FocusScope {
         }
     }
 
-    WorkspacePickerDialog {
-        id: loginWorkspacePicker
+    SpacePickerDialog {
+        id: loginSpacePicker
         parent: Overlay.overlay
         allowSignOut: false
         allowManage: false

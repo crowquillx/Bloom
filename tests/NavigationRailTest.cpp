@@ -144,7 +144,7 @@ Item {
     readonly property int itemHeight: Theme.navRailItemHeight
     readonly property real layoutScale: Theme.layoutScale
     property string lastNavigation: ""
-    property int workspacePickerRequests: 0
+    property int spacePickerRequests: 0
 
     FocusScope {
         id: content
@@ -176,7 +176,7 @@ Item {
         mainContent: content
         onNavigationRequested: function(navigationId) { scene.lastNavigation = navigationId }
         onLibraryRequested: function(libraryId, libraryName) { scene.lastNavigation = "library:" + libraryId }
-        onWorkspacePickerRequested: scene.workspacePickerRequests++
+        onSpacePickerRequested: scene.spacePickerRequests++
     }
 }
 )QML";
@@ -444,13 +444,13 @@ void NavigationRailTest::activationNavigatesAndReturnsToCurrentEntry()
     QCOMPARE(item(QStringLiteral("railLibrary_1"))->property("selected").toBool(), true);
     QCOMPARE(item(QStringLiteral("railEntry_search"))->property("selected").toBool(), false);
 
-    // Account access stays in the rail: the entry opens the workspace
+    // Account access stays in the rail: the entry opens the space
     // picker, which also offers sign-out.
     press(Qt::Key_Down);
     press(Qt::Key_Down);
     QCOMPARE(focusedName(), QStringLiteral("railEntry_account"));
     press(Qt::Key_Return);
-    QCOMPARE(scene->property("workspacePickerRequests").toInt(), 1);
+    QCOMPARE(scene->property("spacePickerRequests").toInt(), 1);
 
     // A cancelled confirmation dialog hands focus back to the entry that
     // opened it, not to the current page's entry.

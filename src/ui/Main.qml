@@ -246,7 +246,7 @@ Window {
     property bool isLoggedIn: false
     property var sidebarProxy: sidebarLoader.item || sidebarStub
     property bool pendingAuthenticatedNavigation: false
-    property bool workspaceResetPending: false
+    property bool spaceResetPending: false
     
     /// Left edge reserved for the floating navigation rail. Constant while
     /// logged in: rail expansion overlays content instead of pushing it.
@@ -331,7 +331,7 @@ Window {
 
     // Pages that show one connection's items (they declare ownerConnectionId)
     // are stamped with the live connection when first shown. Routing to
-    // another member of a merged workspace keeps the stack, so a page left
+    // another member of a merged space keeps the stack, so a page left
     // behind would run its actions through the wrong account: Back skips it.
     function liveConnectionId() {
         return typeof Workspaces !== "undefined" ? Workspaces.activeConnectionId : ""
@@ -367,9 +367,9 @@ Window {
         }
     }
 
-    // A different workspace is live: pages from the previous one hold
+    // A different space is live: pages from the previous one hold
     // another connection's items, so start again from a fresh Home.
-    function resetToWorkspaceHome() {
+    function resetToSpaceHome() {
         if (!window.isLoggedIn) {
             return
         }
@@ -385,10 +385,10 @@ Window {
         })
     }
 
-    function openWorkspacePicker(fromRail) {
+    function openSpacePicker(fromRail) {
         window.dialogReturnsToRail = fromRail
-        if (!workspacePicker.opened)
-            workspacePicker.open()
+        if (!spacePicker.opened)
+            spacePicker.open()
     }
 
     function isOnRootHomeScreen() {
@@ -1013,8 +1013,8 @@ Window {
         }
     }
 
-    WorkspacePickerDialog {
-        id: workspacePicker
+    SpacePickerDialog {
+        id: spacePicker
         parent: Overlay.overlay
         allowSignOut: window.isLoggedIn
         allowManage: window.isLoggedIn
@@ -1030,7 +1030,7 @@ Window {
         onManageRequested: {
             handedOff = true
             window.dialogReturnsToRail = false
-            pushSettingsScreen({ focusWorkspaces: true })
+            pushSettingsScreen({ focusSpaces: true })
         }
         onSignOutRequested: {
             handedOff = true
@@ -1044,33 +1044,33 @@ Window {
         ignoreUnknownSignals: true
 
         function onSwitchingChanged() {
-            // Pages open now belong to the previous workspace. Switches that
+            // Pages open now belong to the previous space. Switches that
             // start on the sign-in screen land on a fresh Home already.
             if (Workspaces.switching && window.isLoggedIn)
-                window.workspaceResetPending = true
+                window.spaceResetPending = true
         }
         function onWorkspaceSwitched() {
             toast.show(qsTr("Switched to %1").arg(Workspaces.activeProfileName))
-            if (window.workspaceResetPending)
-                window.resetToWorkspaceHome()
-            window.workspaceResetPending = false
+            if (window.spaceResetPending)
+                window.resetToSpaceHome()
+            window.spaceResetPending = false
         }
         function onSwitchFailed(error) {
-            window.workspaceResetPending = false
-            toast.show(qsTr("Couldn't switch workspace. %1").arg(error))
+            window.spaceResetPending = false
+            toast.show(qsTr("Couldn't switch space. %1").arg(error))
         }
         function onRouteReady(connectionId) {
-            // Routing keeps the workspace; pages owned by the previous
+            // Routing keeps the space; pages owned by the previous
             // member are skipped on Back (dropStalePages).
-            window.workspaceResetPending = false
+            window.spaceResetPending = false
         }
         function onRouteFailed(connectionId, error) {
-            window.workspaceResetPending = false
+            window.spaceResetPending = false
             toast.show(error)
         }
     }
 
-    // Merged workspaces degrade per source: name the sources that failed
+    // Merged spaces degrade per source: name the sources that failed
     // once instead of blanking healthy results.
     property string lastUnavailableSources: ""
     Connections {
@@ -1463,8 +1463,8 @@ Window {
                 })
             }
 
-            onWorkspacePickerRequested: {
-                window.openWorkspacePicker(expanded)
+            onSpacePickerRequested: {
+                window.openSpacePicker(expanded)
             }
 
             onSignOutRequested: {
@@ -1510,7 +1510,7 @@ Window {
             focusUpdatesOnActivate: !!options.focusUpdatesOnActivate,
             // Read on activation like the updates request: a later call would
             // lose focus to the rail when the push transition finishes.
-            focusWorkspacesOnActivate: !!options.focusWorkspaces
+            focusSpacesOnActivate: !!options.focusSpaces
         })
         Qt.callLater(function() {
             var settingsScreen = stackView.currentItem
@@ -1633,7 +1633,7 @@ Window {
             window.showLoginScreen()
         }
 
-        // A workspace switch reached a provider profile or PIN prompt.
+        // A space switch reached a provider profile or PIN prompt.
         function onSignInRequired() {
             window.showLoginScreen()
         }
@@ -1820,7 +1820,7 @@ Window {
                  && !sidebarProxy.expanded
                  && !homePowerDialog.opened
                  && !signOutDialog.opened
-                 && !workspacePicker.opened
+                 && !spacePicker.opened
                  && !(stackView.currentItem && stackView.currentItem["handlesOwnBackNavigation"] === true)
         onActivated: {
             console.log("[FocusDebug] Back shortcut activated, stackView.depth:", stackView.depth, "sidebar.expanded:", sidebarProxy.expanded)
@@ -1839,7 +1839,7 @@ Window {
                  && !sidebarProxy.expanded
                  && !homePowerDialog.opened
                  && !signOutDialog.opened
-                 && !workspacePicker.opened
+                 && !spacePicker.opened
                  && !(updateDialogLoader.item && updateDialogLoader.item.visible)
         onActivated: {
             if (InputModeManager.pointerActive) UiSoundController.playBack()

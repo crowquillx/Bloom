@@ -76,7 +76,7 @@ FocusScope {
         return ordered
     }
 
-    /// Merged workspaces list every source's libraries in member-priority
+    /// Merged spaces list every source's libraries in member-priority
     /// order; the per-server saved order and reordering do not apply there.
     readonly property bool mergedLibraries: typeof MergedCatalog !== "undefined" && MergedCatalog.active
 
@@ -124,8 +124,8 @@ FocusScope {
     signal libraryRequested(string libraryId, string libraryName)
     /// Signal emitted when user requests to sign out
     signal signOutRequested()
-    /// Signal emitted when the account entry opens the workspace picker
-    signal workspacePickerRequested()
+    /// Signal emitted when the account entry opens the space picker
+    signal spacePickerRequested()
     /// Signal emitted when user requests to exit the app
     signal exitRequested()
 
@@ -397,7 +397,7 @@ FocusScope {
 
     readonly property string accountName: (typeof ConfigManager !== "undefined" && ConfigManager.username)
                                           ? ConfigManager.username : ""
-    readonly property string workspaceName: typeof Workspaces !== "undefined" ? Workspaces.activeProfileName : ""
+    readonly property string spaceName: typeof Workspaces !== "undefined" ? Workspaces.activeProfileName : ""
 
     // ========================================
     // Rail entry
@@ -915,18 +915,18 @@ FocusScope {
                 objectName: "railEntry_account"
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.navRailItemHeight
-                // Opens the workspace picker (switch, add an account, sign out).
-                readonly property string title: root.workspaceName !== "" ? root.workspaceName : root.accountName
+                // Opens the space picker (switch, add an account, sign out).
+                readonly property string title: root.spaceName !== "" ? root.spaceName : root.accountName
                 avatar: title !== ""
                 iconGlyph: title !== "" ? title.charAt(0).toUpperCase() : Icons.account
                 label: title !== "" ? title : qsTr("Account")
-                sublabel: qsTr("Switch workspace")
-                toolTipLabel: title !== "" ? qsTr("%1: switch workspace or sign out").arg(title)
-                                            : qsTr("Switch workspace or sign out")
+                sublabel: qsTr("Switch space")
+                toolTipLabel: title !== "" ? qsTr("%1: switch space or sign out").arg(title)
+                                            : qsTr("Switch space or sign out")
                 onActivated: {
                     root.pinnedOpen = false
                     root.dialogOriginEntry = accountEntry
-                    root.workspacePickerRequested()
+                    root.spacePickerRequested()
                 }
             }
 

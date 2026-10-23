@@ -251,7 +251,7 @@ void MergedCatalogService::search(const QString &searchTerm, int limit)
 {
     const QString term = searchTerm.trimmed();
     if (!isActive()) {
-        emit searchResultsFailed(term, tr("No merged workspace is active."));
+        emit searchResultsFailed(term, tr("No combined space is active."));
         return;
     }
     if (term.isEmpty()) {

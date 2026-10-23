@@ -182,7 +182,7 @@ qt_add_qml_module(Bloom
         ui/settings/VideoSettings.qml
         ui/settings/MpvSettings.qml
         ui/settings/IntegrationsSettings.qml
-        ui/settings/WorkspaceSettings.qml
+        ui/settings/SpaceSettings.qml
         ui/settings/InputSettings.qml
         ui/settings/AboutAccountSettings.qml
         ui/settings/NewProfileDialog.qml
@@ -201,7 +201,8 @@ qt_add_qml_module(Bloom
         ui/Theme.qml
         ui/Icons.qml
         ui/Sidebar.qml
-        ui/WorkspacePickerDialog.qml
+        ui/SpacePickerDialog.qml
+        ui/SpaceAvatar.qml
         ui/MediaProgressBar.qml
         ui/MpvProfileEditor.qml
         ui/VideoSurface.qml

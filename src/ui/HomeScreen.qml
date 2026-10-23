@@ -18,8 +18,8 @@ FocusScope {
     property var continueWatchingModel: []
     property var displayedNextUpModel: []
     property var recentlyAddedMap: ({}) // Map of libraryKey(connectionId, libraryId) -> items array
-    // Merged workspaces read Home rows through MergedCatalog across every
-    // enabled source; single workspaces keep using LibraryService.
+    // Merged spaces read Home rows through MergedCatalog across every
+    // enabled source; single spaces keep using LibraryService.
     readonly property bool mergedMode: typeof MergedCatalog !== "undefined" && MergedCatalog.active
     property bool mergedViewsRequested: false
 
@@ -40,7 +40,7 @@ FocusScope {
         }
     }
 
-    function resetWorkspaceContent() {
+    function resetSpaceContent() {
         librariesModel = []
         recentlyAddedMap = ({})
         nextUpModel = []
@@ -994,7 +994,7 @@ FocusScope {
                                         Layout.fillWidth: true
                                     }
 
-                                    // Owning source in merged workspaces.
+                                    // Owning source in merged spaces.
                                     Text {
                                         visible: text !== ""
                                         text: root.mergedMode ? (modelData.sourceLabel || "") : ""
@@ -1768,7 +1768,7 @@ FocusScope {
         refreshDynamicContent()
 
         // Fetch a larger random pool from all available media for backdrop rotation.
-        // Merged workspaces draw it from the live session's source.
+        // Merged spaces draw it from the live session's source.
         // Phase 1: fast randomized starter sample so first backdrop appears quickly.
         loadingGlobalBackdropPool = true
         globalBackdropPoolLoaded = false
@@ -1845,7 +1845,7 @@ FocusScope {
         // membership are stale.
         function onActiveChanged() {
             if (AuthenticationService.authenticated)
-                root.resetWorkspaceContent()
+                root.resetSpaceContent()
         }
     }
 

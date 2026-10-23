@@ -5,7 +5,26 @@
 #include "utils/BloomLogging.h"
 #include "utils/ConfigManager.h"
 
+#include <QUrl>
+
 #include <utility>
+
+namespace {
+
+// "3 sources · Avery · Home, Family · Silo · 1 hidden"
+QString sourcesDetail(qsizetype count, int hiddenCount, const QStringList &enabledLabels)
+{
+    QStringList parts{WorkspaceController::tr("%n sources", nullptr, static_cast<int>(count))};
+    if (!enabledLabels.isEmpty()) {
+        parts.append(enabledLabels.join(QStringLiteral(", ")));
+    }
+    if (hiddenCount > 0) {
+        parts.append(WorkspaceController::tr("%n hidden", nullptr, hiddenCount));
+    }
+    return parts.join(QStringLiteral(" · "));
+}
+
+} // namespace
 
 WorkspaceController::WorkspaceController(AuthenticationService *authService,
                                          BloomProfileRepository *repository,
@@ -60,6 +79,8 @@ QVariantList WorkspaceController::profiles() const
     for (const BloomProfile &profile : m_repository->profiles()) {
         QVariantList members;
         QStringList enabledLabels;
+        int hiddenCount = 0;
+        QString soleDetail;
         for (const BloomProfileMember &member : profile.members) {
             const auto connection = m_configManager
                 ? m_configManager->getConnection(member.connectionId) : std::nullopt;
@@ -69,8 +90,16 @@ QVariantList WorkspaceController::profiles() const
             const QString label = BloomProfile::memberLabel(member, *connection);
             if (member.enabled) {
                 enabledLabels.append(label);
+            } else {
+                ++hiddenCount;
             }
             QVariantMap map = connectionMap(*connection);
+            // A one-source space named after its source would repeat the
+            // label; name the server type and host instead.
+            soleDetail = label == profile.name
+                ? QStringLiteral("%1 · %2").arg(map.value(QStringLiteral("providerName")).toString(),
+                                                QUrl(connection->baseUrl).host())
+                : label;
             map.insert(QStringLiteral("memberId"), member.memberId);
             map.insert(QStringLiteral("label"), label);
             map.insert(QStringLiteral("labelOverride"), member.labelOverride);
@@ -87,6 +116,9 @@ QVariantList WorkspaceController::profiles() const
             {QStringLiteral("active"), profile.id == activeId},
             {QStringLiteral("members"), members},
             {QStringLiteral("summary"), enabledLabels.join(QStringLiteral(", "))},
+            {QStringLiteral("sourceCount"), members.size()},
+            {QStringLiteral("detail"), members.size() == 1
+                 ? soleDetail : sourcesDetail(members.size(), hiddenCount, enabledLabels)},
         });
     }
     return result;
@@ -177,7 +209,7 @@ QString WorkspaceController::createProfile(const QString &name,
     if (profile.name.isEmpty() && !profile.members.isEmpty() && m_configManager) {
         const auto connection = m_configManager->getConnection(profile.members.first().connectionId);
         profile.name = connection.has_value()
-            ? BloomProfile::connectionLabel(*connection) : tr("Workspace");
+            ? BloomProfile::connectionLabel(*connection) : tr("Space");
     }
     // Member IDs derive from the profile ID, so assign it before upserting.
     profile.id = BloomProfile::createProfileId();
@@ -279,7 +311,26 @@ bool WorkspaceController::removeMember(const QString &profileId, const QString &
 {
     // Removing the member that holds the live session moves the session to
     // the profile's repaired default member (handleActiveProfileChanged).
-    return m_repository && m_repository->removeMember(profileId, memberId);
+    auto profile = m_repository ? m_repository->profile(profileId) : std::nullopt;
+    if (!profile.has_value()) {
+        return false;
+    }
+    // Mode follows membership: a merged space left with one source becomes
+    // single again, and that source is shown even if it had been hidden.
+    if (profile->mode == BloomProfileMode::Merged && profile->members.size() == 2) {
+        const auto before = profile->members.size();
+        profile->members.removeIf([&](const BloomProfileMember &member) {
+            return member.memberId == memberId;
+        });
+        if (profile->members.size() == before) {
+            return false;
+        }
+        profile->mode = BloomProfileMode::Single;
+        profile->members.first().enabled = true;
+        profile->defaultMemberId = profile->members.first().memberId;
+        return m_repository->upsertProfile(*profile);
+    }
+    return m_repository->removeMember(profileId, memberId);
 }
 
 bool WorkspaceController::moveMember(const QString &profileId, const QString &memberId, int delta)
@@ -421,7 +472,7 @@ bool WorkspaceController::routeTo(const QString &connectionId)
     }
     const auto active = m_repository ? m_repository->activeProfile() : std::nullopt;
     if (!active.has_value() || !profileContainsEnabled(*active, connectionId)) {
-        emit routeFailed(connectionId, tr("This item belongs to a server outside the current workspace."));
+        emit routeFailed(connectionId, tr("This item belongs to a server outside the current space."));
         return false;
     }
     m_routeTarget = connectionId;

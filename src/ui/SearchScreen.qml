@@ -38,7 +38,7 @@ FocusScope {
     property bool waitingForSeerrSearch: false
     property string pendingLibraryConnectionId: ""
     property string pendingLibrarySearchTerm: ""
-    // Merged workspaces search every enabled source at once.
+    // Merged spaces search every enabled source at once.
     readonly property bool mergedMode: typeof MergedCatalog !== "undefined" && MergedCatalog.active
 
     // Details for a merged result open on the connection that owns it.
@@ -223,7 +223,7 @@ FocusScope {
             root.applyLibrarySearchResults(term, [], [], true)
         }
 
-        // Editing the workspace's sources drops in-flight member requests and
+        // Editing the space's sources drops in-flight member requests and
         // invalidates shown results; search the new source list again.
         function onActiveChanged() {
             const term = root.searchTerm.trim()

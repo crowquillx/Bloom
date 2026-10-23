@@ -23,6 +23,18 @@ The [live report](evidence/silo-v2-2026-10-18.json) records the new runner. It r
 
 Current limits are explicit. Forward-only remux and HLS/transcode timelines are unavailable. Ebooks, audiobooks, comics, watch-together, notifications, history imports, downloads/offline, and admin operations remain out of scope. The operator accepted the missing preview fixture for this migration. Native support remains experimental while the platform gates are open.
 
+## Spaces UI pass (workspaces renamed), 2026-10-22 UTC
+
+The UI now calls workspaces *spaces*. The picker and Settings → Spaces were redesigned (see [profiles](profiles.md#ui)), and removing all but one source makes a space single again.
+
+| Gate | Result | Action and pass criteria |
+| --- | --- | --- |
+| Incremental build and automated checks | PASS | `./scripts/dev-build.sh --tests` passed. Local CTest passed 44/44, including `WorkspaceRoutingTest::removingToOneSourceMakesSpaceSingle` and the updated `NavigationRailTest`. The QML lint check and `nix flake check` passed. |
+| Headless keyboard walk (test mode) | PASS | Headless sway at 1920×1080 with a fixture config of three spaces and three accounts (two users on one Silo server). Picker: focus opened on the current space, and the actions followed the divider. Settings: the overview, a space's detail, the source menu, remove confirmation, focus after removal, the switch to single at one source, and Escape back to the overview with focus on the space all worked. Test mode cannot sign in to real servers, so switching itself was not exercised. |
+| Live switching and editing | NOT RUN | On real Jellyfin/Silo servers, switch spaces from the rail picker and the sign-in screen. Then, in Settings → Spaces: create a space, add an existing account and a new sign-in, hide/show, make primary, rename, reorder, remove a source down to one, and delete a space. Home and Search must follow each change, and other accounts must keep their sign-in. |
+| Keyboard and gamepad focus | NOT RUN | Repeat the walk above with only a physical keyboard, then with only a controller (B/Back must leave a space's detail before it leaves Settings). Focus must stay visible and return to the opener after every menu and dialog. |
+| Windows embedded playback overlay | NOT RUN | `src/ui/Main.qml` changed (renamed picker, toasts, Settings → Spaces focus). On Windows `win-libmpv`, controls must stay above video, with no video move or clip across show/hide, resize, minimize/restore, maximize, and fullscreen. |
+
 ## Bloom workspaces (issue #91), 2026-10-20 UTC
 
 Automated coverage is listed in [profiles](profiles.md#tests). The live gates below need real servers, accounts, and input devices.

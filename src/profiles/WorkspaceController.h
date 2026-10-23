@@ -12,7 +12,7 @@ class BloomProfileRepository;
 class ConfigManager;
 
 /**
- * @brief QML facade for Bloom profiles ("workspaces"): switching, editing,
+ * @brief QML facade for Bloom profiles ("spaces" in the UI): switching, editing,
  * adding and removing connections, and routing work to an item's owner.
  *
  * AuthenticationService keeps exactly one live session. This controller keeps
@@ -70,8 +70,8 @@ public:
                                     const QString &label);
 
     /// Leaves the current session (credentials kept) for the sign-in screen.
-    /// An empty target creates a new single workspace for the new connection;
-    /// otherwise the connection joins that workspace.
+    /// An empty target creates a new single space for the new connection;
+    /// otherwise the connection joins that space.
     Q_INVOKABLE void beginAddConnection(const QString &targetProfileId = QString());
     Q_INVOKABLE void cancelAddConnection();
     /// Deletes a connection's credentials and metadata. Memberships referring
@@ -90,7 +90,7 @@ signals:
     void activeConnectionChanged();
     void switchingChanged();
     void addingConnectionChanged();
-    /// A different workspace is active and its session is ready.
+    /// A different space is active and its session is ready.
     void workspaceSwitched();
     void switchFailed(const QString &error);
     void routeReady(const QString &connectionId);

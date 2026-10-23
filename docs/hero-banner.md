@@ -42,7 +42,7 @@ Hero synopsis text is shown below the metadata chips. Movies and series use thei
 synopses opts into episode-level `overview` text when present; empty episode overviews still fall
 back to the series overview. Series-overview responses are keyed by connection and series identity
 before being attached to episode hero items. Overviews load through the live session, so episodes another
-merged workspace member owns keep their own overview.
+merged space member owns keep their own overview.
 
 ## Focus
 

@@ -1,8 +1,8 @@
 import QtQuick
 
 // Runs an action once the live session belongs to the connection that owns
-// an item. In merged workspaces details, playback and writes must reach the
-// owning server; single workspaces run the action immediately.
+// an item. In merged spaces details, playback and writes must reach the
+// owning server; single spaces run the action immediately.
 Item {
     id: router
 

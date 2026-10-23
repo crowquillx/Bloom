@@ -230,6 +230,7 @@ private slots:
     void routeNeedingSignInFailsWithoutSticking();
     void switchNeedingSignInFinishesAfterLogin();
     void skippedMemberKeepsRestoringUntilNextFinishes();
+    void removingToOneSourceMakesSpaceSingle();
 
 private:
     void seedAccounts();
@@ -655,6 +656,42 @@ void WorkspaceRoutingTest::skippedMemberKeepsRestoringUntilNextFinishes()
     QVERIFY(erinFailed);
     QCOMPARE(restoringAfterFailure.count(false), 1);
     QVERIFY(!m_auth->isRestoringSession());
+}
+
+void WorkspaceRoutingTest::removingToOneSourceMakesSpaceSingle()
+{
+    const QString id = m_workspaces->createProfile(
+        QStringLiteral("Pair"), {QStringLiteral("alice"), QStringLiteral("carol")}, true);
+    QVERIFY(!id.isEmpty());
+    QSignalSpy switched(m_workspaces.get(), &WorkspaceController::workspaceSwitched);
+    QVERIFY(m_workspaces->switchProfile(id));
+    QTRY_COMPARE(switched.count(), 1);
+
+    auto memberId = [&](const QString &connectionId) {
+        for (const BloomProfileMember &member : m_repository->profile(id)->members) {
+            if (member.connectionId == connectionId) {
+                return member.memberId;
+            }
+        }
+        return QString();
+    };
+    // Carol is hidden, then alice (the live default) is removed: the space
+    // is left with carol alone, so it turns single and shows carol again.
+    QVERIFY(m_workspaces->setMemberEnabled(id, memberId(QStringLiteral("carol")), false));
+    QVERIFY(m_workspaces->removeMember(id, memberId(QStringLiteral("alice"))));
+
+    const auto profile = m_repository->profile(id);
+    QVERIFY(profile.has_value());
+    QCOMPARE(profile->mode, BloomProfileMode::Single);
+    QCOMPARE(profile->members.size(), 1);
+    QCOMPARE(profile->members.first().connectionId, QStringLiteral("carol"));
+    QVERIFY(profile->members.first().enabled);
+    QCOMPARE(profile->defaultMemberId, profile->members.first().memberId);
+    QTRY_COMPARE(m_auth->activeConnectionId(), QStringLiteral("carol"));
+    // Alice keeps her saved sign-in.
+    QCOMPARE(credentials().read(*m_config->getConnection(QStringLiteral("alice")),
+                                CredentialKind::AccessToken),
+             QStringLiteral("token-alice"));
 }
 
 QTEST_GUILESS_MAIN(WorkspaceRoutingTest)

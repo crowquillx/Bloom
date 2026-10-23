@@ -8,10 +8,10 @@ Provider selection, connection identity, and credential migration are described 
 
 Key services
 - `ConfigManager` — Configuration, QML bindings, and provider-neutral connection metadata persistence.
-- `BloomProfileRepository` — Bloom workspace profiles/memberships and request-context generation; depends on ConfigManager raw `settings.bloom_profiles` accessors. See [profiles](profiles.md).
-- `WorkspaceController` — QML `Workspaces`: workspace switching, editing, adding/removing connections, and routing items to their owning connection. Depends on AuthenticationService, BloomProfileRepository, and ConfigManager.
-- `MergedCatalogService` — QML `MergedCatalog`: fans Views, Next Up, Recently Added, and Search out across a merged workspace's members and combines them through `IMergedCatalogPolicy`. Depends on AuthenticationService (pooled member sessions) and BloomProfileRepository.
-- `ConnectionSessionPool` — Owned by AuthenticationService; read-only in-memory tokens for the non-live members of a merged workspace.
+- `BloomProfileRepository` — Bloom profiles ("spaces" in the UI)/memberships and request-context generation; depends on ConfigManager raw `settings.bloom_profiles` accessors. See [profiles](profiles.md).
+- `WorkspaceController` — QML `Workspaces`: space switching, editing, adding/removing connections, and routing items to their owning connection. Depends on AuthenticationService, BloomProfileRepository, and ConfigManager.
+- `MergedCatalogService` — QML `MergedCatalog`: fans Views, Next Up, Recently Added, and Search out across a merged space's members and combines them through `IMergedCatalogPolicy`. Depends on AuthenticationService (pooled member sessions) and BloomProfileRepository.
+- `ConnectionSessionPool` — Owned by AuthenticationService; read-only in-memory tokens for the non-live members of a merged space.
 - `CredentialStore` — Provider-neutral platform-keychain names, access/refresh/profile token storage, and verified legacy Jellyfin credential migration.
 - `TrackPreferencesManager` — Versioned, connection-scoped persistence for explicit season/movie audio and subtitle preferences.
 - `IPlayerBackend` — Playback backend abstraction registered in `ServiceLocator`.
@@ -47,7 +47,7 @@ Key services
 3. HttpTransport and the selected `IProviderAdapter` — use deterministic health detection to choose `JellyfinProviderAdapter` for MediaBrowser or `SiloProviderAdapter` for native `/api/v1`; never infer Silo from compatibility `/System/Info`.
 4. AuthenticationService — stable session façade; depends on `CredentialStore`, `HttpTransport`, and the selected provider adapter.
 4.1. LibraryService — depends on AuthenticationService and uses the selected catalog/artwork provider through shared transport.
-4.6. MergedCatalogService and WorkspaceController — depend on AuthenticationService and BloomProfileRepository; registered after PlayerController/ThemeSongManager in both production and test mode. Only the startup session restore gates SessionManager initialization; later workspace switches restore sessions without re-initializing it.
+4.6. MergedCatalogService and WorkspaceController — depend on AuthenticationService and BloomProfileRepository; registered after PlayerController/ThemeSongManager in both production and test mode. Only the startup session restore gates SessionManager initialization; later space switches restore sessions without re-initializing it.
 5. InputModeManager — depends on QGuiApplication.
 5.1. InputBindingManager — depends on QGuiApplication + ConfigManager.
 6. MediaSegmentProviderService — depends on AuthenticationService + ConfigManager.

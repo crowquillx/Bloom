@@ -2,8 +2,8 @@ import QtQuick
 
 import BloomUI
 
-// Names the server/account that owns an item in a merged workspace, so two
-// users on one server stay distinguishable. Items from single workspaces
+// Names the server/account that owns an item in a merged space, so two
+// users on one server stay distinguishable. Items from single spaces
 // carry no sourceLabel, which keeps the badge hidden.
 Rectangle {
     id: sourceBadge

@@ -126,7 +126,7 @@ Item {
                     layer.smooth: true
                 }
 
-                // Owning server/account in merged workspaces.
+                // Owning server/account in merged spaces.
                 SourceBadge {
                     anchors.left: parent.left
                     anchors.bottom: parent.bottom
