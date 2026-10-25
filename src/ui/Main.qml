@@ -618,18 +618,86 @@ Window {
         }
     }
 
+    // ---- Up Next → playback handoff ----
+    // Up Next stays on the stack in its `starting` state until the new episode
+    // covers the window (embedded video surface, or the external mpv window
+    // reaching Playing/Paused). Popping earlier would show the page underneath
+    // while the player spins up.
+    property var upNextStartScreen: null
+
+    function beginUpNextStart(screen, episode, seriesId) {
+        if (upNextStartScreen) {
+            return
+        }
+        upNextStartScreen = screen
+        screen.beginStarting(episode)
+        upNextStartTimeout.restart()
+        PlayerController.playNextEpisode(episode, seriesId)
+    }
+
+    function finishUpNextStart() {
+        const screen = upNextStartScreen
+        if (!screen) {
+            return
+        }
+        upNextStartScreen = null
+        upNextStartTimeout.stop()
+        if (stackView.currentItem === screen) {
+            stackView.pop(null, StackView.Immediate)
+        }
+    }
+
+    Timer {
+        id: upNextStartTimeout
+        // Fallback only; playback state changes normally end the handoff.
+        interval: 45000
+        onTriggered: {
+            console.warn("[Main] Up Next: Playback did not start in time, leaving Up Next")
+            window.finishUpNextStart()
+        }
+    }
+
+    Connections {
+        target: PlayerController
+        enabled: window.upNextStartScreen !== null
+
+        function onPlaybackStateChanged() {
+            const state = PlayerController.playbackState
+            // Any change back to Idle means the start was cancelled or ended.
+            if (embeddedPlaybackActive
+                    || state === PlayerController.Playing
+                    || state === PlayerController.Paused
+                    || state === PlayerController.Error
+                    || state === PlayerController.Idle) {
+                window.finishUpNextStart()
+            }
+        }
+    }
+
+    // Opaque handoff surface while the next episode resolves after playback.
+    // It matches Up Next's base so video → Up Next reads as one transition and
+    // never shows the page underneath; the spinner only appears if resolution
+    // is slow.
     Rectangle {
         id: upNextBlockingOverlay
         anchors.fill: parent
         z: 850
         visible: awaitingUpNextTransition
         focus: visible
-        color: Theme.scrimStrong
+        color: Theme.backgroundPrimary
 
         onVisibleChanged: {
             if (visible) {
                 forceActiveFocus()
+                upNextSpinnerDelay.restart()
+            } else {
+                upNextSpinnerDelay.stop()
             }
+        }
+
+        Timer {
+            id: upNextSpinnerDelay
+            interval: 600
         }
 
         Keys.onPressed: function(event) {
@@ -663,6 +731,8 @@ Window {
         ColumnLayout {
             anchors.centerIn: parent
             spacing: Theme.spacingMedium
+            opacity: upNextSpinnerDelay.running ? 0.0 : 1.0
+            Behavior on opacity { NumberAnimation { duration: Theme.durationLong } }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
@@ -675,7 +745,7 @@ Window {
 
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
-                running: upNextBlockingOverlay.visible
+                running: upNextBlockingOverlay.visible && !upNextSpinnerDelay.running
                 Layout.preferredWidth: Math.round(52 * Theme.layoutScale)
                 Layout.preferredHeight: Math.round(52 * Theme.layoutScale)
                 palette.dark: Theme.textPrimary
@@ -1656,6 +1726,8 @@ Window {
         target: PlayerController
         
         function onNavigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay) {
+            // A previous Up Next still waiting on its episode is done now.
+            window.finishUpNextStart()
             var normalizedSeriesId = seriesId
                 || (episodeData ? (episodeData.seriesId || episodeData.parentId || "") : "")
             var hasNextEpisode = episodeData && episodeData.itemId && !episodeData.noNextEpisode
@@ -1691,15 +1763,27 @@ Window {
                         upNextScreen.focusPrimaryAction()
                     }
                 })
-                // Play the next episode
+                // Play the queued episode, or another one picked from the Up Next row.
+                // Up Next stays on screen until playback covers it (see
+                // beginUpNextStart), so the hop never flashes the page underneath.
                 upNextScreen.playRequested.connect(function() {
                     if (!hasNextEpisode) {
                         console.warn("[Main] Up Next: Ignoring play request without a next episode")
                         return
                     }
                     console.log("[Main] Up Next: Play requested")
-                    stackView.pop(null, StackView.Immediate)
-                    PlayerController.playNextEpisode(episodeData, normalizedSeriesId)
+                    window.beginUpNextStart(upNextScreen, episodeData, normalizedSeriesId)
+                })
+                upNextScreen.episodeRequested.connect(function(selectedEpisode) {
+                    if (!selectedEpisode || !selectedEpisode.itemId) {
+                        return
+                    }
+                    console.log("[Main] Up Next: Episode selected", selectedEpisode.itemId)
+                    var selectedEpisodeData = Object.assign({}, selectedEpisode)
+                    if (!selectedEpisodeData.seriesName) {
+                        selectedEpisodeData.seriesName = episodeData.seriesName || ""
+                    }
+                    window.beginUpNextStart(upNextScreen, selectedEpisodeData, normalizedSeriesId)
                 })
                 
                 // Navigate to the episode list (same as ESC)

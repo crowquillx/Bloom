@@ -56,6 +56,11 @@ public:
         clearedItemCacheIds.append(itemId);
     }
 
+    void getItems(const LibraryItemQuery &query) override
+    {
+        itemsRequests.append(query.parentId);
+    }
+
     QVariantList similarItems;
     QVariantMap seriesDetails;
     QVariantMap fallbackItem;
@@ -64,6 +69,7 @@ public:
     QStringList itemRequests;
     QStringList itemRequestContexts;
     QStringList clearedItemCacheIds;
+    QStringList itemsRequests;
     bool emitNotModifiedForSeriesDetails = false;
     bool emitPathErrorForSeriesDetails = false;
     bool deferSimilar = false;
@@ -92,6 +98,9 @@ private slots:
     void seriesDetailsPathErrorClearsLoading();
     void staleConnectionSignalsAreIgnored();
     void staleFallbackTerminalSignalIsIgnored();
+    void upcomingEpisodesStartAtNextEpisode();
+    void upcomingEpisodesMissingStartIsEmpty();
+    void upcomingEpisodesIgnoreOtherRequests();
 };
 
 void UpNextRecommendationsViewModelTest::cleanup()
@@ -267,6 +276,79 @@ void UpNextRecommendationsViewModelTest::staleFallbackTerminalSignalIsIgnored()
     emit libraryService->itemFailed(QStringLiteral("series-1"),
                                     QStringLiteral("done"), currentContext);
     QVERIFY(!vm.loading());
+}
+
+namespace {
+QVariantMap episode(const QString &id, int season, int number,
+                    const QString &locationType = QStringLiteral("FileSystem"))
+{
+    return {{"itemId", id},
+            {"mediaType", "Episode"},
+            {"parentIndexNumber", season},
+            {"indexNumber", number},
+            {"locationType", locationType}};
+}
+
+QStringList itemIds(const QVariantList &items)
+{
+    QStringList ids;
+    for (const QVariant &item : items) {
+        ids.append(item.toMap().value(QStringLiteral("itemId")).toString());
+    }
+    return ids;
+}
+} // namespace
+
+void UpNextRecommendationsViewModelTest::upcomingEpisodesStartAtNextEpisode()
+{
+    const QVariantList season{
+        episode(QStringLiteral("e9"), 1, 9),
+        episode(QStringLiteral("e6"), 1, 6),
+        episode(QStringLiteral("e7"), 1, 7),
+        episode(QStringLiteral("e8-missing"), 1, 8, QStringLiteral("Virtual")),
+        episode(QStringLiteral("special"), 0, 1),
+        episode(QStringLiteral("e10"), 1, 10),
+        episode(QStringLiteral("e11"), 1, 11),
+    };
+
+    QCOMPARE(itemIds(UpNextRecommendationsViewModel::selectUpcomingEpisodes(
+                 season, QStringLiteral("e7"), 3)),
+             (QStringList{"e7", "e9", "e10"}));
+}
+
+void UpNextRecommendationsViewModelTest::upcomingEpisodesMissingStartIsEmpty()
+{
+    const QVariantList season{episode(QStringLiteral("e1"), 1, 1)};
+    QVERIFY(UpNextRecommendationsViewModel::selectUpcomingEpisodes(
+                season, QStringLiteral("other"), 8).isEmpty());
+}
+
+void UpNextRecommendationsViewModelTest::upcomingEpisodesIgnoreOtherRequests()
+{
+    auto *libraryService = new UpNextTestLibraryService(this);
+    ServiceLocator::registerService<LibraryService>(libraryService);
+
+    UpNextRecommendationsViewModel vm;
+    vm.loadUpcomingEpisodes(QStringLiteral("season-1"), QStringLiteral("e1"), 8);
+    QCOMPARE(libraryService->itemsRequests, QStringList{QStringLiteral("season-1")});
+
+    const QVariantList season{episode(QStringLiteral("e1"), 1, 1),
+                              episode(QStringLiteral("e2"), 1, 2)};
+    emit libraryService->canonicalItemsLoadedForConnection(
+        QStringLiteral("connection-2"), QStringLiteral("season-1"), QString(), season, 2);
+    emit libraryService->canonicalItemsLoadedForConnection(
+        QStringLiteral("connection-1"), QStringLiteral("season-2"), QString(), season, 2);
+    QVERIFY(vm.upcomingEpisodes().isEmpty());
+
+    emit libraryService->canonicalItemsLoadedForConnection(
+        QStringLiteral("connection-1"), QStringLiteral("season-1"), QString(), season, 2);
+    QCOMPARE(itemIds(vm.upcomingEpisodes()), (QStringList{"e1", "e2"}));
+
+    vm.clearUpcomingEpisodes();
+    QVERIFY(vm.upcomingEpisodes().isEmpty());
+    emit libraryService->canonicalItemsLoadedForConnection(
+        QStringLiteral("connection-1"), QStringLiteral("season-1"), QString(), season, 2);
+    QVERIFY(vm.upcomingEpisodes().isEmpty());
 }
 
 QTEST_MAIN(UpNextRecommendationsViewModelTest)

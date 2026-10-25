@@ -36,6 +36,7 @@ Button {
     property string accessibleLabel: ""
     property string toolTipText: ""
     property int labelPixelSize: Theme.fontSizeBody
+    property int iconPixelSize: Theme.fontSizeIcon
     property real cornerRadius: Theme.radiusControl
     property int sidePadding: Math.round(30 * Theme.layoutScale)
 
@@ -127,7 +128,7 @@ Button {
                 text: actionButton.iconGlyph
                 visible: text !== "" && !actionButton.busy
                 font.family: Theme.fontIcon
-                font.pixelSize: Theme.fontSizeIcon
+                font.pixelSize: actionButton.iconPixelSize
                 color: actionButton.iconColor
                 verticalAlignment: Text.AlignVCenter
                 horizontalAlignment: Text.AlignHCenter
@@ -145,7 +146,7 @@ Button {
                     loops: Animation.Infinite
                 }
                 font.family: Theme.fontIcon
-                font.pixelSize: Theme.fontSizeIcon
+                font.pixelSize: actionButton.iconPixelSize
                 color: actionButton.iconColor
                 verticalAlignment: Text.AlignVCenter
                 horizontalAlignment: Text.AlignHCenter

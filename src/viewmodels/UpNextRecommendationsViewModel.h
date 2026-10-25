@@ -10,11 +10,13 @@ class LibraryService;
 class SeerrService;
 
 /**
- * @brief Loads post-playback TV-series recommendations for the no-next-episode state.
+ * @brief Loads the Up Next screen's supporting rows.
  *
- * Local-library similar series are preferred because they are immediately available.
- * Seerr results are appended as discovery/request options when a TMDB
- * id can be resolved from the source series details.
+ * With a next episode, `upcomingEpisodes` lists that episode and the ones
+ * after it in the same season. Without one, `items` holds TV-series
+ * recommendations: local-library similar series first because they are
+ * immediately available, then Seerr results as discovery/request options when
+ * a TMDB id can be resolved from the source series details.
  */
 class UpNextRecommendationsViewModel : public QObject
 {
@@ -22,23 +24,36 @@ class UpNextRecommendationsViewModel : public QObject
 
     Q_PROPERTY(QVariantList items READ items NOTIFY itemsChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
+    Q_PROPERTY(QVariantList upcomingEpisodes READ upcomingEpisodes NOTIFY upcomingEpisodesChanged)
 
 public:
     explicit UpNextRecommendationsViewModel(QObject *parent = nullptr);
 
     QVariantList items() const;
     bool loading() const { return m_loading; }
+    QVariantList upcomingEpisodes() const { return m_upcomingEpisodes; }
 
     Q_INVOKABLE void loadForSeries(const QString &seriesId, int limit = 6);
     Q_INVOKABLE void clear();
+    Q_INVOKABLE void loadUpcomingEpisodes(const QString &seasonId,
+                                          const QString &startEpisodeId,
+                                          int limit = 8);
+    Q_INVOKABLE void clearUpcomingEpisodes();
 
     static QVariantList mergeRecommendations(const QVariantList &libraryItems,
                                              const QVariantList &seerrItems,
                                              int limit);
+    /// Episodes from @p startEpisodeId onward within its season number, in
+    /// episode order, skipping missing (virtual) entries. Empty when the start
+    /// episode is not in @p seasonItems.
+    static QVariantList selectUpcomingEpisodes(const QVariantList &seasonItems,
+                                               const QString &startEpisodeId,
+                                               int limit);
 
 signals:
     void itemsChanged();
     void loadingChanged();
+    void upcomingEpisodesChanged();
 
 private slots:
     void onSimilarItemsLoaded(const QString &connectionId,
@@ -63,6 +78,11 @@ private slots:
                                        const QString &requestContext);
     void onSeerrSimilarResultsLoaded(const QString &mediaType, int tmdbId, const QJsonArray &results);
     void onSeerrSimilarResultsFailed(const QString &mediaType, int tmdbId, const QString &error);
+    void onSeasonItemsLoaded(const QString &connectionId,
+                             const QString &parentId,
+                             const QString &queryKey,
+                             const QVariantList &items,
+                             int totalRecordCount);
 
 private:
     static bool isSeriesItem(const QVariantMap &item);
@@ -93,4 +113,10 @@ private:
     bool m_waitingForLibrary = false;
     bool m_waitingForSeriesDetails = false;
     bool m_waitingForSeerr = false;
+
+    QVariantList m_upcomingEpisodes;
+    QString m_upcomingConnectionId;
+    QString m_upcomingSeasonId;
+    QString m_upcomingStartEpisodeId;
+    int m_upcomingLimit = 8;
 };

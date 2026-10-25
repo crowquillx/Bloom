@@ -5,6 +5,7 @@
 #include "network/SeerrService.h"
 
 #include <QRegularExpression>
+#include <algorithm>
 #include <QVariantMap>
 #include <QDebug>
 
@@ -33,6 +34,8 @@ UpNextRecommendationsViewModel::UpNextRecommendationsViewModel(QObject *parent)
                 this, &UpNextRecommendationsViewModel::onSeriesDetailsFallbackNotModified);
         connect(m_libraryService, &LibraryService::itemFailed,
                 this, &UpNextRecommendationsViewModel::onSeriesDetailsFallbackFailed);
+        connect(m_libraryService, &LibraryService::canonicalItemsLoadedForConnection,
+                this, &UpNextRecommendationsViewModel::onSeasonItemsLoaded);
     } else {
         qWarning() << "UpNextRecommendationsViewModel: LibraryService not available";
     }
@@ -95,6 +98,101 @@ void UpNextRecommendationsViewModel::clear()
     if (hadItems) {
         emit itemsChanged();
     }
+}
+
+void UpNextRecommendationsViewModel::loadUpcomingEpisodes(const QString &seasonId,
+                                                          const QString &startEpisodeId,
+                                                          int limit)
+{
+    clearUpcomingEpisodes();
+    if (!m_libraryService || seasonId.trimmed().isEmpty() || startEpisodeId.isEmpty()) {
+        return;
+    }
+
+    m_upcomingConnectionId = m_libraryService->getActiveConnectionId();
+    m_upcomingSeasonId = seasonId;
+    m_upcomingStartEpisodeId = startEpisodeId;
+    m_upcomingLimit = qBound(1, limit, 24);
+    // SeriesDetailsViewModel ignores season responses it did not request, so
+    // this shares LibraryService's episode cache without moving its selection.
+    m_libraryService->getSeasonEpisodes(seasonId);
+}
+
+void UpNextRecommendationsViewModel::clearUpcomingEpisodes()
+{
+    m_upcomingConnectionId.clear();
+    m_upcomingSeasonId.clear();
+    m_upcomingStartEpisodeId.clear();
+    if (!m_upcomingEpisodes.isEmpty()) {
+        m_upcomingEpisodes.clear();
+        emit upcomingEpisodesChanged();
+    }
+}
+
+void UpNextRecommendationsViewModel::onSeasonItemsLoaded(const QString &connectionId,
+                                                         const QString &parentId,
+                                                         const QString &queryKey,
+                                                         const QVariantList &items,
+                                                         int totalRecordCount)
+{
+    Q_UNUSED(queryKey)
+    Q_UNUSED(totalRecordCount)
+    if (m_upcomingSeasonId.isEmpty() || parentId != m_upcomingSeasonId
+        || connectionId != m_upcomingConnectionId) {
+        return;
+    }
+
+    m_upcomingEpisodes = selectUpcomingEpisodes(items, m_upcomingStartEpisodeId, m_upcomingLimit);
+    m_upcomingSeasonId.clear();
+    emit upcomingEpisodesChanged();
+}
+
+QVariantList UpNextRecommendationsViewModel::selectUpcomingEpisodes(const QVariantList &seasonItems,
+                                                                    const QString &startEpisodeId,
+                                                                    int limit)
+{
+    QVariantMap start;
+    for (const QVariant &value : seasonItems) {
+        const QVariantMap item = value.toMap();
+        if (item.value(QStringLiteral("itemId")).toString() == startEpisodeId) {
+            start = item;
+            break;
+        }
+    }
+    if (start.isEmpty() || limit <= 0) {
+        return {};
+    }
+
+    const int seasonNumber = start.value(QStringLiteral("parentIndexNumber")).toInt();
+    const int startNumber = start.value(QStringLiteral("indexNumber")).toInt();
+    QList<QVariantMap> episodes;
+    for (const QVariant &value : seasonItems) {
+        const QVariantMap item = value.toMap();
+        if (item.value(QStringLiteral("mediaType")).toString() != QStringLiteral("Episode")
+            || item.value(QStringLiteral("locationType")).toString() == QStringLiteral("Virtual")
+            || item.value(QStringLiteral("parentIndexNumber")).toInt() != seasonNumber) {
+            continue;
+        }
+        const bool isStart = item.value(QStringLiteral("itemId")).toString() == startEpisodeId;
+        if (!isStart && item.value(QStringLiteral("indexNumber")).toInt() <= startNumber) {
+            continue;
+        }
+        episodes.append(item);
+    }
+
+    std::stable_sort(episodes.begin(), episodes.end(), [](const QVariantMap &a, const QVariantMap &b) {
+        return a.value(QStringLiteral("indexNumber")).toInt()
+            < b.value(QStringLiteral("indexNumber")).toInt();
+    });
+
+    QVariantList result;
+    for (const QVariantMap &episode : std::as_const(episodes)) {
+        if (result.size() >= limit) {
+            break;
+        }
+        result.append(episode);
+    }
+    return result;
 }
 
 QVariantList UpNextRecommendationsViewModel::mergeRecommendations(const QVariantList &libraryItems,
