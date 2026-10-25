@@ -150,6 +150,7 @@ UI settings
 - `settings.ui.launch_in_fullscreen` (Q_PROPERTY `launchInFullscreen`): When true, the application starts in fullscreen mode. Default true; configurable via Settings > Display > Launch in Fullscreen.
 - `settings.ui.backdrop_rotation_interval`: Backdrop rotation interval in milliseconds. Default 30000 (30 seconds).
 - `settings.ui.ui_animations_enabled` (Q_PROPERTY `uiAnimationsEnabled`): Toggle the QML transition/animation flourishes for keyboard/remote navigation; defaults to true but can be toggled to reduce GPU load.
+- `settings.ui.server_poster_badges_enabled` (Q_PROPERTY `serverPosterBadgesEnabled`): Show the poster badges each Silo profile chooses. Defaults to true, also for existing configs without the key. Configurable via Settings > Display > Silo Poster Badges, which appears only when a saved connection is a Silo server. See [poster badges](poster-badges.md).
 - `settings.ui.screensaver.enabled` (Q_PROPERTY `screensaverEnabled`): Enables the in-app OLED-safe screensaver. Default false.
 - `settings.ui.screensaver.mode` (Q_PROPERTY `screensaverMode`): `libraryBackdrops`, `bouncingLogo`, or `black`. Default `libraryBackdrops`.
 - `settings.ui.screensaver.timeout_seconds` (Q_PROPERTY `screensaverTimeoutSeconds`): Inactivity timeout before activation. Default 300 seconds; Settings > Display edits it in minutes.

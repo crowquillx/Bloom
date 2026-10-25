@@ -3,6 +3,7 @@
 #include "utils/ConfigManager.h"
 #include "profiles/BloomProfileRepository.h"
 #include "profiles/MergedCatalogService.h"
+#include "profiles/PosterBadgeService.h"
 #include "profiles/WorkspaceController.h"
 #include "utils/DisplayManager.h"
 #include "ui/ResponsiveLayoutManager.h"
@@ -287,6 +288,10 @@ void ApplicationInitializer::registerServices()
     m_workspaceController = std::make_unique<WorkspaceController>(
         workspaceAuth, m_bloomProfileRepository.get(), m_configManager.get());
     ServiceLocator::registerService<WorkspaceController>(m_workspaceController.get());
+    m_posterBadgeService = std::make_unique<PosterBadgeService>(
+        workspaceAuth, m_bloomProfileRepository.get(), m_configManager.get(),
+        m_mergedCatalogService.get());
+    ServiceLocator::registerService<PosterBadgeService>(m_posterBadgeService.get());
 
     // 5. InputModeManager - Depends on QGuiApplication
     m_inputModeManager = std::make_unique<InputModeManager>(m_app);

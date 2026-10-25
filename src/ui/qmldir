@@ -17,6 +17,7 @@ HomeSettings 1.0 settings/HomeSettings.qml
 SearchScreen 1.0 SearchScreen.qml
 SearchResultCard 1.0 SearchResultCard.qml
 SeerrComboBox 1.0 SeerrComboBox.qml
+PosterBadgeOverlay 1.0 PosterBadgeOverlay.qml
 UnwatchedBadge 1.0 UnwatchedBadge.qml
 Sidebar 1.0 Sidebar.qml
 MediaProgressBar 1.0 MediaProgressBar.qml

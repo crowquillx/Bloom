@@ -1,6 +1,7 @@
 #pragma once
 
 #include "models/MediaModels.h"
+#include "models/PosterBadges.h"
 #include "network/Types.h"
 #include "providers/ICatalogProvider.h"
 #include "providers/ServerConnection.h"
@@ -64,4 +65,11 @@ public:
                                    const QString &connectionId);
     static QList<MediaSegmentInfo> mediaSegments(const QString &itemId,
                                                  const QJsonObject &wireSegments);
+
+    /// The viewer's poster badges from the effective `ui.card_overlays` and
+    /// `ui.card_overlays_enabled` settings, falling back to the server-wide
+    /// overlay defaults. Badge styling (preset shape, accent colours) is not
+    /// carried over; Bloom draws badges in its own theme.
+    static Bloom::PosterBadgeLayout posterBadgeLayout(const QJsonObject &wireEffectiveSettings,
+                                                      const QJsonObject &wireOverlayConfig);
 };

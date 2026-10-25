@@ -25,6 +25,7 @@
 #include "network/PlaybackService.h"
 #include "updates/UpdateService.h"
 #include "profiles/MergedCatalogService.h"
+#include "profiles/PosterBadgeService.h"
 #include "profiles/WorkspaceController.h"
 #include "core/ServiceLocator.h"
 #include "config/version.h"
@@ -177,6 +178,7 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("UpdateService", ServiceLocator::get<UpdateService>());
     context->setContextProperty("Workspaces", ServiceLocator::get<WorkspaceController>());
     context->setContextProperty("MergedCatalog", ServiceLocator::get<MergedCatalogService>());
+    context->setContextProperty("PosterBadges", ServiceLocator::get<PosterBadgeService>());
     // App metadata for QML
     context->setContextProperty("appVersion", QCoreApplication::applicationVersion());
     context->setContextProperty("qtVersion", QString(qVersion()));

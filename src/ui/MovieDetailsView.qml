@@ -165,6 +165,11 @@ FocusScope {
                     height: recommendationPosterImage.paintedHeight
                     anchors.centerIn: parent
 
+                    PosterBadgeOverlay {
+                        anchors.fill: parent
+                        item: recommendationCard.itemData
+                    }
+
                     FocusRing {
                         active: recommendationCard.isFocused
                         radius: Theme.imageRadius

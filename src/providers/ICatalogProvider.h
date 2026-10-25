@@ -33,6 +33,9 @@ enum class ProviderCatalogOperation {
     ThemeSongs,
     ThemeSongsCapability,
     ThemeSongPlayback,
+    // The viewer's poster badge preferences and the server-wide defaults.
+    PosterBadgeSettings,
+    PosterBadgeDefaults,
 };
 
 enum class ProviderHttpMethod {

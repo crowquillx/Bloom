@@ -1,5 +1,6 @@
 #pragma once
 
+#include "models/PosterBadges.h"
 #include "network/Types.h"
 #include "providers/ServerConnection.h"
 
@@ -132,6 +133,16 @@ public:
     {
         Q_UNUSED(itemId)
         Q_UNUSED(wireSegments)
+        return std::nullopt;
+    }
+    /// Poster badges from the `PosterBadgeSettings` and `PosterBadgeDefaults`
+    /// catalog responses; providers without server-side badge preferences
+    /// return nullopt.
+    virtual std::optional<Bloom::PosterBadgeLayout> mapPosterBadgeLayout(
+        const QJsonObject &wireSettings, const QJsonObject &wireDefaults) const
+    {
+        Q_UNUSED(wireSettings)
+        Q_UNUSED(wireDefaults)
         return std::nullopt;
     }
 };

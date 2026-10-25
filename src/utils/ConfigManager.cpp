@@ -2757,6 +2757,26 @@ bool ConfigManager::getUiAnimationsEnabled() const
     return true; // Default: animations enabled
 }
 
+void ConfigManager::setServerPosterBadgesEnabled(bool enabled)
+{
+    if (enabled == getServerPosterBadgesEnabled()) return;
+
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject ui = settings.value(QStringLiteral("ui")).toObject();
+    ui[QStringLiteral("server_poster_badges_enabled")] = enabled;
+    settings[QStringLiteral("ui")] = ui;
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+    emit serverPosterBadgesEnabledChanged();
+}
+
+bool ConfigManager::getServerPosterBadgesEnabled() const
+{
+    return m_config.value(QStringLiteral("settings")).toObject()
+        .value(QStringLiteral("ui")).toObject()
+        .value(QStringLiteral("server_poster_badges_enabled")).toBool(true);
+}
+
 // ============================================================================
 // Hero Banner settings (settings.ui.hero_banner.*)
 // ============================================================================
@@ -4866,6 +4886,7 @@ QJsonObject ConfigManager::defaultConfig() const
     ui["launch_in_fullscreen"] = true;
     ui["launch_in_fullscreen_user_set"] = false;
     ui["ui_animations_enabled"] = true;
+    ui["server_poster_badges_enabled"] = true;
     ui["theme"] = QStringLiteral("Bloom");
     ui["theme_flavor"] = QStringLiteral("dusk");
     ui["theme_color_scheme"] = QStringLiteral("lavender");

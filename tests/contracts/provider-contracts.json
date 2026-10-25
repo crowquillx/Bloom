@@ -744,7 +744,8 @@
       "native.markers",
       "native.chapters",
       "native.trickplay",
-      "native.theme-songs"
+      "native.theme-songs",
+      "native.poster-badges"
     ],
     "requirements": [
       {
@@ -1582,9 +1583,46 @@
         ],
         "liveProbe": true,
         "requiresMutationFlag": true
+      },
+      {
+        "id": "native.poster-badges",
+        "method": "GET",
+        "path": "/api/v2/settings/values/effective and /api/v2/settings/overlay-config",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/settings/values/effective"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/settings/overlay-config"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operations; card overlay settings are in the settings contract since revision 8."
+        },
+        "requestSemantics": [
+          "Profile-scoped effective settings read for the ui.card_overlays and ui.card_overlays_enabled keys.",
+          "The overlay-config read supplies the server-wide enabled flag and the admin defaults document."
+        ],
+        "requiredSemantics": [
+          "A null profile value falls back to the admin defaults; an explicit ui.card_overlays_enabled choice overrides the server-wide flag.",
+          "Card overlay_summary fields fill the badges each poster shows; preset styling and accent colours are not used."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/settings/v1/schemas/card-overlays.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloModelMapper.cpp",
+          "src/profiles/PosterBadgeService.cpp"
+        ]
       }
     ],
-    "playbackDecision": "Protocol 3 requires capability permission, an installation ID and an idempotent playback attempt ID. Bloom offers original_http, maps PlaybackDecision.playback_plan, and uses track_change replan plus sequenced progress and stop IDs.",
+    "playbackDecision":
+ "Protocol 3 requires capability permission, an installation ID and an idempotent playback attempt ID. Bloom offers original_http, maps PlaybackDecision.playback_plan, and uses track_change replan plus sequenced progress and stop IDs.",
     "outOfScope": [
       "ebooks",
       "audiobooks",

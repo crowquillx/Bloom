@@ -11,6 +11,7 @@ Key services
 - `BloomProfileRepository` — Bloom profiles ("spaces" in the UI)/memberships and request-context generation; depends on ConfigManager raw `settings.bloom_profiles` accessors. See [profiles](profiles.md).
 - `WorkspaceController` — QML `Workspaces`: space switching, editing, adding/removing connections, and routing items to their owning connection. Depends on AuthenticationService, BloomProfileRepository, and ConfigManager.
 - `MergedCatalogService` — QML `MergedCatalog`: fans Views, Next Up, Recently Added, and Search out across a merged space's members and combines them through `IMergedCatalogPolicy`. Depends on AuthenticationService (pooled member sessions) and BloomProfileRepository.
+- `PosterBadgeService` — QML `PosterBadges`: reads each Silo connection's poster badge preferences through `MergedCatalogService::readConnection` and resolves an item's badges. Depends on AuthenticationService, BloomProfileRepository, ConfigManager, and MergedCatalogService. See [poster badges](poster-badges.md).
 - `ConnectionSessionPool` — Owned by AuthenticationService; read-only in-memory tokens for the non-live members of a merged space.
 - `CredentialStore` — Provider-neutral platform-keychain names, access/refresh/profile token storage, and verified legacy Jellyfin credential migration.
 - `TrackPreferencesManager` — Versioned, connection-scoped persistence for explicit season/movie audio and subtitle preferences.
@@ -47,7 +48,7 @@ Key services
 3. HttpTransport and the selected `IProviderAdapter` — use deterministic health detection to choose `JellyfinProviderAdapter` for MediaBrowser or `SiloProviderAdapter` for native `/api/v1`; never infer Silo from compatibility `/System/Info`.
 4. AuthenticationService — stable session façade; depends on `CredentialStore`, `HttpTransport`, and the selected provider adapter.
 4.1. LibraryService — depends on AuthenticationService and uses the selected catalog/artwork provider through shared transport.
-4.6. MergedCatalogService and WorkspaceController — depend on AuthenticationService and BloomProfileRepository; registered after PlayerController/ThemeSongManager in both production and test mode. Only the startup session restore gates SessionManager initialization; later space switches restore sessions without re-initializing it.
+4.6. MergedCatalogService, WorkspaceController, and PosterBadgeService (after MergedCatalogService, which it reads through) — depend on AuthenticationService and BloomProfileRepository; registered after PlayerController/ThemeSongManager in both production and test mode. Only the startup session restore gates SessionManager initialization; later space switches restore sessions without re-initializing it.
 5. InputModeManager — depends on QGuiApplication.
 5.1. InputBindingManager — depends on QGuiApplication + ConfigManager.
 6. MediaSegmentProviderService — depends on AuthenticationService + ConfigManager.

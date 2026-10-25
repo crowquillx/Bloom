@@ -10,6 +10,9 @@ import BloomUI
  * - When count == 0 && isFullyWatched: displays a checkmark icon
  * - Otherwise: hidden
  *
+ * Set `applicable` (not `visible`) to restrict the badge to some item types;
+ * overriding `visible` would show an empty pill when there is nothing to show.
+ *
  * Usage:
  *   UnwatchedBadge {
  *       anchors.top: parent.top
@@ -28,13 +31,15 @@ Item {
     property bool isFullyWatched: false
     // Width of the parent poster (kept for API compatibility)
     property real parentWidth: 100
+    // Whether the badge applies to this item at all
+    property bool applicable: true
 
     readonly property bool shouldShow: count > 0 || isFullyWatched
     readonly property bool showCount: count > 0
     readonly property bool showCheckmark: count === 0 && isFullyWatched
     readonly property int inset: Math.round(12 * Theme.layoutScale)
 
-    visible: shouldShow
+    visible: applicable && shouldShow
     width: badge.width + inset * 2
     height: badge.height + inset * 2
 

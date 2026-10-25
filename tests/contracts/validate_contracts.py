@@ -41,6 +41,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.chapters",
     "native.trickplay",
     "native.theme-songs",
+    "native.poster-badges",
 }
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")

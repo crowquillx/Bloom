@@ -2,6 +2,19 @@
 
 A live gate passes only when the required behavior is observed. Source inspection, a unit test, and a successful HTTP status do not establish a platform runtime pass. `UNAVAILABLE` and `NOT RUN` are not automated passes. The native release label remains **experimental native Silo support**.
 
+## Silo poster badges, 2026-10-25 UTC
+
+[Poster badges](poster-badges.md) follow each Silo profile's card overlay choices. Silo series cards no longer draw an empty unwatched pill.
+
+| Gate | Result | Action and pass criteria |
+| --- | --- | --- |
+| Incremental build and automated checks | PASS | `./scripts/dev-build.sh --tests` passed. Local CTest passed 45/45, including the new `PosterBadgesTest`, `WorkspaceRoutingTest::posterBadgesFollowEachSiloMembersPreferences`, `failedPosterBadgeReadLeavesSourceAlone`, and `ConfigManagerThemeTest::serverPosterBadgesDefaultOnAndPersist`. The provider-contract Python suite passed 34/34 with the regenerated Silo manifest. The flake QML lint command passed. `nix flake check` was not run. |
+| Overlay rendering (harness) | PASS | A QML harness rendered `PosterBadgeOverlay` with the real resolver on 220 px and 260 px posters over bright and dark art. It covered the default layout, icons with rating logos, long studio names, and a top-right stack below `UnwatchedBadge`. Labels elide only when the opposite corner needs the room. |
+| Live single Silo space | PASS, headless | Headless sway at 1920×1080 signed in to a Silo test server whose profile has no badge choice. Home Recently Added, the library grid, and Search showed Silo's defaults (resolution, HDR, and audio top-left; release type bottom-left), with values such as `DV HDR10` and `WEBRip`. Series without a count showed no pill. Settings > Display showed Silo Poster Badges, on, and keyboard focus moved through it. |
+| Profile choices from Silo's web app | NOT RUN | In Silo's web app, enable ratings and studio badges, move one to another corner, and switch to the pill preset. After Home refreshes, Bloom must show the same badges and corners with icons. Turn card overlays off for the profile; the badges must disappear. |
+| Merged space and setting toggle | NOT RUN | In a merged space with Jellyfin and Silo sources, only Silo items show badges, and a Silo source whose server is down raises no extra toast. Turning off Settings > Display > Silo Poster Badges hides every badge at once. |
+| Physical keyboard, gamepad, and 4K | NOT RUN | On a TV at 4K, check badge legibility and that focus scaling keeps badges inside the poster. |
+
 ## Native Silo v2 migration, 2026-10-18 UTC
 
 The server at `http://silo` reported source revision `35ef973b`. The full source pin is `35ef973bc64af293aff76bcd49fa2dcab82a7f74`. Its served OpenAPI bytes equal SHA-256 `be30c2f6d2a4dc7fbfef2a9b1438d843b4c25239eb2d637ec09dfef12f1220be`, the pinned artifact with 707 paths. No container-image identity was verified. Checks used the operator-supplied disposable `tester` account. No password, token, signed URL, or PIN is retained here.

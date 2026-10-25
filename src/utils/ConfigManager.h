@@ -173,6 +173,7 @@ class ConfigManager : public QObject
     
     // UI Animations
     Q_PROPERTY(bool uiAnimationsEnabled READ getUiAnimationsEnabled WRITE setUiAnimationsEnabled NOTIFY uiAnimationsEnabledChanged)
+    Q_PROPERTY(bool serverPosterBadgesEnabled READ getServerPosterBadgesEnabled WRITE setServerPosterBadgesEnabled NOTIFY serverPosterBadgesEnabledChanged)
     Q_PROPERTY(QString updateChannel READ getUpdateChannel WRITE setUpdateChannel NOTIFY updateChannelChanged)
     Q_PROPERTY(bool autoUpdateCheckEnabled READ getAutoUpdateCheckEnabled WRITE setAutoUpdateCheckEnabled NOTIFY autoUpdateCheckEnabledChanged)
     Q_PROPERTY(QString lastUpdateCheckAt READ getLastUpdateCheckAt WRITE setLastUpdateCheckAt NOTIFY lastUpdateCheckAtChanged)
@@ -533,6 +534,8 @@ public:
     // UI Animations
     void setUiAnimationsEnabled(bool enabled);
     bool getUiAnimationsEnabled() const;
+    void setServerPosterBadgesEnabled(bool enabled);
+    bool getServerPosterBadgesEnabled() const;
 
     // Hero Banner
     void setHeroBannerEnabled(bool enabled);
@@ -630,6 +633,7 @@ signals:
     void mediaSegmentProviderOrderChanged();
     void manualDpiScaleOverrideChanged();
     void uiAnimationsEnabledChanged();
+    void serverPosterBadgesEnabledChanged();
     void updateChannelChanged();
     void autoUpdateCheckEnabledChanged();
     void lastUpdateCheckAtChanged();

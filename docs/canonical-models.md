@@ -49,6 +49,10 @@ canonical signals and must not add PascalCase wire-key fallbacks.
 
 Existing list/detail/player flows are migrated in reviewable slices. During migration, compatibility façades may retain old methods, but canonical consumers must not fall back to PascalCase wire keys.
 
+## Poster badge inputs
+
+Providers that know a file's technical summary put it in the item's `mediaSummary` map (`resolution`, `hdr`, `audio`, `audioChannels`, `videoCodec`, `container`, `aspectRatio`, `releaseType`, `edition`, `multiAudio`, `multiSub`), leaving out empty and false values. Items may also carry `advisoryAge`, `originalLanguage`, and `showStatus` (the series lifecycle, separate from `status`). Silo fills these from catalog cards; Jellyfin list responses do not. `Bloom::PosterBadgeLayout` and `Bloom::resolvePosterBadges` (`src/models/PosterBadges.*`) turn them into badges. See [poster badges](poster-badges.md).
+
 ## Migrated surfaces
 
 - **Movie Details**: `MovieDetailsViewModel` and `MovieDetailsView.qml` consume only canonical item, connection-scoped similar-item, and chapter payloads. Cached movie and similar JSON is canonical (`*_details_canonical.json` / `*_similar_items_canonical.json`); wire-shaped disk caches are rejected. Similar-item request state is owned by connection and item, so a stale completion settles only its old request and cannot leave loading stuck or invalidate a replacement. Artwork resolves through `ArtworkRef` maps and `LibraryService::getCachedArtworkUrl`. Display, chapter, and playback request timing use milliseconds.

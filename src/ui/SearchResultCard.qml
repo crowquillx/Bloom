@@ -128,6 +128,7 @@ Item {
 
                 // Owning server/account in merged spaces.
                 SourceBadge {
+                    id: sourceBadge
                     anchors.left: parent.left
                     anchors.bottom: parent.bottom
                     anchors.margins: Theme.spacingSmall
@@ -135,23 +136,33 @@ Item {
                     text: isSeerr ? "" : (itemData.sourceLabel || "")
                 }
 
+                PosterBadgeOverlay {
+                    anchors.fill: parent
+                    item: root.isSeerr ? ({}) : root.itemData
+                    topRightReserved: seriesBadge.visible || movieBadge.visible ? seriesBadge.height : 0
+                    bottomLeftReserved: sourceBadge.visible
+                                        ? sourceBadge.height + Theme.spacingSmall * 2 : 0
+                }
+
                 // Unwatched episode count badge (for Series)
                 UnwatchedBadge {
+                    id: seriesBadge
                     anchors.top: parent.top
                     anchors.right: parent.right
                     parentWidth: parent.width
                     count: itemType === "Series" ? (itemData.unplayedItemCount || 0) : 0
                     isFullyWatched: isPlayed
-                    visible: !isSeerr && itemType === "Series"
+                    applicable: !isSeerr && itemType === "Series"
                 }
 
                 // Watched indicator (for Movies only)
                 UnwatchedBadge {
+                    id: movieBadge
                     anchors.top: parent.top
                     anchors.right: parent.right
                     count: 0
                     isFullyWatched: true
-                    visible: !isSeerr && itemType === "Movie" && isPlayed
+                    applicable: !isSeerr && itemType === "Movie" && isPlayed
                 }
 
                 FocusRing {

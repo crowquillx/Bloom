@@ -12,12 +12,14 @@
 #include <QVariantList>
 #include <functional>
 #include <memory>
+#include <optional>
 
 class AuthenticationService;
 class BloomProfileRepository;
 class ConfigManager;
 class HttpRequestHandle;
 class HttpTransport;
+class IProviderAdapter;
 struct NetworkError;
 
 /**
@@ -66,6 +68,17 @@ public:
     Q_INVOKABLE QString sourceLabel(const QString &connectionId) const;
     Q_INVOKABLE bool isMemberConnection(const QString &connectionId) const;
 
+    using ConnectionReadCompletion =
+        std::function<void(const std::optional<ProviderCatalogResponse> &response)>;
+    /// One raw read on the live connection or an enabled member of the active
+    /// space, with the same token renewal as merged reads but no source state.
+    /// Completes with nullopt on failure; a space or membership change drops
+    /// it without completing.
+    void readConnection(const QString &connectionId,
+                        ProviderCatalogOperation operation,
+                        const ProviderCatalogQuery &query,
+                        ConnectionReadCompletion completion);
+
 signals:
     void activeChanged();
     void viewsChanged();
@@ -99,6 +112,11 @@ private:
     using SourceCompletion = std::function<void(const MergedSourceResult &)>;
     using MergeCompletion = std::function<void(const QList<MergedSourceResult> &)>;
     using MemberRequest = std::function<void(const Member &, SourceCompletion)>;
+    // A parsed response (null on failure, with the error) and the adapter
+    // that maps it.
+    using RawCompletion = std::function<void(const ProviderCatalogResponse *response,
+                                             IProviderAdapter *adapter,
+                                             const QString &error)>;
 
     void rebuildMembers();
     void fanOut(ProviderCatalogOperation operation,
@@ -114,6 +132,15 @@ private:
                        ProviderCatalogQuery query,
                        bool renewalAttempted,
                        SourceCompletion completion);
+    void sendMemberRequest(const Member &member,
+                           ProviderCatalogOperation operation,
+                           ProviderCatalogQuery query,
+                           bool renewalAttempted,
+                           bool trackSource,
+                           RawCompletion completion);
+    /// The member to read a connection with: an enabled member, or the live
+    /// connection of a single space.
+    std::optional<Member> readableMember(const QString &connectionId) const;
     void whenSessionReady(const QString &connectionId, std::function<void()> continuation);
     void setSourceState(const QString &connectionId, const QString &state,
                         const QString &error = QString());

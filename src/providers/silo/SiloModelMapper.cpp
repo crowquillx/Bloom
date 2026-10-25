@@ -1,12 +1,14 @@
 #include "SiloModelMapper.h"
 
 #include <algorithm>
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QSet>
 
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <utility>
 
 namespace {
@@ -1262,6 +1264,46 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("rottenTomatoesCritic"), wireItem.value(QStringLiteral("rating_rt_critic")).toInt()},
         {QStringLiteral("rottenTomatoesAudience"), wireItem.value(QStringLiteral("rating_rt_audience")).toInt()}
     };
+    // Poster badge inputs: the best file's technical summary plus the card's
+    // advisory age, original language and series lifecycle.
+    if (wireItem.value(QStringLiteral("overlay_summary")).isObject()) {
+        const QJsonObject overlay = wireItem.value(QStringLiteral("overlay_summary")).toObject();
+        QVariantMap summary;
+        for (const auto &[canonical, wire] : {
+                 std::pair{QStringLiteral("resolution"), QStringLiteral("resolution")},
+                 std::pair{QStringLiteral("hdr"), QStringLiteral("hdr")},
+                 std::pair{QStringLiteral("audio"), QStringLiteral("audio")},
+                 std::pair{QStringLiteral("audioChannels"), QStringLiteral("audio_channels")},
+                 std::pair{QStringLiteral("videoCodec"), QStringLiteral("video_codec")},
+                 std::pair{QStringLiteral("container"), QStringLiteral("container")},
+                 std::pair{QStringLiteral("aspectRatio"), QStringLiteral("aspect_ratio")},
+                 std::pair{QStringLiteral("releaseType"), QStringLiteral("release_type")},
+                 std::pair{QStringLiteral("edition"), QStringLiteral("edition")}}) {
+            const QString value = overlay.value(wire).toString().trimmed();
+            if (!value.isEmpty()) {
+                summary.insert(canonical, value);
+            }
+        }
+        if (overlay.value(QStringLiteral("multi_audio")).toBool()) {
+            summary.insert(QStringLiteral("multiAudio"), true);
+        }
+        if (overlay.value(QStringLiteral("multi_sub")).toBool()) {
+            summary.insert(QStringLiteral("multiSub"), true);
+        }
+        if (!summary.isEmpty()) {
+            result[QStringLiteral("mediaSummary")] = summary;
+        }
+    }
+    if (wireItem.value(QStringLiteral("advisory_age")).isDouble()) {
+        result[QStringLiteral("advisoryAge")] = wireItem.value(QStringLiteral("advisory_age")).toInt();
+    }
+    if (wireItem.value(QStringLiteral("original_language")).isString()) {
+        result[QStringLiteral("originalLanguage")] =
+            wireItem.value(QStringLiteral("original_language")).toString();
+    }
+    if (wireItem.value(QStringLiteral("show_status")).isString()) {
+        result[QStringLiteral("showStatus")] = wireItem.value(QStringLiteral("show_status")).toString();
+    }
     if (wireItem.value(QStringLiteral("restrictions")).isObject()) {
         result[QStringLiteral("restrictions")] =
             wireItem.value(QStringLiteral("restrictions")).toObject().toVariantMap();
@@ -1664,4 +1706,193 @@ QList<MediaSegmentInfo> SiloModelMapper::mediaSegments(const QString &itemId,
         result.append(segment);
     }
     return result;
+}
+
+namespace {
+
+struct SiloOverlayDefinition {
+    const char *wireId;
+    // Bloom badge kind; null for overlays whose data Bloom never receives.
+    const char *kind;
+    Bloom::PosterBadgeCorner defaultCorner;
+    bool defaultEnabled;
+};
+
+// Mirrors the pinned web registry (web/src/lib/overlays/registry), whose
+// order is the default render order within a corner.
+constexpr SiloOverlayDefinition kSiloOverlays[] = {
+    {"resolution", "resolution", Bloom::PosterBadgeCorner::TopLeft, true},
+    {"hdr", "hdr", Bloom::PosterBadgeCorner::TopLeft, true},
+    {"resolution_hdr", "resolutionHdr", Bloom::PosterBadgeCorner::TopLeft, false},
+    {"audio", "audio", Bloom::PosterBadgeCorner::TopLeft, true},
+    {"audio_channels", "audioChannels", Bloom::PosterBadgeCorner::TopLeft, false},
+    {"video_codec", "videoCodec", Bloom::PosterBadgeCorner::TopLeft, false},
+    {"container", "container", Bloom::PosterBadgeCorner::BottomLeft, false},
+    {"aspect_ratio", "aspectRatio", Bloom::PosterBadgeCorner::BottomRight, false},
+    {"release_type", "releaseType", Bloom::PosterBadgeCorner::BottomLeft, true},
+    {"edition", "edition", Bloom::PosterBadgeCorner::BottomLeft, false},
+    {"multi_audio", "multiAudio", Bloom::PosterBadgeCorner::BottomRight, false},
+    {"multi_sub", "multiSub", Bloom::PosterBadgeCorner::BottomRight, false},
+    {"rating_imdb", "ratingImdb", Bloom::PosterBadgeCorner::TopRight, false},
+    {"rating_tmdb", "ratingTmdb", Bloom::PosterBadgeCorner::TopRight, false},
+    {"rating_rt", "ratingRtCritic", Bloom::PosterBadgeCorner::TopRight, false},
+    {"rating_rt_audience", "ratingRtAudience", Bloom::PosterBadgeCorner::TopRight, false},
+    {"content_rating", "contentRating", Bloom::PosterBadgeCorner::BottomRight, false},
+    {"advisory_age", "advisoryAge", Bloom::PosterBadgeCorner::BottomRight, false},
+    {"year", "year", Bloom::PosterBadgeCorner::BottomLeft, false},
+    {"runtime", "runtime", Bloom::PosterBadgeCorner::BottomLeft, false},
+    {"original_language", "originalLanguage", Bloom::PosterBadgeCorner::BottomLeft, false},
+    {"studio", "studio", Bloom::PosterBadgeCorner::BottomRight, false},
+    {"network", "network", Bloom::PosterBadgeCorner::BottomRight, false},
+    {"show_status", "showStatus", Bloom::PosterBadgeCorner::TopRight, false},
+    // Watchlist titles outside the library carry request status; library
+    // cards never do.
+    {"request_status", nullptr, Bloom::PosterBadgeCorner::TopLeft, true},
+    // Accepted by the settings schema, but no API field backs them yet.
+    {"imdb_top_250", nullptr, Bloom::PosterBadgeCorner::TopRight, false},
+    {"rt_certified_fresh", nullptr, Bloom::PosterBadgeCorner::TopRight, false},
+};
+
+std::optional<Bloom::PosterBadgeCorner> siloOverlayCorner(const QJsonValue &value)
+{
+    const QString position = value.toString();
+    if (position == QStringLiteral("top-left")) return Bloom::PosterBadgeCorner::TopLeft;
+    if (position == QStringLiteral("top-right")) return Bloom::PosterBadgeCorner::TopRight;
+    if (position == QStringLiteral("bottom-left")) return Bloom::PosterBadgeCorner::BottomLeft;
+    if (position == QStringLiteral("bottom-right")) return Bloom::PosterBadgeCorner::BottomRight;
+    return std::nullopt;
+}
+
+// Presets that prefer icon-prefixed badges unless an overlay says otherwise.
+bool siloPresetPrefersIcon(const QString &preset)
+{
+    return preset == QStringLiteral("vibrant") || preset == QStringLiteral("pill");
+}
+
+QJsonValue effectiveSettingValue(const QJsonObject &wireEffectiveSettings, const QString &key)
+{
+    for (const QJsonValue &entry : wireEffectiveSettings.value(QStringLiteral("items")).toArray()) {
+        const QJsonObject setting = entry.toObject();
+        if (setting.value(QStringLiteral("key")).toString() == key) {
+            return setting.value(QStringLiteral("value"));
+        }
+    }
+    return QJsonValue::Null;
+}
+
+// The stored document may be an object or the legacy JSON-string encoding.
+QJsonObject overlayPreferencesDocument(const QJsonValue &value)
+{
+    if (value.isObject()) {
+        return value.toObject();
+    }
+    if (value.isString() && !value.toString().isEmpty()) {
+        const QJsonDocument document = QJsonDocument::fromJson(value.toString().toUtf8());
+        if (document.isObject()) {
+            return document.object();
+        }
+    }
+    return {};
+}
+
+} // namespace
+
+Bloom::PosterBadgeLayout SiloModelMapper::posterBadgeLayout(const QJsonObject &wireEffectiveSettings,
+                                                            const QJsonObject &wireOverlayConfig)
+{
+    Bloom::PosterBadgeLayout layout;
+    // An explicit profile choice wins; otherwise the server-wide default,
+    // which is on when the server sends none.
+    const QJsonValue enabledValue =
+        effectiveSettingValue(wireEffectiveSettings, QStringLiteral("ui.card_overlays_enabled"));
+    layout.enabled = enabledValue.isBool()
+        ? enabledValue.toBool()
+        : wireOverlayConfig.value(QStringLiteral("enabled")).toBool(true);
+
+    // A null profile value means "no preference", which lets the
+    // administrator's defaults document apply.
+    QJsonValue stored =
+        effectiveSettingValue(wireEffectiveSettings, QStringLiteral("ui.card_overlays"));
+    if (stored.isNull() || stored.isUndefined()) {
+        stored = wireOverlayConfig.value(QStringLiteral("defaults"));
+    }
+    const QJsonObject document = overlayPreferencesDocument(stored);
+
+    // Version 2 documents nest items under "items"; version 1 documents are
+    // a flat map of overlay id to {enabled, position} with the classic preset.
+    const bool versionTwo = document.value(QStringLiteral("version")).toInt() == 2
+        || (document.value(QStringLiteral("preset")).isString()
+            && document.value(QStringLiteral("items")).isObject());
+    const QJsonObject items = versionTwo
+        ? document.value(QStringLiteral("items")).toObject() : document;
+    const QString preset = versionTwo
+        ? document.value(QStringLiteral("preset")).toString() : QString();
+    const bool presetPrefersIcon = siloPresetPrefersIcon(preset);
+
+    struct Entry {
+        Bloom::PosterBadgeSlot slot;
+        QString wireId;
+        int registryIndex = 0;
+    };
+    QList<Entry> enabled;
+    bool combinedResolutionHdr = false;
+    int registryIndex = 0;
+    for (const SiloOverlayDefinition &definition : kSiloOverlays) {
+        const int index = registryIndex++;
+        const QString wireId = QString::fromLatin1(definition.wireId);
+        const QJsonObject patch = items.value(wireId).toObject();
+        const bool on = patch.value(QStringLiteral("enabled")).isBool()
+            ? patch.value(QStringLiteral("enabled")).toBool()
+            : definition.defaultEnabled;
+        if (!on || !definition.kind) {
+            continue;
+        }
+        if (wireId == QStringLiteral("resolution_hdr")) {
+            combinedResolutionHdr = true;
+        }
+        Entry entry;
+        entry.wireId = wireId;
+        entry.registryIndex = index;
+        entry.slot.kind = QString::fromLatin1(definition.kind);
+        entry.slot.corner = siloOverlayCorner(patch.value(QStringLiteral("position")))
+                                .value_or(definition.defaultCorner);
+        entry.slot.showIcon = patch.value(QStringLiteral("showIcon")).isBool()
+            ? patch.value(QStringLiteral("showIcon")).toBool()
+            : presetPrefersIcon;
+        enabled.append(entry);
+    }
+
+    // The combined badge already shows resolution and dynamic range.
+    if (combinedResolutionHdr) {
+        enabled.removeIf([](const Entry &entry) {
+            return entry.wireId == QStringLiteral("resolution")
+                || entry.wireId == QStringLiteral("hdr");
+        });
+    }
+
+    // An explicit order ranks the ids it names; the rest keep registry order
+    // after them.
+    QHash<QString, int> rank;
+    if (versionTwo) {
+        const QJsonArray order = document.value(QStringLiteral("order")).toArray();
+        for (qsizetype index = 0; index < order.size(); ++index) {
+            const QString wireId = order.at(index).toString();
+            if (!rank.contains(wireId)) {
+                rank.insert(wireId, int(index));
+            }
+        }
+    }
+    std::stable_sort(enabled.begin(), enabled.end(), [&rank](const Entry &left, const Entry &right) {
+        const int leftRank = rank.value(left.wireId, std::numeric_limits<int>::max());
+        const int rightRank = rank.value(right.wireId, std::numeric_limits<int>::max());
+        if (leftRank != rightRank) {
+            return leftRank < rightRank;
+        }
+        return left.registryIndex < right.registryIndex;
+    });
+
+    for (const Entry &entry : std::as_const(enabled)) {
+        layout.badges.append(entry.slot);
+    }
+    return layout;
 }

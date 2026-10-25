@@ -181,6 +181,12 @@ public:
         return SiloModelMapper::mediaSegments(itemId, wireSegments);
     }
 
+    std::optional<Bloom::PosterBadgeLayout> mapPosterBadgeLayout(
+        const QJsonObject &wireSettings, const QJsonObject &wireDefaults) const override
+    {
+        return SiloModelMapper::posterBadgeLayout(wireSettings, wireDefaults);
+    }
+
 private:
     static ProviderCapabilities implementedCapabilities()
     {

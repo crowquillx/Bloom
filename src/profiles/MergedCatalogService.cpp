@@ -310,20 +310,7 @@ void MergedCatalogService::search(const QString &searchTerm, int limit)
 
 void MergedCatalogService::loadSourceLibraries(const QString &connectionId)
 {
-    std::optional<Member> target;
-    for (const Member &member : std::as_const(m_members)) {
-        if (member.connectionId == connectionId) {
-            target = member;
-        }
-    }
-    if (!target.has_value() && m_authService && m_configManager
-        && m_authService->hasSessionForConnection(connectionId)) {
-        // A single space reads through LibraryService and has no members
-        // here; its live connection still has a session to list with.
-        if (const auto connection = m_configManager->getConnection(connectionId)) {
-            target = Member{{}, connectionId, BloomProfile::connectionLabel(*connection), 0, {}, {}};
-        }
-    }
+    const std::optional<Member> target = readableMember(connectionId);
     if (!target.has_value()) {
         const auto connection = m_configManager
             ? m_configManager->getConnection(connectionId) : std::nullopt;
@@ -437,13 +424,83 @@ void MergedCatalogService::requestMember(const Member &member,
                                          bool renewalAttempted,
                                          SourceCompletion completion)
 {
+    sendMemberRequest(member, operation, std::move(query), renewalAttempted, true,
+                      [this, member, completion](const ProviderCatalogResponse *response,
+                                                 IProviderAdapter *adapter,
+                                                 const QString &error) {
+        if (!response) {
+            completion(failedResult(member, error));
+            return;
+        }
+        MergedSourceResult result;
+        result.memberId = member.memberId;
+        result.connectionId = member.connectionId;
+        result.label = member.label;
+        result.priority = member.priority;
+        result.succeeded = true;
+        result.items = adapter->mapMediaItems(response->rawItems, member.connectionId);
+        completion(result);
+    });
+}
+
+void MergedCatalogService::readConnection(const QString &connectionId,
+                                          ProviderCatalogOperation operation,
+                                          const ProviderCatalogQuery &query,
+                                          ConnectionReadCompletion completion)
+{
+    const std::optional<Member> target = readableMember(connectionId);
+    if (!target.has_value()) {
+        completion(std::nullopt);
+        return;
+    }
+    sendMemberRequest(*target, operation, query, false, false,
+                      [completion](const ProviderCatalogResponse *response,
+                                   IProviderAdapter *, const QString &) {
+        completion(response ? std::optional<ProviderCatalogResponse>(*response) : std::nullopt);
+    });
+}
+
+std::optional<MergedCatalogService::Member>
+MergedCatalogService::readableMember(const QString &connectionId) const
+{
+    for (const Member &member : std::as_const(m_members)) {
+        if (member.connectionId == connectionId) {
+            return member;
+        }
+    }
+    if (m_authService && m_configManager
+        && m_authService->hasSessionForConnection(connectionId)) {
+        // A single space reads through LibraryService and has no members
+        // here; its live connection still has a session to read with.
+        if (const auto connection = m_configManager->getConnection(connectionId)) {
+            return Member{{}, connectionId, BloomProfile::connectionLabel(*connection), 0, {}, {}};
+        }
+    }
+    return std::nullopt;
+}
+
+void MergedCatalogService::sendMemberRequest(const Member &member,
+                                             ProviderCatalogOperation operation,
+                                             ProviderCatalogQuery query,
+                                             bool renewalAttempted,
+                                             bool trackSource,
+                                             RawCompletion completion)
+{
     const quint64 epoch = m_epoch;
+    // Only catalog reads report per-source state; auxiliary reads such as
+    // settings never mark a source loading, failed or ready.
+    const auto setState = [this, trackSource](const QString &connectionId, const char *state,
+                                              const QString &error = QString()) {
+        if (trackSource) {
+            setSourceState(connectionId, QString::fromLatin1(state), error);
+        }
+    };
     if (m_sourceStates.value(member.connectionId).state.isEmpty()) {
-        setSourceState(member.connectionId, QString::fromLatin1(kStateLoading));
+        setState(member.connectionId, kStateLoading);
     }
     whenSessionReady(member.connectionId,
-                     [this, member, operation, query, renewalAttempted,
-                      completion, epoch]() mutable {
+                     [this, member, operation, query, renewalAttempted, trackSource,
+                      setState, completion, epoch]() mutable {
         if (epoch != m_epoch) {
             return;
         }
@@ -455,8 +512,8 @@ void MergedCatalogService::requestMember(const Member &member,
         if (!connection.has_value() || !catalog || !m_transport
             || !m_authService->hasSessionForConnection(member.connectionId)) {
             const QString error = tr("Sign in to %1 again to include it.").arg(member.label);
-            setSourceState(member.connectionId, QString::fromLatin1(kStateSignInRequired), error);
-            completion(failedResult(member, error));
+            setState(member.connectionId, kStateSignInRequired, error);
+            completion(nullptr, nullptr, error);
             return;
         }
 
@@ -466,7 +523,7 @@ void MergedCatalogService::requestMember(const Member &member,
             const QString error = request.unsupportedReason.isEmpty()
                 ? tr("%1 does not support this view.").arg(member.label)
                 : request.unsupportedReason;
-            completion(failedResult(member, error));
+            completion(nullptr, nullptr, error);
             return;
         }
 
@@ -508,7 +565,7 @@ void MergedCatalogService::requestMember(const Member &member,
                 }
                 return nullptr;
             },
-            [this, member, operation, adapter, catalog, completion, epoch](
+            [this, member, operation, adapter, catalog, setState, completion, epoch](
                 QNetworkReply *reply) {
                 if (epoch != m_epoch) {
                     return;
@@ -517,7 +574,7 @@ void MergedCatalogService::requestMember(const Member &member,
                 const auto headers = replyHeaders(reply);
                 auto *watcher = new QFutureWatcher<ProviderCatalogResponse>(this);
                 connect(watcher, &QFutureWatcher<ProviderCatalogResponse>::finished, this,
-                        [this, watcher, member, adapter, completion, epoch]() {
+                        [this, watcher, member, adapter, setState, completion, epoch]() {
                     const ProviderCatalogResponse response = watcher->result();
                     watcher->deleteLater();
                     if (epoch != m_epoch) {
@@ -527,28 +584,19 @@ void MergedCatalogService::requestMember(const Member &member,
                         const QString error = response.error.isEmpty()
                             ? tr("%1 returned an invalid response.").arg(member.label)
                             : response.error;
-                        setSourceState(member.connectionId,
-                                       QString::fromLatin1(kStateFailed), error);
-                        completion(failedResult(member, error));
+                        setState(member.connectionId, kStateFailed, error);
+                        completion(nullptr, nullptr, error);
                         return;
                     }
-                    MergedSourceResult result;
-                    result.memberId = member.memberId;
-                    result.connectionId = member.connectionId;
-                    result.label = member.label;
-                    result.priority = member.priority;
-                    result.succeeded = true;
-                    result.items = adapter->mapMediaItems(response.rawItems,
-                                                          member.connectionId);
-                    setSourceState(member.connectionId, QString::fromLatin1(kStateReady));
-                    completion(result);
+                    setState(member.connectionId, kStateReady);
+                    completion(&response, adapter, QString());
                 });
                 watcher->setFuture(QtConcurrent::run([catalog, operation, body, headers]() {
                     return catalog->parseResponse(operation, body, headers);
                 }));
             },
-            [this, member, operation, query, renewalAttempted, completion, epoch](
-                const NetworkError &error) {
+            [this, member, operation, query, renewalAttempted, trackSource, setState,
+             completion, epoch](const NetworkError &error) {
                 if (epoch != m_epoch) {
                     return;
                 }
@@ -558,13 +606,14 @@ void MergedCatalogService::requestMember(const Member &member,
                     // other request that hit the same expiry, and retry once.
                     m_authService->renewConnection(
                         member.connectionId,
-                        [this, member, operation, query, completion, epoch](
-                            TokenRenewal outcome) {
+                        [this, member, operation, query, trackSource, setState, completion,
+                         epoch](TokenRenewal outcome) {
                         if (epoch != m_epoch) {
                             return;
                         }
                         if (outcome == TokenRenewal::Renewed) {
-                            requestMember(member, operation, query, true, completion);
+                            sendMemberRequest(member, operation, query, true, trackSource,
+                                              completion);
                             return;
                         }
                         // Only a refused refresh token needs a sign-in; the
@@ -573,11 +622,9 @@ void MergedCatalogService::requestMember(const Member &member,
                         const QString message = rejected
                             ? tr("Sign in to %1 again to include it.").arg(member.label)
                             : tr("%1 is unavailable.").arg(member.label);
-                        setSourceState(member.connectionId,
-                                       QString::fromLatin1(rejected ? kStateSignInRequired
-                                                                    : kStateFailed),
-                                       message);
-                        completion(failedResult(member, message));
+                        setState(member.connectionId,
+                                 rejected ? kStateSignInRequired : kStateFailed, message);
+                        completion(nullptr, nullptr, message);
                     });
                     return;
                 }
@@ -588,13 +635,11 @@ void MergedCatalogService::requestMember(const Member &member,
                     : (error.userMessage.isEmpty()
                            ? tr("%1 is unavailable.").arg(member.label)
                            : error.userMessage);
-                setSourceState(member.connectionId,
-                               QString::fromLatin1(rejected ? kStateSignInRequired
-                                                            : kStateFailed),
-                               message);
+                setState(member.connectionId,
+                         rejected ? kStateSignInRequired : kStateFailed, message);
                 qCWarning(lcLibrary) << "Merged read failed for one source:"
                                      << error.endpoint << error.httpStatus;
-                completion(failedResult(member, message));
+                completion(nullptr, nullptr, message);
             },
             options);
         m_requests.removeIf([](const QPointer<HttpRequestHandle> &candidate) {

@@ -20,6 +20,7 @@ target_include_directories(BloomMonocypher
 
 add_library(BloomModels STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/models/MediaModels.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/models/PosterBadges.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/Types.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/BloomLogging.cpp
 )
@@ -336,6 +337,8 @@ target_link_libraries(BloomProfiles
 add_library(BloomWorkspace STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/profiles/MergedCatalogService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/profiles/MergedCatalogService.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/profiles/PosterBadgeService.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/profiles/PosterBadgeService.h
     ${CMAKE_CURRENT_SOURCE_DIR}/profiles/WorkspaceController.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/profiles/WorkspaceController.h
 )

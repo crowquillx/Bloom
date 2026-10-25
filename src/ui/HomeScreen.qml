@@ -129,6 +129,8 @@ FocusScope {
     /// Call this after playback ends to update watch progress indicators
     function refreshDynamicContent() {
         console.log("HomeScreen: Refreshing dynamic content")
+        // Badge choices made in the Silo web app apply on the next refresh.
+        PosterBadges.refresh()
         if (mergedMode) {
             MergedCatalog.getNextUp()
             for (var j = 0; j < librariesModel.length; j++) {
@@ -1354,6 +1356,13 @@ FocusScope {
                                             layer.smooth: true
                                         }
 
+                                        PosterBadgeOverlay {
+                                            anchors.fill: parent
+                                            item: modelData
+                                            topRightReserved: recentSeriesBadge.visible || recentMovieBadge.visible
+                                                              ? recentSeriesBadge.height : 0
+                                        }
+
                                         FocusRing {
                                             active: isFocused
                                             radius: Theme.imageRadius
@@ -1361,6 +1370,7 @@ FocusScope {
 
                                         // Unwatched episode count badge (for Series only, not individual Episodes)
                                         UnwatchedBadge {
+                                            id: recentSeriesBadge
                                             anchors.top: parent.top
                                             anchors.right: parent.right
                                             parentWidth: parent.width
@@ -1368,17 +1378,18 @@ FocusScope {
                                                    ? (modelData.unplayedItemCount || 0) : 0
                                             isFullyWatched: (modelData.mediaType === "Series")
                                                             ? (modelData.watched || false) : false
-                                            visible: modelData.mediaType === "Series"
+                                            applicable: modelData.mediaType === "Series"
                                         }
 
                                         // Watched checkmark (for Movies only)
                                         UnwatchedBadge {
+                                            id: recentMovieBadge
                                             anchors.top: parent.top
                                             anchors.right: parent.right
                                             parentWidth: parent.width
                                             count: 0
                                             isFullyWatched: modelData.watched || false
-                                            visible: modelData.mediaType === "Movie" &&
+                                            applicable: modelData.mediaType === "Movie" &&
                                                      modelData.watched
                                         }
                                     }

@@ -197,6 +197,7 @@ qt_add_qml_module(Bloom
         ui/SearchResultCard.qml
         ui/SourceBadge.qml
         ui/SourceRouter.qml
+        ui/PosterBadgeOverlay.qml
         ui/UnwatchedBadge.qml
         ui/RetryButton.qml
         ui/Theme.qml

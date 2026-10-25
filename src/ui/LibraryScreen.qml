@@ -1896,8 +1896,16 @@ FocusScope {
                                 radius: Theme.imageRadius
                             }
 
+                            PosterBadgeOverlay {
+                                anchors.fill: parent
+                                item: delegateItem.modelData
+                                topRightReserved: librarySeriesBadge.visible || libraryMovieBadge.visible
+                                                  ? librarySeriesBadge.height : 0
+                            }
+
                             // Unwatched episode count badge (for Series only)
                             UnwatchedBadge {
+                                id: librarySeriesBadge
                                 anchors.top: parent.top
                                 anchors.right: parent.right
                                 parentWidth: parent.width
@@ -1905,17 +1913,18 @@ FocusScope {
                                        ? (delegateItem.modelData.unplayedItemCount || 0) : 0
                                 isFullyWatched: delegateItem.modelData.mediaType === "Series"
                                                 && (delegateItem.modelData.watched || false)
-                                visible: delegateItem.modelData.mediaType === "Series"
+                                applicable: delegateItem.modelData.mediaType === "Series"
                             }
 
                             // Watched checkmark (for Movies only)
                             UnwatchedBadge {
+                                id: libraryMovieBadge
                                 anchors.top: parent.top
                                 anchors.right: parent.right
                                 parentWidth: parent.width
                                 count: 0
                                 isFullyWatched: delegateItem.modelData.watched || false
-                                visible: delegateItem.modelData.mediaType === "Movie"
+                                applicable: delegateItem.modelData.mediaType === "Movie"
                                          && (delegateItem.modelData.watched || false)
                             }
                         }

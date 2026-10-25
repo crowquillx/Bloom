@@ -1359,6 +1359,10 @@ file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/diffs")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/captures")
 endif()
 
+add_executable(PosterBadgesTest PosterBadgesTest.cpp)
+target_link_libraries(PosterBadgesTest PRIVATE Bloom::Providers Qt6::Test)
+add_test(NAME PosterBadgesTest COMMAND PosterBadgesTest)
+
 add_executable(AudioPolicyTest AudioPolicyTest.cpp)
 target_link_libraries(AudioPolicyTest PRIVATE Bloom::PlayerPolicy Qt6::Test)
 add_test(NAME AudioPolicyTest COMMAND AudioPolicyTest)

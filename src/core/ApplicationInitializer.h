@@ -7,6 +7,7 @@ class QGuiApplication;
 class ConfigManager;
 class BloomProfileRepository;
 class MergedCatalogService;
+class PosterBadgeService;
 class WorkspaceController;
 class DisplayManager;
 class ResponsiveLayoutManager;
@@ -125,6 +126,8 @@ private:
     std::unique_ptr<ThemeSongManager> m_themeSongManager;
     std::unique_ptr<MergedCatalogService> m_mergedCatalogService;
     std::unique_ptr<WorkspaceController> m_workspaceController;
+    // Reads through m_mergedCatalogService, so it is destroyed first.
+    std::unique_ptr<PosterBadgeService> m_posterBadgeService;
     std::unique_ptr<InputModeManager> m_inputModeManager;
     std::unique_ptr<InputBindingManager> m_inputBindingManager;
     std::unique_ptr<LibraryViewModel> m_libraryViewModel;

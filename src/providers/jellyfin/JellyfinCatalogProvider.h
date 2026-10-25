@@ -63,6 +63,9 @@ public:
         case ProviderCatalogOperation::ThemeSongsCapability:
         case ProviderCatalogOperation::ThemeSongPlayback:
             return unsupported(QStringLiteral("Jellyfin theme songs do not use grants"));
+        case ProviderCatalogOperation::PosterBadgeSettings:
+        case ProviderCatalogOperation::PosterBadgeDefaults:
+            return unsupported(QStringLiteral("Jellyfin has no server-side poster badge preferences"));
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -850,6 +853,8 @@ private:
         case ProviderCatalogOperation::ThemeSongs: return QStringLiteral("theme songs");
         case ProviderCatalogOperation::ThemeSongsCapability: return QStringLiteral("theme capability");
         case ProviderCatalogOperation::ThemeSongPlayback: return QStringLiteral("theme playback");
+        case ProviderCatalogOperation::PosterBadgeSettings: return QStringLiteral("poster badge settings");
+        case ProviderCatalogOperation::PosterBadgeDefaults: return QStringLiteral("poster badge defaults");
         }
         return QStringLiteral("catalog");
     }

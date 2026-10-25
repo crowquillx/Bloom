@@ -46,6 +46,13 @@ public:
             return getWithContentId(QStringLiteral("/api/v2/catalog/items/%1"), query.itemId);
         case ProviderCatalogOperation::ThemeSongsCapability:
             return get(QStringLiteral("/api/v2/catalog/themes/capabilities"));
+        case ProviderCatalogOperation::PosterBadgeSettings:
+            // Profile scoped: the request factory adds the selected profile.
+            return get(QStringLiteral(
+                "/api/v2/settings/values/effective"
+                "?keys=ui.card_overlays&keys=ui.card_overlays_enabled"));
+        case ProviderCatalogOperation::PosterBadgeDefaults:
+            return get(QStringLiteral("/api/v2/settings/overlay-config"));
         case ProviderCatalogOperation::ThemeSongPlayback:
         {
             if (query.themeId.isEmpty())
@@ -142,6 +149,19 @@ public:
         const QByteArray &body,
         const QHash<QByteArray, QByteArray> &responseHeaders) const override
     {
+        if (operation == ProviderCatalogOperation::PosterBadgeSettings
+            || operation == ProviderCatalogOperation::PosterBadgeDefaults) {
+            ProviderCatalogResponse response;
+            const QJsonDocument document = QJsonDocument::fromJson(body);
+            response.rawItem = document.object();
+            response.valid = document.isObject()
+                && (operation == ProviderCatalogOperation::PosterBadgeDefaults
+                    || response.rawItem.value(QStringLiteral("items")).isArray());
+            if (!response.valid) {
+                response.error = QStringLiteral("Invalid Silo poster badge settings response");
+            }
+            return response;
+        }
         if (operation == ProviderCatalogOperation::ThemeSongs
             || operation == ProviderCatalogOperation::ThemeSongsCapability
             || operation == ProviderCatalogOperation::ThemeSongPlayback)

@@ -132,4 +132,13 @@ QtObject {
     readonly property string viewGrid: "\ue8f0"
     readonly property string viewModule: "\ue8f1"
     readonly property string dashboard: "\ue871"
+
+    // Poster badges
+    readonly property string monitor: "\ue30c"
+    readonly property string hdrOn: "\ue3ee"
+    readonly property string surroundSound: "\ue049"
+    readonly property string aspectRatio: "\ue85b"
+    readonly property string translate: "\ue8e2"
+    readonly property string shield: "\ue9e0"
+    readonly property string business: "\ue0af"
 }

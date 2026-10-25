@@ -140,6 +140,7 @@ move/clip across show/hide, resize, minimize/restore, maximize, and fullscreen.
 - Accessibility roles and names → `CONTRIBUTING.md`
 - Home hero → `docs/hero-banner.md`; screensaver → `docs/screensaver.md`
 - Rounded images and the `ImageCacheProvider` path → `docs/images.md`
+- Silo poster badges (card overlays) → `docs/poster-badges.md`
 - Intro/recap/credits segments → `docs/media-segments.md`
 - Seerr requests → `docs/seerr.md`
 - Updater, manifests, key rotation → `docs/updates.md`

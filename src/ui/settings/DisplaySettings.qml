@@ -454,6 +454,26 @@ FocusScope {
                     onSliderValueChanged: function(newValue) { ConfigManager.backdropRotationInterval = newValue * 1000 }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
                     KeyNavigation.up: fullscreenToggle
+                    KeyNavigation.down: posterBadgesToggle.visible ? posterBadgesToggle : dpiScaleSlider
+                }
+
+                // --- Silo Poster Badges (only with a Silo connection) ---
+                SettingsGroupDivider {
+                    Layout.fillWidth: true
+                    visible: posterBadgesToggle.visible
+                }
+
+                SettingsToggleRow {
+                    id: posterBadgesToggle
+                    visible: PosterBadges.hasBadgeConnections
+                    label: qsTr("Silo Poster Badges")
+                    description: qsTr("Show the badges your Silo profile picks for posters, such as resolution, HDR and audio. Choose badges and corners in Silo's web app.")
+                    checked: ConfigManager.serverPosterBadgesEnabled
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onToggled: function(value) { ConfigManager.serverPosterBadgesEnabled = value }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.up: backdropSlider
                     KeyNavigation.down: dpiScaleSlider
                 }
 
@@ -480,7 +500,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onSliderValueChanged: function(newValue) { ConfigManager.manualDpiScaleOverride = newValue }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
-                    KeyNavigation.up: backdropSlider
+                    KeyNavigation.up: posterBadgesToggle.visible ? posterBadgesToggle : backdropSlider
                 }
             }
         }

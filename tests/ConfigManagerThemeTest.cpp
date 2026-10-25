@@ -46,6 +46,7 @@ private slots:
     void startupBufferingModesDefaultNormalizeAndPersist();
     void playbackVersionPreferenceDefaultsNormalizesAndPersists();
     void seekPreviewSettingsDefaultOnAndPersist();
+    void serverPosterBadgesDefaultOnAndPersist();
     void bundledMpvShadersAreCopied();
     void bundledMpvFontsAreCopied();
     void importMpvConfigCreatesProfile();
@@ -1229,6 +1230,26 @@ void ConfigManagerThemeTest::seekPreviewSettingsDefaultOnAndPersist()
     reloaded.load();
     QVERIFY(!reloaded.getServerTrickplayEnabled());
     QVERIFY(!reloaded.getLocalSeekPreviewsEnabled());
+}
+
+void ConfigManagerThemeTest::serverPosterBadgesDefaultOnAndPersist()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    QVERIFY(config.getServerPosterBadgesEnabled());
+
+    QSignalSpy spy(&config, &ConfigManager::serverPosterBadgesEnabledChanged);
+    config.setServerPosterBadgesEnabled(false);
+    config.setServerPosterBadgesEnabled(false);
+    QCOMPARE(spy.count(), 1);
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QVERIFY(!reloaded.getServerPosterBadgesEnabled());
 }
 
 void ConfigManagerThemeTest::bundledMpvShadersAreCopied()

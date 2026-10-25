@@ -24,6 +24,7 @@
 #include "network/LibraryService.h"
 #include "profiles/BloomProfileRepository.h"
 #include "profiles/MergedCatalogService.h"
+#include "profiles/PosterBadgeService.h"
 #include "profiles/WorkspaceController.h"
 #include "providers/ActiveArtworkProvider.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
@@ -163,6 +164,11 @@ public:
     // Holds refresh replies until a test delivers them.
     bool holdRefresh = false;
     QList<QPointer<FakeReply>> heldRefreshes;
+    // Silo poster badge preferences: effective settings and overlay config.
+    QByteArray overlaySettings = QByteArrayLiteral(R"({"revision":15,"items":[]})");
+    int overlaySettingsStatus = 200;
+    QByteArray overlayConfig = QByteArrayLiteral(
+        R"({"enabled":true,"quick_actions_enabled":false,"quick_actions_default":"both"})");
 
 protected:
     QNetworkReply *createRequest(Operation, const QNetworkRequest &request,
@@ -275,6 +281,13 @@ protected:
                                      .toJson(QJsonDocument::Compact),
                                  this);
         }
+        if (url.path() == QStringLiteral("/api/v2/settings/values/effective")) {
+            return new FakeReply(request, overlaySettingsStatus,
+                                 overlaySettingsStatus == 200 ? overlaySettings : QByteArray(), this);
+        }
+        if (url.path() == QStringLiteral("/api/v2/settings/overlay-config")) {
+            return new FakeReply(request, 200, overlayConfig, this);
+        }
         return new FakeReply(request, 404, {}, this);
     }
 };
@@ -365,6 +378,8 @@ private slots:
     void activationAdoptsRenewalAlreadyInFlight();
     void renewalFinishingAfterRemovalDoesNotReviveCredentials();
     void replacedSearchDoesNotPublishResults();
+    void posterBadgesFollowEachSiloMembersPreferences();
+    void failedPosterBadgeReadLeavesSourceAlone();
 
 private:
     void seedAccounts();
@@ -1241,6 +1256,91 @@ void WorkspaceRoutingTest::replacedSearchDoesNotPublishResults()
     QTest::qWait(50);
     QCOMPARE(results.count(), 1);
     QCOMPARE(itemIds(results.first().at(2).toList()), QStringList({QStringLiteral("m-alice")}));
+}
+
+void WorkspaceRoutingTest::posterBadgesFollowEachSiloMembersPreferences()
+{
+    m_servers->overlaySettings = QJsonDocument(QJsonObject{
+        {QStringLiteral("revision"), 15},
+        {QStringLiteral("items"), QJsonArray{QJsonObject{
+             {QStringLiteral("key"), QStringLiteral("ui.card_overlays")},
+             {QStringLiteral("value"), QJsonObject{
+                  {QStringLiteral("version"), 2},
+                  {QStringLiteral("preset"), QStringLiteral("classic")},
+                  {QStringLiteral("order"), QJsonArray{}},
+                  {QStringLiteral("items"), QJsonObject{
+                       {QStringLiteral("rating_imdb"),
+                        QJsonObject{{QStringLiteral("enabled"), true},
+                                    {QStringLiteral("position"), QStringLiteral("top-right")}}}}}}}}}}})
+                                     .toJson(QJsonDocument::Compact);
+    QVERIFY(!createSiloMergedWorkspace().isEmpty());
+    const QString sourceBefore = sourceState(QStringLiteral("erin"));
+    m_servers->requests.clear();
+
+    PosterBadgeService badges(m_auth.get(), m_repository.get(), m_config.get(), m_merged.get());
+    QVERIFY(badges.hasBadgeConnections());
+    QTRY_VERIFY(badges.layoutFor(QStringLiteral("erin")).enabled);
+
+    // Only the Silo member is asked, with its own server and token.
+    int settingsReads = 0;
+    for (const RecordedRequest &request : std::as_const(m_servers->requests)) {
+        if (request.path.startsWith(QStringLiteral("/api/v2/settings/"))) {
+            ++settingsReads;
+            QCOMPARE(request.host, QStringLiteral("silo.test"));
+            QCOMPARE(request.token, QStringLiteral("erin-a1"));
+        }
+    }
+    QCOMPARE(settingsReads, 2);
+    QVERIFY(!badges.layoutFor(QStringLiteral("alice")).enabled);
+    // Preference reads never report on the source.
+    QCOMPARE(sourceState(QStringLiteral("erin")), sourceBefore);
+
+    QVariantMap item{
+        {QStringLiteral("connectionId"), QStringLiteral("erin")},
+        {QStringLiteral("mediaSummary"), QVariantMap{{QStringLiteral("resolution"), QStringLiteral("2160p")}}},
+        {QStringLiteral("ratings"), QVariantMap{{QStringLiteral("imdb"), 7.0}}},
+    };
+    QStringList texts;
+    for (const QVariant &badge : badges.badgesFor(item)) {
+        texts.append(badge.toMap().value(QStringLiteral("text")).toString());
+    }
+    QCOMPARE(texts, QStringList({QStringLiteral("4K"), QStringLiteral("IMDb 7.0")}));
+    // The same data on a Jellyfin member's item shows nothing.
+    QVariantMap jellyfinItem = item;
+    jellyfinItem[QStringLiteral("connectionId")] = QStringLiteral("alice");
+    QVERIFY(badges.badgesFor(jellyfinItem).isEmpty());
+
+    // The Bloom setting hides badges without forgetting the layout.
+    QSignalSpy changed(&badges, &PosterBadgeService::badgesChanged);
+    m_config->setServerPosterBadgesEnabled(false);
+    QCOMPARE(changed.count(), 1);
+    QVERIFY(badges.badgesFor(item).isEmpty());
+    m_config->setServerPosterBadgesEnabled(true);
+    QCOMPARE(badges.badgesFor(item).size(), 2);
+}
+
+void WorkspaceRoutingTest::failedPosterBadgeReadLeavesSourceAlone()
+{
+    m_servers->overlaySettingsStatus = 503;
+    QVERIFY(!createSiloMergedWorkspace().isEmpty());
+    QTRY_VERIFY(m_auth->hasSessionForConnection(QStringLiteral("erin")));
+    m_merged->refreshViews();
+    QTRY_COMPARE(sourceState(QStringLiteral("erin")), QStringLiteral("ready"));
+    m_servers->requests.clear();
+
+    PosterBadgeService badges(m_auth.get(), m_repository.get(), m_config.get(), m_merged.get());
+    const auto settingsReads = [this]() {
+        int count = 0;
+        for (const RecordedRequest &request : std::as_const(m_servers->requests)) {
+            count += request.path == QStringLiteral("/api/v2/settings/values/effective") ? 1 : 0;
+        }
+        return count;
+    };
+    // A safe read: the server error is retried once, then given up.
+    QTRY_COMPARE_WITH_TIMEOUT(settingsReads(), 2, 5000);
+    QTest::qWait(100);
+    QVERIFY(!badges.layoutFor(QStringLiteral("erin")).enabled);
+    QCOMPARE(sourceState(QStringLiteral("erin")), QStringLiteral("ready"));
 }
 
 QTEST_GUILESS_MAIN(WorkspaceRoutingTest)
