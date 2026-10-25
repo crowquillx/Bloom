@@ -1,6 +1,26 @@
 {
+  "build_id": "20261025154930-19b1ad5",
+  "channel": "dev",
+  "installer": {
+    "filename": "Bloom-Setup-dev.exe",
+    "sha256": "ea2e691f1cfa4f5725c46bee70a93bf5d8d3446d61e5e9452e04aeb7fe5d2401",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Setup-dev.exe"
+  },
   "key_id": "bloom-update-2026-08",
-  "payload": "eyJidWlsZF9pZCI6IjIwMjYxMDI1MTQ0OTU3LTIzNGZkNDYiLCJjaGFubmVsIjoiZGV2IiwiaW5zdGFsbGVyIjp7ImZpbGVuYW1lIjoiQmxvb20tU2V0dXAtZGV2LmV4ZSIsInNoYTI1NiI6ImZjZmJjOWQ3YTY1YmI1MWQwNDcyNGI5ZDMzOTlkNTYwYTUxZmJmNjIyYzZmN2JhMjRlZjU5MjdmZWM2YmFhOTkiLCJ1cmwiOiJodHRwczovL2dpdGh1Yi5jb20vY3Jvd3F1aWxseC9CbG9vbS9yZWxlYXNlcy9kb3dubG9hZC9kZXYtbGF0ZXN0L0Jsb29tLVNldHVwLWRldi5leGUifSwibm90ZXMiOiJMYXRlc3QgZGV2ZWxvcG1lbnQgYnVpbGQgZnJvbSB0aGUgYG1haW5gIGJyYW5jaC5cblxuLSBCdWlsZCBJRDogYDIwMjYxMDI1MTQ0OTU3LTIzNGZkNDZgXG4tIENvbW1pdDogYDIzNGZkNDY3MmYwZTkwM2Y3MTBmYjE5ODU0OTVkNDJiN2JmNGM5NTVgXG4tIEJhc2UgdmVyc2lvbjogYDAuOC4wYFxuLSBCdWlsdDogYDIwMjYtMTAtMjVUMTU6MDA6MDNaYFxuXG5MaW51eCBhbmQgRmxhdHBhayBhc3NldHMgYXJlIGF0dGFjaGVkIHdoZW4gdGhlaXIgYnVpbGRzIGZpbmlzaC4iLCJwb3J0YWJsZSI6eyJmaWxlbmFtZSI6IkJsb29tLVdpbmRvd3MuemlwIiwic2hhMjU2IjoiNzU5NzIxNDBkMTQ5YjI5OTY5MmRjM2EzZGJiZDZmMmFmZTRjMWNkNjBlOWJjN2IyZDFmOGExZDhhY2JlNmFkNCIsInVybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9jcm93cXVpbGx4L0Jsb29tL3JlbGVhc2VzL2Rvd25sb2FkL2Rldi1sYXRlc3QvQmxvb20tV2luZG93cy56aXAifSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0yNVQxNTowMDowM1oiLCJyZWxlYXNlX3RhZyI6ImRldi1sYXRlc3QiLCJyb2xsb3V0Ijp7ImVuYWJsZWQiOnRydWUsIm1pbmltdW1fc3VwcG9ydGVkX3ZlcnNpb24iOiIwLjguMCJ9LCJ2ZXJzaW9uIjoiMC44LjAifQ==",
+  "notes": "Latest development build from the `main` branch.\n\n- Build ID: `20261025154930-19b1ad5`\n- Commit: `19b1ad54f5377d11bbcfc7f882c74cc9241e4c80`\n- Base version: `0.8.0`\n- Built: `2026-10-25T16:00:00Z`\n\nLinux and Flatpak assets are attached when their builds finish.",
+  "payload": "eyJidWlsZF9pZCI6IjIwMjYxMDI1MTU0OTMwLTE5YjFhZDUiLCJjaGFubmVsIjoiZGV2IiwiaW5zdGFsbGVyIjp7ImZpbGVuYW1lIjoiQmxvb20tU2V0dXAtZGV2LmV4ZSIsInNoYTI1NiI6ImVhMmU2OTFmMWNmYTRmNTcyNWM0NmJlZTcwYTkzYmY1ZDhkMzQ0NmQ2MWU1ZTk0NTJlMDRhZWI3ZmU1ZDI0MDEiLCJ1cmwiOiJodHRwczovL2dpdGh1Yi5jb20vY3Jvd3F1aWxseC9CbG9vbS9yZWxlYXNlcy9kb3dubG9hZC9kZXYtbGF0ZXN0L0Jsb29tLVNldHVwLWRldi5leGUifSwibm90ZXMiOiJMYXRlc3QgZGV2ZWxvcG1lbnQgYnVpbGQgZnJvbSB0aGUgYG1haW5gIGJyYW5jaC5cblxuLSBCdWlsZCBJRDogYDIwMjYxMDI1MTU0OTMwLTE5YjFhZDVgXG4tIENvbW1pdDogYDE5YjFhZDU0ZjUzNzdkMTFiYmNmYzdmODgyYzc0Y2M5MjQxZTRjODBgXG4tIEJhc2UgdmVyc2lvbjogYDAuOC4wYFxuLSBCdWlsdDogYDIwMjYtMTAtMjVUMTY6MDA6MDBaYFxuXG5MaW51eCBhbmQgRmxhdHBhayBhc3NldHMgYXJlIGF0dGFjaGVkIHdoZW4gdGhlaXIgYnVpbGRzIGZpbmlzaC4iLCJwb3J0YWJsZSI6eyJmaWxlbmFtZSI6IkJsb29tLVdpbmRvd3MuemlwIiwic2hhMjU2IjoiZmQ3ZjkyM2Q1ZGQ0MTJhNjcxMjVkMGM5MTJiNWUyOWNmNWQwMTBjMjI3ZDhlZTI2MWE4YWE5Mjg1MTRkNWIwNyIsInVybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9jcm93cXVpbGx4L0Jsb29tL3JlbGVhc2VzL2Rvd25sb2FkL2Rldi1sYXRlc3QvQmxvb20tV2luZG93cy56aXAifSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0yNVQxNjowMDowMFoiLCJyZWxlYXNlX3RhZyI6ImRldi1sYXRlc3QiLCJyb2xsb3V0Ijp7ImVuYWJsZWQiOnRydWUsIm1pbmltdW1fc3VwcG9ydGVkX3ZlcnNpb24iOiIwLjguMCJ9LCJ2ZXJzaW9uIjoiMC44LjAifQ==",
+  "portable": {
+    "filename": "Bloom-Windows.zip",
+    "sha256": "fd7f923d5dd412a67125d0c912b5e29cf5d010c227d8ee261a8aa928514d5b07",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip"
+  },
+  "published_at": "2026-10-25T16:00:00Z",
+  "release_tag": "dev-latest",
+  "rollout": {
+    "enabled": true,
+    "minimum_supported_version": "0.8.0"
+  },
   "schema": 2,
-  "signature": "XdT+YZNuj83hS8iYSaGxwVApAe7PehRp+Bux2cdhimuEClqpoHs2wgYOOlQtHgM9adlBPd4IHyc/OaILLAEbDQ=="
+  "signature": "DIcAoMEYOy/xirTcx/fscMF7HevRALsjww1lPF0fG8LmOc9kOuYmfxVHp3KBMrgp1scYNezJw9mpNZDJkyAXDA==",
+  "version": "0.8.0"
 }
