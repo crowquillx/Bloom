@@ -83,6 +83,7 @@ stdenv.mkDerivation {
       ResponsiveLayoutPolicyTest \
       NavigationRailTest \
       ModalFocusGuardTest \
+      PosterBadgesTest \
       AudioPolicyTest \
       AudioOutputServiceTest \
       LocalSeekPreviewTest \
