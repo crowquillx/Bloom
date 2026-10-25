@@ -320,8 +320,8 @@ pull request that introduces them. The public `crowquillx-bloom` Cachix cache
 only substitutes store paths whose hashes match the locked derivations; it
 does not alter reproducibility.
 
-As of June 20, 2026, nixpkgs supplies Qt 6.11.0 while portable Linux and
-Windows builds use Qt 6.12.0 via aqtinstall. Windows CI pins aqtinstall to
+As of October 25, 2026, nixpkgs supplies Qt 6.12.0, matching the portable
+Linux and Windows builds, which install it via aqtinstall. Windows CI pins aqtinstall to
 a pre-release commit (miurahr/aqtinstall@bbfb1f7) because 3.3.0 cannot
 install Qt 6.11+ on Windows (repo layout changed); revert to
 `aqtinstall==3.3.*` once 3.3.1 ships.

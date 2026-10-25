@@ -9,11 +9,12 @@
 #     against libplacebo 7.360.1, but then silently compiles the FEL renderer
 #     path out, so the libplacebo pin matters as much as the mpv pin.
 #
-# nixpkgs ships none of these yet, so Bloom pins them here. The mpv and
-# libplacebo revisions match the Windows SDK recorded in
-# packaging/dependencies.json. Both the `mpv` executable used by
-# external-mpv-ipc and the libmpv linked by the embedded backend come from the
-# single `mpv` derivation below.
+# nixpkgs ships FFmpeg 9 but not these mpv and libplacebo revisions, so Bloom
+# pins those here; they match the Windows SDK recorded in
+# packaging/dependencies.json. nixpkgs' FFmpeg must match the
+# `linux_ffmpeg_version` pin shared with the portable and Flatpak builds. Both
+# the `mpv` executable used by external-mpv-ipc and the libmpv linked by the
+# embedded backend come from the single `mpv` derivation below.
 {
   lib,
   fetchFromGitHub,
@@ -26,27 +27,13 @@ let
   pins = (lib.importJSON ../packaging/dependencies.json).mpv;
   fel = (lib.importJSON ../packaging/dependencies.json).dolby_vision_fel;
 
+  # Use nixpkgs' FFmpeg unmodified so it substitutes from the binary cache.
+  # When nixpkgs moves past the pin, bump `linux_ffmpeg_version` (and the
+  # portable/Flatpak builds) together instead of overriding the source here.
   ffmpeg9 =
-    (ffmpeg.override {
-      version = pins.linux_ffmpeg_version;
-      # AMF is an AMD encoder SDK (unused by mpv); the locked headers predate
-      # what FFmpeg 9 requires.
-      withAmf = false;
-      source = fetchFromGitHub {
-        owner = "FFmpeg";
-        repo = "FFmpeg";
-        tag = "n${pins.linux_ffmpeg_version}";
-        hash = "sha256-/c6cVfMSF6JJxCuJs58bxBlmBXDJ+jbnC4pELB97Qb0=";
-      };
-    }).overrideAttrs
-      (old: {
-        # FFmpeg 9 removed the CELT and shaderc wrappers; the locked nixpkgs
-        # builder still emits their (disabled) configure switches.
-        configureFlags = lib.subtractLists [
-          "--disable-libcelt"
-          "--disable-libshaderc"
-        ] old.configureFlags;
-      });
+    assert lib.assertMsg (ffmpeg.version == pins.linux_ffmpeg_version)
+      "nixpkgs FFmpeg ${ffmpeg.version} does not match mpv.linux_ffmpeg_version ${pins.linux_ffmpeg_version}";
+    ffmpeg;
 
   libplaceboFel = libplacebo.overrideAttrs (_: {
     version = pins.libplacebo_version;

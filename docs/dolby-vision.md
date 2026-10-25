@@ -61,7 +61,10 @@ by the SDK archive hash, rather than by the upstream commit alone.
 Nix uses one mpv derivation for both the external executable and linked
 libmpv. The Bloom wrapper puts that package on `PATH`. Development shells,
 tests, and QML checks receive the same derivation. The flake does not update
-all of nixpkgs to obtain this stack. Qt Multimedia may load its own FFmpeg
+all of nixpkgs to obtain this stack. mpv and libplacebo are built from their
+pinned revisions; FFmpeg is nixpkgs' unmodified package, so it substitutes from
+the binary cache, and evaluation fails if its version differs from
+`mpv.linux_ffmpeg_version`. Qt Multimedia may load its own FFmpeg
 version; its versioned symbols and different sonames remain separate from
 libmpv's FFmpeg.
 
