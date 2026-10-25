@@ -78,6 +78,11 @@ FocusScope {
         ConfigManager.audioPassthroughCodecs = codecs
     }
 
+    readonly property var versionPreferenceOptions: [
+        { label: qsTr("Highest Quality"), value: "highest-quality" },
+        { label: qsTr("Smallest"), value: "smallest" },
+        { label: qsTr("Ask Every Time"), value: "ask" }
+    ]
     readonly property var globalStartupBufferingOptions: [
         { label: qsTr("Normal"), value: "normal" },
         { label: qsTr("Remote Mount"), value: "remote-mount" }
@@ -88,8 +93,8 @@ FocusScope {
         { label: qsTr("Remote Mount"), value: "remote-mount" }
     ]
 
-    component StartupBufferingComboRow: RowLayout {
-        id: startupRow
+    component ChoiceComboRow: RowLayout {
+        id: choiceRow
 
         property string label: ""
         property string description: ""
@@ -118,14 +123,14 @@ FocusScope {
             Layout.fillWidth: true
 
             Text {
-                text: startupRow.label
+                text: choiceRow.label
                 font.pixelSize: Theme.fontSizeBody
                 font.family: Theme.fontPrimary
                 color: Theme.textPrimary
             }
 
             Text {
-                text: startupRow.description
+                text: choiceRow.description
                 font.pixelSize: Theme.fontSizeSmall
                 font.family: Theme.fontPrimary
                 color: Theme.textSecondary
@@ -136,16 +141,16 @@ FocusScope {
 
         SettingsComboBox {
             id: combo
-            model: startupRow.options
+            model: choiceRow.options
             textRole: "label"
             valueRole: "value"
-            currentIndex: root.optionIndexForValue(startupRow.options, startupRow.selectedValue)
+            currentIndex: root.optionIndexForValue(choiceRow.options, choiceRow.selectedValue)
             Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
             focusPolicy: Qt.StrongFocus
 
             Component.onCompleted: {
-                startupRow.refreshSelection()
-                startupRow.initialized = true
+                choiceRow.refreshSelection()
+                choiceRow.initialized = true
             }
 
             onActiveFocusChanged: {
@@ -161,19 +166,19 @@ FocusScope {
             }
 
             onCurrentIndexChanged: {
-                if (!startupRow.initialized || startupRow.updatingSelection || currentIndex < 0) return
-                startupRow.selected(startupRow.options[currentIndex].value)
+                if (!choiceRow.initialized || choiceRow.updatingSelection || currentIndex < 0) return
+                choiceRow.selected(choiceRow.options[currentIndex].value)
             }
 
             Keys.onUpPressed: function(event) {
-                if (!popup.visible && startupRow.upTarget) {
-                    startupRow.upTarget.forceActiveFocus()
+                if (!popup.visible && choiceRow.upTarget) {
+                    choiceRow.upTarget.forceActiveFocus()
                     event.accepted = true
                 }
             }
             Keys.onDownPressed: function(event) {
-                if (!popup.visible && startupRow.downTarget) {
-                    startupRow.downTarget.forceActiveFocus()
+                if (!popup.visible && choiceRow.downTarget) {
+                    choiceRow.downTarget.forceActiveFocus()
                     event.accepted = true
                 }
             }
@@ -478,10 +483,36 @@ FocusScope {
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : mergeHomeRowsSwitch
-                    KeyNavigation.down: audioDelaySpinBox
+                    KeyNavigation.down: versionPreferenceRow.focusItem
 
                     onSliderValueChanged: function(newValue) {
                         ConfigManager.playbackCompletionThreshold = newValue
+                    }
+                }
+
+                // ── Group 2b: Version preference ──
+
+                SettingsGroupDivider { Layout.fillWidth: true }
+
+                ChoiceComboRow {
+                    id: versionPreferenceRow
+                    label: qsTr("Preferred Version")
+                    description: qsTr("Which version plays when an item has more than one")
+                    options: root.versionPreferenceOptions
+                    selectedValue: ConfigManager.playbackVersionPreference
+                    upTarget: thresholdSlider
+                    downTarget: audioDelaySpinBox
+
+                    onSelected: function(value) {
+                        ConfigManager.playbackVersionPreference = value
+                    }
+
+                    Connections {
+                        target: ConfigManager
+                        function onPlaybackVersionPreferenceChanged() {
+                            versionPreferenceRow.selectedValue = ConfigManager.playbackVersionPreference
+                            versionPreferenceRow.refreshSelection()
+                        }
                     }
                 }
 
@@ -502,7 +533,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
-                    KeyNavigation.up: thresholdSlider
+                    KeyNavigation.up: versionPreferenceRow.focusItem
                     KeyNavigation.down: audioOutputDeviceCombo
 
                     onSpinBoxValueChanged: function(newValue) {
@@ -1654,7 +1685,7 @@ FocusScope {
 
                 SettingsGroupDivider { Layout.fillWidth: true }
 
-                StartupBufferingComboRow {
+                ChoiceComboRow {
                     id: globalStartupBufferingRow
                     label: qsTr("Startup Buffering")
                     description: qsTr("Remote Mount waits for a larger media cache before playback starts")
@@ -1692,7 +1723,7 @@ FocusScope {
                     id: libraryStartupBufferingRepeater
                     model: LibraryViewModel.views
 
-                    delegate: StartupBufferingComboRow {
+                    delegate: ChoiceComboRow {
                         required property var modelData
                         required property int index
 

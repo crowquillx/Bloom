@@ -337,7 +337,7 @@ UI Components for Track Selection
 - `MediaInfoPanel.qml`: Displays video info (resolution, codec, HDR) and contains audio/subtitle `TrackSelector` components.
 - `SeriesSeasonEpisodeView.qml` and `MovieDetailsView.qml`: Integrate `MediaInfoPanel` to show track selection before playback.
 - Explicit user play actions now route through `PlayerController::requestPlayback(...)` instead of assembling stream URLs in QML. This keeps version selection, multipart resolution, and track-hint handling consistent across detail pages, quick play, and Up Next manual play.
-- `MediaSourceSelectionDialog.qml` is the global version picker for entries with multiple Jellyfin media sources (for example 1080p vs 4K). It is opened from `Main.qml`, uses the app theme/focus patterns, supports keyboard-only selection, and restores focus with `Qt.callLater(...)` on close.
+- `MediaSourceSelectionDialog.qml` is the global version picker for entries with multiple media sources (for example 1080p vs 4K) when `playbackVersionPreference` is `ask`. `Main.qml` loads it lazily; the dialog parents itself to `Overlay.overlay` so it centers on the window. It uses the app theme/focus patterns, supports keyboard-only selection, and restores focus with `Qt.callLater(...)` on close.
 - `EmbeddedPlaybackOverlay.qml`: Native 10-foot playback overlay rendered in the dedicated transparent overlay window for Windows embedded playback (and inline for Linux embedded validation). It shows a compact header and one unified glass control bar.
   - Header (top-left): back control (exits playback), the series/movie logo bounded to a compact wordmark, and the subtitle line beneath it (`S1 E6 - Name` renders as `S1 E6 • Name`). Light top and bottom scrims keep chrome legible without dimming the whole picture.
   - Control bar (bottom): an optional preview strip, the scrub row (elapsed time, progress with cache fill and provider chapter ticks, remaining time), and the transport tray. The tray holds, left to right: volume button plus inline volume slider (hidden when the bar is too narrow), previous episode, previous chapter, back 10 s, play/pause, forward 10 s, next chapter, next episode, and the playback settings control. All transport controls are icon-only with accessible names and pointer tooltips.
@@ -409,13 +409,17 @@ Native multipart playback starts and reports one protocol 3 session per physical
 Jellyfin and native Silo playback share the provider-neutral descriptor/reporting boundary; only the provider owns endpoint construction and wire serialization.
 
 Alternate versions and multipart playback
-- Jellyfin alternate media sources are surfaced from `PlaybackInfoResponse.mediaSources`. When there is more than one source and playback is user-initiated, Bloom now prompts before playback starts instead of silently taking the first source.
+- Alternate media sources are surfaced from `PlaybackInfoResponse.mediaSources`. `playbackVersionPreference` (Settings > Playback > Preferred Version) decides which one a user-initiated request plays (`PlayerPolicy::preferredMediaSource`):
+  - `highest-quality` (default): most pixels, then HDR/Dolby Vision over SDR, then bitrate, then file size.
+  - `smallest`: smallest file size, then lowest bitrate, then fewest pixels. Sources missing a metric never win on it.
+  - `ask`: opens `MediaSourceSelectionDialog` before playback starts. Requests that cannot prompt (autoplay, recovery) fall back to `highest-quality`.
+  - Ties keep server order. An explicit `mediaSourceId` (the in-playback Quality page) always wins.
 - Automatic next-episode playback does not re-prompt. `PlayerController` keeps a runtime version affinity from the chosen source and reuses it for the next episode in this order:
   - same parent folder path
   - same media-source name
   - same normalized video/container/bitrate signature
-  - first available source
-- Jellyfin multipart items are resolved via `/Videos/{itemId}/AdditionalParts`. Bloom fetches `PlaybackInfo` for each part, matches each later part against the chosen root version with the same affinity order, and falls back to that part’s first source when no match exists.
+  - the version preference above
+- Jellyfin multipart items are resolved via `/Videos/{itemId}/AdditionalParts`. Bloom fetches `PlaybackInfo` for each part, matches each later part against the chosen root version with the same affinity order, and falls back to the version preference when no match exists.
 - Multipart playback is queued into the backend playlist with `appendUrlsToPlaylist(...)` so part 2 starts seamlessly after part 1 without returning to idle.
 - User-initiated playback uses request-scoped `PlaybackInfo` and `AdditionalParts` responses so prefetch responses for the same item cannot satisfy a newer play request. If the primary `PlaybackInfo` request fails or returns no media sources, Bloom surfaces a playback error instead of falling back to a plain stream URL.
 

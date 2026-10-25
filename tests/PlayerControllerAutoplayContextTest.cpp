@@ -6,6 +6,7 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUrl>
+#include <QScopeGuard>
 #include <QUrlQuery>
 #include <algorithm>
 
@@ -572,7 +573,8 @@ private slots:
     void playUrlWithTracksKeepsNewSessionMetadataWhenReplacingPlayback();
     void embeddedVideoShrinkToggleEmitsAndPersists();
     void playbackTogglesSendMpvCycleValuesCommands();
-    void requestPlaybackPromptsForVersionSelection();
+    void requestPlaybackAppliesVersionPreference_data();
+    void requestPlaybackAppliesVersionPreference();
     void switchPlaybackVersionRestartsAtCurrentPosition();
     void switchPlaybackVersionKeepsQueuedResumePosition();
     void multipartPlaybackPublishesNoVersions();
@@ -2513,9 +2515,29 @@ void PlayerControllerAutoplayContextTest::playbackTogglesSendMpvCycleValuesComma
                           QStringLiteral("yes")}));
 }
 
-void PlayerControllerAutoplayContextTest::requestPlaybackPromptsForVersionSelection()
+void PlayerControllerAutoplayContextTest::requestPlaybackAppliesVersionPreference_data()
 {
+    QTest::addColumn<QString>("preference");
+    QTest::addColumn<QString>("expectedSourceId");
+
+    // An empty expected source means the version dialog is requested.
+    QTest::newRow("ask prompts") << QStringLiteral("ask") << QString();
+    QTest::newRow("highest quality plays 4K") << QStringLiteral("highest-quality")
+                                              << QStringLiteral("source-4k");
+    QTest::newRow("smallest plays 1080p") << QStringLiteral("smallest")
+                                          << QStringLiteral("source-1080p");
+}
+
+void PlayerControllerAutoplayContextTest::requestPlaybackAppliesVersionPreference()
+{
+    QFETCH(QString, preference);
+    QFETCH(QString, expectedSourceId);
+
     ConfigManager config;
+    config.setPlaybackVersionPreference(preference);
+    const auto restorePreference = qScopeGuard([&config] {
+        config.setPlaybackVersionPreference(QStringLiteral("highest-quality"));
+    });
     TrackPreferencesManager trackPrefs;
     DisplayManager displayManager(&config);
     AuthenticationService authService(nullptr);
@@ -2584,6 +2606,13 @@ void PlayerControllerAutoplayContextTest::requestPlaybackPromptsForVersionSelect
                                                       buildPlaybackInfo({versionA, versionB}),
                                                       requestId);
     emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, requestId);
+
+    if (!expectedSourceId.isEmpty()) {
+        QCOMPARE(selectionSpy.count(), 0);
+        QCOMPARE(playbackService.requestedDescriptorMediaSourceIds,
+                 QStringList{expectedSourceId});
+        return;
+    }
 
     QCOMPARE(selectionSpy.count(), 1);
     const QList<QVariant> arguments = selectionSpy.takeFirst();

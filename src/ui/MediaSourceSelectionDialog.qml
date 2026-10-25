@@ -17,6 +17,8 @@ FocusScope {
         id: dialog
         modal: true
         focus: true
+        // The Loader hosting this file has no size, so center on the window overlay.
+        parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.round(820 * Theme.layoutScale)
         height: Math.round(720 * Theme.layoutScale)
@@ -265,7 +267,7 @@ FocusScope {
 
                             onActiveFocusChanged: {
                                 if (activeFocus) {
-                                    ensureOptionVisible(optionButton)
+                                    dialog.ensureOptionVisible(optionButton)
                                 }
                             }
 
@@ -274,9 +276,9 @@ FocusScope {
                                 if (!mediaSourceId) {
                                     return
                                 }
-                                acceptedSelection = true
-                                PlayerController.confirmPlaybackVersion(requestId, mediaSourceId)
-                                close()
+                                dialog.acceptedSelection = true
+                                PlayerController.confirmPlaybackVersion(dialog.requestId, mediaSourceId)
+                                dialog.close()
                             }
 
                             leftPadding: Theme.spacingLarge
@@ -366,7 +368,7 @@ FocusScope {
                             event.accepted = true
                             return
                         }
-                        closeWithoutSelection()
+                        dialog.closeWithoutSelection()
                         event.accepted = true
                     }
                     Keys.onEnterPressed: function(event) {
@@ -374,11 +376,11 @@ FocusScope {
                             event.accepted = true
                             return
                         }
-                        closeWithoutSelection()
+                        dialog.closeWithoutSelection()
                         event.accepted = true
                     }
 
-                    onClicked: closeWithoutSelection()
+                    onClicked: dialog.closeWithoutSelection()
 
 
                 }

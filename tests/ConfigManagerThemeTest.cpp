@@ -44,6 +44,7 @@ private slots:
     void v25MigrationAddsHeroEpisodeSynopsisSetting();
     void v26MigrationAddsInputBindings();
     void startupBufferingModesDefaultNormalizeAndPersist();
+    void playbackVersionPreferenceDefaultsNormalizesAndPersists();
     void bundledMpvShadersAreCopied();
     void bundledMpvFontsAreCopied();
     void importMpvConfigCreatesProfile();
@@ -1178,6 +1179,30 @@ void ConfigManagerThemeTest::startupBufferingModesDefaultNormalizeAndPersist()
     reloaded.load();
     QCOMPARE(reloaded.getStartupBufferingMode(), QStringLiteral("remote-mount"));
     QCOMPARE(reloaded.getLibraryStartupBufferingMode(QStringLiteral("library-1")), QString());
+}
+
+void ConfigManagerThemeTest::playbackVersionPreferenceDefaultsNormalizesAndPersists()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    QCOMPARE(config.getPlaybackVersionPreference(), QStringLiteral("highest-quality"));
+
+    QSignalSpy spy(&config, &ConfigManager::playbackVersionPreferenceChanged);
+    config.setPlaybackVersionPreference(QStringLiteral(" Ask "));
+    QCOMPARE(config.getPlaybackVersionPreference(), QStringLiteral("ask"));
+    config.setPlaybackVersionPreference(QStringLiteral("ask"));
+    QCOMPARE(spy.count(), 1);
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getPlaybackVersionPreference(), QStringLiteral("ask"));
+
+    reloaded.setPlaybackVersionPreference(QStringLiteral("bogus"));
+    QCOMPARE(reloaded.getPlaybackVersionPreference(), QStringLiteral("highest-quality"));
 }
 
 void ConfigManagerThemeTest::bundledMpvShadersAreCopied()

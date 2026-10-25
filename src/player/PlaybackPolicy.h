@@ -30,6 +30,13 @@ struct ResolvedTrackSelection
     QString subtitleSource;
 };
 
+/// How a fresh playback request picks among an item's versions.
+enum class VersionPreference {
+    HighestQuality,
+    Smallest,
+    Ask
+};
+
 struct VersionAffinity
 {
     QString parentPath;
@@ -93,10 +100,23 @@ struct PrefetchedEpisodeInput
 [[nodiscard]] QString mediaSourceParentPath(const QVariantMap &mediaSource);
 [[nodiscard]] QString mediaSourceSignature(const QVariantMap &mediaSource);
 [[nodiscard]] QString buildVersionSubtitle(const QVariantMap &mediaSource);
+/// Parses `settings.playback.version_preference`; unknown values mean
+/// HighestQuality.
+[[nodiscard]] VersionPreference parseVersionPreference(const QString &value);
+[[nodiscard]] QString versionPreferenceName(VersionPreference preference);
+/// The source `preference` ranks first: most pixels, then HDR, bitrate, and
+/// file size for HighestQuality (also the Ask fallback when no prompt is
+/// allowed); smallest file size, then bitrate and pixels for Smallest. Unknown
+/// (zero) metrics rank last; ties keep server order.
+[[nodiscard]] QVariantMap preferredMediaSource(const QVariantList &mediaSources,
+                                               VersionPreference preference);
+/// A forced id wins, then (when enabled) affinity with the previous version,
+/// then `preference`.
 [[nodiscard]] QVariantMap selectMediaSource(const QVariantList &mediaSources,
                                             const QString &forcedMediaSourceId,
                                             bool useAffinityFallback,
-                                            const VersionAffinity &affinity);
+                                            const VersionAffinity &affinity,
+                                            VersionPreference preference);
 [[nodiscard]] QVariantList primaryPresentationSources(const QVariantList &mediaSources);
 
 /// In-playback version picker entries ({id, title, subtitle, selected}) for

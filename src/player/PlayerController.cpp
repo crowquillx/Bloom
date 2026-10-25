@@ -2360,7 +2360,9 @@ void PlayerController::maybeFinalizePendingPlaybackRequest(const QString &reques
             primaryPlaybackInfo.getMediaSourcesVariant());
     if (primarySources.size() > 1
         && it->allowVersionPrompt
-        && it->chosenMediaSourceId.isEmpty()) {
+        && it->chosenMediaSourceId.isEmpty()
+        && PlayerPolicy::parseVersionPreference(m_config->getPlaybackVersionPreference())
+               == PlayerPolicy::VersionPreference::Ask) {
         if (!it->versionSelectionRequested) {
             it->versionSelectionRequested = true;
             emit playbackVersionSelectionRequested(requestId,
@@ -2774,7 +2776,8 @@ QVariantMap PlayerController::selectMediaSourceForRequest(const QVariantList &me
             m_lastVersionParentPath,
             m_lastVersionName,
             m_lastVersionSignature
-        });
+        },
+        PlayerPolicy::parseVersionPreference(m_config->getPlaybackVersionPreference()));
 }
 
 QVariantMap PlayerController::resolveSegmentPlaybackContext(const QString &scopeId, bool isMovie,

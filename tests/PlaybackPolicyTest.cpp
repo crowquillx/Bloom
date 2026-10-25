@@ -62,6 +62,7 @@ QVariantMap dolbyVisionSource(int profile, int compatibilityId, const QString &r
 const QString kElFilter =
     QStringLiteral("--vf-append=@bloom-dovi:format=dolbyvision=yes:enhancement-layer=yes");
 const QString kDvOnlyFilter = QStringLiteral("--vf-append=@bloom-dovi:format=dolbyvision=yes");
+constexpr auto kHighest = PlayerPolicy::VersionPreference::HighestQuality;
 
 } // namespace
 
@@ -77,6 +78,7 @@ private slots:
     void classifiesHdrAndDolbyVision();
     void evaluatesHdrOutputPolicy();
     void selectsVersionsByForcedIdAndAffinity();
+    void ranksVersionsByPreference();
     void filtersMultipartSourcesAndBuildsSubtitles();
     void evaluatesCompletionAndPrefetchThresholds();
     void validatesPrefetchedEpisodesAndContexts();
@@ -329,30 +331,93 @@ void PlaybackPolicyTest::selectsVersionsByForcedIdAndAffinity()
         PlayerPolicy::mediaSourceSignature(first)
     };
     QCOMPARE(PlayerPolicy::selectMediaSource(
-                 sources, QStringLiteral("signature"), true, affinity)
+                 sources, QStringLiteral("signature"), true, affinity, kHighest)
                  .value(QStringLiteral("id")).toString(),
              QStringLiteral("signature"));
     QCOMPARE(PlayerPolicy::selectMediaSource(
-                 sources, {}, true, affinity)
+                 sources, {}, true, affinity, kHighest)
                  .value(QStringLiteral("id")).toString(),
              QStringLiteral("parent"));
 
     affinity.parentPath.clear();
     affinity.name = QStringLiteral("Other");
-    QCOMPARE(PlayerPolicy::selectMediaSource(sources, {}, true, affinity)
+    QCOMPARE(PlayerPolicy::selectMediaSource(sources, {}, true, affinity, kHighest)
                  .value(QStringLiteral("id")).toString(),
              QStringLiteral("parent"));
 
     affinity.name.clear();
     affinity.signature = PlayerPolicy::mediaSourceSignature(sameSignature);
-    QCOMPARE(PlayerPolicy::selectMediaSource(sources, {}, true, affinity)
+    QCOMPARE(PlayerPolicy::selectMediaSource(sources, {}, true, affinity, kHighest)
                  .value(QStringLiteral("id")).toString(),
              QStringLiteral("signature"));
 
-    QCOMPARE(PlayerPolicy::selectMediaSource(sources, {}, false, affinity)
+    // Without affinity the preference decides: the only HDR source wins.
+    QCOMPARE(PlayerPolicy::selectMediaSource(sources, {}, false, affinity, kHighest)
                  .value(QStringLiteral("id")).toString(),
-             QStringLiteral("first"));
-    QVERIFY(PlayerPolicy::selectMediaSource({}, {}, true, affinity).isEmpty());
+             QStringLiteral("parent"));
+    QVERIFY(PlayerPolicy::selectMediaSource({}, {}, true, affinity, kHighest).isEmpty());
+}
+
+void PlaybackPolicyTest::ranksVersionsByPreference()
+{
+    const auto version = [](const QString &id, int width, int height,
+                            const QString &range, qint64 bitRate, qint64 size) {
+        QVariantMap video = videoStream(range);
+        video.insert(QStringLiteral("width"), width);
+        video.insert(QStringLiteral("height"), height);
+        QVariantMap source = mediaSource(id, id, QStringLiteral("/media/%1.mkv").arg(id),
+                                         {video});
+        source.insert(QStringLiteral("bitRate"), bitRate);
+        source.insert(QStringLiteral("size"), size);
+        return source;
+    };
+    const auto pick = [](const QVariantList &sources, PlayerPolicy::VersionPreference preference) {
+        return PlayerPolicy::preferredMediaSource(sources, preference)
+            .value(QStringLiteral("id")).toString();
+    };
+
+    const QVariantMap hd = version(QStringLiteral("hd"), 1920, 1080, QStringLiteral("SDR"),
+                                   8'000'000, 4'000'000'000);
+    const QVariantMap uhdSdr = version(QStringLiteral("uhd-sdr"), 3840, 2160,
+                                       QStringLiteral("SDR"), 40'000'000, 30'000'000'000);
+    const QVariantMap uhdHdr = version(QStringLiteral("uhd-hdr"), 3840, 2160,
+                                       QStringLiteral("HDR10"), 30'000'000, 25'000'000'000);
+    const QVariantMap unknown = version(QStringLiteral("unknown"), 0, 0, {}, 0, 0);
+    const QVariantList sources{unknown, hd, uhdSdr, uhdHdr};
+
+    // Resolution first, then HDR beats a higher-bitrate SDR encode.
+    QCOMPARE(pick(sources, PlayerPolicy::VersionPreference::HighestQuality),
+             QStringLiteral("uhd-hdr"));
+    // Ask falls back to highest quality when no prompt is allowed.
+    QCOMPARE(pick(sources, PlayerPolicy::VersionPreference::Ask), QStringLiteral("uhd-hdr"));
+    // Smallest file wins; a source without metrics never counts as smallest.
+    QCOMPARE(pick(sources, PlayerPolicy::VersionPreference::Smallest), QStringLiteral("hd"));
+
+    // Without sizes, Smallest falls back to bitrate.
+    QVariantMap hdNoSize = hd;
+    hdNoSize.insert(QStringLiteral("size"), 0);
+    QVariantMap uhdNoSize = uhdHdr;
+    uhdNoSize.insert(QStringLiteral("size"), 0);
+    QCOMPARE(pick({uhdNoSize, hdNoSize}, PlayerPolicy::VersionPreference::Smallest),
+             QStringLiteral("hd"));
+
+    // Ties keep server order.
+    QVariantMap hdCopy = hd;
+    hdCopy.insert(QStringLiteral("id"), QStringLiteral("hd-copy"));
+    QCOMPARE(pick({hd, hdCopy}, PlayerPolicy::VersionPreference::HighestQuality),
+             QStringLiteral("hd"));
+    QCOMPARE(pick({hd, hdCopy}, PlayerPolicy::VersionPreference::Smallest), QStringLiteral("hd"));
+    QVERIFY(PlayerPolicy::preferredMediaSource({}, PlayerPolicy::VersionPreference::Smallest)
+                .isEmpty());
+
+    QCOMPARE(PlayerPolicy::parseVersionPreference(QStringLiteral(" ASK ")),
+             PlayerPolicy::VersionPreference::Ask);
+    QCOMPARE(PlayerPolicy::parseVersionPreference(QStringLiteral("smallest")),
+             PlayerPolicy::VersionPreference::Smallest);
+    QCOMPARE(PlayerPolicy::parseVersionPreference(QStringLiteral("bogus")),
+             PlayerPolicy::VersionPreference::HighestQuality);
+    QCOMPARE(PlayerPolicy::versionPreferenceName(PlayerPolicy::VersionPreference::Smallest),
+             QStringLiteral("smallest"));
 }
 
 void PlaybackPolicyTest::filtersMultipartSourcesAndBuildsSubtitles()

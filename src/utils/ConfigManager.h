@@ -96,6 +96,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(QString playerBackend READ getPlayerBackend WRITE setPlayerBackend NOTIFY playerBackendChanged)
     Q_PROPERTY(int playbackCacheSizeMB READ getPlaybackCacheSizeMB WRITE setPlaybackCacheSizeMB NOTIFY playbackCacheSizeMBChanged)
     Q_PROPERTY(QString startupBufferingMode READ getStartupBufferingMode WRITE setStartupBufferingMode NOTIFY startupBufferingModeChanged)
+    Q_PROPERTY(QString playbackVersionPreference READ getPlaybackVersionPreference WRITE setPlaybackVersionPreference NOTIFY playbackVersionPreferenceChanged)
     Q_PROPERTY(int backdropRotationInterval READ getBackdropRotationInterval WRITE setBackdropRotationInterval NOTIFY backdropRotationIntervalChanged)
     Q_PROPERTY(bool launchInFullscreen READ getLaunchInFullscreen WRITE setLaunchInFullscreen NOTIFY launchInFullscreenChanged)
     Q_PROPERTY(int themeSongVolume READ getThemeSongVolume WRITE setThemeSongVolume NOTIFY themeSongVolumeChanged)
@@ -315,6 +316,8 @@ public:
     bool getAutoRecoverPlayback() const;
     void setStartupBufferingMode(const QString &mode);
     QString getStartupBufferingMode() const;
+    void setPlaybackVersionPreference(const QString &preference);
+    QString getPlaybackVersionPreference() const;
     Q_INVOKABLE QString getLibraryStartupBufferingMode(const QString &libraryId) const;
     Q_INVOKABLE void setLibraryStartupBufferingMode(const QString &libraryId, const QString &mode);
     QString resolveStartupBufferingModeForItem(const QString &libraryId) const;
@@ -592,6 +595,7 @@ signals:
     void playbackCacheSizeMBChanged();
     void autoRecoverPlaybackChanged();
     void startupBufferingModeChanged();
+    void playbackVersionPreferenceChanged();
     void libraryStartupBufferingModesChanged();
     void themeSongVolumeChanged();
     void themeSongLoopChanged();

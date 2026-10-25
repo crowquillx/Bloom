@@ -548,6 +548,15 @@ QString normalizeStartupBufferingModeValue(const QString &raw, bool allowDefault
     return QStringLiteral("normal");
 }
 
+QString normalizePlaybackVersionPreferenceValue(const QString &raw)
+{
+    const QString normalized = raw.trimmed().toLower();
+    if (normalized == QStringLiteral("smallest") || normalized == QStringLiteral("ask")) {
+        return normalized;
+    }
+    return QStringLiteral("highest-quality");
+}
+
 QJsonObject playbackSettingsObject(const QJsonObject &config)
 {
     const QJsonObject settings = config.value(QStringLiteral("settings")).toObject();
@@ -1513,6 +1522,24 @@ QString ConfigManager::getStartupBufferingMode() const
     return normalizeStartupBufferingMode(playbackSettingsObject(m_config)
                                              .value(QStringLiteral("startup_buffering_mode"))
                                              .toString(QStringLiteral("normal")));
+}
+
+void ConfigManager::setPlaybackVersionPreference(const QString &preference)
+{
+    const QString normalized = normalizePlaybackVersionPreferenceValue(preference);
+    if (normalized == getPlaybackVersionPreference()) {
+        return;
+    }
+
+    setPlaybackSetting(m_config, QStringLiteral("version_preference"), normalized);
+    save();
+    emit playbackVersionPreferenceChanged();
+}
+
+QString ConfigManager::getPlaybackVersionPreference() const
+{
+    return normalizePlaybackVersionPreferenceValue(
+        playbackSettingsObject(m_config).value(QStringLiteral("version_preference")).toString());
 }
 
 QString ConfigManager::getLibraryStartupBufferingMode(const QString &libraryId) const
@@ -4777,6 +4804,7 @@ QJsonObject ConfigManager::defaultConfig() const
     playback["playback_cache_size_mb"] = 500;
     playback["auto_recover_playback"] = true;
     playback["startup_buffering_mode"] = QStringLiteral("normal");
+    playback["version_preference"] = QStringLiteral("highest-quality");
     playback["default_audio_track_selection"] = QStringLiteral("jellyfin-default");
     playback["default_subtitle_track_selection"] = QStringLiteral("jellyfin-default");
     settings["playback"] = playback;

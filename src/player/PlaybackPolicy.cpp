@@ -7,6 +7,7 @@
 #include <QtGlobal>
 
 #include <limits>
+#include <tuple>
 #include <utility>
 
 namespace Bloom::PlaybackPolicy {
@@ -491,10 +492,104 @@ QString buildVersionSubtitle(const QVariantMap &mediaSource)
     return parts.join(QStringLiteral(" • "));
 }
 
+namespace {
+
+struct VersionMetrics
+{
+    qint64 pixels = 0;
+    bool hdr = false;
+    qint64 bitRate = 0;
+    qint64 size = 0;
+};
+
+VersionMetrics versionMetrics(const QVariantMap &mediaSource)
+{
+    VersionMetrics metrics;
+    const QVariantList videos = mediaStreamsForType(mediaSource,
+                                                    QStringLiteral("Video"));
+    if (!videos.isEmpty()) {
+        const QVariantMap video = videos.first().toMap();
+        metrics.pixels =
+            qint64(qMax(0, video.value(QStringLiteral("width")).toInt()))
+            * qMax(0, video.value(QStringLiteral("height")).toInt());
+    }
+    metrics.hdr = isHdr(classifyMediaSourceHdr(mediaSource));
+    metrics.bitRate = qMax<qint64>(
+        0, mediaSource.value(QStringLiteral("bitRate")).toLongLong());
+    metrics.size = qMax<qint64>(
+        0, mediaSource.value(QStringLiteral("size")).toLongLong());
+    return metrics;
+}
+
+// Smallest ranks ascending, so an unknown (zero) metric must sort last.
+qint64 knownOrMax(qint64 value)
+{
+    return value > 0 ? value : std::numeric_limits<qint64>::max();
+}
+
+bool ranksAbove(const VersionMetrics &candidate,
+                const VersionMetrics &best,
+                VersionPreference preference)
+{
+    if (preference == VersionPreference::Smallest) {
+        return std::tuple(knownOrMax(candidate.size),
+                          knownOrMax(candidate.bitRate),
+                          knownOrMax(candidate.pixels))
+            < std::tuple(knownOrMax(best.size),
+                         knownOrMax(best.bitRate),
+                         knownOrMax(best.pixels));
+    }
+    return std::tuple(candidate.pixels, candidate.hdr,
+                      candidate.bitRate, candidate.size)
+        > std::tuple(best.pixels, best.hdr, best.bitRate, best.size);
+}
+
+} // namespace
+
+VersionPreference parseVersionPreference(const QString &value)
+{
+    const QString normalized = value.trimmed().toLower();
+    if (normalized == QStringLiteral("smallest")) {
+        return VersionPreference::Smallest;
+    }
+    if (normalized == QStringLiteral("ask")) {
+        return VersionPreference::Ask;
+    }
+    return VersionPreference::HighestQuality;
+}
+
+QString versionPreferenceName(VersionPreference preference)
+{
+    switch (preference) {
+    case VersionPreference::Smallest: return QStringLiteral("smallest");
+    case VersionPreference::Ask: return QStringLiteral("ask");
+    case VersionPreference::HighestQuality: break;
+    }
+    return QStringLiteral("highest-quality");
+}
+
+QVariantMap preferredMediaSource(const QVariantList &mediaSources,
+                                 VersionPreference preference)
+{
+    if (mediaSources.isEmpty()) return QVariantMap{};
+    qsizetype bestIndex = 0;
+    VersionMetrics best = versionMetrics(mediaSources.first().toMap());
+    for (qsizetype i = 1; i < mediaSources.size(); ++i) {
+        const VersionMetrics candidate =
+            versionMetrics(mediaSources.at(i).toMap());
+        if (ranksAbove(candidate, best, preference)) {
+            bestIndex = i;
+            best = candidate;
+        }
+    }
+    return mediaSources.at(bestIndex).toMap();
+}
+
 QVariantMap selectMediaSource(const QVariantList &mediaSources,
                               const QString &forcedMediaSourceId,
                               bool useAffinityFallback,
-                              const VersionAffinity &affinity)
+                              const VersionAffinity &affinity,
+                              VersionPreference preference)
 {
     if (!forcedMediaSourceId.isEmpty()) {
         for (const QVariant &value : mediaSources) {
@@ -528,7 +623,7 @@ QVariantMap selectMediaSource(const QVariantList &mediaSources,
             }
         }
     }
-    return mediaSources.isEmpty() ? QVariantMap{} : mediaSources.first().toMap();
+    return preferredMediaSource(mediaSources, preference);
 }
 
 QVariantList primaryPresentationSources(const QVariantList &mediaSources)
