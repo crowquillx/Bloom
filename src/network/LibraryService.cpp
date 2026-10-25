@@ -1,6 +1,7 @@
 #include "LibraryService.h"
 #include "AuthenticationService.h"
 #include "HttpTransport.h"
+#include "LibrarySearchScope.h"
 #include "NextEpisodeResolver.h"
 #include "models/MediaModels.h"
 #include "providers/IPlaybackProvider.h"
@@ -1287,8 +1288,10 @@ void LibraryService::getThemeSongs(const QString &seriesId)
         });
 }
 
-void LibraryService::search(const QString &searchTerm, int limit)
+void LibraryService::search(const QString &searchTerm, int limit,
+                            const QStringList &excludedLibraryIds)
 {
+    const quint64 searchGeneration = ++m_searchGeneration;
     const QString connectionId = activeConnectionId(m_authService);
     const QString normalizedSearchTerm = searchTerm.trimmed();
     if (!m_authService || !m_authService->isAuthenticated()) {
@@ -1313,33 +1316,101 @@ void LibraryService::search(const QString &searchTerm, int limit)
         QStringLiteral("Movie"),
         QStringLiteral("Series")
     };
+    const auto emitResults = [this, connectionId, normalizedSearchTerm, searchGeneration](
+                                 const QVariantList &items) {
+        if (searchGeneration != m_searchGeneration) {
+            return;
+        }
+        QVariantList movies;
+        QVariantList series;
+        for (const QVariant &value : items) {
+            const QString mediaType =
+                value.toMap().value(QStringLiteral("mediaType")).toString();
+            if (mediaType == QStringLiteral("Movie")) {
+                movies.append(value);
+            } else if (mediaType == QStringLiteral("Series")) {
+                series.append(value);
+            }
+        }
+        emit canonicalSearchResultsLoaded(
+            connectionId, normalizedSearchTerm, movies, series);
+    };
+    const auto emitFailure = [this, connectionId, normalizedSearchTerm, searchGeneration](
+                                 const NetworkError &error) {
+        if (searchGeneration != m_searchGeneration) {
+            return;
+        }
+        emit canonicalSearchResultsFailed(
+            connectionId, normalizedSearchTerm, error.userMessage);
+    };
+
+    if (excludedLibraryIds.isEmpty()) {
+        sendCatalogRequest(
+            QStringLiteral("search"),
+            ProviderCatalogOperation::Search,
+            query,
+            [this, connectionId, emitResults](const ProviderCatalogResponse &response) {
+                emitResults(m_authService->mapMediaItems(response.rawItems, connectionId));
+            },
+            emitFailure);
+        return;
+    }
+
+    // Some libraries are left out of search: list the libraries, then search
+    // each remaining one.
     sendCatalogRequest(
         QStringLiteral("search"),
-        ProviderCatalogOperation::Search,
-        query,
-        [this, connectionId, normalizedSearchTerm](
+        ProviderCatalogOperation::Views,
+        baseCatalogQuery(),
+        [this, connectionId, query, limit, excludedLibraryIds, emitResults, emitFailure](
             const ProviderCatalogResponse &response) {
-            QVariantList movies;
-            QVariantList series;
-            const QVariantList items =
-                m_authService->mapMediaItems(response.rawItems, connectionId);
-            for (const QVariant &value : items) {
-                const QVariantMap item = value.toMap();
-                const QString mediaType =
-                    item.value(QStringLiteral("mediaType")).toString();
-                if (mediaType == QStringLiteral("Movie")) {
-                    movies.append(item);
-                } else if (mediaType == QStringLiteral("Series")) {
-                    series.append(item);
-                }
+            const QStringList libraryIds = LibrarySearchScope::searchableLibraryIds(
+                m_authService->mapMediaItems(response.rawItems, connectionId),
+                excludedLibraryIds);
+            if (libraryIds.isEmpty()) {
+                emitResults({});
+                return;
             }
-            emit canonicalSearchResultsLoaded(
-                connectionId, normalizedSearchTerm, movies, series);
+            struct Aggregate {
+                QList<QVariantList> results;
+                qsizetype pending = 0;
+                qsizetype succeeded = 0;
+                NetworkError lastError;
+            };
+            auto aggregate = std::make_shared<Aggregate>();
+            aggregate->results.resize(libraryIds.size());
+            aggregate->pending = libraryIds.size();
+            const auto finishOne = [aggregate, limit, emitResults, emitFailure]() {
+                if (--aggregate->pending > 0) {
+                    return;
+                }
+                if (aggregate->succeeded == 0) {
+                    emitFailure(aggregate->lastError);
+                    return;
+                }
+                emitResults(LibrarySearchScope::interleave(aggregate->results, limit));
+            };
+            for (qsizetype index = 0; index < libraryIds.size(); ++index) {
+                ProviderCatalogQuery scoped = query;
+                scoped.parentId = libraryIds.at(index);
+                sendCatalogRequest(
+                    QStringLiteral("search"),
+                    ProviderCatalogOperation::Search,
+                    scoped,
+                    [this, connectionId, aggregate, index, finishOne](
+                        const ProviderCatalogResponse &libraryResponse) {
+                        aggregate->results[index] =
+                            m_authService->mapMediaItems(libraryResponse.rawItems, connectionId);
+                        ++aggregate->succeeded;
+                        finishOne();
+                    },
+                    [aggregate, finishOne](const NetworkError &error) {
+                        aggregate->lastError = error;
+                        finishOne();
+                    });
+            }
         },
-        [this, connectionId, normalizedSearchTerm](const NetworkError &error) {
-            emit canonicalSearchResultsFailed(
-                connectionId, normalizedSearchTerm, error.userMessage);
-        });
+        emitFailure);
 }
 
 void LibraryService::getRandomItems(int limit)

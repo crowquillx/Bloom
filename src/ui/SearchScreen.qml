@@ -69,7 +69,8 @@ FocusScope {
         if (mergedMode)
             MergedCatalog.search(term)
         else
-            LibraryService.search(term)
+            LibraryService.search(term, 50, typeof Workspaces !== "undefined"
+                                  ? Workspaces.searchHiddenLibraryIds(pendingLibraryConnectionId) : [])
     }
 
     SourceRouter {
@@ -232,6 +233,20 @@ FocusScope {
             // Results from a removed or disabled source must not stay selectable.
             root.movieResults = []
             root.seriesResults = []
+            root.startLibrarySearch(term)
+        }
+    }
+
+    // A single space changed which libraries search covers; merged spaces
+    // search again through MergedCatalog.activeChanged.
+    Connections {
+        target: typeof Workspaces !== "undefined" ? Workspaces : null
+        ignoreUnknownSignals: true
+        function onLibraryVisibilityChanged() {
+            const term = root.searchTerm.trim()
+            if (root.mergedMode || term.length === 0
+                    || (!root.waitingForLibrarySearch && !root.hasSearched))
+                return
             root.startLibrarySearch(term)
         }
     }

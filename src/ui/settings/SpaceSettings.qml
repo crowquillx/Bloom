@@ -144,6 +144,7 @@ FocusScope {
         }
         if (several && m.enabled && !m.isDefault)
             actions.push({ key: "default", text: qsTr("Make primary"), icon: Icons.starBorder })
+        actions.push({ key: "libraries", text: qsTr("Choose libraries"), icon: Icons.videoLibrary })
         actions.push({ key: "label", text: qsTr("Rename"), icon: Icons.edit })
         if (several && row.index > 0)
             actions.push({ key: "up", text: qsTr("Move up"), icon: Icons.expandLess })
@@ -152,6 +153,18 @@ FocusScope {
         if (several)
             actions.push({ key: "remove", text: qsTr("Remove from space"), icon: Icons.close, destructive: true })
         return actions
+    }
+
+    // "Jellyfin · https://host · 2 libraries hidden · 1 not searched"
+    function memberDetail(member) {
+        var parts = [member.providerName + " · " + member.baseUrl]
+        var hidden = (member.hiddenLibraryIds || []).length
+        var unsearched = (member.searchHiddenLibraryIds || []).length
+        if (hidden > 0)
+            parts.push(qsTr("%n libraries hidden", "", hidden))
+        if (unsearched > 0)
+            parts.push(qsTr("%n not searched", "", unsearched))
+        return parts.join(" · ")
     }
 
     function rowIndexForKey(key) {
@@ -265,6 +278,9 @@ FocusScope {
         case "default":
             Workspaces.setDefaultMember(space.id, member.memberId)
             break
+        case "libraries":
+            librariesDialog.openFor(space, member)
+            break
         case "label":
             openTextDialog(qsTr("Rename source"),
                            qsTr("Leave empty to use \"%1\"").arg(member.accountLabel + " · " + member.serverLabel),
@@ -284,7 +300,7 @@ FocusScope {
                         function() { Workspaces.removeMember(space.id, member.memberId) })
             break
         }
-        if (key !== "label" && key !== "remove")
+        if (key !== "label" && key !== "remove" && key !== "libraries")
             Qt.callLater(function() { root.focusRow(root.rowIndexForKey(root.restoreRowKey)) })
     }
 
@@ -672,7 +688,7 @@ FocusScope {
                                 Layout.fillWidth: true
                                 visible: text !== ""
                                 text: rowItem.isSpace ? rowItem.modelData.space.detail
-                                      : rowItem.isMember ? rowItem.modelData.member.providerName + " · " + rowItem.modelData.member.baseUrl
+                                      : rowItem.isMember ? root.memberDetail(rowItem.modelData.member)
                                       : rowItem.isConnection ? rowItem.modelData.connection.providerName + " · " + rowItem.modelData.connection.baseUrl
                                       : ""
                                 elide: Text.ElideRight
@@ -803,6 +819,14 @@ FocusScope {
     }
 
     // ---- Dialogs --------------------------------------------------------
+
+    SourceLibrariesDialog {
+        id: librariesDialog
+        onClosed: Qt.callLater(function() {
+            var index = root.rowIndexForKey(root.restoreRowKey)
+            root.focusRow(index >= 0 ? index : rowList.currentIndex)
+        })
+    }
 
     Dialog {
         id: confirmDialog

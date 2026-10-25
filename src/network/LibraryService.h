@@ -135,8 +135,10 @@ public:
     Q_INVOKABLE virtual void toggleFavorite(const QString &itemId, bool isFavorite);
     Q_INVOKABLE virtual void getThemeSongs(const QString &seriesId);
     
-    // Search
-    Q_INVOKABLE virtual void search(const QString &searchTerm, int limit = 50);
+    // Search. Libraries in excludedLibraryIds are left out: the remaining
+    // libraries are searched one by one and their results interleaved.
+    Q_INVOKABLE virtual void search(const QString &searchTerm, int limit = 50,
+                                    const QStringList &excludedLibraryIds = {});
     Q_INVOKABLE virtual void getRandomItems(int limit = 20);
 
     // Hero Banner: random library sample (Movies + Series). When parentIds is empty,
@@ -335,6 +337,9 @@ private:
     QList<QPointer<HttpRequestHandle>> m_catalogRequests;
     quint64 m_requestGeneration = 0;
     quint64 m_heroRequestGeneration = 0;
+    // Newest search; a replaced search (new term or library exclusions)
+    // must not publish results after it.
+    quint64 m_searchGeneration = 0;
 
     // Cache validation state (per provider-owned endpoint).
     QHash<QString, QHash<int, QString>> m_pageCursors;

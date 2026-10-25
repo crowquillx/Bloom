@@ -23,6 +23,27 @@ The [live report](evidence/silo-v2-2026-10-18.json) records the new runner. It r
 
 Current limits are explicit. Forward-only remux and HLS/transcode timelines are unavailable. Ebooks, audiobooks, comics, watch-together, notifications, history imports, downloads/offline, and admin operations remain out of scope. The operator accepted the missing preview fixture for this migration. Native support remains experimental while the platform gates are open.
 
+## Token renewal for every connection, 2026-10-24 UTC
+
+Secondary sources in a merged space now renew expired access tokens with their own refresh tokens, save the rotated tokens, and retry once. Only a refused refresh token shows "Sign in required"; network failures keep the credentials and show the source as unavailable (see [profiles](profiles.md#merged-reads)).
+
+| Gate | Result | Action and pass criteria |
+| --- | --- | --- |
+| Incremental build and automated checks | PASS | `./scripts/dev-build.sh --tests` passed. Local CTest passed 45/45, including the eight new `WorkspaceRoutingTest` renewal and race cases, `SiloAuthenticationTest::unreachableRefreshKeepsLiveSession`, and `ProviderTransportTest::transportKeepsSessionWhenRenewalUnavailable`. |
+| Live Silo secondary source | NOT RUN | In a merged space with a Silo account as a secondary source, wait past its access-token lifetime (or revoke the access token server-side), then open Home. The source must load without a toast, and the keyring must hold the rotated tokens. Revoke the refresh token as well: the toast must say "Sign in required" for that source only. Stop the Silo server: the toast must say "Unavailable right now", and after the server returns the source must load again without signing in. |
+| Startup with the server down | NOT RUN | Quit Bloom, stop the live server, and start Bloom. The login screen must explain that the server could not be reached, and starting again after the server returns must sign straight in. |
+
+## Per-source library choices, 2026-10-24 UTC
+
+Each source in a space can hide libraries from browsing and, separately, leave libraries out of search (see [profiles](profiles.md#library-choices)). Settings → Spaces → a source → Choose libraries opens the picker.
+
+| Gate | Result | Action and pass criteria |
+| --- | --- | --- |
+| Incremental build and automated checks | PASS | `./scripts/dev-build.sh --tests` passed. Local CTest passed 45/45, including `WorkspaceRoutingTest::mergedSpaceHidesAndUnsearchesChosenLibraries`, `singleSpaceHidesAndUnsearchesChosenLibraries`, `scopedSearchInterleavesLibrariesByRank`, and `BloomProfileRepositoryTest::memberLibraryChoicesRoundTripAndNormalize`. The QML lint check passed. |
+| Picker dialog (harness) | PASS | A QML harness loaded `SourceLibrariesDialog.qml` with fake `MergedCatalog` and `Workspaces` in headless sway at 1920×1080 and 1280×720. Loading, loaded, and error states rendered. Up/Down, Left/Right, and Enter toggled the focused check, Down from the last row reached Done, Done saved the expected exclusion lists, and Escape after a failed load saved nothing. The harness does not exercise Settings → Spaces or real servers. |
+| Live browsing and search | NOT RUN | On real Jellyfin and Silo servers, in both a single and a merged space: hide a library and confirm it leaves the rail, Home tiles, and Recently Added; leave a different library out of search and confirm its titles stop appearing in Search while the others still do. Silo must accept `library_id` with `q` on `/api/v2/catalog`. Show both again and confirm they return. |
+| Keyboard and gamepad focus | NOT RUN | Open Choose libraries from the source menu with only a keyboard, then with only a controller. B/Back must close the picker (saving) and return focus to the source row. |
+
 ## Spaces UI pass (workspaces renamed), 2026-10-22 UTC
 
 The UI now calls workspaces *spaces*. The picker and Settings → Spaces were redesigned (see [profiles](profiles.md#ui)), and removing all but one source makes a space single again.

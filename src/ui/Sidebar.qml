@@ -76,6 +76,26 @@ FocusScope {
         return ordered
     }
 
+    /// Single spaces filter here; merged views arrive already filtered.
+    function visibleLibraries(views) {
+        return typeof Workspaces !== "undefined" ? Workspaces.visibleLibraries(views) : views
+    }
+
+    /// Saved order after moving visible libraries; hidden ones keep their slots.
+    function savedOrderWith(visibleIds) {
+        var isVisible = {}
+        for (var i = 0; i < visibleIds.length; i++)
+            isVisible[visibleIds[i]] = true
+        var saved = SidebarSettings.libraryOrder || []
+        var order = []
+        var next = 0
+        for (var j = 0; j < saved.length; j++)
+            order.push(isVisible[saved[j]] && next < visibleIds.length ? visibleIds[next++] : saved[j])
+        while (next < visibleIds.length)
+            order.push(visibleIds[next++])
+        return order
+    }
+
     /// Merged spaces list every source's libraries in member-priority
     /// order; the per-server saved order and reordering do not apply there.
     readonly property bool mergedLibraries: typeof MergedCatalog !== "undefined" && MergedCatalog.active
@@ -88,7 +108,8 @@ FocusScope {
             return
         }
         var views = LibraryViewModel.views || []
-        orderedLibraryItems = computeOrderedLibraries(views)
+        // Order first: the saved order keeps hidden libraries in place.
+        orderedLibraryItems = visibleLibraries(computeOrderedLibraries(views))
         libraryItems = orderedLibraryItems
         if (reorderingIndex >= libraryItems.length) {
             reorderingIndex = libraryItems.length - 1
@@ -166,6 +187,13 @@ FocusScope {
         ignoreUnknownSignals: true
         function onViewsChanged() { syncLibraryItems() }
         function onActiveChanged() { syncLibraryItems() }
+    }
+
+    Connections {
+        target: typeof Workspaces !== "undefined" ? Workspaces : null
+        ignoreUnknownSignals: true
+        function onLibraryVisibilityChanged() { syncLibraryItems() }
+        function onActiveProfileChanged() { syncLibraryItems() }
     }
 
     SourceRouter {
@@ -372,7 +400,7 @@ FocusScope {
         libraryItems = reordered
         orderedLibraryItems = reordered
         reorderingIndex = toIndex
-        SidebarSettings.libraryOrder = reordered.map(function (v) { return v.itemId })
+        SidebarSettings.libraryOrder = savedOrderWith(reordered.map(function (v) { return v.itemId }))
         Qt.callLater(function() {
             var moved = libraryRepeater.itemAt(toIndex)
             if (moved)

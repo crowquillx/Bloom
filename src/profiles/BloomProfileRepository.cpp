@@ -593,6 +593,15 @@ BloomProfile BloomProfileRepository::sanitizeProfile(BloomProfile profile,
             }
         }
         seenMemberIds.insert(member.memberId);
+        for (QStringList *ids : {&member.hiddenLibraryIds, &member.searchHiddenLibraryIds}) {
+            const QStringList normalized = BloomProfileMember::normalizedLibraryIds(*ids);
+            if (normalized != *ids) {
+                *ids = normalized;
+                if (changed) {
+                    *changed = true;
+                }
+            }
+        }
         sanitizedMembers.append(member);
     }
 

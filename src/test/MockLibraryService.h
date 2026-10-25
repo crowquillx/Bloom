@@ -74,7 +74,8 @@ public:
     Q_INVOKABLE void getThemeSongs(const QString &seriesId) override;
     
     // Search - searches across movies and series
-    Q_INVOKABLE void search(const QString &searchTerm, int limit = 50) override;
+    Q_INVOKABLE void search(const QString &searchTerm, int limit = 50,
+                            const QStringList &excludedLibraryIds = {}) override;
     Q_INVOKABLE void getRandomItems(int limit = 20) override;
     Q_INVOKABLE void getHeroLibraryItems(int limit, const QStringList &parentIds, bool unwatchedOnly) override;
     Q_INVOKABLE void getHeroSeriesOverviews(const QStringList &seriesIds) override;

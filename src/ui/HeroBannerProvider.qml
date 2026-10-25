@@ -132,8 +132,29 @@ QtObject {
     }
 
     function fetchLibrarySource(maxItems, hiddenTypes) {
-        loading = true
         var libraryIds = ConfigManager.heroBannerLibraryIds || []
+        // Libraries the space hides from browsing never feed the hero. With
+        // nothing chosen in settings, sample the libraries Home shows instead
+        // of the whole server.
+        var liveConnection = LibraryService.getActiveConnectionId()
+        var hidden = typeof Workspaces !== "undefined" ? Workspaces.hiddenLibraryIds(liveConnection) : []
+        if (hidden.length > 0) {
+            if (libraryIds.length === 0) {
+                libraryIds = []
+                for (var i = 0; i < librariesModel.length; i++) {
+                    var library = librariesModel[i]
+                    if (!library.connectionId || library.connectionId === liveConnection)
+                        libraryIds.push(library.itemId)
+                }
+            }
+            libraryIds = libraryIds.filter(function(id) { return hidden.indexOf(id) < 0 })
+            if (libraryIds.length === 0) {
+                loading = false
+                heroModel = []
+                return
+            }
+        }
+        loading = true
         var unwatchedOnly = ConfigManager.heroBannerLibraryUnwatchedOnly
         // Request more than we need so hidden-type filtering still fills the cap.
         var requestLimit = Math.min(25, maxItems + 8)

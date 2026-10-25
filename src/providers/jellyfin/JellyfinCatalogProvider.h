@@ -655,12 +655,17 @@ private:
             return validation;
         }
         const int limit = query.limit > 0 ? query.limit : 50;
-        return supportedRequest(QStringLiteral(
+        QString endpoint = QStringLiteral(
             "/Items?UserId=%1&SearchTerm=%2&IncludeItemTypes=Movie,Series&Recursive=true&Fields=Path,Overview&EnableUserData=true&Limit=%3&EnableImageTypes=Primary,Backdrop")
-                                    .arg(encodedPathSegment(query.userId))
-                                    .arg(QString::fromUtf8(
-                                        QUrl::toPercentEncoding(query.searchTerm.trimmed())))
-                                    .arg(limit));
+                               .arg(encodedPathSegment(query.userId))
+                               .arg(QString::fromUtf8(
+                                   QUrl::toPercentEncoding(query.searchTerm.trimmed())))
+                               .arg(limit);
+        // One library at a time; LibrarySearchScope combines several.
+        if (!query.parentId.isEmpty()) {
+            endpoint += QStringLiteral("&ParentId=") + encodedPathSegment(query.parentId);
+        }
+        return supportedRequest(endpoint);
     }
 
     static ProviderCatalogRequest randomItemsRequest(const ProviderCatalogQuery &query)

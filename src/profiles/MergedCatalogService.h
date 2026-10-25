@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <functional>
 #include <memory>
@@ -58,6 +59,10 @@ public:
     Q_INVOKABLE void getNextUp();
     Q_INVOKABLE void getLatestMedia(const QString &connectionId, const QString &parentId);
     Q_INVOKABLE void search(const QString &searchTerm, int limit = 50);
+    /// Every library of a connection, including hidden ones, for choosing
+    /// what a source shows. Works for the live connection and the enabled
+    /// members of the active space (single or merged).
+    Q_INVOKABLE void loadSourceLibraries(const QString &connectionId);
     Q_INVOKABLE QString sourceLabel(const QString &connectionId) const;
     Q_INVOKABLE bool isMemberConnection(const QString &connectionId) const;
 
@@ -75,6 +80,8 @@ signals:
                              const QVariantList &movies,
                              const QVariantList &series);
     void searchResultsFailed(const QString &searchTerm, const QString &error);
+    void sourceLibrariesLoaded(const QString &connectionId, const QVariantList &libraries);
+    void sourceLibrariesFailed(const QString &connectionId, const QString &error);
 
 private:
     struct Member {
@@ -82,6 +89,8 @@ private:
         QString connectionId;
         QString label;
         int priority = 0;
+        QStringList hiddenLibraryIds;
+        QStringList searchHiddenLibraryIds;
     };
     struct SourceState {
         QString state;
@@ -89,15 +98,21 @@ private:
     };
     using SourceCompletion = std::function<void(const MergedSourceResult &)>;
     using MergeCompletion = std::function<void(const QList<MergedSourceResult> &)>;
+    using MemberRequest = std::function<void(const Member &, SourceCompletion)>;
 
     void rebuildMembers();
     void fanOut(ProviderCatalogOperation operation,
                 const ProviderCatalogQuery &query,
                 MergeCompletion completion);
+    void fanOut(MemberRequest request, MergeCompletion completion);
+    /// Searches only the member's searchable libraries, one request each.
+    void requestScopedSearch(const Member &member,
+                             const ProviderCatalogQuery &query,
+                             SourceCompletion completion);
     void requestMember(const Member &member,
                        ProviderCatalogOperation operation,
                        ProviderCatalogQuery query,
-                       bool reloadedCredentials,
+                       bool renewalAttempted,
                        SourceCompletion completion);
     void whenSessionReady(const QString &connectionId, std::function<void()> continuation);
     void setSourceState(const QString &connectionId, const QString &state,

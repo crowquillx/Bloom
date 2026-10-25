@@ -3,6 +3,7 @@
 #include "network/AuthenticationService.h"
 #include "network/ConnectionSessionPool.h"
 #include "network/HttpTransport.h"
+#include "network/LibrarySearchScope.h"
 #include "profiles/BloomProfileRepository.h"
 #include "providers/IProviderAdapter.h"
 #include "utils/BloomLogging.h"
@@ -11,6 +12,7 @@
 #include <QFutureWatcher>
 #include <QNetworkReply>
 #include <QtConcurrent>
+#include <optional>
 #include <utility>
 
 namespace {
@@ -144,7 +146,9 @@ void MergedCatalogService::rebuildMembers()
             next.append({member.memberId,
                          member.connectionId,
                          BloomProfile::memberLabel(member, *connection),
-                         member.priority});
+                         member.priority,
+                         member.hiddenLibraryIds,
+                         member.searchHiddenLibraryIds});
         }
     }
 
@@ -156,7 +160,9 @@ void MergedCatalogService::rebuildMembers()
             if (a[index].memberId != b[index].memberId
                 || a[index].connectionId != b[index].connectionId
                 || a[index].label != b[index].label
-                || a[index].priority != b[index].priority) {
+                || a[index].priority != b[index].priority
+                || a[index].hiddenLibraryIds != b[index].hiddenLibraryIds
+                || a[index].searchHiddenLibraryIds != b[index].searchHiddenLibraryIds) {
                 return false;
             }
         }
@@ -202,7 +208,20 @@ void MergedCatalogService::refreshViews()
     m_viewsLoading = true;
     emit viewsChanged();
     fanOut(ProviderCatalogOperation::Views, ProviderCatalogQuery{},
-           [this](const QList<MergedSourceResult> &results) {
+           [this](QList<MergedSourceResult> results) {
+        // Each source drops the libraries it hides from browsing.
+        for (MergedSourceResult &result : results) {
+            for (const Member &member : std::as_const(m_members)) {
+                if (member.connectionId != result.connectionId
+                    || member.hiddenLibraryIds.isEmpty()) {
+                    continue;
+                }
+                result.items.removeIf([&member](const QVariant &value) {
+                    return member.hiddenLibraryIds.contains(
+                        value.toMap().value(QStringLiteral("itemId")).toString());
+                });
+            }
+        }
         m_views = m_policy->merge(MergedCatalogOperation::Views, results);
         m_viewsLoading = false;
         emit viewsChanged();
@@ -262,8 +281,14 @@ void MergedCatalogService::search(const QString &searchTerm, int limit)
     query.searchTerm = term;
     query.limit = limit;
     query.includeItemTypes = {QStringLiteral("Movie"), QStringLiteral("Series")};
-    fanOut(ProviderCatalogOperation::Search, query,
-           [this, term](const QList<MergedSourceResult> &results) {
+    fanOut([this, query](const Member &member, SourceCompletion completion) {
+        if (member.searchHiddenLibraryIds.isEmpty()) {
+            requestMember(member, ProviderCatalogOperation::Search, query, false,
+                          std::move(completion));
+        } else {
+            requestScopedSearch(member, query, std::move(completion));
+        }
+    }, [this, term](const QList<MergedSourceResult> &results) {
         if (allFailed(results)) {
             emit searchResultsFailed(term, combinedError(results));
             return;
@@ -283,9 +308,103 @@ void MergedCatalogService::search(const QString &searchTerm, int limit)
     });
 }
 
+void MergedCatalogService::loadSourceLibraries(const QString &connectionId)
+{
+    std::optional<Member> target;
+    for (const Member &member : std::as_const(m_members)) {
+        if (member.connectionId == connectionId) {
+            target = member;
+        }
+    }
+    if (!target.has_value() && m_authService && m_configManager
+        && m_authService->hasSessionForConnection(connectionId)) {
+        // A single space reads through LibraryService and has no members
+        // here; its live connection still has a session to list with.
+        if (const auto connection = m_configManager->getConnection(connectionId)) {
+            target = Member{{}, connectionId, BloomProfile::connectionLabel(*connection), 0, {}, {}};
+        }
+    }
+    if (!target.has_value()) {
+        const auto connection = m_configManager
+            ? m_configManager->getConnection(connectionId) : std::nullopt;
+        emit sourceLibrariesFailed(
+            connectionId,
+            tr("Sign in to %1 to choose its libraries.")
+                .arg(connection.has_value() ? BloomProfile::connectionLabel(*connection)
+                                            : connectionId));
+        return;
+    }
+    requestMember(*target, ProviderCatalogOperation::Views, ProviderCatalogQuery{}, false,
+                  [this, connectionId](const MergedSourceResult &result) {
+        if (result.succeeded) {
+            emit sourceLibrariesLoaded(connectionId, result.items);
+        } else {
+            emit sourceLibrariesFailed(connectionId, result.error);
+        }
+    });
+}
+
+void MergedCatalogService::requestScopedSearch(const Member &member,
+                                               const ProviderCatalogQuery &query,
+                                               SourceCompletion completion)
+{
+    requestMember(member, ProviderCatalogOperation::Views, ProviderCatalogQuery{}, false,
+                  [this, member, query, completion](const MergedSourceResult &views) {
+        if (!views.succeeded) {
+            completion(views);
+            return;
+        }
+        const QStringList libraryIds = LibrarySearchScope::searchableLibraryIds(
+            views.items, member.searchHiddenLibraryIds);
+        struct Aggregate {
+            MergedSourceResult result;
+            QList<QVariantList> perLibrary;
+            qsizetype pending = 0;
+            bool anySucceeded = false;
+        };
+        auto aggregate = std::make_shared<Aggregate>();
+        aggregate->result = views;
+        aggregate->result.items.clear();
+        if (libraryIds.isEmpty()) {
+            completion(aggregate->result);
+            return;
+        }
+        aggregate->perLibrary.resize(libraryIds.size());
+        aggregate->pending = libraryIds.size();
+        for (qsizetype index = 0; index < libraryIds.size(); ++index) {
+            ProviderCatalogQuery scoped = query;
+            scoped.parentId = libraryIds.at(index);
+            requestMember(member, ProviderCatalogOperation::Search, scoped, false,
+                          [aggregate, index, limit = query.limit, completion](
+                              const MergedSourceResult &library) {
+                if (library.succeeded) {
+                    aggregate->perLibrary[index] = library.items;
+                    aggregate->anySucceeded = true;
+                } else {
+                    aggregate->result.error = library.error;
+                }
+                if (--aggregate->pending > 0) {
+                    return;
+                }
+                aggregate->result.succeeded = aggregate->anySucceeded;
+                aggregate->result.items =
+                    LibrarySearchScope::interleave(aggregate->perLibrary, limit);
+                completion(aggregate->result);
+            });
+        }
+    });
+}
+
 void MergedCatalogService::fanOut(ProviderCatalogOperation operation,
                                   const ProviderCatalogQuery &query,
                                   MergeCompletion completion)
+{
+    fanOut([this, operation, query](const Member &member, SourceCompletion sourceCompletion) {
+        requestMember(member, operation, query, false, std::move(sourceCompletion));
+    }, std::move(completion));
+}
+
+void MergedCatalogService::fanOut(MemberRequest request, MergeCompletion completion)
 {
     if (m_members.isEmpty()) {
         completion({});
@@ -300,8 +419,7 @@ void MergedCatalogService::fanOut(ProviderCatalogOperation operation,
     aggregate->pending = m_members.size();
     const quint64 epoch = m_epoch;
     for (const Member &member : std::as_const(m_members)) {
-        requestMember(member, operation, query, false,
-                      [this, aggregate, epoch, completion](const MergedSourceResult &result) {
+        request(member, [this, aggregate, epoch, completion](const MergedSourceResult &result) {
             if (epoch != m_epoch) {
                 return;
             }
@@ -316,7 +434,7 @@ void MergedCatalogService::fanOut(ProviderCatalogOperation operation,
 void MergedCatalogService::requestMember(const Member &member,
                                          ProviderCatalogOperation operation,
                                          ProviderCatalogQuery query,
-                                         bool reloadedCredentials,
+                                         bool renewalAttempted,
                                          SourceCompletion completion)
 {
     const quint64 epoch = m_epoch;
@@ -324,7 +442,7 @@ void MergedCatalogService::requestMember(const Member &member,
         setSourceState(member.connectionId, QString::fromLatin1(kStateLoading));
     }
     whenSessionReady(member.connectionId,
-                     [this, member, operation, query, reloadedCredentials,
+                     [this, member, operation, query, renewalAttempted,
                       completion, epoch]() mutable {
         if (epoch != m_epoch) {
             return;
@@ -429,20 +547,42 @@ void MergedCatalogService::requestMember(const Member &member,
                     return catalog->parseResponse(operation, body, headers);
                 }));
             },
-            [this, member, operation, query, reloadedCredentials, completion, epoch](
+            [this, member, operation, query, renewalAttempted, completion, epoch](
                 const NetworkError &error) {
                 if (epoch != m_epoch) {
                     return;
                 }
-                const bool rejected = error.httpStatus == 401 || error.httpStatus == 403;
-                const bool pooled = member.connectionId != m_authService->activeConnectionId();
-                if (rejected && pooled && !reloadedCredentials) {
-                    // The active session may have rotated this member's
-                    // tokens in storage since they were pooled.
-                    m_authService->sessionPool()->reload(member.connectionId);
-                    requestMember(member, operation, query, true, completion);
+                const bool unauthorized = error.httpStatus == 401 || error.httpStatus == 403;
+                if (unauthorized && !renewalAttempted) {
+                    // Renew this member's token, sharing the attempt with any
+                    // other request that hit the same expiry, and retry once.
+                    m_authService->renewConnection(
+                        member.connectionId,
+                        [this, member, operation, query, completion, epoch](
+                            TokenRenewal outcome) {
+                        if (epoch != m_epoch) {
+                            return;
+                        }
+                        if (outcome == TokenRenewal::Renewed) {
+                            requestMember(member, operation, query, true, completion);
+                            return;
+                        }
+                        // Only a refused refresh token needs a sign-in; the
+                        // saved tokens stay for a later attempt otherwise.
+                        const bool rejected = outcome == TokenRenewal::Rejected;
+                        const QString message = rejected
+                            ? tr("Sign in to %1 again to include it.").arg(member.label)
+                            : tr("%1 is unavailable.").arg(member.label);
+                        setSourceState(member.connectionId,
+                                       QString::fromLatin1(rejected ? kStateSignInRequired
+                                                                    : kStateFailed),
+                                       message);
+                        completion(failedResult(member, message));
+                    });
                     return;
                 }
+                // Still refused with freshly renewed tokens.
+                const bool rejected = unauthorized;
                 const QString message = rejected
                     ? tr("Sign in to %1 again to include it.").arg(member.label)
                     : (error.userMessage.isEmpty()
@@ -479,6 +619,10 @@ void MergedCatalogService::setSourceState(const QString &connectionId,
                                           const QString &state,
                                           const QString &error)
 {
+    // Library listings for a single space's live connection have no source.
+    if (!isMemberConnection(connectionId)) {
+        return;
+    }
     SourceState &current = m_sourceStates[connectionId];
     if (current.state == state && current.error == error) {
         return;

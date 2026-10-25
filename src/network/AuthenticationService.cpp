@@ -152,8 +152,8 @@ void AuthenticationService::configureTransport()
         return m_requestFactory ? m_requestFactory->redactedUrl(url) : url.toString();
     });
     m_transport->setUnauthorizedRecovery(
-        [this](std::function<void(bool)> completion) {
-            refreshAuthentication(std::move(completion));
+        [this](std::function<void(TokenRenewal)> completion) {
+            renewConnection(activeConnectionId(), std::move(completion));
         });
     connect(m_transport, &HttpTransport::unauthorized,
             this, &AuthenticationService::handleUnauthorized, Qt::UniqueConnection);
@@ -414,9 +414,23 @@ void AuthenticationService::startRestoration()
             m_activeConnection = result.connection;
             m_refreshToken = result.refreshToken;
             m_profileToken = result.profileToken;
+            QString accessToken = result.accessToken;
+            // A merged read renewed this member moments ago; its background
+            // write may not have reached storage yet.
+            const QString connectionId = result.connection.connectionId;
+            std::optional<ConnectionCredentials> renewed;
+            if (m_unsavedRenewals.contains(connectionId)) {
+                renewed = m_unsavedRenewals.value(connectionId);
+            } else {
+                renewed = m_sessionPool->renewedCredentials(connectionId);
+            }
+            if (renewed.has_value()) {
+                accessToken = renewed->accessToken;
+                m_refreshToken = renewed->refreshToken;
+            }
             restoreSession(result.serverUrl,
                            result.userId,
-                           result.accessToken,
+                           accessToken,
                            result.username);
         } else if (!result.error.isEmpty()) {
             qCWarning(lcAuth) << "Session restoration failed:" << result.error;
@@ -770,6 +784,8 @@ void AuthenticationService::handleAuthenticationResult(
             ServerConnection::createCredentialReference(connection.connectionId);
     }
     m_activeConnection = connection;
+    // A new sign-in replaces any renewal still in flight for this account.
+    bumpCredentialEpoch(connection.connectionId);
 
     persistConnection();
     // Keyring writes can block on a locked store, so continue the login flow
@@ -840,6 +856,13 @@ void AuthenticationService::persistCredentialsAsync(std::function<void()> contin
 {
     const std::shared_ptr<ISecretStore> store = m_secretStore;
     const ServerConnection connection = m_activeConnection;
+    // A merged space may also read this account through the pool (after a
+    // route moves the live session away). Hand it the current tokens, so it
+    // never renews with a refresh token this session already rotated.
+    if (connection.isValid() && !m_accessToken.isEmpty()) {
+        m_sessionPool->updateCredentials(connection.connectionId,
+                                         {m_accessToken, m_refreshToken, m_profileToken});
+    }
     if (!store || !connection.isValid()) {
         if (continuation) {
             continuation();
@@ -957,6 +980,9 @@ void AuthenticationService::removeCredentialAsync(const ServerConnection &connec
 void AuthenticationService::removeAllCredentialsAsync(const ServerConnection &connection,
                                                      const QString &deviceId)
 {
+    if (connection.isValid()) {
+        bumpCredentialEpoch(connection.connectionId);
+    }
     const std::shared_ptr<ISecretStore> store = m_secretStore;
     if (!store || !connection.isValid()) {
         return;
@@ -994,10 +1020,24 @@ void AuthenticationService::finishActivation()
     emit connectionActivated(activated);
 }
 
-void AuthenticationService::failRestoration(const QString &error)
+void AuthenticationService::failRestoration(const QString &error, bool keepCredentials)
 {
     if (m_activatingConnectionId.isEmpty()) {
-        clearAccountStateInternal(true, true);
+        if (!keepCredentials) {
+            clearAccountStateInternal(true, true);
+            return;
+        }
+        // The server could not be reached: keep the saved sign-in, and keep
+        // the account selected so the next launch tries it again.
+        const QString connectionId = activeConnectionId();
+        clearAccountStateInternal(false, true);
+        if (m_configManager && !connectionId.isEmpty()
+            && m_configManager->getConnection(connectionId).has_value()) {
+            m_configManager->setActiveConnection(connectionId);
+        }
+        if (!error.isEmpty()) {
+            emit loginError(error);
+        }
         return;
     }
 
@@ -1238,6 +1278,7 @@ void AuthenticationService::selectProfile(const QString &profileId)
         m_transport->cancelAll();
     }
     ++m_stateGeneration;
+    abandonLiveRenewal();
 
     if (!m_profileToken.isEmpty()) {
         m_profileToken.clear();
@@ -1267,6 +1308,7 @@ void AuthenticationService::verifyProfilePin(const QString &profileId, const QSt
         m_transport->cancelAll();
     }
     ++m_stateGeneration;
+    abandonLiveRenewal();
     const quint64 pinGeneration = m_stateGeneration;
     if (profile == m_providerProfiles.cend()) {
         emit loginError(tr("Unknown profile."));
@@ -1518,29 +1560,91 @@ void AuthenticationService::remoteLogout()
         options);
 }
 
-void AuthenticationService::refreshAuthentication(std::function<void(bool)> completion)
+namespace {
+
+// Only an explicit refusal of the refresh token means the sign-in is gone;
+// anything else (no response, server error, deadline) may succeed later.
+TokenRenewal renewalOutcome(const NetworkError &error)
 {
-    if (!m_providerAuthenticator || m_refreshToken.isEmpty()
-        || !m_transport || !networkManager()) {
-        completion(false);
+    const int status = error.httpStatus;
+    return status == 400 || status == 401 || status == 403
+        ? TokenRenewal::Rejected
+        : TokenRenewal::Unavailable;
+}
+
+} // namespace
+
+void AuthenticationService::renewConnection(const QString &connectionId,
+                                            std::function<void(TokenRenewal)> completion)
+{
+    auto &waiting = m_pendingRenewals[connectionId];
+    waiting.append(std::move(completion));
+    if (waiting.size() > 1) {
+        // Joins the attempt already in flight for this connection.
         return;
     }
-    const auto request = m_providerAuthenticator->createRefreshRequest(m_refreshToken);
+    if (connectionId == activeConnectionId()) {
+        refreshLiveSession();
+    } else {
+        renewPooledConnection(connectionId);
+    }
+}
+
+void AuthenticationService::finishRenewal(const QString &connectionId, TokenRenewal outcome)
+{
+    if (connectionId == m_liveRenewalConnectionId) {
+        m_liveRenewalConnectionId.clear();
+    }
+    const auto waiting = m_pendingRenewals.take(connectionId);
+    for (const auto &callback : waiting) {
+        if (callback) {
+            callback(outcome);
+        }
+    }
+}
+
+void AuthenticationService::bumpCredentialEpoch(const QString &connectionId)
+{
+    ++m_credentialEpochs[connectionId];
+    m_unsavedRenewals.remove(connectionId);
+}
+
+void AuthenticationService::abandonLiveRenewal()
+{
+    if (m_liveRenewalConnectionId.isEmpty()) {
+        return;
+    }
+    const QString connectionId = std::exchange(m_liveRenewalConnectionId, QString());
+    const auto waiting = m_pendingRenewals.take(connectionId);
+    // Deliver after the session change that canceled the request finishes.
+    QTimer::singleShot(0, this, [waiting]() {
+        for (const auto &callback : waiting) {
+            if (callback) {
+                callback(TokenRenewal::Unavailable);
+            }
+        }
+    });
+}
+
+void AuthenticationService::refreshLiveSession()
+{
+    const QString connectionId = activeConnectionId();
+    if (!m_transport || !networkManager()) {
+        finishRenewal(connectionId, TokenRenewal::Unavailable);
+        return;
+    }
+    // Without a refresh token (Jellyfin, or a provider that issued none) a
+    // rejected access token cannot be renewed.
+    const auto request = m_providerAuthenticator && !m_refreshToken.isEmpty()
+        ? m_providerAuthenticator->createRefreshRequest(m_refreshToken)
+        : std::nullopt;
     if (!request.has_value() || !request->isValid()) {
-        completion(false);
+        finishRenewal(connectionId, TokenRenewal::Rejected);
         return;
     }
 
+    m_liveRenewalConnectionId = connectionId;
     const quint64 generation = m_stateGeneration;
-    const auto sharedCompletion =
-        std::make_shared<std::function<void(bool)>>(std::move(completion));
-    const auto complete = [sharedCompletion](bool success) {
-        if (!*sharedCompletion) {
-            return;
-        }
-        auto callback = std::move(*sharedCompletion);
-        callback(success);
-    };
     HttpRequestOptions options;
     options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
     m_transport->sendWithRetry(
@@ -1549,15 +1653,16 @@ void AuthenticationService::refreshAuthentication(std::function<void(bool)> comp
         [this, endpoint = request->endpoint, body = request->body]() {
             return networkManager()->post(createUnauthenticatedRequest(endpoint), body);
         },
-        [this, generation, complete](QNetworkReply *reply) {
+        [this, generation, connectionId](QNetworkReply *reply) {
             if (generation != m_stateGeneration) {
-                complete(false);
+                finishRenewal(connectionId, TokenRenewal::Unavailable);
                 return;
             }
             const ProviderAuthenticationResult authentication =
                 m_providerAuthenticator->parseRefreshResponse(reply->readAll());
             if (!authentication.isValidRefresh()) {
-                complete(false);
+                qCWarning(lcAuth) << "Token refresh returned an unreadable response";
+                finishRenewal(connectionId, TokenRenewal::Unavailable);
                 return;
             }
             m_accessToken = authentication.accessToken;
@@ -1567,12 +1672,141 @@ void AuthenticationService::refreshAuthentication(std::function<void(bool)> comp
             // Persist in the background: the refreshed tokens are already in
             // memory, so request recovery must not wait on keyring latency.
             persistCredentialsAsync();
-            complete(true);
+            finishRenewal(connectionId, TokenRenewal::Renewed);
         },
-        [this, generation, complete](const NetworkError &) {
-            if (generation == m_stateGeneration) {
-                complete(false);
+        [this, generation, connectionId](const NetworkError &error) {
+            finishRenewal(connectionId, generation == m_stateGeneration
+                                            ? renewalOutcome(error)
+                                            : TokenRenewal::Unavailable);
+        },
+        options);
+}
+
+void AuthenticationService::renewPooledConnection(const QString &connectionId)
+{
+    const auto connection = m_sessionPool->connection(connectionId);
+    IProviderAdapter *adapter = providerForConnection(connectionId);
+    const IProviderAuthenticator *authenticator = adapter ? adapter->authenticator() : nullptr;
+    if (!connection.has_value() || !authenticator || !adapter->requestFactory()
+        || !networkManager()) {
+        finishRenewal(connectionId, TokenRenewal::Unavailable);
+        return;
+    }
+    if (m_sessionPool->isRejected(connectionId)) {
+        finishRenewal(connectionId, TokenRenewal::Rejected);
+        return;
+    }
+    const auto credentials = m_sessionPool->credentials(connectionId);
+    if (!credentials.has_value()) {
+        // Still loading from storage.
+        finishRenewal(connectionId, TokenRenewal::Unavailable);
+        return;
+    }
+    const auto request = credentials->refreshToken.isEmpty()
+        ? std::nullopt
+        : authenticator->createRefreshRequest(credentials->refreshToken);
+    if (!request.has_value() || !request->isValid()) {
+        m_sessionPool->markRejected(connectionId);
+        finishRenewal(connectionId, TokenRenewal::Rejected);
+        return;
+    }
+
+    if (!m_renewalTransport) {
+        m_renewalTransport = std::make_unique<HttpTransport>(networkManager());
+        m_renewalTransport->setUrlRedactor([](const QUrl &url) {
+            return url.toString(QUrl::RemoveQuery | QUrl::RemoveUserInfo);
+        });
+    }
+    ProviderRequestContext context = requestContext(false);
+    context.baseUrl = connection->baseUrl;
+    const QNetworkRequest networkRequest =
+        adapter->requestFactory()->createRequest(context, request->endpoint);
+    const quint64 epoch = m_credentialEpochs.value(connectionId);
+    HttpRequestOptions options;
+    options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
+    options.attemptTimeoutMs = 15000;
+    m_renewalTransport->sendWithRetry(
+        this,
+        request->endpoint,
+        [this, networkRequest, body = request->body]() {
+            return networkManager()->post(networkRequest, body);
+        },
+        [this, connectionId, epoch, credentials = *credentials,
+         authenticator](QNetworkReply *reply) {
+            const ProviderAuthenticationResult authentication =
+                authenticator->parseRefreshResponse(reply->readAll());
+            if (!authentication.isValidRefresh()) {
+                qCWarning(lcAuth) << "Token refresh returned an unreadable response";
+                finishRenewal(connectionId, TokenRenewal::Unavailable);
+                return;
             }
+            // Signed in again, signed out, or removed while renewing: these
+            // tokens must not replace the new sign-in or revive a deleted one.
+            const auto saved = m_configManager
+                ? m_configManager->getConnection(connectionId) : std::nullopt;
+            if (m_credentialEpochs.value(connectionId) != epoch || !saved.has_value()) {
+                finishRenewal(connectionId, TokenRenewal::Unavailable);
+                return;
+            }
+            ConnectionCredentials renewed = credentials;
+            renewed.accessToken = authentication.accessToken;
+            if (!authentication.refreshToken.isEmpty()) {
+                renewed.refreshToken = authentication.refreshToken;
+            }
+            if (m_activeConnection.isValid() && m_activeConnection.connectionId == connectionId) {
+                // It became the live (or restoring) session meanwhile; that
+                // session adopts the rotated tokens. Persisting also updates
+                // the pool.
+                m_accessToken = renewed.accessToken;
+                m_refreshToken = renewed.refreshToken;
+                persistCredentialsAsync();
+                finishRenewal(connectionId, TokenRenewal::Renewed);
+                return;
+            }
+            // Saved even when a space switch dropped the member from the
+            // pool: the server may have retired the old refresh token.
+            m_sessionPool->updateCredentials(connectionId, renewed);
+            m_unsavedRenewals.insert(connectionId, renewed);
+            const std::shared_ptr<ISecretStore> store = m_secretStore;
+            if (store) {
+                const QPointer<AuthenticationService> guard(this);
+                enqueueCredentialTask([store, connection = *saved, renewed, guard]() {
+                    CredentialStore credentialStore(store.get());
+                    const bool stored = credentialStore.write(
+                        connection, CredentialKind::AccessToken, renewed.accessToken)
+                        && credentialStore.write(
+                            connection, CredentialKind::RefreshToken, renewed.refreshToken);
+                    if (!stored) {
+                        qCWarning(lcAuth) << "Could not save renewed tokens:"
+                                          << store->lastError();
+                    }
+                    QMetaObject::invokeMethod(guard, [guard, connection, renewed]() {
+                        if (!guard) {
+                            return;
+                        }
+                        const auto unsaved = guard->m_unsavedRenewals.constFind(
+                            connection.connectionId);
+                        if (unsaved != guard->m_unsavedRenewals.cend()
+                            && unsaved->accessToken == renewed.accessToken) {
+                            guard->m_unsavedRenewals.erase(unsaved);
+                        }
+                    }, Qt::QueuedConnection);
+                });
+            }
+            finishRenewal(connectionId, TokenRenewal::Renewed);
+        },
+        [this, connectionId, epoch](const NetworkError &error) {
+            if (m_credentialEpochs.value(connectionId) != epoch) {
+                // Refers to a sign-in that has since been replaced.
+                finishRenewal(connectionId, TokenRenewal::Unavailable);
+                return;
+            }
+            const TokenRenewal outcome = renewalOutcome(error);
+            if (outcome == TokenRenewal::Rejected) {
+                qCWarning(lcAuth) << "Server rejected token renewal for a space member";
+                m_sessionPool->markRejected(connectionId);
+            }
+            finishRenewal(connectionId, outcome);
         },
         options);
 }
@@ -1586,6 +1820,7 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
         m_transport->cancelAll();
     }
     ++m_stateGeneration;
+    abandonLiveRenewal();
     const quint64 generation = m_stateGeneration;
     const QString normalizedServerUrl = normalizeUrl(serverUrl);
     const bool switchingAccount = m_activeConnection.isValid()
@@ -1623,31 +1858,44 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
         }
     };
 
-    validateAccessToken([this, generation, finishRestore](bool valid) {
+    const QString unreachable =
+        tr("Could not reach the server. Your sign-in is saved, so try again later.");
+    validateAccessToken([this, generation, finishRestore, unreachable](SessionValidity validity) {
         if (generation != m_stateGeneration) {
             return;
         }
-        if (valid) {
+        if (validity == SessionValidity::Valid) {
             finishRestore();
             return;
         }
-        refreshAuthentication([this, generation, finishRestore](bool refreshed) {
+        if (validity == SessionValidity::Unreachable) {
+            failRestoration(unreachable, true);
+            return;
+        }
+        renewConnection(activeConnectionId(),
+                        [this, generation, finishRestore, unreachable](TokenRenewal outcome) {
             if (generation != m_stateGeneration) {
                 return;
             }
-            if (!refreshed) {
-                qCWarning(lcAuth) << "Stored session is invalid or expired";
-                failRestoration(QString());
+            if (outcome != TokenRenewal::Renewed) {
+                qCWarning(lcAuth) << (outcome == TokenRenewal::Rejected
+                                          ? "Stored session is invalid or expired"
+                                          : "Could not reach the server to renew the session");
+                failRestoration(outcome == TokenRenewal::Rejected ? QString() : unreachable,
+                                outcome == TokenRenewal::Unavailable);
                 return;
             }
-            validateAccessToken([this, generation, finishRestore](bool refreshValid) {
+            validateAccessToken([this, generation, finishRestore, unreachable](
+                                    SessionValidity renewedValidity) {
                 if (generation != m_stateGeneration) {
                     return;
                 }
-                if (refreshValid) {
+                if (renewedValidity == SessionValidity::Valid) {
                     finishRestore();
                 } else {
-                    failRestoration(QString());
+                    failRestoration(
+                        renewedValidity == SessionValidity::Unreachable ? unreachable : QString(),
+                        renewedValidity == SessionValidity::Unreachable);
                 }
             });
         });
@@ -1692,6 +1940,7 @@ void AuthenticationService::clearProfileStateInternal(bool persist)
         m_transport->cancelAll();
     }
     ++m_stateGeneration;
+    abandonLiveRenewal();
     m_pendingProfileId.clear();
     m_profileToken.clear();
     m_activeConnection.profileId.clear();
@@ -1723,6 +1972,7 @@ void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
     Bloom::ArtworkRef::clearTransientSourceUrls();
     const bool wasAuthenticated = isAuthenticated();
     ++m_stateGeneration;
+    abandonLiveRenewal();
     m_activatingConnectionId.clear();
     m_activationFallbackConnectionId.clear();
 
@@ -1830,27 +2080,29 @@ void AuthenticationService::handleUnauthorized(bool deferLogout)
     }
 }
 
-void AuthenticationService::validateAccessToken(std::function<void(bool)> callback)
+void AuthenticationService::validateAccessToken(std::function<void(SessionValidity)> callback)
 {
-    if (!m_providerAuthenticator || m_accessToken.isEmpty() || m_userId.isEmpty()
-        || !m_transport || !networkManager()) {
-        callback(false);
+    if (!m_transport || !networkManager()) {
+        callback(SessionValidity::Unreachable);
         return;
     }
-    const QString endpoint = m_providerAuthenticator->sessionValidationEndpoint(m_userId);
-    if (endpoint.isEmpty()) {
-        callback(false);
+    const QString endpoint = m_providerAuthenticator && !m_userId.isEmpty()
+        ? m_providerAuthenticator->sessionValidationEndpoint(m_userId)
+        : QString();
+    // No access token (only a refresh token was saved) needs a renewal.
+    if (m_accessToken.isEmpty() || endpoint.isEmpty()) {
+        callback(SessionValidity::Invalid);
         return;
     }
 
     const auto sharedCallback =
-        std::make_shared<std::function<void(bool)>>(std::move(callback));
-    const auto complete = [sharedCallback](bool valid) {
+        std::make_shared<std::function<void(SessionValidity)>>(std::move(callback));
+    const auto complete = [sharedCallback](SessionValidity validity) {
         if (!*sharedCallback) {
             return;
         }
         auto resultCallback = std::move(*sharedCallback);
-        resultCallback(valid);
+        resultCallback(validity);
     };
     HttpRequestOptions options;
     options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
@@ -1866,10 +2118,14 @@ void AuthenticationService::validateAccessToken(std::function<void(bool)> callba
             const ProviderAuthenticationResult identity =
                 m_providerAuthenticator->parseSessionValidationResponse(reply->readAll());
             complete(statusCode >= 200 && statusCode < 300
-                     && identity.accountId == m_userId);
+                             && identity.accountId == m_userId
+                         ? SessionValidity::Valid
+                         : SessionValidity::Invalid);
         },
-        [complete](const NetworkError &) {
-            complete(false);
+        [complete](const NetworkError &error) {
+            complete(error.httpStatus == 401 || error.httpStatus == 403
+                         ? SessionValidity::Invalid
+                         : SessionValidity::Unreachable);
         },
         options);
 }

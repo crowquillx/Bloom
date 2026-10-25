@@ -169,6 +169,7 @@ private slots:
     void adapterExposesProfileAndSessionRoutes();
     void authenticatorDistinguishesIncorrectAndValidProfilePins();
     void unauthorizedRequestRefreshesAndRetriesExactlyOnce();
+    void unreachableRefreshKeepsLiveSession();
     void concurrentUnauthorizedRequestsShareOneRefresh();
     void failedSharedRefreshExpiresSessionOnce();
     void profileTokenIsBoundToSelectionAndClearedOnSwitch();
@@ -599,6 +600,53 @@ void SiloAuthenticationTest::unauthorizedRequestRefreshesAndRetriesExactlyOnce()
              QStringLiteral("refresh-1"));
     QCOMPARE(manager.requests.at(initialRequestCount + 2).request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-2"));
+}
+
+void SiloAuthenticationTest::unreachableRefreshKeepsLiveSession()
+{
+    FakeNetworkAccessManager manager;
+    manager.responses = {
+        response(200, successfulLogin()),
+        response(200, singleUnlockedProfile())
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    service.setProviderSelection(QStringLiteral("silo"));
+    service.authenticate(QStringLiteral("https://silo.example.test"),
+                         QStringLiteral("Alice"),
+                         QStringLiteral("password"));
+    QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
+
+    manager.responses.append(response(401,
+        QByteArrayLiteral(
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
+    // The refresh endpoint is down; the refresh token was never refused.
+    manager.responses.append(response(503, QByteArray()));
+
+    int failures = 0;
+    NetworkError received;
+    QSignalSpy expiredSpy(&service, &AuthenticationService::sessionExpired);
+    HttpRequestOptions options;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    transport.sendWithRetry(
+        this, QStringLiteral("/api/v2/protected"),
+        [&]() -> QNetworkReply * {
+            return manager.get(service.createRequest(QStringLiteral("/api/v2/protected")));
+        },
+        [](QNetworkReply *) {},
+        [&](const NetworkError &error) {
+            received = error;
+            ++failures;
+        },
+        options);
+
+    QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
+    QCOMPARE(expiredSpy.count(), 0);
+    QVERIFY(service.isAuthenticated());
+    QCOMPARE(received.httpStatus, 0);
+    QCOMPARE(manager.requests.constLast().request.url().path(),
+             QStringLiteral("/api/v2/auth/refresh"));
 }
 
 void SiloAuthenticationTest::concurrentUnauthorizedRequestsShareOneRefresh()

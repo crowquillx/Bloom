@@ -31,7 +31,7 @@ Logout removes all provider-neutral credential kinds for the active connection a
 
 Native Silo login, refresh, `/auth/me`, and profile PIN request/response wire contracts are owned by `SiloAuthenticator`; adapter route mapping/model parsing supplies provider discovery, caller logout, auth-session operations, and profile listing. Bearer access/refresh tokens and the optional profile token are stored only through `CredentialStore`; `SiloRequestFactory` adds device/profile headers to same-origin native requests and redacts token-bearing query parameters in logs. Signed media/artwork URLs are opaque fetch locations, not credentials to copy into config or reconstruct.
 
-Native and compatibility connections are separate. A Silo compatibility listener uses the MediaBrowser/Jellyfin credential flow and profile suffix limitations; the native listener uses `/api/v1` and must pass health detection. A `401` is handled by the selected provider's refresh-once policy, then provider-aware session expiry/logout; Bloom never retries native requests by switching to a Jellyfin endpoint.
+Native and compatibility connections are separate. A Silo compatibility listener uses the MediaBrowser/Jellyfin credential flow and profile suffix limitations; the native listener uses `/api/v1` and must pass health detection. A `401` is handled by the selected provider's refresh-once policy. Only a refused refresh leads to provider-aware session expiry/logout; when the refresh endpoint cannot be reached, Bloom keeps the stored tokens and tries again later; Bloom never retries native requests by switching to a Jellyfin endpoint.
 
 **Requirements**:
 - On Linux, a Secret Service-compatible keyring must be available (GNOME Keyring or KWallet).

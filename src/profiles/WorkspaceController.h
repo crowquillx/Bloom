@@ -6,6 +6,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
+#include <optional>
 
 class AuthenticationService;
 class BloomProfileRepository;
@@ -68,6 +69,19 @@ public:
     Q_INVOKABLE bool setMemberLabel(const QString &profileId,
                                     const QString &memberId,
                                     const QString &label);
+    /// Replaces a source's browse and search library exclusions.
+    Q_INVOKABLE bool setMemberLibraries(const QString &profileId,
+                                        const QString &memberId,
+                                        const QStringList &hiddenLibraryIds,
+                                        const QStringList &searchHiddenLibraryIds);
+    /// Drops the libraries the active space hides from browsing. Each view
+    /// is matched to its source by connectionId; merged views arrive from
+    /// MergedCatalog already filtered.
+    Q_INVOKABLE QVariantList visibleLibraries(const QVariantList &views) const;
+    /// Library IDs the active space hides from browsing for a connection.
+    Q_INVOKABLE QStringList hiddenLibraryIds(const QString &connectionId) const;
+    /// Library IDs the active space leaves out of search for a connection.
+    Q_INVOKABLE QStringList searchHiddenLibraryIds(const QString &connectionId) const;
 
     /// Leaves the current session (credentials kept) for the sign-in screen.
     /// An empty target creates a new single space for the new connection;
@@ -93,6 +107,8 @@ signals:
     /// A different space is active and its session is ready.
     void workspaceSwitched();
     void switchFailed(const QString &error);
+    /// The active space changed which libraries it shows or searches.
+    void libraryVisibilityChanged();
     void routeReady(const QString &connectionId);
     void routeFailed(const QString &connectionId, const QString &error);
 
@@ -111,6 +127,7 @@ private:
     void setAddingConnection(bool adding);
     QString createSingleProfileFor(const QString &connectionId);
     bool profileContainsEnabled(const BloomProfile &profile, const QString &connectionId) const;
+    std::optional<BloomProfileMember> activeMember(const QString &connectionId) const;
     QVariantMap connectionMap(const ServerConnection &connection) const;
 
     AuthenticationService *m_authService = nullptr;

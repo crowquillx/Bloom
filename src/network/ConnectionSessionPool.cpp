@@ -21,6 +21,8 @@ ConnectionSessionPool::ConnectionSessionPool(std::shared_ptr<ISecretStore> secre
         CredentialStore credentialStore(store.get());
         credentials.accessToken =
             credentialStore.read(connection, CredentialKind::AccessToken);
+        credentials.refreshToken =
+            credentialStore.read(connection, CredentialKind::RefreshToken);
         if (!connection.profileId.isEmpty()) {
             credentials.profileToken =
                 credentialStore.read(connection, CredentialKind::ProfileToken);
@@ -61,6 +63,8 @@ void ConnectionSessionPool::setConnections(const QList<ServerConnection> &connec
         it->connection = connection;
         if (identityChanged) {
             it->credentials = {};
+            it->renewed = false;
+            it->rejected = false;
             startLoad(connection.connectionId);
         }
     }
@@ -86,12 +90,66 @@ void ConnectionSessionPool::reload(const QString &connectionId)
         return;
     }
     it->credentials = {};
+    it->renewed = false;
+    it->rejected = false;
     startLoad(connectionId);
 }
 
 void ConnectionSessionPool::forget(const QString &connectionId)
 {
     m_entries.remove(connectionId);
+}
+
+void ConnectionSessionPool::updateCredentials(const QString &connectionId,
+                                              const ConnectionCredentials &credentials)
+{
+    auto it = m_entries.find(connectionId);
+    if (it == m_entries.end() || !credentials.isValid()) {
+        return;
+    }
+    const bool wasLoading = it->loading;
+    // A load still running read older tokens from storage.
+    it->loadGeneration = ++m_nextLoadGeneration;
+    it->loading = false;
+    it->credentials = credentials;
+    it->renewed = true;
+    it->rejected = false;
+    if (wasLoading) {
+        emit connectionReady(connectionId, true);
+    }
+}
+
+void ConnectionSessionPool::markRejected(const QString &connectionId)
+{
+    auto it = m_entries.find(connectionId);
+    if (it == m_entries.end()) {
+        return;
+    }
+    const bool wasLoading = it->loading;
+    it->loadGeneration = ++m_nextLoadGeneration;
+    it->loading = false;
+    it->credentials = {};
+    it->renewed = false;
+    it->rejected = true;
+    if (wasLoading) {
+        emit connectionReady(connectionId, false);
+    }
+}
+
+bool ConnectionSessionPool::isRejected(const QString &connectionId) const
+{
+    const auto it = m_entries.constFind(connectionId);
+    return it != m_entries.cend() && it->rejected;
+}
+
+std::optional<ConnectionCredentials> ConnectionSessionPool::renewedCredentials(
+    const QString &connectionId) const
+{
+    const auto it = m_entries.constFind(connectionId);
+    if (it == m_entries.cend() || !it->renewed || !it->credentials.isValid()) {
+        return std::nullopt;
+    }
+    return it->credentials;
 }
 
 bool ConnectionSessionPool::isTracked(const QString &connectionId) const

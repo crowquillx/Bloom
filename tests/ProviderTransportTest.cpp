@@ -153,6 +153,7 @@ private slots:
     void transportCapsUnauthorizedRetryAtOne();
     void transportBoundsUnauthorizedRecovery();
     void transportTreatsRefreshFailureAsTerminal();
+    void transportKeepsSessionWhenRenewalUnavailable();
     void transportSeparatesNetworkAndHttpErrors();
     void retryAfterIsBounded();
     void cancellationIsNotClassifiedAsTransient();
@@ -494,7 +495,7 @@ void ProviderTransportTest::transportTreatsTimedOut401AsTimeout()
     int failures = 0;
     NetworkError received;
     transport.setUnauthorizedRecovery(
-        [&](std::function<void(bool)>) { ++refreshes; });
+        [&](std::function<void(TokenRenewal)>) { ++refreshes; });
 
     HttpRequestOptions options;
     options.retryPolicy = RetryPolicy{1, 0, true, 0, 0.0};
@@ -566,9 +567,9 @@ void ProviderTransportTest::transportCoalescesUnauthorizedRecovery()
     int failures = 0;
     QList<QNetworkRequest> requests;
     QList<QByteArray> bodies;
-    std::function<void(bool)> finishRefresh;
+    std::function<void(TokenRenewal)> finishRefresh;
 
-    transport.setUnauthorizedRecovery([&](std::function<void(bool)> completion) {
+    transport.setUnauthorizedRecovery([&](std::function<void(TokenRenewal)> completion) {
         ++refreshes;
         finishRefresh = std::move(completion);
     });
@@ -613,7 +614,7 @@ void ProviderTransportTest::transportCoalescesUnauthorizedRecovery()
 
     QTRY_COMPARE_WITH_TIMEOUT(refreshes, 1, 1000);
     QVERIFY(finishRefresh);
-    finishRefresh(true);
+    finishRefresh(TokenRenewal::Renewed);
     QTRY_COMPARE_WITH_TIMEOUT(successes, 2, 1000);
     QCOMPARE(failures, 0);
     QCOMPARE(firstAttempts, 2);
@@ -637,8 +638,8 @@ void ProviderTransportTest::transportCapsUnauthorizedRetryAtOne()
     int refreshes = 0;
     int attempts = 0;
     int failures = 0;
-    std::function<void(bool)> finishRefresh;
-    transport.setUnauthorizedRecovery([&](std::function<void(bool)> completion) {
+    std::function<void(TokenRenewal)> finishRefresh;
+    transport.setUnauthorizedRecovery([&](std::function<void(TokenRenewal)> completion) {
         ++refreshes;
         finishRefresh = std::move(completion);
     });
@@ -668,7 +669,7 @@ void ProviderTransportTest::transportCapsUnauthorizedRetryAtOne()
 
     QTRY_COMPARE_WITH_TIMEOUT(refreshes, 1, 1000);
     QVERIFY(finishRefresh);
-    finishRefresh(true);
+    finishRefresh(TokenRenewal::Renewed);
     QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
     QCOMPARE(attempts, 2);
     QCOMPARE(refreshes, 1);
@@ -682,9 +683,9 @@ void ProviderTransportTest::transportBoundsUnauthorizedRecovery()
     int failures = 0;
     int successes = 0;
     NetworkError received;
-    std::function<void(bool)> finishRefresh;
+    std::function<void(TokenRenewal)> finishRefresh;
     transport.setUnauthorizedRecovery(
-        [&](std::function<void(bool)> completion) {
+        [&](std::function<void(TokenRenewal)> completion) {
             ++refreshes;
             finishRefresh = std::move(completion);
         });
@@ -713,14 +714,15 @@ void ProviderTransportTest::transportBoundsUnauthorizedRecovery()
     QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
     QCOMPARE(refreshes, 1);
     QCOMPARE(successes, 0);
-    QCOMPARE(unauthorizedSpy.count(), 1);
+    // A renewal that runs out of time is not a rejection: the session stays.
+    QCOMPARE(unauthorizedSpy.count(), 0);
+    QCOMPARE(received.httpStatus, 0);
     QCOMPARE(received.networkErrorCode,
              static_cast<int>(QNetworkReply::TimeoutError));
-    QVERIFY(received.userMessage.contains(
-        QStringLiteral("recovery timed out"), Qt::CaseInsensitive));
+    QVERIFY(received.userMessage.contains(QStringLiteral("timed out"), Qt::CaseInsensitive));
 
     QVERIFY(finishRefresh);
-    finishRefresh(true);
+    finishRefresh(TokenRenewal::Renewed);
     QTest::qWait(30);
     QCOMPARE(failures, 1);
     QCOMPARE(successes, 0);
@@ -729,11 +731,12 @@ void ProviderTransportTest::transportBoundsUnauthorizedRecovery()
 void ProviderTransportTest::transportTreatsRefreshFailureAsTerminal()
 {
     HttpTransport transport;
+    QSignalSpy unauthorizedSpy(&transport, &HttpTransport::unauthorized);
     int refreshes = 0;
     int attempts = 0;
     int failures = 0;
-    std::function<void(bool)> finishRefresh;
-    transport.setUnauthorizedRecovery([&](std::function<void(bool)> completion) {
+    std::function<void(TokenRenewal)> finishRefresh;
+    transport.setUnauthorizedRecovery([&](std::function<void(TokenRenewal)> completion) {
         ++refreshes;
         finishRefresh = std::move(completion);
     });
@@ -761,10 +764,56 @@ void ProviderTransportTest::transportTreatsRefreshFailureAsTerminal()
 
     QTRY_COMPARE_WITH_TIMEOUT(refreshes, 1, 1000);
     QVERIFY(finishRefresh);
-    finishRefresh(false);
+    finishRefresh(TokenRenewal::Rejected);
     QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
     QCOMPARE(attempts, 1);
     QCOMPARE(refreshes, 1);
+    QCOMPARE(unauthorizedSpy.count(), 1);
+}
+
+void ProviderTransportTest::transportKeepsSessionWhenRenewalUnavailable()
+{
+    HttpTransport transport;
+    QSignalSpy unauthorizedSpy(&transport, &HttpTransport::unauthorized);
+    int attempts = 0;
+    int failures = 0;
+    NetworkError received;
+    std::function<void(TokenRenewal)> finishRefresh;
+    transport.setUnauthorizedRecovery([&](std::function<void(TokenRenewal)> completion) {
+        finishRefresh = std::move(completion);
+    });
+
+    HttpRequestOptions options;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/api/v2/protected"),
+        [&]() -> QNetworkReply * {
+            ++attempts;
+            return new FakeReply(
+                requestFor(QStringLiteral("/api/v2/protected")),
+                QNetworkReply::NoError,
+                401,
+                QByteArray(),
+                &transport);
+        },
+        [](QNetworkReply *) {},
+        [&](const NetworkError &error) {
+            received = error;
+            ++failures;
+        },
+        options);
+
+    QTRY_VERIFY_WITH_TIMEOUT(static_cast<bool>(finishRefresh), 1000);
+    finishRefresh(TokenRenewal::Unavailable);
+    QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
+    // The server could not renew the token right now: report a temporary
+    // failure without expiring the session.
+    QCOMPARE(attempts, 1);
+    QCOMPARE(unauthorizedSpy.count(), 0);
+    QCOMPARE(received.httpStatus, 0);
+    QCOMPARE(received.networkErrorCode,
+             static_cast<int>(QNetworkReply::TemporaryNetworkFailureError));
 }
 
 void ProviderTransportTest::transportSeparatesNetworkAndHttpErrors()

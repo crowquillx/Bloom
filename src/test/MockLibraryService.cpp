@@ -494,9 +494,11 @@ void MockLibraryService::getThemeSongs(const QString &seriesId)
     emit themeSongPlaybackLoaded(seriesId, QStringList(), false);
 }
 
-void MockLibraryService::search(const QString &searchTerm, int limit)
+void MockLibraryService::search(const QString &searchTerm, int limit,
+                                const QStringList &excludedLibraryIds)
 {
     Q_UNUSED(limit)
+    Q_UNUSED(excludedLibraryIds)
     
     QJsonArray matchedMovies;
     QJsonArray matchedSeries;

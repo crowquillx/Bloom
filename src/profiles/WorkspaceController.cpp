@@ -5,6 +5,7 @@
 #include "utils/BloomLogging.h"
 #include "utils/ConfigManager.h"
 
+#include <QHash>
 #include <QUrl>
 
 #include <utility>
@@ -106,6 +107,8 @@ QVariantList WorkspaceController::profiles() const
             map.insert(QStringLiteral("enabled"), member.enabled);
             map.insert(QStringLiteral("priority"), member.priority);
             map.insert(QStringLiteral("isDefault"), member.memberId == profile.defaultMemberId);
+            map.insert(QStringLiteral("hiddenLibraryIds"), member.hiddenLibraryIds);
+            map.insert(QStringLiteral("searchHiddenLibraryIds"), member.searchHiddenLibraryIds);
             members.append(map);
         }
         result.append(QVariantMap{
@@ -404,6 +407,72 @@ bool WorkspaceController::setMemberLabel(const QString &profileId,
         }
     }
     return false;
+}
+
+bool WorkspaceController::setMemberLibraries(const QString &profileId,
+                                             const QString &memberId,
+                                             const QStringList &hiddenLibraryIds,
+                                             const QStringList &searchHiddenLibraryIds)
+{
+    auto profile = m_repository ? m_repository->profile(profileId) : std::nullopt;
+    if (!profile.has_value()) {
+        return false;
+    }
+    for (BloomProfileMember &member : profile->members) {
+        if (member.memberId != memberId) {
+            continue;
+        }
+        const QStringList hidden = BloomProfileMember::normalizedLibraryIds(hiddenLibraryIds);
+        const QStringList searchHidden =
+            BloomProfileMember::normalizedLibraryIds(searchHiddenLibraryIds);
+        if (member.hiddenLibraryIds == hidden && member.searchHiddenLibraryIds == searchHidden) {
+            return true;
+        }
+        member.hiddenLibraryIds = hidden;
+        member.searchHiddenLibraryIds = searchHidden;
+        if (!m_repository->upsertProfile(*profile)) {
+            return false;
+        }
+        if (profile->id == activeProfileId()) {
+            emit libraryVisibilityChanged();
+        }
+        return true;
+    }
+    return false;
+}
+
+QVariantList WorkspaceController::visibleLibraries(const QVariantList &views) const
+{
+    const auto profile = m_repository ? m_repository->activeProfile() : std::nullopt;
+    if (!profile.has_value()) {
+        return views;
+    }
+    QHash<QString, QStringList> hiddenByConnection;
+    for (const BloomProfileMember &member : profile->members) {
+        hiddenByConnection.insert(member.connectionId, member.hiddenLibraryIds);
+    }
+    QVariantList result;
+    for (const QVariant &value : views) {
+        const QVariantMap view = value.toMap();
+        const QStringList hidden =
+            hiddenByConnection.value(view.value(QStringLiteral("connectionId")).toString());
+        if (!hidden.contains(view.value(QStringLiteral("itemId")).toString())) {
+            result.append(value);
+        }
+    }
+    return result;
+}
+
+QStringList WorkspaceController::hiddenLibraryIds(const QString &connectionId) const
+{
+    const auto member = activeMember(connectionId);
+    return member.has_value() ? member->hiddenLibraryIds : QStringList();
+}
+
+QStringList WorkspaceController::searchHiddenLibraryIds(const QString &connectionId) const
+{
+    const auto member = activeMember(connectionId);
+    return member.has_value() ? member->searchHiddenLibraryIds : QStringList();
 }
 
 void WorkspaceController::beginAddConnection(const QString &targetProfileId)
@@ -729,6 +798,20 @@ bool WorkspaceController::profileContainsEnabled(const BloomProfile &profile,
         }
     }
     return false;
+}
+
+std::optional<BloomProfileMember> WorkspaceController::activeMember(const QString &connectionId) const
+{
+    const auto profile = m_repository ? m_repository->activeProfile() : std::nullopt;
+    if (!profile.has_value() || connectionId.isEmpty()) {
+        return std::nullopt;
+    }
+    for (const BloomProfileMember &member : profile->members) {
+        if (member.connectionId == connectionId) {
+            return member;
+        }
+    }
+    return std::nullopt;
 }
 
 QVariantMap WorkspaceController::connectionMap(const ServerConnection &connection) const

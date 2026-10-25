@@ -25,6 +25,15 @@ private:
     QPointer<QNetworkReply> m_reply;
 };
 
+// Outcome of renewing a connection's access token. Only Rejected means the
+// user must sign in again; Unavailable (network failure, server error, or a
+// deadline) keeps the stored credentials for a later attempt.
+enum class TokenRenewal {
+    Renewed,
+    Rejected,
+    Unavailable
+};
+
 enum class UnauthorizedPolicy {
     Ignore,
     ExpireSession,
@@ -58,7 +67,7 @@ public:
     using ResponseHandler = std::function<void(QNetworkReply *)>;
     using FailureHandler = std::function<void(const NetworkError &)>;
     using UrlRedactor = std::function<QString(const QUrl &)>;
-    using UnauthorizedRecovery = std::function<void(std::function<void(bool)>)>;
+    using UnauthorizedRecovery = std::function<void(std::function<void(TokenRenewal)>)>;
 
     explicit HttpTransport(QObject *parent = nullptr);
     explicit HttpTransport(QNetworkAccessManager *networkManager, QObject *parent = nullptr);
@@ -86,7 +95,7 @@ private:
     quint64 m_unauthorizedRecoveryGeneration = 0;
     quint64 m_authenticationEpoch = 0;
     QTimer m_unauthorizedRecoveryTimer;
-    QList<std::function<void(bool, bool)>> m_pendingUnauthorizedRecoveries;
+    QList<std::function<void(TokenRenewal, bool)>> m_pendingUnauthorizedRecoveries;
 
     void initializeRecoveryTimer();
     void startAttempt(const QPointer<HttpRequestHandle> &handle,
@@ -99,10 +108,10 @@ private:
                       int attemptNumber,
                       bool authenticationRetried,
                       quint64 authenticationEpoch);
-    void recoverUnauthorized(std::function<void(bool, bool)> completion,
+    void recoverUnauthorized(std::function<void(TokenRenewal, bool)> completion,
                              int timeoutMs);
     void finishUnauthorizedRecovery(quint64 generation,
-                                    bool recovered,
+                                    TokenRenewal outcome,
                                     bool timedOut);
     QString redactedEndpoint(const QString &endpoint, const QNetworkReply *reply = nullptr) const;
 };

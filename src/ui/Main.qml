@@ -1077,19 +1077,29 @@ Window {
         target: typeof MergedCatalog !== "undefined" ? MergedCatalog : null
         ignoreUnknownSignals: true
 
+        // "Sign in required" only when the server refused to renew a
+        // source's sign-in; network trouble keeps it "Unavailable".
         function onSourcesChanged() {
             var unavailable = []
+            var signInRequired = []
             var sources = MergedCatalog.sources || []
             for (var i = 0; i < sources.length; ++i) {
-                if (sources[i].state === "failed" || sources[i].state === "signInRequired")
+                if (sources[i].state === "failed")
                     unavailable.push(sources[i].label)
+                else if (sources[i].state === "signInRequired")
+                    signInRequired.push(sources[i].label)
             }
-            var summary = unavailable.join(", ")
+            var messages = []
+            if (signInRequired.length > 0)
+                messages.push(qsTr("Sign in required: %1").arg(signInRequired.join(", ")))
+            if (unavailable.length > 0)
+                messages.push(qsTr("Unavailable right now: %1").arg(unavailable.join(", ")))
+            var summary = messages.join("\n")
             if (summary === window.lastUnavailableSources)
                 return
             window.lastUnavailableSources = summary
             if (summary !== "" && window.isLoggedIn)
-                toast.show(qsTr("Unavailable right now: %1").arg(summary))
+                toast.show(summary)
         }
     }
 

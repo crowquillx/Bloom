@@ -170,6 +170,7 @@ class BloomProfileRepositoryTest : public QObject
 private slots:
     void defaultConfigHasEmptyBloomProfilesBlock();
     void jsonRoundTripPreservesOrderedMembers();
+    void memberLibraryChoicesRoundTripAndNormalize();
     void multiServerAndTwoUsersOnSamePhysicalServer();
     void duplicateSameConnectionIsDeduped();
     void migrationSeedsOnlyActiveConnectionWithDeterministicIds();
@@ -260,6 +261,58 @@ void BloomProfileRepositoryTest::jsonRoundTripPreservesOrderedMembers()
                                                       QStringLiteral("conn-a"))
             != BloomProfile::createDeterministicMemberId(QStringLiteral("profile-b"),
                                                          QStringLiteral("conn-a")));
+}
+
+void BloomProfileRepositoryTest::memberLibraryChoicesRoundTripAndNormalize()
+{
+    BloomProfileMember member;
+    member.memberId = QStringLiteral("m1");
+    member.connectionId = QStringLiteral("conn-a");
+    QJsonObject json = member.toJson();
+    // No choices: older builds see the same member JSON as before.
+    QVERIFY(!json.contains(QStringLiteral("hidden_library_ids")));
+    QVERIFY(!json.contains(QStringLiteral("search_hidden_library_ids")));
+
+    member.hiddenLibraryIds = {QStringLiteral("lib-kids")};
+    member.searchHiddenLibraryIds = {QStringLiteral("lib-music"), QStringLiteral("lib-kids")};
+    json = member.toJson();
+    const BloomProfileMember parsed = BloomProfileMember::fromJson(json);
+    QCOMPARE(parsed.hiddenLibraryIds, member.hiddenLibraryIds);
+    QCOMPARE(parsed.searchHiddenLibraryIds, member.searchHiddenLibraryIds);
+    QVERIFY(!parsed.isLibraryShown(QStringLiteral("lib-kids")));
+    QVERIFY(parsed.isLibraryShown(QStringLiteral("lib-music")));
+    QVERIFY(!parsed.isLibrarySearchable(QStringLiteral("lib-music")));
+    QVERIFY(parsed.isLibrarySearchable(QStringLiteral("lib-movies")));
+
+    json[QStringLiteral("hidden_library_ids")] =
+        QJsonArray{QStringLiteral(" lib-a "), QStringLiteral(""), QStringLiteral("lib-a"), 7};
+    QCOMPARE(BloomProfileMember::fromJson(json).hiddenLibraryIds,
+             QStringList({QStringLiteral("lib-a")}));
+
+    // The repository persists normalized choices.
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation isolation(tempDir.path());
+    ConfigManager config;
+    config.load();
+    config.upsertConnection(makeConnection(QStringLiteral("conn-a"),
+                                           QStringLiteral("https://a.example.test"),
+                                           QStringLiteral("a"),
+                                           QStringLiteral("A")),
+                            false);
+    BloomProfileRepository repo(&config);
+    BloomProfile profile;
+    profile.name = QStringLiteral("Home");
+    member.hiddenLibraryIds = {QStringLiteral(" lib-kids"), QStringLiteral("lib-kids ")};
+    profile.members = {member};
+    QVERIFY(repo.upsertProfile(profile));
+
+    BloomProfileRepository reloaded(&config);
+    const auto stored = reloaded.profile(profile.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->members.first().hiddenLibraryIds, QStringList({QStringLiteral("lib-kids")}));
+    QCOMPARE(stored->members.first().searchHiddenLibraryIds,
+             QStringList({QStringLiteral("lib-music"), QStringLiteral("lib-kids")}));
 }
 
 void BloomProfileRepositoryTest::multiServerAndTwoUsersOnSamePhysicalServer()

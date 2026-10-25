@@ -35,7 +35,47 @@ QDateTime parseTimestamp(const QString &value)
     return parsed.toUTC();
 }
 
+QJsonArray libraryIdsToJson(const QStringList &ids)
+{
+    QJsonArray json;
+    for (const QString &id : ids) {
+        json.append(id);
+    }
+    return json;
+}
+
+QStringList libraryIdsFromJson(const QJsonValue &value)
+{
+    QStringList ids;
+    for (const QJsonValue &entry : value.toArray()) {
+        ids.append(entry.toString());
+    }
+    return BloomProfileMember::normalizedLibraryIds(ids);
+}
+
 } // namespace
+
+bool BloomProfileMember::isLibraryShown(const QString &libraryId) const
+{
+    return !hiddenLibraryIds.contains(libraryId);
+}
+
+bool BloomProfileMember::isLibrarySearchable(const QString &libraryId) const
+{
+    return !searchHiddenLibraryIds.contains(libraryId);
+}
+
+QStringList BloomProfileMember::normalizedLibraryIds(const QStringList &ids)
+{
+    QStringList result;
+    for (const QString &id : ids) {
+        const QString trimmed = id.trimmed();
+        if (!trimmed.isEmpty() && !result.contains(trimmed)) {
+            result.append(trimmed);
+        }
+    }
+    return result;
+}
 
 bool BloomProfileMember::isValid() const
 {
@@ -52,6 +92,13 @@ QJsonObject BloomProfileMember::toJson() const
     if (!labelOverride.trimmed().isEmpty()) {
         json[QStringLiteral("label_override")] = labelOverride;
     }
+    if (!hiddenLibraryIds.isEmpty()) {
+        json[QStringLiteral("hidden_library_ids")] = libraryIdsToJson(hiddenLibraryIds);
+    }
+    if (!searchHiddenLibraryIds.isEmpty()) {
+        json[QStringLiteral("search_hidden_library_ids")] =
+            libraryIdsToJson(searchHiddenLibraryIds);
+    }
     return json;
 }
 
@@ -63,6 +110,9 @@ BloomProfileMember BloomProfileMember::fromJson(const QJsonObject &json)
     member.enabled = json.value(QStringLiteral("enabled")).toBool(true);
     member.priority = json.value(QStringLiteral("priority")).toInt(0);
     member.labelOverride = json.value(QStringLiteral("label_override")).toString();
+    member.hiddenLibraryIds = libraryIdsFromJson(json.value(QStringLiteral("hidden_library_ids")));
+    member.searchHiddenLibraryIds =
+        libraryIdsFromJson(json.value(QStringLiteral("search_hidden_library_ids")));
     return member;
 }
 

@@ -6,6 +6,7 @@
 #include <QList>
 #include <QMetaType>
 #include <QString>
+#include <QStringList>
 
 #include "providers/ServerConnection.h"
 
@@ -33,6 +34,15 @@ struct BloomProfileMember {
     bool enabled = true;
     int priority = 0;
     QString labelOverride;
+    // Libraries left out of browsing (rail, Home) and, separately, out of
+    // search. Exclusion lists, so libraries added on the server later show up.
+    QStringList hiddenLibraryIds;
+    QStringList searchHiddenLibraryIds;
+
+    bool isLibraryShown(const QString &libraryId) const;
+    bool isLibrarySearchable(const QString &libraryId) const;
+    /// Trimmed, de-duplicated, without empty entries.
+    static QStringList normalizedLibraryIds(const QStringList &ids);
 
     bool isValid() const;
     QJsonObject toJson() const;

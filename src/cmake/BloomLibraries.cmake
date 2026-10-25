@@ -289,6 +289,7 @@ add_library(BloomNetwork STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloArtworkProvider.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/ConnectionSessionPool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/AuthenticationService.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/LibrarySearchScope.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/LibraryService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/NextEpisodeResolver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/PlaybackService.cpp

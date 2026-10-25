@@ -1849,13 +1849,25 @@ FocusScope {
         }
     }
 
+    // A single space changed which libraries it shows. Merged spaces reload
+    // through MergedCatalog.activeChanged instead.
+    Connections {
+        target: typeof Workspaces !== "undefined" ? Workspaces : null
+        ignoreUnknownSignals: true
+        function onLibraryVisibilityChanged() {
+            if (!root.mergedMode && AuthenticationService.authenticated)
+                root.resetSpaceContent()
+        }
+    }
+
     // Connections
     Connections {
         target: LibraryService
         
         function onCanonicalViewsLoadedForConnection(connectionId, views) {
             if (root.mergedMode || !root.acceptsConnectionResponse(connectionId)) return
-            root.applyViews(views)
+            // Drop libraries the space hides (MergedCatalog filters merged views).
+            root.applyViews(typeof Workspaces !== "undefined" ? Workspaces.visibleLibraries(views) : views)
         }
 
         function onCanonicalNextUpLoaded(connectionId, items) {

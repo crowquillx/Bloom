@@ -13,11 +13,11 @@
 class ISecretStore;
 
 /**
- * @brief Read-only credentials for one saved connection that is not the
- * active AuthenticationService session.
+ * @brief Tokens for one saved connection held by ConnectionSessionPool.
  */
 struct ConnectionCredentials {
     QString accessToken;
+    QString refreshToken;
     QString profileToken;
 
     [[nodiscard]] bool isValid() const { return !accessToken.isEmpty(); }
@@ -26,11 +26,11 @@ struct ConnectionCredentials {
 /**
  * @brief Holds credentials for the connections of a merged Bloom profile.
  *
- * AuthenticationService owns one live, refreshable session. Merged reads also
- * need the other members' tokens; this pool loads them from CredentialStore off
- * the UI thread and keeps them in memory only. It never writes or refreshes
- * credentials: a rejected token is dropped and reloaded once from the store,
- * then the member needs a full sign-in through the active session.
+ * AuthenticationService owns the one live session. Merged reads also need the
+ * other members' tokens; this pool loads them from CredentialStore off the UI
+ * thread and keeps them in memory. AuthenticationService renews a member's
+ * expired access token and hands the result back through updateCredentials();
+ * a rejected renewal marks the member so reads report that it needs a sign-in.
  */
 class ConnectionSessionPool : public QObject
 {
@@ -53,9 +53,21 @@ public:
     void reload(const QString &connectionId);
     /// Forgets a connection's tokens without reloading (sign-out, removal).
     void forget(const QString &connectionId);
+    /// Replaces a tracked connection's tokens with newer ones (a renewal, or
+    /// the live session's current tokens). Supersedes a load in flight.
+    void updateCredentials(const QString &connectionId,
+                           const ConnectionCredentials &credentials);
+    /// The server rejected renewal: drop the in-memory tokens (storage is
+    /// untouched) until a sign-in or reload supplies new ones.
+    void markRejected(const QString &connectionId);
 
     [[nodiscard]] bool isTracked(const QString &connectionId) const;
     [[nodiscard]] bool isLoading(const QString &connectionId) const;
+    [[nodiscard]] bool isRejected(const QString &connectionId) const;
+    /// Tokens renewed in memory since they were loaded; newer than storage
+    /// until the background write lands.
+    [[nodiscard]] std::optional<ConnectionCredentials> renewedCredentials(
+        const QString &connectionId) const;
     [[nodiscard]] std::optional<ServerConnection> connection(const QString &connectionId) const;
     [[nodiscard]] std::optional<ConnectionCredentials> credentials(
         const QString &connectionId) const;
@@ -69,6 +81,8 @@ private:
         ServerConnection connection;
         ConnectionCredentials credentials;
         bool loading = false;
+        bool renewed = false;
+        bool rejected = false;
         quint64 loadGeneration = 0;
     };
 

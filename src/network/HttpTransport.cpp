@@ -47,7 +47,7 @@ void HttpTransport::initializeRecoveryTimer()
     m_unauthorizedRecoveryTimer.setSingleShot(true);
     connect(&m_unauthorizedRecoveryTimer, &QTimer::timeout, this, [this]() {
         finishUnauthorizedRecovery(
-            m_unauthorizedRecoveryGeneration, false, true);
+            m_unauthorizedRecoveryGeneration, TokenRenewal::Unavailable, true);
     });
 }
 
@@ -66,9 +66,9 @@ void HttpTransport::setUnauthorizedRecovery(UnauthorizedRecovery recovery)
         m_unauthorizedRecoveryInProgress = false;
         const auto pending = std::exchange(
             m_pendingUnauthorizedRecoveries,
-            QList<std::function<void(bool, bool)>>{});
+            QList<std::function<void(TokenRenewal, bool)>>{});
         for (const auto &callback : pending) {
-            callback(false, false);
+            callback(TokenRenewal::Unavailable, false);
         }
     }
     m_unauthorizedRecovery = std::move(recovery);
@@ -85,9 +85,9 @@ void HttpTransport::cancelAll()
     m_unauthorizedRecoveryInProgress = false;
     const auto pending = std::exchange(
         m_pendingUnauthorizedRecoveries,
-        QList<std::function<void(bool, bool)>>{});
+        QList<std::function<void(TokenRenewal, bool)>>{});
     for (const auto &callback : pending) {
-        callback(false, false);
+        callback(TokenRenewal::Unavailable, false);
     }
 }
 
@@ -237,11 +237,11 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
                 recoverUnauthorized(
                     [this, handle, context, endpoint, requestFactory, responseHandler,
                      failureHandler, options, attemptNumber, error](
-                        bool recovered, bool recoveryTimedOut) {
+                        TokenRenewal outcome, bool recoveryTimedOut) {
                     if (!handle || !context || handle->isCanceled()) {
                         return;
                     }
-                    if (recovered) {
+                    if (outcome == TokenRenewal::Renewed) {
                         startAttempt(handle,
                                      context,
                                      endpoint,
@@ -255,19 +255,25 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
                         return;
                     }
 
-                    const bool defer =
-                        options.unauthorizedPolicy == UnauthorizedPolicy::DeferSessionExpiry;
-                    emit unauthorized(defer);
                     NetworkError sessionError = error;
-                    if (recoveryTimedOut) {
-                        sessionError.networkErrorCode =
-                            static_cast<int>(QNetworkReply::TimeoutError);
-                        sessionError.userMessage =
-                            tr("Session recovery timed out. Please log in again.");
-                        sessionError.technicalDetails =
-                            QStringLiteral(
-                                "Unauthorized recovery deadline exceeded");
+                    if (outcome == TokenRenewal::Unavailable) {
+                        // The sign-in may still be good: report a temporary
+                        // failure and keep the session.
+                        sessionError.httpStatus = 0;
+                        sessionError.networkErrorCode = static_cast<int>(
+                            recoveryTimedOut ? QNetworkReply::TimeoutError
+                                             : QNetworkReply::TemporaryNetworkFailureError);
+                        sessionError.code = sessionError.networkErrorCode;
+                        sessionError.userMessage = recoveryTimedOut
+                            ? tr("Renewing your sign-in timed out. Please try again.")
+                            : tr("Could not reach the server to renew your sign-in. Please try again.");
+                        sessionError.technicalDetails = recoveryTimedOut
+                            ? QStringLiteral("HTTP 401; token renewal deadline exceeded")
+                            : QStringLiteral("HTTP 401; token renewal unavailable");
                     } else {
+                        const bool defer = options.unauthorizedPolicy
+                            == UnauthorizedPolicy::DeferSessionExpiry;
+                        emit unauthorized(defer);
                         sessionError.userMessage =
                             tr("Session expired. Please log in again.");
                     }
@@ -341,7 +347,7 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
 }
 
 void HttpTransport::recoverUnauthorized(
-    std::function<void(bool, bool)> completion,
+    std::function<void(TokenRenewal, bool)> completion,
     int timeoutMs)
 {
     m_pendingUnauthorizedRecoveries.append(std::move(completion));
@@ -357,9 +363,9 @@ void HttpTransport::recoverUnauthorized(
     if (!m_unauthorizedRecovery) {
         const auto pending = std::exchange(
             m_pendingUnauthorizedRecoveries,
-            QList<std::function<void(bool, bool)>>{});
+            QList<std::function<void(TokenRenewal, bool)>>{});
         for (const auto &callback : pending) {
-            callback(false, false);
+            callback(TokenRenewal::Rejected, false);
         }
         return;
     }
@@ -371,17 +377,17 @@ void HttpTransport::recoverUnauthorized(
     }
     const QPointer<HttpTransport> guardedThis(this);
     m_unauthorizedRecovery(
-        [guardedThis, recoveryGeneration](bool recovered) {
+        [guardedThis, recoveryGeneration](TokenRenewal outcome) {
         if (!guardedThis) {
             return;
         }
         guardedThis->finishUnauthorizedRecovery(
-            recoveryGeneration, recovered, false);
+            recoveryGeneration, outcome, false);
     });
 }
 
 void HttpTransport::finishUnauthorizedRecovery(quint64 generation,
-                                               bool recovered,
+                                               TokenRenewal outcome,
                                                bool timedOut)
 {
     if (!m_unauthorizedRecoveryInProgress
@@ -391,14 +397,14 @@ void HttpTransport::finishUnauthorizedRecovery(quint64 generation,
 
     m_unauthorizedRecoveryTimer.stop();
     m_unauthorizedRecoveryInProgress = false;
-    if (recovered) {
+    if (outcome == TokenRenewal::Renewed) {
         ++m_authenticationEpoch;
     }
     const auto pending = std::exchange(
         m_pendingUnauthorizedRecoveries,
-        QList<std::function<void(bool, bool)>>{});
+        QList<std::function<void(TokenRenewal, bool)>>{});
     for (const auto &callback : pending) {
-        callback(recovered, timedOut);
+        callback(outcome, timedOut);
     }
 }
 

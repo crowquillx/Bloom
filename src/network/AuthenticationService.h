@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QFutureWatcher>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
@@ -19,6 +20,8 @@
 #include <memory>
 
 #include <optional>
+#include "network/ConnectionSessionPool.h"
+#include "network/HttpTransport.h"
 #include "network/Types.h"
 #include "providers/IProviderAuthenticator.h"
 #include "providers/IProviderRequestFactory.h"
@@ -136,9 +139,9 @@ public:
     QNetworkRequest createRequest(const QString &endpoint) const;
     bool checkForSessionExpiry(QNetworkReply *reply, bool deferLogout = false);
 
-    // Bloom profile routing (docs/profiles.md). The active session stays the
-    // only refreshable one; other members of a merged profile are served from
-    // read-only credentials held by ConnectionSessionPool.
+    // Bloom profile routing (docs/profiles.md). Other members of a merged
+    // profile are served from credentials held by ConnectionSessionPool and
+    // renewed through renewConnection().
     QString activeConnectionId() const;
     ConnectionSessionPool *sessionPool() const { return m_sessionPool; }
     /// Saved connections whose credentials stay loaded for merged reads.
@@ -159,6 +162,12 @@ public:
     void suspendSession();
     /// Deletes stored credentials for a connection that is not active.
     void removeStoredCredentials(const ServerConnection &connection);
+    /// Renews a connection's access token with its refresh token: the live
+    /// session's, or a pooled member's. Concurrent calls for one connection
+    /// share a single attempt. New tokens are saved; Rejected (the server
+    /// refused the refresh token) is the only outcome that needs a sign-in.
+    void renewConnection(const QString &connectionId,
+                         std::function<void(TokenRenewal)> completion);
 
 signals:
     void loginSuccess(const QString &userId, const QString &accessToken, const QString &username);
@@ -226,6 +235,19 @@ private:
     QStringList m_memberConnectionIds;
     QString m_activatingConnectionId;
     QString m_activationFallbackConnectionId;
+    // Callers waiting on a token renewal, by connection.
+    QHash<QString, QList<std::function<void(TokenRenewal)>>> m_pendingRenewals;
+    // Pooled renewals use their own transport: session switches cancel
+    // m_transport, which must not abort another member's renewal.
+    std::unique_ptr<HttpTransport> m_renewalTransport;
+    // Connection whose live-session refresh is in flight on m_transport.
+    QString m_liveRenewalConnectionId;
+    // Bumped when a connection's sign-in is replaced (new login) or deleted;
+    // a renewal that started before must not apply its result.
+    QHash<QString, quint64> m_credentialEpochs;
+    // Renewed tokens whose keyring write has not finished; activation reads
+    // storage and must not miss them.
+    QHash<QString, ConnectionCredentials> m_unsavedRenewals;
 
     // Snapshot of everything a background keyring write needs. Captured on
     // the UI thread because ConfigManager is not thread-safe.
@@ -275,7 +297,9 @@ private:
 
     QString normalizeUrl(const QString &url) const;
     void startRestoration();
-    void failRestoration(const QString &error);
+    // keepCredentials: the server could not be reached, so the saved sign-in
+    // may still be good.
+    void failRestoration(const QString &error, bool keepCredentials = false);
     void finishActivation();
     QNetworkRequest createUnauthenticatedRequest(const QString &endpoint) const;
     void configureTransport();
@@ -295,8 +319,15 @@ private:
                                     quint64 generation);
     void finishAuthentication();
     void loadProfiles(bool finishWhenUnavailable);
-    void refreshAuthentication(std::function<void(bool)> completion);
-    void validateAccessToken(std::function<void(bool)> callback);
+    enum class SessionValidity { Valid, Invalid, Unreachable };
+    void refreshLiveSession();
+    void renewPooledConnection(const QString &connectionId);
+    void finishRenewal(const QString &connectionId, TokenRenewal outcome);
+    // A session change cancels m_transport without callbacks: release callers
+    // waiting on the live refresh it carried.
+    void abandonLiveRenewal();
+    void bumpCredentialEpoch(const QString &connectionId);
+    void validateAccessToken(std::function<void(SessionValidity)> callback);
     void persistConnection();
     // Keyring I/O can block for seconds (locked keyring, unlock prompts), so
     // every mutation runs on a shared FIFO background queue. Tasks execute in
