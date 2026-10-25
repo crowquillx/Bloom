@@ -1,24 +1,44 @@
 # Seek previews
 
 Bloom uses server trickplay images first. If the server has no images, returns
-invalid metadata, or fails to deliver the sheets, `PlayerController` starts
-`LocalSeekPreview`. The fallback uses the selected file version's canonical
+invalid metadata, or fails to deliver the sheets, `PlayerController` falls back
+to `LocalSeekPreview`. The fallback uses the selected file version's canonical
 `PlaybackDescriptor`. It does not create a second playback session or send
 playback reports.
 
+Settings > Playback has a toggle for each source (`serverTrickplayEnabled`,
+`localSeekPreviewsEnabled`; see [config](config.md)). With server trickplay
+off, Bloom skips the lookup and treats the item as having no server images, so
+local generation takes over if it is on. Both default to on and apply from the
+next playback.
+
 ## Generation
 
-Generation starts when server preview lookup fails or reports no previews. It
-does not wait for a seek or for the controls to open. One helper process opens
-the media and generates keyframe images for the full file at ten-second intervals. It
-samples the start and end first, then divides the remaining gaps. This gives
-distant positions previews early while it fills the full timeline.
+Local generation reads the media a second time, alongside playback. Remote
+mounts that fetch on demand, such as Usenet or debrid FUSE mounts, can turn each
+preview seek into a large upstream fetch and fail playback under that load. The
+fallback is therefore as gentle as the feature allows:
+
+- **On demand.** Nothing is read when the fallback is chosen. Only the visible
+  filmstrip requests frames, through `trickplayPreviewUrlAt`. Playback position
+  updates show existing frames but never request new ones.
+- **Settled batches.** Requests start a batch 400 ms after the last new frame
+  is asked for, so continuous scrubbing reads nothing until it pauses. A batch
+  covers only the frames asked for in the last 1.4 seconds, starting at the
+  centre of the strip and working outwards. A new batch replaces the old one;
+  frames that scrolled away are dropped.
+- **Paced.** The helper reads one frame at a time and idles one second between
+  frames, so each seek's server-side read-ahead can wind down.
+- **Yields to playback.** The helper runs only while playback is Playing or
+  Paused and has been for five seconds. Loading, buffering (including
+  `paused-for-cache`), stream recovery, and errors stop it at once; its
+  unfinished frames resume after playback settles.
+- **Backs off.** A failed frame waits 30 seconds before the next read.
 
 Each image becomes available as soon as it is ready. The existing filmstrip
-updates through `trickplayFrameRevision`. There is no full-file readiness gate.
-An image that is still being generated stays empty; the strip keeps its time
-label. Generation takes time and adds media reads and CPU use. It cannot make
-all previews available at playback start.
+updates through `trickplayFrameRevision`. An image that is still being generated
+stays empty; the strip keeps its time label. The first look at a position shows
+empty frames for a moment while they are generated.
 
 ## Process and cache
 
@@ -41,7 +61,7 @@ across playback sessions and does not write stream URLs to disk.
 Stopping playback, replacing the source, changing versions or playlist parts,
 or destroying the controller cancels the helper and removes its images after
 the helper exits. Removal runs on a worker thread. A replacement audio URL
-keeps completed images and resumes only the missing slots with that
+keeps completed images and restarts any running batch with that
 provider-finalized URL. Clearing the cache updates the filmstrip revision.
 
 The helper exits if its progress pipe closes. Linux also uses a parent-death
@@ -55,8 +75,10 @@ hours. Transcodes, unknown durations, and forward-only timelines are excluded.
 Dolby Vision sources without a compatible HDR base layer are also excluded
 because the software preview filter cannot convert their IPT colour space.
 Each image must be at most 1 MiB and the total JPEG data must stay within
-128 MiB. A timeout or frame decode failure skips that slot and resumes the remaining timeline, with at
-most three failed attempts for the source. Other failures and the cache limit
+128 MiB. A timeout, frame decode failure, or position that yields no picture
+(for example past the last frame) skips that slot. The rest of the batch resumes
+after the 30-second backoff, with at most three failed attempts for the source.
+Other failures and the cache limit
 stop generation but keep images that are already available. If no image is
 available, local previews are disabled. Playback continues in each case.
 There is a ten-second parent deadline for each image, including process startup.
@@ -81,16 +103,19 @@ search path to the installed `lib/bloom` directory. Installation copies the
 versioned libmpv file and its symbolic links.
 
 `LocalSeekPreviewTest` runs the real helper against generated local video and
-an authenticated HTTP range server. It covers a timeline longer than 100 seconds
-without seek requests, generation order, image changes across the timeline,
-source replacement, cache cleanup, decoder failure, a stalled server, and header
-validation. It also checks the helper under an installed UTF-8 locale, cache
-retention after a frame failure, and cache reuse across a stream URL refresh. A small
-synthetic HDR fixture checks that tone mapping changes the output and preserves
-neutral colour. `PlayerControllerAutoplayContextTest` checks automatic fallback,
-server priority, multipart offsets, and terminal-state response rejection.
-It also checks that autoplay keeps the descriptor, source, session and track
-metadata needed to start local previews. A 121-second H.264 fixture with
+an authenticated HTTP range server. It covers a timeline longer than 100 seconds,
+centre-first order, the settle delay, suspension, pacing, the failure backoff,
+image changes across the timeline, source replacement, cache cleanup, decoder
+failure, a stalled server, and header validation. It also checks the helper
+under an installed UTF-8 locale, cache retention after a frame failure, and
+cache reuse across a stream URL refresh. A small synthetic HDR fixture checks
+that tone mapping changes the output and preserves neutral colour.
+`PlayerControllerAutoplayContextTest` checks automatic fallback, that nothing is
+generated until the filmstrip asks, server priority, multipart offsets, and
+terminal-state response rejection. It checks that both settings gate their
+source and that playback health suspends generation. It also checks that
+autoplay keeps the descriptor, source, session and track metadata needed to
+start local previews. A 121-second H.264 fixture with
 B-frames and 15-second keyframe gaps checks out-of-order preview generation
 and image content across the timeline.
 

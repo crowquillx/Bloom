@@ -14,7 +14,9 @@
 #include <QPointer>
 #include <QStandardPaths>
 #include <QThreadPool>
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <utility>
 
 #ifdef Q_OS_WIN
@@ -100,7 +102,7 @@ bool assignProcessJob(QProcess *process, void *job)
 }
 
 LocalSeekPreview::LocalSeekPreview(QObject *parent)
-    : LocalSeekPreview(Options { defaultHelperProgram(), 10000, {} }, parent)
+    : LocalSeekPreview(Options { defaultHelperProgram() }, parent)
 {
 }
 
@@ -111,9 +113,17 @@ LocalSeekPreview::LocalSeekPreview(Options options, QObject *parent)
         m_options.cacheRoot = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
             + QStringLiteral("/seek-previews");
     }
+    m_options.paceMs = qBound(0, m_options.paceMs, Protocol::maxFramePaceMs);
     removeStaleCaches(m_options.cacheRoot);
+    m_clock.start();
     m_deadline.setSingleShot(true);
     connect(&m_deadline, &QTimer::timeout, this, [this] { fail("deadline", 0, true); });
+    m_requestDelay.setSingleShot(true);
+    m_requestDelay.setInterval(qMax(0, m_options.requestDelayMs));
+    connect(&m_requestDelay, &QTimer::timeout, this, &LocalSeekPreview::launchBatch);
+    m_retryDelay.setSingleShot(true);
+    m_retryDelay.setInterval(qMax(0, m_options.retryDelayMs));
+    connect(&m_retryDelay, &QTimer::timeout, this, &LocalSeekPreview::launch);
 }
 
 LocalSeekPreview::~LocalSeekPreview()
@@ -145,15 +155,14 @@ void LocalSeekPreview::updateStream(const Bloom::StreamRequest &stream)
         clear();
         return;
     }
-    const qint64 count = (m_descriptor.durationMs - 1) / intervalMs + 1;
-    const bool resume = m_frames.size() < count;
     m_descriptor.stream = stream;
-    if (resume) {
-        m_complete = false;
-        m_failures = 0;
-        m_skippedFrames.clear();
-        m_available = true;
-        cancelWork(true);
+    m_stopped = false;
+    m_failures = 0;
+    m_skippedFrames.clear();
+    m_available = true;
+    if (m_process) {
+        cancelWork();
+        launch();
     }
 }
 
@@ -161,42 +170,102 @@ void LocalSeekPreview::clear()
 {
     const bool hadFrames = !m_frames.isEmpty();
     cancelWork();
+    m_requestDelay.stop();
+    m_retryDelay.stop();
     m_descriptor = {};
     m_available = false;
+    m_stopped = false;
     m_frames.clear();
     m_cache.reset();
     m_totalImageBytes = 0;
     m_progress.clear();
     m_skippedFrames.clear();
+    m_requestedAt.clear();
+    m_order.clear();
     m_failures = 0;
-    m_complete = false;
     if (hadFrames) emit framesChanged();
 }
 
-void LocalSeekPreview::cancelWork(bool restart)
+void LocalSeekPreview::request(double seconds)
+{
+    const qint64 index = frameIndex(seconds);
+    if (index < 0 || m_stopped || m_frames.contains(index) || m_skippedFrames.contains(index)) return;
+    m_requestedAt.insert(index, m_clock.elapsed());
+    // A frame already queued keeps its place; only a new frame restarts the
+    // settle delay, so continuous scrubbing reads nothing until it pauses.
+    if (!m_order.contains(index)) m_requestDelay.start();
+}
+
+void LocalSeekPreview::launchBatch()
+{
+    // Frames still on screen are asked for again whenever the strip moves or
+    // a frame arrives, so anything older than the settle window has scrolled away.
+    const qint64 oldest = m_clock.elapsed() - m_options.requestDelayMs - 1000;
+    QList<qint64> wanted;
+    for (auto it = m_requestedAt.begin(); it != m_requestedAt.end();) {
+        if (it.value() < oldest || !isPending(it.key())) {
+            it = m_requestedAt.erase(it);
+            continue;
+        }
+        wanted.append(it.key());
+        ++it;
+    }
+    if (wanted.isEmpty()) return;
+    std::sort(wanted.begin(), wanted.end());
+    // The strip centres on the previewed position, so start there and work outwards.
+    const qint64 centre = wanted.at(wanted.size() / 2);
+    std::stable_sort(wanted.begin(), wanted.end(), [centre](qint64 left, qint64 right) {
+        return std::abs(left - centre) < std::abs(right - centre);
+    });
+    if (wanted == m_order) return;
+    m_order = wanted;
+    cancelWork();
+    launch();
+}
+
+bool LocalSeekPreview::isPending(qint64 index) const
+{
+    return !m_frames.contains(index) && !m_skippedFrames.contains(index);
+}
+
+void LocalSeekPreview::setSuspended(bool suspended)
+{
+    if (m_suspended == suspended) return;
+    m_suspended = suspended;
+    if (suspended) {
+        // The interrupted frame stays first in the batch and is redone on resume.
+        if (m_process) cancelWork();
+    } else {
+        launch();
+    }
+}
+
+void LocalSeekPreview::cancelWork()
 {
     m_deadline.stop();
     m_progress.clear();
     m_runningFrame = -1;
-    const quint64 generation = ++m_generation;
-    QPointer<LocalSeekPreview> owner(this);
-    const auto resume = [owner, generation, restart] {
-        if (restart && owner && owner->m_generation == generation) owner->start();
-    };
     if (QProcess *process = std::exchange(m_process, nullptr)) {
         disconnect(process, nullptr, this, nullptr);
         const auto cache = m_cache;
         const auto job = std::move(m_processJob);
         process->setParent(QCoreApplication::instance());
-        connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
-                process, [process, cache, job, resume] { process->deleteLater(); resume(); });
         process->kill();
         if (process->state() == QProcess::NotRunning) {
             process->deleteLater();
-            QTimer::singleShot(0, this, resume);
+            return;
         }
-    } else if (restart) {
-        QTimer::singleShot(0, this, resume);
+        // Only one helper touches the session cache at a time: the next launch
+        // waits for this one to exit.
+        ++m_exitingProcesses;
+        QPointer<LocalSeekPreview> owner(this);
+        connect(process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+                process, [process, cache, job, owner] {
+            process->deleteLater();
+            if (!owner) return;
+            --owner->m_exitingProcesses;
+            owner->launch();
+        });
     }
 }
 
@@ -212,9 +281,12 @@ QString LocalSeekPreview::frameUrlAt(double seconds) const
     return m_frames.value(frameIndex(seconds));
 }
 
-void LocalSeekPreview::start()
+void LocalSeekPreview::launch()
 {
-    if (!m_available || m_process || m_complete) return;
+    if (!m_available || m_process || m_exitingProcesses > 0 || m_stopped || m_suspended
+        || m_retryDelay.isActive()) return;
+    m_order.removeIf([this](qint64 index) { return !isPending(index); });
+    if (m_order.isEmpty()) return;
     if (!m_cache) {
         QDir().mkpath(m_options.cacheRoot);
         QFile::setPermissions(m_options.cacheRoot, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
@@ -255,14 +327,14 @@ void LocalSeekPreview::start()
             return;
         }
 #endif
-        QJsonArray skip;
-        for (auto it = m_frames.cbegin(); it != m_frames.cend(); ++it) skip.append(it.key());
-        for (const auto index : m_skippedFrames) skip.append(index);
+        QJsonArray order;
+        for (const auto index : std::as_const(m_order)) order.append(index);
         const QJsonObject input {
             { QStringLiteral("url"), m_descriptor.stream.url.toString(QUrl::FullyEncoded) },
             { QStringLiteral("headers"), QJsonObject::fromVariantMap(m_descriptor.stream.headers) },
             { QStringLiteral("durationMs"), m_descriptor.durationMs },
-            { QStringLiteral("toneMap"), m_toneMap }, { QStringLiteral("skip"), skip }
+            { QStringLiteral("toneMap"), m_toneMap }, { QStringLiteral("order"), order },
+            { QStringLiteral("paceMs"), m_options.paceMs }
         };
         const QByteArray bytes = QJsonDocument(input).toJson(QJsonDocument::Compact);
         if (bytes.size() > Protocol::maxRequestBytes || process->write(bytes) != bytes.size()) {
@@ -280,19 +352,16 @@ void LocalSeekPreview::start()
         readProgress();
         if (m_process != process) return;
         m_deadline.stop();
-        const qint64 count = (m_descriptor.durationMs - 1) / intervalMs + 1;
-        if (code != Protocol::Success || status != QProcess::NormalExit
-            || m_frames.size() + m_skippedFrames.size() != count) {
+        if (code != Protocol::Success || status != QProcess::NormalExit || !m_order.isEmpty()) {
             fail("helper-exit", code, code == Protocol::FrameTimeout || code == Protocol::Frame);
             return;
         }
         m_process = nullptr;
         m_processJob.reset();
-        m_complete = true;
-        m_available = !m_frames.isEmpty();
         process->deleteLater();
-        if (!m_available) emit unavailable();
-        emit finished(m_frames.size() == count);
+        emit finished(true);
+        // Frames asked for while this batch ran start the next one.
+        if (!m_requestDelay.isActive()) launchBatch();
     });
     m_deadline.start(qMax(1, m_options.timeoutMs));
     process->start();
@@ -313,8 +382,7 @@ void LocalSeekPreview::readProgress()
         const auto fields = line.split(' ');
         bool ok = false;
         const qint64 index = fields.size() == 2 ? fields.at(1).toLongLong(&ok) : -1;
-        const qint64 count = (m_descriptor.durationMs - 1) / intervalMs + 1;
-        if (!ok || index < 0 || index >= count || m_frames.contains(index) || m_skippedFrames.contains(index)) {
+        if (!ok || m_order.isEmpty() || m_order.first() != index) {
             fail("progress-index");
             return;
         }
@@ -342,9 +410,12 @@ void LocalSeekPreview::readProgress()
             return;
         }
         m_runningFrame = -1;
+        m_order.removeFirst();
+        m_requestedAt.remove(index);
         m_totalImageBytes += file.size();
         m_frames.insert(index, QUrl::fromLocalFile(path).toString());
-        m_deadline.start(qMax(1, m_options.timeoutMs));
+        // The helper idles for the pace interval before the next frame.
+        m_deadline.start(qMax(1, m_options.timeoutMs + m_options.paceMs));
         emit framesChanged();
     }
 }
@@ -354,10 +425,17 @@ void LocalSeekPreview::fail(const char *stage, int detail, bool skipFrame)
     qCWarning(lcPlaybackTrickplay) << "Local seek preview generation stopped at" << stage
         << "detail" << detail << "cached frames" << m_frames.size();
     const bool retry = skipFrame && m_runningFrame >= 0 && ++m_failures < 3;
-    if (retry) m_skippedFrames.insert(m_runningFrame);
-    m_complete = !retry;
+    if (retry) {
+        m_skippedFrames.insert(m_runningFrame);
+        m_order.removeAll(m_runningFrame);
+        m_requestedAt.remove(m_runningFrame);
+    }
+    m_stopped = !retry;
     m_available = retry || !m_frames.isEmpty();
-    cancelWork(retry);
+    cancelWork();
+    // A failed frame usually means the server is struggling; give it room
+    // before reading again.
+    if (retry) m_retryDelay.start();
     if (!m_available) emit unavailable();
-    if (!retry) emit finished(false);
+    emit finished(false);
 }

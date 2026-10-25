@@ -643,6 +643,8 @@ private:
     /// Cached data URL for one trickplay frame; empty on failure.
     QString cachedTrickplayFrameUrl(int frameIndex);
     void enableLocalTrickplay();
+    void requestTrickplayInfo(const QString &itemId);
+    void updateLocalSeekPreviewSuspension();
     /// Requests the season/series listings used for previous/next episode.
     void refreshAdjacentEpisodes();
     void resolveAdjacentEpisodes();
@@ -1090,6 +1092,9 @@ private:
     TrickplayTileInfo m_currentTrickplayInfo;
     bool m_hasTrickplayInfo = false;
     LocalSeekPreview *m_localSeekPreview = nullptr;
+    // Local previews wait for playback to settle so they never compete with it.
+    QTimer *m_localSeekPreviewResumeTimer = nullptr;
+    static constexpr int kLocalSeekPreviewSettleMs = 5000;
     bool m_useLocalTrickplay = false;
     quint64 m_trickplayFrameRevision = 0;
     QString m_trickplayBinaryPath;

@@ -8,9 +8,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QQueue>
 #include <QSet>
 #include <QTemporaryDir>
+#include <QThread>
 #include <QUrl>
 #include <clocale>
 #include <cstdio>
@@ -24,23 +24,6 @@
 
 namespace {
 namespace Protocol = Bloom::SeekPreviewProtocol;
-
-QList<qint64> generationOrder(qint64 count)
-{
-    QList<qint64> order { 0 };
-    if (count > 1) order.append(count - 1);
-    QQueue<std::pair<qint64, qint64>> gaps;
-    gaps.enqueue({ 0, count - 1 });
-    while (!gaps.isEmpty()) {
-        const auto [left, right] = gaps.dequeue();
-        if (right - left <= 1) continue;
-        const qint64 middle = left + (right - left) / 2;
-        order.append(middle);
-        gaps.enqueue({ left, middle });
-        gaps.enqueue({ middle, right });
-    }
-    return order;
-}
 
 bool progress(const char *stage, qint64 index)
 {
@@ -136,12 +119,16 @@ int generate(const QJsonObject &request, const QDir &output, bool selfTest)
               || url.scheme() == QStringLiteral("https")) && !url.host().isEmpty()
               && url.userInfo().isEmpty()))) return Protocol::InvalidRequest;
     const qint64 count = (durationMs - 1) / Protocol::intervalMs + 1;
-    QSet<qint64> skip;
-    for (const auto value : request.value(QStringLiteral("skip")).toArray()) {
+    QList<qint64> order;
+    QSet<qint64> ordered;
+    for (const auto value : request.value(QStringLiteral("order")).toArray()) {
         const qint64 index = value.toInteger(-1);
-        if (index < 0 || index >= count) return Protocol::InvalidRequest;
-        skip.insert(index);
+        if (index < 0 || index >= count || ordered.contains(index)) return Protocol::InvalidRequest;
+        order.append(index);
+        ordered.insert(index);
     }
+    const qint64 paceMs = request.value(QStringLiteral("paceMs")).toInteger(-1);
+    if (order.isEmpty() || paceMs < 0 || paceMs > Protocol::maxFramePaceMs) return Protocol::InvalidRequest;
     QTemporaryDir raw(output.filePath(QStringLiteral("raw-XXXXXX")));
     if (!raw.isValid()) return Protocol::Image;
     // QCoreApplication resets the Unix locale during construction.
@@ -153,13 +140,14 @@ int generate(const QJsonObject &request, const QDir &output, bool selfTest)
     const QByteArray media = url.isLocalFile() ? url.toLocalFile().toUtf8() : url.toEncoded();
     bool loaded = false;
     qint64 totalImageBytes = 0;
-    for (const auto index : skip) {
-        totalImageBytes += QFileInfo(output.filePath(QStringLiteral("frame-%1.jpg").arg(index))).size();
+    for (const auto &frame : output.entryInfoList({ QStringLiteral("frame-*.jpg") }, QDir::Files)) {
+        totalImageBytes += frame.size();
     }
     const QDir rawOutput(raw.path());
-    for (const qint64 index : generationOrder(count)) {
+    for (qsizetype slot = 0; slot < order.size(); ++slot) {
+        const qint64 index = order.at(slot);
         const QString destination = output.filePath(QStringLiteral("frame-%1.jpg").arg(index));
-        if (skip.contains(index)) continue;
+        if (slot > 0 && paceMs > 0) QThread::msleep(static_cast<unsigned long>(paceMs));
         if (QFileInfo::exists(destination) && !QFile::remove(destination)) return Protocol::Image;
         if (!progress("begin", index)) return Protocol::ParentClosed;
         const QByteArray position = QByteArray::number(index * Protocol::intervalMs / 1000);
@@ -179,12 +167,12 @@ int generate(const QJsonObject &request, const QDir &output, bool selfTest)
             || !seekable) return Protocol::Source;
         std::int64_t width = 0;
         std::int64_t height = 0;
+        const QStringList images = rawOutput.entryList({ QStringLiteral("????????.jpg") }, QDir::Files, QDir::Name);
+        // No picture for this position (for example past the last frame) fails only this frame.
         if (mpv_get_property(handle.get(), "video-out-params/w", MPV_FORMAT_INT64, &width) < 0
             || mpv_get_property(handle.get(), "video-out-params/h", MPV_FORMAT_INT64, &height) < 0
-            || width <= 0 || height <= 0 || width > 320 || height > 180
-            || (selfTest && (width != 320 || height != 180))) return Protocol::Image;
-        const QStringList images = rawOutput.entryList({ QStringLiteral("????????.jpg") }, QDir::Files, QDir::Name);
-        if (images.isEmpty()) return Protocol::Image;
+            || width <= 0 || height <= 0 || images.isEmpty()) return Protocol::Frame;
+        if (width > 320 || height > 180 || (selfTest && (width != 320 || height != 180))) return Protocol::Image;
         if (!QFile::rename(rawOutput.filePath(images.last()), destination)) return Protocol::Image;
         totalImageBytes += QFileInfo(destination).size();
         if (totalImageBytes > Protocol::maxTotalImageBytes) {
@@ -211,7 +199,8 @@ int main(int argc, char **argv)
         video.write(QByteArray(640 * 360 * 3 / 2, static_cast<char>(128)));
         video.close();
         return generate({ { QStringLiteral("url"), QUrl::fromLocalFile(video.fileName()).toString() },
-                          { QStringLiteral("durationMs"), 1000 }, { QStringLiteral("toneMap"), true } },
+                          { QStringLiteral("durationMs"), 1000 }, { QStringLiteral("toneMap"), true },
+                          { QStringLiteral("order"), QJsonArray { 0 } }, { QStringLiteral("paceMs"), 0 } },
                         QDir(output.path()), true);
     }
     if (app.arguments().size() != 2 || !QDir(app.arguments().at(1)).exists()) return Protocol::InvalidRequest;

@@ -251,6 +251,17 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
         clearTrickplayPreview();
         emit trickplayStateChanged();
     });
+    m_localSeekPreview->setSuspended(true);
+    m_localSeekPreviewResumeTimer = new QTimer(this);
+    m_localSeekPreviewResumeTimer->setSingleShot(true);
+    m_localSeekPreviewResumeTimer->setInterval(kLocalSeekPreviewSettleMs);
+    connect(m_localSeekPreviewResumeTimer, &QTimer::timeout, this, [this] {
+        if (m_playbackState == Playing || m_playbackState == Paused) {
+            m_localSeekPreview->setSuspended(false);
+        }
+    });
+    connect(this, &PlayerController::playbackStateChanged,
+            this, &PlayerController::updateLocalSeekPreviewSuspension);
     
     // Setup timeout timers
     m_loadingTimeoutTimer->setSingleShot(true);
@@ -3030,7 +3041,7 @@ void PlayerController::applyPlaybackSegment(int index, bool reportSegmentStart)
     const QString activeItemId = segment.value(QStringLiteral("itemId")).toString();
     if (!activeItemId.isEmpty()) {
         m_playbackService->getMediaSegments(activeItemId, m_mediaSourceId);
-        m_playbackService->getTrickplayInfo(activeItemId, m_mediaSourceId);
+        requestTrickplayInfo(activeItemId);
     }
 
     if (reportSegmentStart) {
@@ -3572,7 +3583,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         if (!itemId.isEmpty()) {
             m_libraryService->getChapters(itemId);
             m_playbackService->getMediaSegments(itemId, m_mediaSourceId);
-            m_playbackService->getTrickplayInfo(itemId, m_mediaSourceId);
+            requestTrickplayInfo(itemId);
         }
 
         // If we have a start position, queue it as a seek target.
@@ -6949,6 +6960,11 @@ void PlayerController::enableLocalTrickplay()
 {
     if (m_useLocalTrickplay) return;
     clearTrickplayPreview();
+    if (!m_config->getLocalSeekPreviewsEnabled()) {
+        qCInfo(lcPlayback) << "Local seek previews disabled in settings";
+        emit trickplayStateChanged();
+        return;
+    }
     const QVariantMap segment = activePlaybackSegment();
     const auto hdrKind = PlayerPolicy::classifyMediaSourceHdr(
         segment.value(QStringLiteral("mediaSource")).toMap());
@@ -6964,9 +6980,33 @@ void PlayerController::enableLocalTrickplay()
         emit trickplayStateChanged();
         return;
     }
+    // Frames are generated only when the filmstrip asks for them.
     m_useLocalTrickplay = true;
-    m_localSeekPreview->start();
     emit trickplayStateChanged();
+}
+
+void PlayerController::updateLocalSeekPreviewSuspension()
+{
+    if (m_playbackState != Playing && m_playbackState != Paused) {
+        m_localSeekPreviewResumeTimer->stop();
+        m_localSeekPreview->setSuspended(true);
+    } else if (m_localSeekPreview->isSuspended() && !m_localSeekPreviewResumeTimer->isActive()) {
+        m_localSeekPreviewResumeTimer->start();
+    }
+}
+
+void PlayerController::requestTrickplayInfo(const QString &itemId)
+{
+    if (m_config->getServerTrickplayEnabled()) {
+        m_playbackService->getTrickplayInfo(itemId, m_mediaSourceId);
+        return;
+    }
+    // Treat disabled server trickplay as a server without previews, delivered
+    // asynchronously like a real lookup so the local fallback sees a settled segment.
+    qCInfo(lcPlayback) << "Server trickplay disabled in settings";
+    QTimer::singleShot(0, this, [this, itemId] {
+        onTrickplayInfoLoaded(itemId, {});
+    });
 }
 
 void PlayerController::setTrickplayPreviewPositionSeconds(double seconds)
@@ -6994,7 +7034,9 @@ void PlayerController::clearTrickplayPreviewPositionOverride()
 void PlayerController::updateTrickplayPreviewForPosition(double seconds)
 {
     if (m_useLocalTrickplay) {
-        const QString url = trickplayPreviewUrlAt(seconds);
+        // Position updates only show existing frames; the filmstrip requests new ones.
+        const QString url = m_localSeekPreview->frameUrlAt(
+            seconds - static_cast<double>(m_activePlaybackSegmentOffsetMs) / 1000.0);
         if (m_trickplayPreviewUrl != url) {
             m_trickplayPreviewUrl = url;
             emit trickplayPreviewChanged();
@@ -7088,6 +7130,8 @@ QString PlayerController::trickplayPreviewUrlAt(double seconds, quint64 revision
     Q_UNUSED(revision); // QML binding dependency for asynchronously generated frames.
     seconds -= static_cast<double>(m_activePlaybackSegmentOffsetMs) / 1000.0;
     if (m_useLocalTrickplay) {
+        // Only the visible filmstrip calls this, so each call is a frame the user is looking at.
+        m_localSeekPreview->request(seconds);
         return m_localSeekPreview->frameUrlAt(seconds);
     }
     if (!m_hasTrickplayInfo

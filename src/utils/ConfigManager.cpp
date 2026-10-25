@@ -1542,6 +1542,40 @@ QString ConfigManager::getPlaybackVersionPreference() const
         playbackSettingsObject(m_config).value(QStringLiteral("version_preference")).toString());
 }
 
+void ConfigManager::setServerTrickplayEnabled(bool enabled)
+{
+    if (enabled == getServerTrickplayEnabled()) {
+        return;
+    }
+
+    setPlaybackSetting(m_config, QStringLiteral("server_trickplay_enabled"), enabled);
+    save();
+    emit serverTrickplayEnabledChanged();
+}
+
+bool ConfigManager::getServerTrickplayEnabled() const
+{
+    return playbackSettingsObject(m_config)
+        .value(QStringLiteral("server_trickplay_enabled")).toBool(true);
+}
+
+void ConfigManager::setLocalSeekPreviewsEnabled(bool enabled)
+{
+    if (enabled == getLocalSeekPreviewsEnabled()) {
+        return;
+    }
+
+    setPlaybackSetting(m_config, QStringLiteral("local_seek_previews_enabled"), enabled);
+    save();
+    emit localSeekPreviewsEnabledChanged();
+}
+
+bool ConfigManager::getLocalSeekPreviewsEnabled() const
+{
+    return playbackSettingsObject(m_config)
+        .value(QStringLiteral("local_seek_previews_enabled")).toBool(true);
+}
+
 QString ConfigManager::getLibraryStartupBufferingMode(const QString &libraryId) const
 {
     if (libraryId.isEmpty()) {
@@ -4805,6 +4839,8 @@ QJsonObject ConfigManager::defaultConfig() const
     playback["auto_recover_playback"] = true;
     playback["startup_buffering_mode"] = QStringLiteral("normal");
     playback["version_preference"] = QStringLiteral("highest-quality");
+    playback["server_trickplay_enabled"] = true;
+    playback["local_seek_previews_enabled"] = true;
     playback["default_audio_track_selection"] = QStringLiteral("jellyfin-default");
     playback["default_subtitle_track_selection"] = QStringLiteral("jellyfin-default");
     settings["playback"] = playback;

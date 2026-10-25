@@ -1,5 +1,6 @@
 #include "player/LocalSeekPreview.h"
 
+#include <QElapsedTimer>
 #include <QFile>
 #include <QImage>
 #include <QSignalSpy>
@@ -39,7 +40,16 @@ bool writeVideo(const QString &path, int lumaOffset = 0, int frameCount = 41)
 LocalSeekPreview::Options helperOptions(int timeoutMs = 10000)
 {
     static QTemporaryDir cacheRoot;
-    return { QString::fromUtf8(BLOOM_SEEK_PREVIEW_HELPER), timeoutMs, cacheRoot.path() };
+    LocalSeekPreview::Options options { QString::fromUtf8(BLOOM_SEEK_PREVIEW_HELPER), timeoutMs, cacheRoot.path() };
+    options.paceMs = 0;
+    options.requestDelayMs = 0;
+    options.retryDelayMs = 0;
+    return options;
+}
+
+void requestRange(LocalSeekPreview &previews, int lastSecond)
+{
+    for (int second = 0; second <= lastSecond; second += 10) previews.request(second);
 }
 }
 
@@ -54,8 +64,12 @@ private slots:
         QSKIP("Local preview decoding requires libmpv.");
 #endif
     }
-    void generatesEntireTimelineWithoutSeeking();
+    void generatesRequestedFramesCentreFirst();
     void generatesInterframeVideoTimeline();
+    void requestsWaitForScrubbingToSettle();
+    void suspensionHoldsBatchUntilResumed();
+    void pacesFrames();
+    void failureWaitsBeforeRetrying();
     void rejectsUnsupportedSources();
     void changingSourceDropsOldImages();
     void decoderFailureIsNonFatal();
@@ -69,7 +83,7 @@ private slots:
     void failedFramesKeepEarlierPreviews();
 };
 
-void LocalSeekPreviewTest::generatesEntireTimelineWithoutSeeking()
+void LocalSeekPreviewTest::generatesRequestedFramesCentreFirst()
 {
     QTemporaryDir directory;
     const QString video = directory.filePath(QStringLiteral("sample.y4m"));
@@ -92,11 +106,14 @@ void LocalSeekPreviewTest::generatesEntireTimelineWithoutSeeking()
             }
         }
     });
-    previews.start();
-    previews.start();
+    QTest::qWait(200);
+    QVERIFY(!previews.isRunning());
+    requestRange(previews, 120);
+    requestRange(previews, 120);
     QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 13, 15000);
-    QCOMPARE(arrivals.first(), 0);
-    QCOMPARE(arrivals.at(1), 120);
+    QCOMPARE(arrivals.first(), 60);
+    QCOMPARE(arrivals.at(1), 50);
+    QCOMPARE(arrivals.at(2), 70);
     QCOMPARE(failed.count(), 0);
     int previousBrightness = -1;
     for (int seconds = 0; seconds <= 120; seconds += 10) {
@@ -136,13 +153,11 @@ void LocalSeekPreviewTest::generatesInterframeVideoTimeline()
         }
     });
     QSignalSpy finished(&previews, &LocalSeekPreview::finished);
-    previews.start();
+    requestRange(previews, 120);
     QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 15000);
     QVERIFY(finished.first().first().toBool());
     QCOMPARE(arrivals.size(), 13);
-    QCOMPARE(arrivals.first(), 0);
-    QCOMPARE(arrivals.at(1), 120);
-    QCOMPARE(arrivals.at(2), 60);
+    QCOMPARE(arrivals.first(), 60);
     const QImage firstFrame(QUrl(previews.frameUrlAt(0)).toLocalFile());
     const QImage lastFrame(QUrl(previews.frameUrlAt(120)).toLocalFile());
     QVERIFY(!firstFrame.isNull());
@@ -163,6 +178,89 @@ void LocalSeekPreviewTest::generatesInterframeVideoTimeline()
         QVERIFY(brightness >= previousBrightness - 2);
         previousBrightness = brightness;
     }
+}
+
+void LocalSeekPreviewTest::requestsWaitForScrubbingToSettle()
+{
+    QTemporaryDir directory;
+    const QString video = directory.filePath(QStringLiteral("sample.y4m"));
+    QVERIFY(writeVideo(video));
+    auto options = helperOptions();
+    options.requestDelayMs = 300;
+    LocalSeekPreview previews(options);
+    QSignalSpy ready(&previews, &LocalSeekPreview::framesChanged);
+    previews.setSource(source(QUrl::fromLocalFile(video)), false);
+    previews.request(0);
+    QTest::qWait(100);
+    // A new frame restarts the settle delay.
+    previews.request(10);
+    QTest::qWait(250);
+    QVERIFY(!previews.isRunning());
+    QCOMPARE(ready.count(), 0);
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 2, 15000);
+    QVERIFY(!previews.frameUrlAt(0).isEmpty());
+    QVERIFY(!previews.frameUrlAt(10).isEmpty());
+    QVERIFY(previews.frameUrlAt(20).isEmpty());
+}
+
+void LocalSeekPreviewTest::suspensionHoldsBatchUntilResumed()
+{
+    QTemporaryDir directory;
+    const QString video = directory.filePath(QStringLiteral("sample.y4m"));
+    QVERIFY(writeVideo(video));
+    LocalSeekPreview previews(helperOptions());
+    QSignalSpy ready(&previews, &LocalSeekPreview::framesChanged);
+    previews.setSource(source(QUrl::fromLocalFile(video)), false);
+    previews.setSuspended(true);
+    requestRange(previews, 40);
+    QTest::qWait(300);
+    QVERIFY(!previews.isRunning());
+    QCOMPARE(ready.count(), 0);
+    previews.setSuspended(false);
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 5, 15000);
+}
+
+void LocalSeekPreviewTest::pacesFrames()
+{
+    QTemporaryDir directory;
+    const QString video = directory.filePath(QStringLiteral("sample.y4m"));
+    QVERIFY(writeVideo(video));
+    auto options = helperOptions();
+    options.paceMs = 300;
+    LocalSeekPreview previews(options);
+    QElapsedTimer clock;
+    QList<qint64> arrivals;
+    connect(&previews, &LocalSeekPreview::framesChanged, this, [&] { arrivals.append(clock.elapsed()); });
+    previews.setSource(source(QUrl::fromLocalFile(video)), false);
+    clock.start();
+    requestRange(previews, 20);
+    QTRY_COMPARE_WITH_TIMEOUT(arrivals.size(), 3, 15000);
+    QVERIFY(arrivals.at(1) - arrivals.at(0) >= 280);
+    QVERIFY(arrivals.at(2) - arrivals.at(1) >= 280);
+}
+
+void LocalSeekPreviewTest::failureWaitsBeforeRetrying()
+{
+    QTemporaryDir directory;
+    const QString video = directory.filePath(QStringLiteral("short.y4m"));
+    QVERIFY(writeVideo(video));
+    auto options = helperOptions(500);
+    options.retryDelayMs = 60000;
+    LocalSeekPreview previews(options);
+    QSignalSpy completed(&previews, &LocalSeekPreview::finished);
+    auto descriptor = source(QUrl::fromLocalFile(video));
+    descriptor.durationMs = 121000;
+    previews.setSource(descriptor, false);
+    // The centre of this batch is past the end of the video, so it fails first.
+    previews.request(0);
+    previews.request(120);
+    QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 15000);
+    QVERIFY(!completed.first().first().toBool());
+    QTest::qWait(1500);
+    QVERIFY(!previews.isRunning());
+    QVERIFY(previews.isAvailable());
+    QVERIFY(previews.frameUrlAt(0).isEmpty());
+    QCOMPARE(completed.count(), 1);
 }
 
 void LocalSeekPreviewTest::rejectsUnsupportedSources()
@@ -198,7 +296,7 @@ void LocalSeekPreviewTest::changingSourceDropsOldImages()
     QSignalSpy ready(&previews, &LocalSeekPreview::framesChanged);
     QSignalSpy failed(&previews, &LocalSeekPreview::unavailable);
     previews.setSource(source(QUrl::fromLocalFile(first)), false);
-    previews.start();
+    previews.request(0);
     QTRY_VERIFY_WITH_TIMEOUT(ready.count() >= 1, 15000);
     const QString old = QUrl(previews.frameUrlAt(0)).toLocalFile();
     const int oldBrightness = QImage(old).pixelColor(160, 90).red();
@@ -208,7 +306,7 @@ void LocalSeekPreviewTest::changingSourceDropsOldImages()
     previews.setSource(replacement, false);
     QVERIFY(previews.frameUrlAt(0).isEmpty());
     ready.clear();
-    previews.start();
+    requestRange(previews, 40);
     QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 5, 15000);
     QTRY_VERIFY(!QFileInfo::exists(old));
     QCOMPARE(failed.count(), 0);
@@ -221,7 +319,7 @@ void LocalSeekPreviewTest::decoderFailureIsNonFatal()
     LocalSeekPreview previews(helperOptions());
     QSignalSpy failed(&previews, &LocalSeekPreview::unavailable);
     previews.setSource(source(QUrl::fromLocalFile(QStringLiteral("/missing/bloom-test-video.mkv"))), false);
-    previews.start();
+    requestRange(previews, 40);
     QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 15000);
     QVERIFY(!previews.isAvailable());
     QVERIFY(previews.frameUrlAt(0).isEmpty());
@@ -233,7 +331,7 @@ void LocalSeekPreviewTest::stalledStreamHasDeadline()
     QTcpServer server;
     QVERIFY(server.listen(QHostAddress::LocalHost));
     LocalSeekPreview previews(helperOptions(250));
-    QSignalSpy failed(&previews, &LocalSeekPreview::unavailable);
+    QSignalSpy completed(&previews, &LocalSeekPreview::finished);
     auto descriptor = source(QUrl(QStringLiteral("http://127.0.0.1:%1/stalled.mkv")
         .arg(server.serverPort())));
     descriptor.durationMs = durationMs;
@@ -241,10 +339,12 @@ void LocalSeekPreviewTest::stalledStreamHasDeadline()
     QTimer heartbeat;
     heartbeat.start(10);
     QSignalSpy ticks(&heartbeat, &QTimer::timeout);
-    previews.start();
-    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 3000);
+    previews.request(0);
+    QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 3000);
+    QVERIFY(!completed.first().first().toBool());
     QVERIFY(ticks.count() > 0);
-    QVERIFY(!previews.isAvailable());
+    QVERIFY(!previews.isRunning());
+    QVERIFY(previews.frameUrlAt(0).isEmpty());
     previews.clear();
 }
 
@@ -309,7 +409,7 @@ void LocalSeekPreviewTest::authenticatedHttpRanges()
     QSignalSpy ready(&previews, &LocalSeekPreview::framesChanged);
     QSignalSpy failed(&previews, &LocalSeekPreview::unavailable);
     previews.setSource(descriptor, false);
-    previews.start();
+    requestRange(previews, 40);
     QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 5, 15000);
     QCOMPARE(failed.count(), 0);
     QVERIFY(requests > 0);
@@ -323,7 +423,7 @@ void LocalSeekPreviewTest::rejectsHeaderInjection()
     descriptor.stream.headers.insert(QStringLiteral("Authorization"), QStringLiteral("value\r\nInjected: yes"));
     QSignalSpy failed(&previews, &LocalSeekPreview::unavailable);
     previews.setSource(descriptor, false);
-    previews.start();
+    previews.request(0);
     QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 15000);
 }
 
@@ -337,8 +437,8 @@ void LocalSeekPreviewTest::toneMapsHdrPreviews()
     QSignalSpy mappedReady(&toneMapped, &LocalSeekPreview::framesChanged);
     unmapped.setSource(descriptor, false);
     toneMapped.setSource(descriptor, true);
-    unmapped.start();
-    toneMapped.start();
+    requestRange(unmapped, 10);
+    requestRange(toneMapped, 10);
     QTRY_COMPARE_WITH_TIMEOUT(rawReady.count(), 2, 15000);
     QTRY_COMPARE_WITH_TIMEOUT(mappedReady.count(), 2, 15000);
     const QColor raw = QImage(QUrl(unmapped.frameUrlAt(0)).toLocalFile()).pixelColor(160, 90);
@@ -387,7 +487,7 @@ void LocalSeekPreviewTest::streamRefreshKeepsCachedFrames()
         previews.updateStream(source(QUrl::fromLocalFile(refreshed)).stream);
     });
     previews.setSource(source(QUrl::fromLocalFile(first)), false);
-    previews.start();
+    requestRange(previews, 40);
     QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 15000);
     QVERIFY(completed.first().first().toBool());
     QCOMPARE(ready.count(), 5);
@@ -409,9 +509,18 @@ void LocalSeekPreviewTest::failedFramesKeepEarlierPreviews()
     auto descriptor = source(QUrl::fromLocalFile(video));
     descriptor.durationMs = 121000;
     previews.setSource(descriptor, false);
-    previews.start();
+    previews.request(0);
     QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 15000);
-    QVERIFY(!completed.first().first().toBool());
+    QVERIFY(completed.first().first().toBool());
+    // Frames past the end of the video fail; three failures stop generation.
+    requestRange(previews, 120);
+    QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 4, 15000);
+    QVERIFY(!completed.last().first().toBool());
+    QTest::qWait(200);
+    QCOMPARE(completed.count(), 4);
+    previews.request(10);
+    QTest::qWait(200);
+    QVERIFY(!previews.isRunning());
     QCOMPARE(unavailable.count(), 0);
     QVERIFY(previews.isAvailable());
     QVERIFY(!previews.frameUrlAt(0).isEmpty());

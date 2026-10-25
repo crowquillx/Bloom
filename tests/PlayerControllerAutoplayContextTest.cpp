@@ -534,8 +534,9 @@ private slots:
     void initTestCase();
     void cleanupTestCase();
     void playbackServiceReportsMissingProvider();
-    void localPreviewsStartWithoutSeekingAndYieldToServer();
+    void localPreviewsGenerateOnRequestAndYieldToServer();
     void autoplayRetainsDescriptorForLocalPreviews();
+    void seekPreviewSettingsGateServerAndLocalPreviews();
     void thresholdMetRequestsNextEpisodeDirectly();
     void userStopPastThresholdRequestsNextEpisode();
     void userStopBelowThresholdWaitsForBackendExit();
@@ -696,7 +697,7 @@ void PlayerControllerAutoplayContextTest::playbackServiceReportsMissingProvider(
     QVERIFY(!errorSpy.first().at(1).toString().isEmpty());
 }
 
-void PlayerControllerAutoplayContextTest::localPreviewsStartWithoutSeekingAndYieldToServer()
+void PlayerControllerAutoplayContextTest::localPreviewsGenerateOnRequestAndYieldToServer()
 {
 #if !defined(BLOOM_HAS_LIBMPV)
     QSKIP("Local preview decoding requires libmpv.");
@@ -723,10 +724,20 @@ void PlayerControllerAutoplayContextTest::localPreviewsStartWithoutSeekingAndYie
         { QStringLiteral("descriptor"), QVariant::fromValue(descriptor) }
     } };
     controller.m_activePlaybackSegmentIndex = 0;
+    controller.m_localSeekPreviewResumeTimer->setInterval(0);
+    controller.updateLocalSeekPreviewSuspension();
+    QTRY_VERIFY(!controller.m_localSeekPreview->isSuspended());
     QSignalSpy frames(&controller, &PlayerController::trickplayFramesChanged);
     controller.onTrickplayInfoLoaded(descriptor.media.itemId, {});
     QVERIFY(controller.hasTrickplay());
     QVERIFY(controller.m_useLocalTrickplay);
+    // Nothing is read until the filmstrip asks for frames.
+    controller.onPositionChanged(5);
+    QTest::qWait(1000);
+    QVERIFY(!controller.m_localSeekPreview->isRunning());
+    QCOMPARE(frames.count(), 0);
+    QVERIFY(controller.trickplayPreviewUrlAt(0).isEmpty());
+    QVERIFY(controller.trickplayPreviewUrlAt(10).isEmpty());
     QTRY_COMPARE_WITH_TIMEOUT(frames.count(), 2, 15000);
     QVERIFY(!controller.trickplayPreviewUrlAt(10).isEmpty());
     const QString beforeAudioSwitch = controller.trickplayPreviewUrlAt(10);
@@ -849,11 +860,78 @@ void PlayerControllerAutoplayContextTest::autoplayRetainsDescriptorForLocalPrevi
     QCOMPARE(storedSubtitleTracks.first(), subtitleTracks.first());
     QCOMPARE(storedSubtitleTracks.last().toMap().value(QStringLiteral("trackId")).toString(),
              externalSubtitle.trackId);
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_localSeekPreviewResumeTimer->setInterval(0);
+    controller.updateLocalSeekPreviewSuspension();
+    QTRY_VERIFY(!controller.m_localSeekPreview->isSuspended());
     QSignalSpy frames(&controller, &PlayerController::trickplayFramesChanged);
     controller.onTrickplayInfoLoaded(descriptor.media.itemId, {});
     QVERIFY(controller.m_useLocalTrickplay);
+    controller.trickplayPreviewUrlAt(0);
+    controller.trickplayPreviewUrlAt(10);
     QTRY_COMPARE_WITH_TIMEOUT(frames.count(), 2, 15000);
     QVERIFY(!controller.trickplayPreviewUrlAt(10).isEmpty());
+}
+
+void PlayerControllerAutoplayContextTest::seekPreviewSettingsGateServerAndLocalPreviews()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+    Bloom::PlaybackDescriptor descriptor;
+    descriptor.media = { QStringLiteral("connection"), QStringLiteral("item") };
+    descriptor.mediaVersionId = QStringLiteral("version");
+    descriptor.stream.url = QUrl::fromLocalFile(QString::fromUtf8(BLOOM_SEEK_PREVIEW_HDR_FIXTURE));
+    descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
+    descriptor.durationMs = 11000;
+    controller.m_currentItemId = descriptor.media.itemId;
+    controller.m_playbackSegments = { QVariantMap {
+        { QStringLiteral("itemId"), descriptor.media.itemId },
+        { QStringLiteral("descriptor"), QVariant::fromValue(descriptor) }
+    } };
+    controller.m_activePlaybackSegmentIndex = 0;
+    // The unauthenticated service answers server lookups synchronously.
+    QSignalSpy serverLookups(&playbackService, &PlaybackService::trickplayInfoLoaded);
+
+    config.setLocalSeekPreviewsEnabled(false);
+    controller.requestTrickplayInfo(descriptor.media.itemId);
+    QCOMPARE(serverLookups.count(), 1);
+    QVERIFY(!controller.m_useLocalTrickplay);
+    QVERIFY(!controller.hasTrickplay());
+    QVERIFY(!controller.m_localSeekPreview->isAvailable());
+
+    config.setServerTrickplayEnabled(false);
+    controller.requestTrickplayInfo(descriptor.media.itemId);
+    QCoreApplication::processEvents();
+    QCOMPARE(serverLookups.count(), 1);
+    QVERIFY(!controller.hasTrickplay());
+
+    // Local previews wait for healthy playback and stop again while it struggles.
+    QVERIFY(controller.m_localSeekPreview->isSuspended());
+    controller.m_localSeekPreviewResumeTimer->setInterval(0);
+    controller.m_playbackState = PlayerController::Playing;
+    controller.updateLocalSeekPreviewSuspension();
+    QTRY_VERIFY(!controller.m_localSeekPreview->isSuspended());
+    controller.m_playbackState = PlayerController::Buffering;
+    controller.updateLocalSeekPreviewSuspension();
+    QVERIFY(controller.m_localSeekPreview->isSuspended());
+    controller.m_playbackState = PlayerController::Paused;
+    controller.updateLocalSeekPreviewSuspension();
+    QTRY_VERIFY(!controller.m_localSeekPreview->isSuspended());
+
+#if defined(BLOOM_HAS_LIBMPV)
+    config.setLocalSeekPreviewsEnabled(true);
+    controller.requestTrickplayInfo(descriptor.media.itemId);
+    QCOMPARE(serverLookups.count(), 1);
+    QTRY_VERIFY(controller.m_useLocalTrickplay);
+    QVERIFY(!controller.m_localSeekPreview->isRunning());
+#endif
 }
 
 void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectly()

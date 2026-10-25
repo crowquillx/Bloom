@@ -1256,10 +1256,48 @@ FocusScope {
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: autoSkipIntroToggle
-                    KeyNavigation.down: uiSoundsToggle
+                    KeyNavigation.down: serverTrickplayToggle
 
                     onToggled: function(value) {
                         ConfigManager.autoSkipOutro = value
+                    }
+                }
+
+                // ── Group 5: Seek previews ──
+
+                SettingsGroupDivider { Layout.fillWidth: true }
+
+                SettingsToggleRow {
+                    id: serverTrickplayToggle
+                    label: qsTr("Server Trickplay")
+                    description: qsTr("Show seek previews from the server's trickplay images. Applies from the next playback")
+                    checked: ConfigManager.serverTrickplayEnabled
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+
+                    KeyNavigation.up: autoSkipOutroToggle
+                    KeyNavigation.down: localSeekPreviewsToggle
+
+                    onToggled: function(value) {
+                        ConfigManager.serverTrickplayEnabled = value
+                    }
+                }
+
+                SettingsToggleRow {
+                    id: localSeekPreviewsToggle
+                    label: qsTr("Generate Seek Previews")
+                    description: qsTr("Build previews from the video when server trickplay is unavailable. Adds extra reads from the server. Applies from the next playback")
+                    checked: ConfigManager.localSeekPreviewsEnabled
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+
+                    KeyNavigation.up: serverTrickplayToggle
+                    KeyNavigation.down: uiSoundsToggle
+
+                    onToggled: function(value) {
+                        ConfigManager.localSeekPreviewsEnabled = value
                     }
                 }
 
@@ -1276,7 +1314,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
-                    KeyNavigation.up: autoSkipOutroToggle
+                    KeyNavigation.up: localSeekPreviewsToggle
                     KeyNavigation.down: uiSoundsVolumeCombo.enabled ? uiSoundsVolumeCombo : themeSongVolumeCombo
 
                     onToggled: function(value) {

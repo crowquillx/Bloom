@@ -45,6 +45,7 @@ private slots:
     void v26MigrationAddsInputBindings();
     void startupBufferingModesDefaultNormalizeAndPersist();
     void playbackVersionPreferenceDefaultsNormalizesAndPersists();
+    void seekPreviewSettingsDefaultOnAndPersist();
     void bundledMpvShadersAreCopied();
     void bundledMpvFontsAreCopied();
     void importMpvConfigCreatesProfile();
@@ -1203,6 +1204,31 @@ void ConfigManagerThemeTest::playbackVersionPreferenceDefaultsNormalizesAndPersi
 
     reloaded.setPlaybackVersionPreference(QStringLiteral("bogus"));
     QCOMPARE(reloaded.getPlaybackVersionPreference(), QStringLiteral("highest-quality"));
+}
+
+void ConfigManagerThemeTest::seekPreviewSettingsDefaultOnAndPersist()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    QVERIFY(config.getServerTrickplayEnabled());
+    QVERIFY(config.getLocalSeekPreviewsEnabled());
+
+    QSignalSpy serverSpy(&config, &ConfigManager::serverTrickplayEnabledChanged);
+    QSignalSpy localSpy(&config, &ConfigManager::localSeekPreviewsEnabledChanged);
+    config.setServerTrickplayEnabled(false);
+    config.setServerTrickplayEnabled(false);
+    config.setLocalSeekPreviewsEnabled(false);
+    QCOMPARE(serverSpy.count(), 1);
+    QCOMPARE(localSpy.count(), 1);
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QVERIFY(!reloaded.getServerTrickplayEnabled());
+    QVERIFY(!reloaded.getLocalSeekPreviewsEnabled());
 }
 
 void ConfigManagerThemeTest::bundledMpvShadersAreCopied()
