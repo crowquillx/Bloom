@@ -51,4 +51,7 @@ struct UpdateManifest {
 struct InstallEligibility {
     UpdateApplySupport support = UpdateApplySupport::Unsupported;
     QString reason;
+    // A package manager (Scoop) owns this install; direct downloads would
+    // create a second, unmanaged copy.
+    bool packageManaged = false;
 };

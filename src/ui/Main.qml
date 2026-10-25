@@ -1342,8 +1342,10 @@ Window {
 
                 Text {
                     text: UpdateService.applySupported
-                          ? qsTr("Bloom can download and launch the installer for you.")
-                          : qsTr("This build cannot auto-install updates, but download links are available.")
+                          ? qsTr("Bloom will download the installer, close, and restart when the update finishes.")
+                          : UpdateService.packageManaged
+                            ? UpdateService.statusMessage
+                            : qsTr("This build cannot auto-install updates, but download links are available.")
                     font.pixelSize: Theme.fontSizeSmall
                     font.family: Theme.fontPrimary
                     color: Theme.textSecondary

@@ -41,8 +41,48 @@ Bloom connects to a Jellyfin or Silo server and provides a TV-friendly interface
 ## Installation
 
 ### Windows
-Download the latest release from the [Releases](https://github.com/crowquillx/Bloom/releases) page.
-Windows release artifacts include `libmpv` runtime DLLs in the package.
+
+[Scoop](https://scoop.sh) is the recommended way to install Bloom on Windows.
+Add the Bloom bucket once, then install one of the two channels:
+
+```powershell
+scoop bucket add bloom https://github.com/crowquillx/scoop-bloom
+
+# Stable: tagged releases (recommended)
+scoop install bloom/bloom
+
+# Dev: rolling builds from the latest main commit
+scoop install bloom/bloom-dev
+```
+
+| Channel | Scoop app | Built from | Updates |
+|---------|-----------|------------|---------|
+| Stable | `bloom` | `vX.Y.Z` release tags | When a new version is released |
+| Dev | `bloom-dev` | The latest `main` commit (the `dev-latest` prerelease) | After every push to `main`; newest fixes and features, least tested |
+
+Update with `scoop update bloom` or `scoop update bloom-dev`
+(`scoop update *` updates everything). Install only one channel at a time,
+because both provide the same `bloom` command and Start menu shortcut. To switch
+channels, uninstall one and install the other:
+
+```powershell
+scoop uninstall bloom
+scoop install bloom/bloom-dev
+```
+
+Settings live in `%APPDATA%/Bloom`, outside the Scoop app directory, so they
+survive updates, channel switches, and reinstalls. Bloom does not replace a
+Scoop install itself: when it finds an update, it shows the `scoop update`
+command to run.
+
+Other options, from the [Releases](https://github.com/crowquillx/Bloom/releases) page:
+
+- `Bloom-Setup-X.Y.Z.exe` installer: Bloom's built-in updater can download and
+  install new versions for you (Settings → About & Account).
+- `Bloom-Windows.zip` portable build: unzip and run; Bloom notifies you of
+  updates but does not install them.
+
+Every Windows package includes the `libmpv` runtime DLLs.
 
 ## Building
 

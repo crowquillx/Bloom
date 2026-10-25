@@ -13,6 +13,7 @@
 #include <QTcpSocket>
 #include <QTemporaryDir>
 
+#include "config/version.h"
 #include "updates/GitHubReleaseUpdateProvider.h"
 #include "updates/IUpdateApplier.h"
 #include "updates/IUpdateProvider.h"
@@ -288,6 +289,9 @@ class UpdateServiceTest : public QObject
     void startupCheck_throttlesRecentCheck();
     void manualCheck_bypassesThrottle();
     void dismissStartupPopup_persistsMarker();
+    void parseManifestBytes_ignoresUnsignedLegacyFields();
+    void scoopAppName_detectsScoopLayout();
+    void channelSwitch_doesNotOfferOlderVersion();
 };
 
 void UpdateServiceTest::init()
@@ -875,6 +879,78 @@ void UpdateServiceTest::dismissStartupPopup_persistsMarker()
 
     QVERIFY(!service.shouldShowStartupPopup());
     QCOMPARE(configManager.getSkippedUpdateVersion(), QStringLiteral("stable:99.99.99:99.99.99"));
+}
+
+void UpdateServiceTest::parseManifestBytes_ignoresUnsignedLegacyFields()
+{
+    // Published manifests repeat the payload unsigned at the top level for
+    // pre-0.8 clients. Only the signed payload may be trusted.
+    const UpdateManifest signedManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"));
+    QJsonObject envelope = QJsonDocument::fromJson(signedEnvelope(manifestToJsonObject(signedManifest))).object();
+    UpdateManifest tampered = makeManifest(QStringLiteral("stable"), QStringLiteral("100.0.0"));
+    tampered.installer.sha256 = QString(64, QLatin1Char('e'));
+    const QJsonObject legacy = manifestToJsonObject(tampered);
+    for (auto it = legacy.begin(); it != legacy.end(); ++it)
+    {
+        envelope.insert(it.key(), it.value());
+    }
+
+    QString error;
+    const std::optional<UpdateManifest> manifest = GitHubReleaseUpdateProvider::parseManifestBytes(
+        QJsonDocument(envelope).toJson(QJsonDocument::Compact), testTrustedKeys(), &error);
+
+    QVERIFY2(manifest.has_value(), qPrintable(error));
+    QCOMPARE(manifest->version, QStringLiteral("99.99.99"));
+    QCOMPARE(manifest->installer.sha256, signedManifest.installer.sha256);
+}
+
+void UpdateServiceTest::scoopAppName_detectsScoopLayout()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString versionDir = QDir(root.path()).filePath(QStringLiteral("scoop/apps/bloom-dev/current"));
+    QVERIFY(QDir().mkpath(versionDir));
+
+    QVERIFY(WindowsNsisUpdateApplier::scoopAppName(versionDir).isEmpty());
+
+    for (const QString &name : {QStringLiteral("install.json"), QStringLiteral("manifest.json")})
+    {
+        QFile file(QDir(versionDir).filePath(name));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("{}");
+    }
+    QCOMPARE(WindowsNsisUpdateApplier::scoopAppName(versionDir), QStringLiteral("bloom-dev"));
+
+    const QString notScoop = QDir(root.path()).filePath(QStringLiteral("programs/bloom/current"));
+    QVERIFY(QDir().mkpath(notScoop));
+    QVERIFY(QFile::copy(QDir(versionDir).filePath(QStringLiteral("install.json")),
+                        QDir(notScoop).filePath(QStringLiteral("install.json"))));
+    QVERIFY(QFile::copy(QDir(versionDir).filePath(QStringLiteral("manifest.json")),
+                        QDir(notScoop).filePath(QStringLiteral("manifest.json"))));
+    QVERIFY(WindowsNsisUpdateApplier::scoopAppName(notScoop).isEmpty());
+}
+
+void UpdateServiceTest::channelSwitch_doesNotOfferOlderVersion()
+{
+    const QString otherChannel =
+        QString::fromUtf8(BLOOM_BUILD_CHANNEL) == QStringLiteral("dev") ? QStringLiteral("stable") : QStringLiteral("dev");
+
+    ConfigManager configManager;
+    configManager.load();
+    configManager.setUpdateChannel(otherChannel);
+
+    auto *provider = new FakeUpdateProvider;
+    provider->nextManifest = makeManifest(otherChannel, QStringLiteral("0.0.1"));
+    auto *applier = new FakeUpdateApplier(UpdateApplySupport::Supported);
+
+    UpdateService service(&configManager, nullptr, provider, applier);
+    service.checkForUpdates(true);
+    QCOMPARE(provider->lastChannel, otherChannel);
+    QVERIFY(!service.updateAvailable());
+
+    provider->nextManifest = makeManifest(otherChannel, service.currentVersion());
+    service.checkForUpdates(true);
+    QVERIFY(service.updateAvailable());
 }
 
 int main(int argc, char *argv[])

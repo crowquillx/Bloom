@@ -51,11 +51,40 @@ VIAddVersionKey "LegalCopyright" "© ${COMPANYNAME}"
 VIAddVersionKey "FileDescription" "${DESCRIPTION}"
 VIAddVersionKey "FileVersion" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
 
+; A running Bloom.exe cannot be opened for writing. Silent installs default to
+; ignoring files they cannot overwrite, which would leave a mixed install, so
+; wait for the updater-launched Bloom to exit (up to 60 s) before copying.
+Function WaitForBloomExit
+    IfFileExists "$INSTDIR\Bloom.exe" 0 done
+    StrCpy $R0 0
+    retry:
+        ClearErrors
+        FileOpen $R1 "$INSTDIR\Bloom.exe" a
+        IfErrors 0 unlocked
+        IfSilent 0 prompt
+        IntOp $R0 $R0 + 1
+        IntCmp $R0 120 give_up 0 give_up
+        Sleep 500
+        Goto retry
+    prompt:
+        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Bloom is running. Close it, then select Retry." IDRETRY retry
+    give_up:
+        SetErrorLevel 2
+        Abort "Bloom is still running."
+    unlocked:
+        FileClose $R1
+    done:
+FunctionEnd
+
 ; Default section
 Section "Install"
+    ; Bloom is 64-bit and reads the 64-bit registry view.
+    SetRegView 64
+    Call WaitForBloomExit
+
     ; Set output path to installation directory
     SetOutPath $INSTDIR
-    
+
     ; Copy all files from package directory
     File /r "Bloom-Windows\*.*"
     
@@ -89,6 +118,19 @@ Section "Install"
     ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
     IntFmt $0 "0x%08X" $0
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "EstimatedSize" "$0"
+
+    ; Older installers registered under the 32-bit (WOW6432Node) view.
+    SetRegView 32
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
+    SetRegView 64
+
+    ; The in-app updater passes /RELAUNCH. Starting Bloom through Explorer runs
+    ; it unelevated as the signed-in user instead of inheriting admin rights.
+    ${GetParameters} $R0
+    ClearErrors
+    ${GetOptions} $R0 "/RELAUNCH" $R1
+    IfErrors +2 0
+    Exec '"$WINDIR\explorer.exe" "$INSTDIR\Bloom.exe"'
 SectionEnd
 
 ; Uninstaller section
@@ -100,7 +142,11 @@ Section "Uninstall"
     RMDir /r "$SMPROGRAMS\${APPNAME}"
     Delete "$DESKTOP\${APPNAME}.lnk"
     
-    ; Remove registry keys
+    ; Remove registry keys from both views; older installers wrote the 32-bit one.
+    SetRegView 64
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
+    DeleteRegKey HKLM "Software\${APPNAME}"
+    SetRegView 32
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
     DeleteRegKey HKLM "Software\${APPNAME}"
 SectionEnd

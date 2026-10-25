@@ -143,6 +143,18 @@ class UpdateManifestGeneratorTest(unittest.TestCase):
                 check=True,
             )
 
+    def test_includes_legacy_fields_matching_signed_payload(self) -> None:
+        output = self.directory / "stable.json"
+        subprocess.run(self.command(output), check=True)
+        envelope = json.loads(output.read_text(encoding="utf-8"))
+        payload = json.loads(base64.b64decode(envelope["payload"], validate=True))
+        legacy = {
+            key: value
+            for key, value in envelope.items()
+            if key not in {"schema", "key_id", "payload", "signature"}
+        }
+        self.assertEqual(legacy, payload)
+
     def test_rejects_insecure_or_foreign_asset_origins(self) -> None:
         replacements = (
             "http://github.com/crowquillx/Bloom/releases/download/v1.2.3/Bloom-Setup.exe",

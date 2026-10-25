@@ -73,7 +73,7 @@ UpdateService::UpdateService(ConfigManager *configManager,
                 m_installerLaunched = true;
                 m_downloadInProgress = false;
                 setStatus(message);
-                scheduleAutoQuitIfAllowed();
+                scheduleAutoQuit();
             } else {
                 m_downloadInProgress = false;
                 setError(message);
@@ -351,7 +351,10 @@ bool UpdateService::manifestRepresentsNewerVersion(const UpdateManifest &manifes
     const QString availableMarker = availabilityMarker(manifest);
     const QString currentMarker = buildChannel + ":" + currentVersion() + ":" + currentBuildId();
     if (selectedChannel != buildChannel) {
-        return availableMarker != currentMarker;
+        // Switching channels offers the other channel's build, but never one
+        // with an older base version (for example dev 0.8.0 -> stable 0.7.1).
+        return availableMarker != currentMarker
+            && QVersionNumber::compare(safeVersion(manifest.version), safeVersion(currentVersion())) >= 0;
     }
 
     if (selectedChannel == QLatin1String("dev")) {
@@ -370,18 +373,10 @@ QString UpdateService::availabilityMarker(const UpdateManifest &manifest) const
     return manifest.availabilityMarker();
 }
 
-bool UpdateService::confirmAutoQuit() const
+void UpdateService::scheduleAutoQuit()
 {
-    return !playbackIsActive(m_playerController);
-}
-
-void UpdateService::scheduleAutoQuitIfAllowed()
-{
-    if (!confirmAutoQuit()) {
-        setStatus(tr("Bloom launched the installer. Close playback to continue the update."));
-        return;
-    }
-
+    // The installer is already running and waits for Bloom to exit before it
+    // replaces any files, so quit even if playback started during the download.
     emit requestAutoQuit();
     QTimer::singleShot(0, qApp, &QCoreApplication::quit);
 }

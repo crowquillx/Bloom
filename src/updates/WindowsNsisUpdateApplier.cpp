@@ -28,9 +28,9 @@ QString bloomExeDirectory()
     return QFileInfo(QCoreApplication::applicationFilePath()).absolutePath();
 }
 
-QString extractUninstallLocation(const QString &registryPath)
+QString extractUninstallLocation(const QString &registryPath, QSettings::Format format)
 {
-    QSettings settings(registryPath, QSettings::NativeFormat);
+    QSettings settings(registryPath, format);
     const QString displayName = settings.value(QStringLiteral("DisplayName")).toString().trimmed();
     if (displayName.compare(QStringLiteral("Bloom"), Qt::CaseInsensitive) != 0)
     {
@@ -55,12 +55,17 @@ QString registryInstallLocation()
         QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\"
                        "CurrentVersion\\Uninstall\\Bloom"),
     };
+    // Installers built before SetRegView 64 registered under the 32-bit
+    // (WOW6432Node) view, which a 64-bit process does not see by default.
     for (const QString &root : uninstallRoots)
     {
-        const QString location = extractUninstallLocation(root);
-        if (!location.isEmpty())
+        for (const QSettings::Format format : {QSettings::Registry64Format, QSettings::Registry32Format})
         {
-            return location;
+            const QString location = extractUninstallLocation(root, format);
+            if (!location.isEmpty())
+            {
+                return location;
+            }
         }
     }
 #endif
@@ -255,8 +260,36 @@ WindowsNsisUpdateApplier::~WindowsNsisUpdateApplier()
     discardPartialDownload();
 }
 
+QString WindowsNsisUpdateApplier::scoopAppName(const QString &executableDirectory)
+{
+    // Scoop installs to <root>/apps/<app>/<version>/ (or the `current` junction)
+    // and records install.json and manifest.json beside the app files.
+    const QDir executableDir(executableDirectory);
+    if (!executableDir.exists(QStringLiteral("install.json")) || !executableDir.exists(QStringLiteral("manifest.json")))
+    {
+        return {};
+    }
+    QDir appDir(executableDir);
+    if (!appDir.cdUp())
+    {
+        return {};
+    }
+    QDir appsDir(appDir);
+    if (!appsDir.cdUp() || appsDir.dirName().compare(QStringLiteral("apps"), Qt::CaseInsensitive) != 0)
+    {
+        return {};
+    }
+    return appDir.dirName();
+}
+
 InstallEligibility WindowsNsisUpdateApplier::detectEligibility() const
 {
+    const QString scoopApp = scoopAppName(bloomExeDirectory());
+    if (!scoopApp.isEmpty())
+    {
+        return {UpdateApplySupport::NotifyOnly,
+                tr("Bloom was installed with Scoop. Run \"scoop update %1\" to update.").arg(scoopApp), true};
+    }
 #ifdef Q_OS_WIN
     const QString installLocation = registryInstallLocation();
     if (installLocation.isEmpty())
@@ -538,7 +571,10 @@ void WindowsNsisUpdateApplier::finalizeVerifiedDownload()
         return;
     }
 
-    const QString parameters = QStringLiteral("/S /D=%1").arg(QDir::toNativeSeparators(installLocation));
+    // The installer waits for this process to exit before copying files;
+    // /RELAUNCH restarts Bloom unelevated afterwards. NSIS requires /D to be
+    // last and unquoted.
+    const QString parameters = QStringLiteral("/S /RELAUNCH /D=%1").arg(QDir::toNativeSeparators(installLocation));
     const std::wstring parameterString = parameters.toStdWString();
 
     SHELLEXECUTEINFOW executeInfo{};

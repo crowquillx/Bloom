@@ -35,6 +35,10 @@ class WindowsNsisUpdateApplier : public IUpdateApplier
     InstallEligibility detectEligibility() const override;
     void downloadAndInstall(const UpdateManifest &manifest, const QString &channel) override;
 
+    // Returns the Scoop app name when the executable directory is a Scoop app
+    // version directory, otherwise an empty string.
+    static QString scoopAppName(const QString &executableDirectory);
+
   private:
     bool isAllowedUrl(const QUrl &url, bool initialRequest) const;
     void beginRequest(const QUrl &url, bool initialRequest);

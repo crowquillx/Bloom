@@ -204,7 +204,11 @@ def main() -> int:
             payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
         ).encode("utf-8")
         signature = sign_payload(payload_bytes, args.signing_key_file)
+        # The unsigned top-level copy is only read by pre-0.8 clients, which
+        # predate signed manifests and would otherwise never see an update.
+        # Current clients ignore it and trust only the signed payload.
         envelope = {
+            **payload,
             "schema": 2,
             "key_id": key_id,
             "payload": base64.b64encode(payload_bytes).decode("ascii"),

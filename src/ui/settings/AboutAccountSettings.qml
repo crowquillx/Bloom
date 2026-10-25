@@ -401,7 +401,7 @@ FocusScope {
                         id: openInstallerBtn
                         variant: "secondary"
                         focusPolicy: Qt.StrongFocus
-                        visible: UpdateService.updateAvailable && !UpdateService.applySupported && UpdateService.installerUrl.length > 0
+                        visible: UpdateService.updateAvailable && !UpdateService.applySupported && !UpdateService.packageManaged && UpdateService.installerUrl.length > 0
                         text: qsTr("Open Installer")
                         onClicked: UpdateService.openInstallerAsset()
                         onActiveFocusChanged: {
@@ -436,7 +436,7 @@ FocusScope {
                         id: openPortableBtn
                         variant: "secondary"
                         focusPolicy: Qt.StrongFocus
-                        visible: UpdateService.updateAvailable && !UpdateService.applySupported && UpdateService.portableUrl.length > 0
+                        visible: UpdateService.updateAvailable && !UpdateService.applySupported && !UpdateService.packageManaged && UpdateService.portableUrl.length > 0
                         text: qsTr("Open Portable ZIP")
                         onClicked: UpdateService.openPortableAsset()
                         onActiveFocusChanged: {
