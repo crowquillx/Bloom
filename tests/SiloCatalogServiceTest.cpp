@@ -864,7 +864,7 @@ void SiloCatalogServiceTest::immediateCatalogRequestSurvivesAuthenticationComple
             QByteArrayLiteral(
                 R"({"items":[{"id":"profile-1","name":"Alice","has_pin":false,"is_child":false,"is_primary":true}]})"),
             false },
-        { 200, QByteArrayLiteral(R"([{"id":"1","name":"Movies"}])"), false }
+        { 200, QByteArrayLiteral(R"([{"id":"1","name":"Movies","type":"movies"}])"), false }
     };
     HttpTransport transport(&manager);
     SiloProviderAdapter adapter;
@@ -938,7 +938,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     QVERIFY(viewsSpy.isValid());
 
     manager.responses.append(
-        { 200, QByteArrayLiteral(R"([{"id":"1","name":"Old account"}])"), true });
+        { 200, QByteArrayLiteral(R"([{"id":"1","name":"Old account","type":"movies"}])"), true });
     const qsizetype oldRequestIndex = manager.requests.size();
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), oldRequestIndex + 1, 1000);
@@ -961,7 +961,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     QCOMPARE(viewsSpy.count(), 0);
 
     manager.responses.append(
-        { 200, QByteArrayLiteral(R"([{"id":"2","name":"New account"}])"), true });
+        { 200, QByteArrayLiteral(R"([{"id":"2","name":"New account","type":"movies"}])"), true });
     const qsizetype newRequestIndex = manager.requests.size();
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), newRequestIndex + 1, 1000);
@@ -983,7 +983,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
              QStringLiteral("2"));
 
     manager.responses.append(
-        { 200, QByteArrayLiteral(R"([{"id":"3","name":"Stale profile"}])"), true });
+        { 200, QByteArrayLiteral(R"([{"id":"3","name":"Stale profile","type":"movies"}])"), true });
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), newRequestIndex + 2, 1000);
     QPointer<ControlledReply> staleProfileReply = manager.replies.constLast();
@@ -999,7 +999,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     QCOMPARE(viewsSpy.count(), 1);
 
     manager.responses.append(
-        { 200, QByteArrayLiteral(R"([{"id":"4","name":"Current profile"}])"), true });
+        { 200, QByteArrayLiteral(R"([{"id":"4","name":"Current profile","type":"movies"}])"), true });
     const qsizetype profileRequestIndex = manager.requests.size();
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), profileRequestIndex + 1, 1000);

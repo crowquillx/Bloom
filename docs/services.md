@@ -59,7 +59,7 @@ Key services
 11. TrickplayProcessor — created by PlayerController; uses AuthenticationService + PlaybackService. Native Silo has no trickplay contract at the pinned revision, so the capability remains unavailable.
 12. ThemeSongManager — depends on LibraryService, ConfigManager, PlayerController.
 13. ViewModels — e.g., LibraryViewModel, SeriesDetailsViewModel (depend on LibraryService).
-14. SidebarSettings — UI preference persistence for the shell/sidebar state.
+14. SidebarSettings — UI preference persistence for the navigation shell (library order, reduce motion).
 15. UiSoundController — depends on ConfigManager for UI sound settings.
 16. SystemPowerController — depends on ConfigManager for pre-action config saves and is exposed to QML.
 17. SessionManager — shared provider-aware session reporting/coordination service.

@@ -51,35 +51,16 @@ FocusScope {
     SourceRouter {
         id: sourceRouter
     }
-    // Shelf spacing and sizing. Landscape cards (Continue Watching, Next Up,
-    // My Media) show two thirds as many items as poster rows so artwork stays
-    // large from across a room; both grow with ultrawide viewports.
-    readonly property int cardSpacing: Math.round(24 * Theme.layoutScale)
-    readonly property int landscapeVisibleItems: Math.max(3, Math.round(Theme.homeRowVisibleItems * 2 / 3))
-    property int homeCardWidth: Math.round(Math.max(0, root.width - Theme.pageMarginX * 2 - cardSpacing * (landscapeVisibleItems - 1)) / landscapeVisibleItems)
-    readonly property int myMediaTileHeight: Math.round(108 * Theme.layoutScale)
-    // Force 16:9 aspect to reduce image crop vs. server thumbs
-    property int homeCardHeight: Math.round(homeCardWidth * 9 / 16)
+    // Shelf card sizes come from the Theme tokens (fixed design units), so
+    // cards cover the same fraction of the screen at any resolution.
+    readonly property int homeCardWidth: Theme.landscapeCardWidth
+    readonly property int homeCardHeight: Theme.landscapeCardHeight
     // Request higher-resolution images for the scaled cards; never below the
     // physical card width at high OS display scaling.
-    property int homeCardImageRequestWidth: Math.round(homeCardWidth * Math.max(2, Screen.devicePixelRatio))
-    // Recently Added poster sizing â same column count as home cards
-    property int recentlyAddedPosterWidth: Math.round(Math.max(0, root.width - Theme.pageMarginX * 2 - cardSpacing * (Theme.homeRowVisibleItems - 1)) / Theme.homeRowVisibleItems)
-    property int recentlyAddedPosterHeight: Math.round(recentlyAddedPosterWidth * 1.5)
+    readonly property int homeCardImageRequestWidth: Math.round(homeCardWidth * Math.max(2, Screen.devicePixelRatio))
 
-    // Smooth transitions when window resizes change card sizes
-    Behavior on homeCardWidth {
-        NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.InOutQuad }
-    }
-    Behavior on homeCardHeight {
-        NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.InOutQuad }
-    }
-    Behavior on recentlyAddedPosterWidth {
-        NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.InOutQuad }
-    }
-    Behavior on recentlyAddedPosterHeight {
-        NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.InOutQuad }
-    }
+    /// The navigation bar recedes once the page scrolls past the hero.
+    readonly property bool navigationRecessed: mainFlickable.contentY > Theme.navBarReservedHeight
 
     // Rotating backdrop properties
     property var backdropCandidates: []  // Array of canonical backdrop ArtworkRef maps
@@ -115,9 +96,6 @@ FocusScope {
         category: "HomeBackdrop"
         property string lastBackdropUrl: ""
     }
-    
-    // Signal to request navigation to library screen
-    signal navigateToLibrary(var libraryId, var libraryName)
     
     // Signals for specific item navigation (from Recently Added)
     signal navigateToMovie(var movieData, var libraryId, var libraryName)
@@ -236,16 +214,19 @@ FocusScope {
     property bool hasBeenActivated: false
     
     // Focus state tracking for restoration
-    property string lastFocusedSection: "myMedia"
+    property string lastFocusedSection: ""
     property int lastFocusedIndex: 0
     property real lastContentY: 0  // Remember scroll position
 
     // First activation lands on the hero. Hero content arrives after the
-    // shelves load, so My Media holds provisional focus until then; any user
-    // navigation away from it cancels the hand-off so late hero data never
+    // shelves load, so the first shelf holds provisional focus until then; any
+    // user navigation away from it cancels the hand-off so late hero data never
     // steals focus.
     property bool initialFocusPending: true
     property bool initialFocusProvisional: false
+    // Set while applyInitialFocus() itself moves the provisional focus, so
+    // that move is not mistaken for the user leaving the shelf.
+    property bool applyingInitialFocus: false
 
     function applyInitialFocus() {
         if (!initialFocusPending || root.StackView.status !== StackView.Active)
@@ -255,22 +236,23 @@ FocusScope {
             initialFocusProvisional = false
             heroBanner.resetToCarousel()
             heroBanner.forceActiveFocus()
-            ensureSectionVisible(heroBanner)
             return
         }
-        if (myMediaList.count > 0 && !myMediaList.activeFocus) {
-            myMediaList.forceActiveFocus()
-            ensureSectionVisible(myMediaSection)
+        var first = firstShelfList()
+        if (first && !first.activeFocus) {
+            applyingInitialFocus = true
+            first.forceActiveFocus()
+            applyingInitialFocus = false
             initialFocusProvisional = true
         }
-        if (!ConfigManager.heroBannerEnabled && myMediaList.activeFocus) {
+        if (!ConfigManager.heroBannerEnabled && first && first.activeFocus) {
             initialFocusPending = false
             initialFocusProvisional = false
         }
     }
 
     function cancelInitialFocus() {
-        if (!initialFocusProvisional)
+        if (!initialFocusProvisional || applyingInitialFocus)
             return
         initialFocusPending = false
         initialFocusProvisional = false
@@ -329,9 +311,6 @@ FocusScope {
         if (heroBanner.activeFocus || heroBanner.buttonsFocused) {
             section = "hero"
             index = heroBanner.currentIndex
-        } else if (myMediaList.activeFocus) {
-            section = "myMedia"
-            index = myMediaList.currentIndex
         } else if (continueWatchingList.activeFocus) {
             section = "continueWatching"
             index = continueWatchingList.currentIndex
@@ -368,15 +347,12 @@ FocusScope {
         
         if (lastFocusedSection === "hero" && heroBanner.visible) {
             heroBanner.currentIndex = Math.min(lastFocusedIndex, Math.max(0, heroProvider.heroModel.length - 1))
-            ensureSectionVisible(heroBanner)
+            mainFlickable.contentY = 0
             Qt.callLater(function() {
                 heroBanner.resetToCarousel()
                 heroBanner.forceActiveFocus()
             })
             return
-        } else if (lastFocusedSection === "myMedia") {
-            targetList = myMediaList
-            targetSection = myMediaSection
         } else if (lastFocusedSection === "continueWatching") {
             targetList = continueWatchingList
             targetSection = continueWatchingSection
@@ -397,7 +373,7 @@ FocusScope {
         
         if (targetList && targetSection) {
             // First scroll the section into view
-            ensureSectionVisible(targetSection)
+            mainFlickable.contentY = lastContentY
             
             // Then set the current index and focus
             targetList.currentIndex = Math.min(lastFocusedIndex, Math.max(0, targetList.count - 1))
@@ -411,11 +387,18 @@ FocusScope {
                 }
             })
         } else {
-            // Fallback to myMediaList
-            console.log("[FocusDebug] Could not find target list, defaulting to myMediaList")
-            myMediaList.currentIndex = 0
+            // Fall back to the hero, then the first shelf.
+            console.log("[FocusDebug] Could not find target list, defaulting to the hero or first shelf")
             Qt.callLater(function() {
-                myMediaList.forceActiveFocus()
+                if (heroBanner.visible) {
+                    mainFlickable.contentY = 0
+                    heroBanner.resetToCarousel()
+                    heroBanner.forceActiveFocus()
+                    return
+                }
+                var first = root.firstShelfList()
+                if (first)
+                    first.forceActiveFocus()
             })
         }
     }
@@ -528,325 +511,188 @@ FocusScope {
         currentBackdropUrl = url
     }
     
-    // Backdrop Container with Cross-fade
-    // Full-bleed: extends under the floating navigation rail to the window edge.
-    Rectangle {
-        id: backdropContainer
+    // Stage: the hero's artwork, sharp behind the hero copy, or the rotating
+    // backdrop, softened, when the hero does not drive it. Full-bleed under
+    // the navigation bar.
+    StageBackdrop {
+        id: stage
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
         z: -1
-        color: "transparent"
-        clip: true
-        // "Floating cinema": when the hero drives the backdrop it is shown sharp
-        // and the scrims hug the content; otherwise the rotating backdrop is a
-        // soft blurred wash.
-        readonly property bool cinema: root.heroBackdropActive
-        readonly property real blurAmount: cinema ? 0.0 : 1.0
-
-        property bool showBackdrop1: true
-
-        Image {
-            id: backdrop1
-            anchors.fill: parent
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            opacity: parent.showBackdrop1 ? 1.0 : 0.0
-            visible: true
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
-
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                blurEnabled: backdropContainer.blurAmount > 0
-                blur: backdropContainer.blurAmount
-                blurMax: Theme.blurRadius
-            }
-
-            onStatusChanged: backdropContainer.checkStatus(this)
-        }
-
-        Image {
-            id: backdrop2
-            anchors.fill: parent
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            opacity: parent.showBackdrop1 ? 0.0 : 1.0
-            visible: true
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
-
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                blurEnabled: backdropContainer.blurAmount > 0
-                blur: backdropContainer.blurAmount
-                blurMax: Theme.blurRadius
-            }
-
-            onStatusChanged: backdropContainer.checkStatus(this)
-        }
-
-        function checkStatus(img) {
-            // Only act if this image is loading the CURRENT requested url
-            if (img.source.toString() !== root.displayedBackdropUrl) return
-
-            if (img.status === Image.Ready || (img.status === Image.Null && root.displayedBackdropUrl === "")) {
-                if (img.status === Image.Ready && root.displayedBackdropUrl !== "") {
-                    homeBackdropSettings.lastBackdropUrl = root.displayedBackdropUrl
-                }
-                // New image loaded (or cleared), switch to it
-                if (img === backdrop1) showBackdrop1 = true
-                else showBackdrop1 = false
-            } else if (img.status === Image.Error) {
-                console.log("Home backdrop failed to load: " + img.source)
-            }
-        }
-
-        // Blurred wash: uniform page scrim for readability.
-        Rectangle {
-            anchors.fill: parent
-            z: 1
-            visible: !backdropContainer.cinema
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: Theme.gradientOverlayStart }
-                GradientStop { position: 0.4; color: Theme.gradientOverlayMiddle }
-                GradientStop { position: 1.0; color: Theme.gradientOverlayEnd }
-            }
-        }
-
-        // Cinema: a leading-edge scrim behind the hero copy...
-        Rectangle {
-            anchors.fill: parent
-            z: 1
-            visible: backdropContainer.cinema
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
-                GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.94) }
-                GradientStop { position: 0.30; color: Theme.withAlpha(Theme.backgroundPrimary, 0.80) }
-                GradientStop { position: 0.55; color: Theme.withAlpha(Theme.backgroundPrimary, 0.30) }
-                GradientStop { position: 0.80; color: Theme.withAlpha(Theme.backgroundPrimary, 0.0) }
-            }
-        }
-
-        // ...and a floor that settles the shelves onto the theme background.
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: parent.height * 0.52
-            z: 1
-            visible: backdropContainer.cinema
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.0) }
-                GradientStop { position: 0.5; color: Theme.withAlpha(Theme.backgroundPrimary, 0.62) }
-                GradientStop { position: 1.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.96) }
-            }
-        }
-
-        // As the page scrolls past the hero, quiet the artwork further so
-        // shelves keep their contrast.
-        Rectangle {
-            anchors.fill: parent
-            z: 1
-            visible: backdropContainer.cinema && opacity > 0
-            color: Theme.backgroundPrimary
-            opacity: Math.min(0.7, mainFlickable.contentY / Math.max(1, heroBanner.height) * 0.7)
-        }
+        mode: root.heroBackdropActive ? "hero" : "ambient"
+        source: root.displayedBackdropUrl
+        // As the page scrolls past the hero, quiet the artwork so the shelves
+        // keep their contrast.
+        dim: mode === "hero"
+             ? Math.min(0.72, mainFlickable.contentY / Math.max(1, heroBanner.height) * 0.72)
+             : 0
+        onArtworkShown: function(url) { homeBackdropSettings.lastBackdropUrl = url }
     }
 
-    onDisplayedBackdropUrlChanged: {
-        // Load the new URL into the INACTIVE image
-        var target = backdropContainer.showBackdrop1 ? backdrop2 : backdrop1
-
-        // If the target is already displaying this URL, just switch immediately
-        if (target.source.toString() === displayedBackdropUrl && target.status === Image.Ready) {
-             if (target === backdrop1) backdropContainer.showBackdrop1 = true
-             else backdropContainer.showBackdrop1 = false
-             return
+    // Subtitle for landscape cards: episode code plus time left when resuming,
+    // otherwise the episode title.
+    function landscapeSubtitle(item) {
+        if (!item)
+            return ""
+        var parts = []
+        if (item.parentIndexNumber >= 0 && item.indexNumber >= 0)
+            parts.push("S" + item.parentIndexNumber + " E" + item.indexNumber)
+        if ((item.positionMs || 0) > 0 && (item.durationMs || 0) > 0) {
+            var minutes = Math.max(1, Math.round((item.durationMs - item.positionMs) / 60000))
+            parts.push(minutes >= 60 ? qsTr("%1h %2m left").arg(Math.floor(minutes / 60)).arg(minutes % 60)
+                                     : qsTr("%1 min left").arg(minutes))
+        } else if (item.name && item.seriesName) {
+            parts.push(item.name)
         }
-
-        target.source = displayedBackdropUrl
-        // A pixmap-cache hit loads synchronously, and Ready -> Ready emits no
-        // statusChanged, so check here or the old artwork stays on screen.
-        backdropContainer.checkStatus(target)
-    }
-    
-    // Fallback solid background (visible when no backdrop loaded)
-    Rectangle {
-        anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
-        z: -2
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Theme.backgroundPrimary }
-            GradientStop { position: 1.0; color: Theme.backgroundSecondary }
-        }
+        return parts.join("  ·  ")
     }
 
-    // Landscape card for Continue Watching / Up Next: artwork with the title
-    // set on a bottom scrim and progress along the lower edge.
+    function posterSubtitle(item) {
+        if (!item)
+            return ""
+        if (item.mediaType === "Episode") {
+            if (item.parentIndexNumber >= 0 && item.indexNumber >= 0)
+                return "S" + item.parentIndexNumber + " E" + item.indexNumber + (item.name ? "  ·  " + item.name : "")
+            return item.name || ""
+        }
+        if (item.mediaType === "Series") {
+            var startYear = item.productionYear || extractYear(item.premiereDate)
+            if (!startYear)
+                return ""
+            if (item.status === "Continuing" || !item.endDate)
+                return qsTr("%1 – Present").arg(startYear)
+            var endYear = extractYear(item.endDate)
+            return endYear && endYear !== startYear ? startYear + " – " + endYear : String(startYear)
+        }
+        var year = item.productionYear || extractYear(item.premiereDate)
+        return year ? String(year) : ""
+    }
+
+    // Landscape card for Continue Watching / Up Next.
     Component {
         id: landscapeCardDelegate
 
-        Item {
-            id: nextUpDelegate
-            width: homeCardWidth
-            height: homeCardHeight
-            property bool isFocused: ListView.view.currentIndex === index && ListView.view.activeFocus
-            property bool isHovered: InputModeManager.pointerActive && nextUpMouseArea.containsMouse
-            scale: isFocused ? Theme.focusScale : 1.0
-            z: isFocused ? 1 : 0
-            Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
-
-            readonly property string titleText: modelData.seriesName || modelData.name || ""
-            readonly property string subtitleText: {
-                var txt = ""
-                if (modelData.parentIndexNumber >= 0 && modelData.indexNumber >= 0) {
-                    txt = "S" + modelData.parentIndexNumber + " E" + modelData.indexNumber
-                    if (modelData.name) txt += "  \u00b7  " + modelData.name
-                } else if (modelData.name && modelData.seriesName) {
-                    txt = modelData.name
-                }
-                return txt
+        MediaCard {
+            id: landscapeCard
+            required property var modelData
+            required property int index
+            variant: "landscape"
+            artworkSources: [
+                root.artworkUrlFromRef(modelData.seriesThumbArtwork, homeCardImageRequestWidth),
+                root.artworkUrlFromRef(modelData.parentThumbArtwork, homeCardImageRequestWidth),
+                root.artworkUrlFromRef(modelData.thumbArtwork, homeCardImageRequestWidth),
+                root.artworkUrlFromRef(modelData.primaryArtwork, homeCardImageRequestWidth)
+            ]
+            title: modelData.seriesName || modelData.name || ""
+            subtitle: root.landscapeSubtitle(modelData)
+            placeholderIcon: modelData.mediaType === "Movie" ? Icons.movie : Icons.tvShows
+            positionMs: modelData.positionMs || 0
+            durationMs: modelData.durationMs || 0
+            sourceLabel: root.mergedMode ? (modelData.sourceLabel || "") : ""
+            focused: ListView.isCurrentItem && ListView.view.activeFocus
+            onClicked: {
+                landscapeCard.ListView.view.currentIndex = index
+                landscapeCard.ListView.view.forceActiveFocus()
+                handleNextUpSelection(modelData)
             }
-
-            SourceBadge {
-                z: 5
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.margins: Theme.spacingSmall
-                maximumWidth: parent.width - Theme.spacingSmall * 2
-                text: root.mergedMode ? (modelData.sourceLabel || "") : ""
-            }
-
-            ArtworkPlaceholder {
-                anchors.fill: parent
-                visible: nextUpImage.status !== Image.Ready
-                loading: nextUpImage.status === Image.Loading
-                iconGlyph: modelData.mediaType === "Movie" ? Icons.movie : Icons.tvShows
-            }
-
-            Image {
-                id: nextUpImage
-                property string seriesThumbUrl: root.artworkUrlFromRef(modelData.seriesThumbArtwork, homeCardImageRequestWidth)
-                property string parentThumbUrl: root.artworkUrlFromRef(modelData.parentThumbArtwork, homeCardImageRequestWidth)
-                property string episodeThumbUrl: root.artworkUrlFromRef(modelData.thumbArtwork, homeCardImageRequestWidth)
-                property string episodePrimaryUrl: root.artworkUrlFromRef(modelData.primaryArtwork, homeCardImageRequestWidth)
-                property var artworkCandidates: {
-                    const candidates = [seriesThumbUrl, parentThumbUrl,
-                                        episodeThumbUrl, episodePrimaryUrl]
-                    return candidates.filter(function(url) { return !!url })
-                }
-                property int artworkCandidateIndex: 0
-                anchors.fill: parent
-                source: artworkCandidates.length > 0
-                        ? artworkCandidates[Math.min(artworkCandidateIndex,
-                                                     artworkCandidates.length - 1)]
-                        : ""
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
-                cache: true
-                visible: status === Image.Ready
-
-                layer.enabled: true
-                layer.effect: MultiEffect {
-                    maskEnabled: true
-                    maskSource: nextUpMask
-                }
-
-                onArtworkCandidatesChanged: artworkCandidateIndex = 0
-                onStatusChanged: {
-                    if (status === Image.Error
-                            && artworkCandidateIndex + 1 < artworkCandidates.length) {
-                        artworkCandidateIndex++
-                    }
-                }
-            }
-
-            Rectangle {
-                id: nextUpMask
-                anchors.fill: parent
-                radius: Theme.imageRadius
-                visible: false
-                layer.enabled: true
-                layer.smooth: true
-            }
-
-            // Bottom scrim keeps the overlaid title legible on any artwork.
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: parent.height * 0.62
-                radius: Theme.imageRadius
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: Theme.withAlpha(Theme.overlayTextBackground, 0) }
-                    GradientStop { position: 0.55; color: Theme.withAlpha(Theme.overlayTextBackground, 0.55) }
-                    GradientStop { position: 1.0; color: Theme.withAlpha(Theme.overlayTextBackground, 0.82) }
-                }
-            }
-
-            Column {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: progressBar.visible ? progressBar.top : parent.bottom
-                anchors.leftMargin: Theme.spacingMedium + Theme.spacingXSmall
-                anchors.rightMargin: Theme.spacingMedium + Theme.spacingXSmall
-                anchors.bottomMargin: progressBar.visible ? -Theme.spacingXSmall : Theme.spacingMedium
-                spacing: Math.round(2 * Theme.layoutScale)
-
-                Text {
-                    width: parent.width
-                    text: nextUpDelegate.titleText
-                    font.pixelSize: Theme.fontSizeMedium
-                    font.family: Theme.fontPrimary
-                    font.weight: Theme.fontWeightStrong
-                    color: Theme.textOnDarkOverlay
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
-                }
-
-                Text {
-                    width: parent.width
-                    visible: text !== ""
-                    text: nextUpDelegate.subtitleText
-                    font.pixelSize: Theme.fontSizeCaption
-                    font.family: Theme.fontPrimary
-                    font.weight: Theme.fontWeightMedium
-                    color: Theme.withAlpha(Theme.textOnDarkOverlay, 0.78)
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
-                }
-            }
-
-            MediaProgressBar {
-                id: progressBar
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                barMargin: Theme.spacingMedium
-                positionMs: modelData.positionMs || 0
-                durationMs: modelData.durationMs || 0
-            }
-
-            FocusRing {
-                active: isFocused
-                radius: Theme.imageRadius
-            }
-
-            MouseArea {
-                id: nextUpMouseArea
-                anchors.fill: parent
-                hoverEnabled: true
-                onClicked: {
-                    nextUpDelegate.ListView.view.currentIndex = index
-                    nextUpDelegate.ListView.view.forceActiveFocus()
-                    handleNextUpSelection(modelData)
-                }
-            }
-
-            Accessible.role: Accessible.Button
-            Accessible.name: (modelData.seriesName ? modelData.seriesName + ", " : "") + (modelData.name || "")
-            Accessible.description: "Continue watching " + (modelData.seriesName || modelData.name || "")
+            Accessible.description: qsTr("Continue watching %1").arg(modelData.seriesName || modelData.name || "")
         }
+    }
+
+    // Poster card for Recently Added.
+    Component {
+        id: posterCardDelegate
+
+        MediaCard {
+            id: posterCard
+            required property var modelData
+            required property int index
+            variant: "poster"
+            artworkSources: [
+                modelData.mediaType === "Episode" ? root.artworkUrlFromRef(modelData.seriesPrimaryArtwork, 640) : "",
+                root.artworkUrlFromRef(modelData.primaryArtwork, 640)
+            ]
+            title: modelData.mediaType === "Episode" ? (modelData.seriesName || modelData.name || "")
+                                                     : (modelData.name || "")
+            subtitle: root.posterSubtitle(modelData)
+            placeholderIcon: modelData.mediaType === "Movie" ? Icons.movie : Icons.tvShows
+            item: modelData
+            showWatchState: modelData.mediaType === "Series" || (modelData.mediaType === "Movie" && !!modelData.watched)
+            unplayedCount: modelData.mediaType === "Series" ? (modelData.unplayedItemCount || 0) : 0
+            watched: !!modelData.watched
+            focused: ListView.isCurrentItem && ListView.view.activeFocus
+            onClicked: {
+                var list = posterCard.ListView.view
+                list.currentIndex = index
+                list.forceActiveFocus()
+                handleRecentlyAddedSelection(modelData, list.parentLibraryId)
+            }
+            Accessible.description: qsTr("Details for %1").arg(modelData.name || "")
+        }
+    }
+
+    // Shelves in focus order (visible ones only).
+    function shelfLists() {
+        var lists = []
+        if (continueWatchingSection.visible && continueWatchingList.count > 0)
+            lists.push(continueWatchingList)
+        if (nextUpSection.visible && nextUpList.count > 0)
+            lists.push(nextUpList)
+        for (var i = 0; i < recentlyAddedRepeater.count; i++) {
+            var meta = getRecentlyAddedDelegateMeta(i)
+            if (meta.item && meta.item.visible && meta.recentlyAddedListRef)
+                lists.push(meta.recentlyAddedListRef)
+        }
+        return lists
+    }
+
+    function firstShelfList() {
+        var lists = shelfLists()
+        return lists.length > 0 ? lists[0] : null
+    }
+
+    // Moves focus to the shelf above/below. Above the first shelf is the hero;
+    // returns false when there is nowhere to go so Up reaches the navigation bar.
+    function moveShelfFocus(fromList, delta) {
+        var lists = shelfLists()
+        var index = lists.indexOf(fromList)
+        var target = index + delta
+        if (index >= 0 && target >= 0 && target < lists.length) {
+            lists[target].forceActiveFocus()
+            return true
+        }
+        if (target < 0 && heroBanner.visible) {
+            heroBanner.resetToCarousel()
+            heroBanner.forceActiveFocus()
+            return true
+        }
+        return delta > 0
+    }
+
+    readonly property real shelfScrollOffset: Math.round(56 * Theme.layoutScale)
+
+    // Page to a shelf: the first shelf keeps the hero in view; later shelves
+    // scroll to the top of the screen so the focused row always sits in the
+    // same place.
+    function scrollToSection(section) {
+        if (!section)
+            return
+        var first = firstShelfList()
+        var y
+        if (heroBanner.visible && first && first.parent === section)
+            y = 0
+        else
+            y = section.mapToItem(mainFlickable.contentItem, 0, 0).y - root.shelfScrollOffset
+        var maxY = Math.max(0, mainFlickable.contentHeight - mainFlickable.height)
+        scrollAnimation.to = Math.max(0, Math.min(maxY, y))
+        scrollAnimation.restart()
+    }
+
+    NumberAnimation {
+        id: scrollAnimation
+        target: mainFlickable
+        property: "contentY"
+        duration: Theme.durationLong
+        easing.type: Theme.easingStandard
     }
 
     Flickable {
@@ -855,223 +701,45 @@ FocusScope {
         contentHeight: mainColumn.height
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-        
+
         ColumnLayout {
             id: mainColumn
             width: parent.width
             spacing: Theme.sectionSpacing
 
-            // Top spacing
+            // Without a cinematic hero, clear the navigation bar.
             Item { Layout.preferredHeight: heroBanner.cinematic && heroBanner.visible ? 0 : Theme.pageMarginTop }
 
             HeroBanner {
                 id: heroBanner
                 Layout.fillWidth: true
                 // Cinema mode gives the hero most of the first screen and lets
-                // My Media and the first shelf peek in below it.
+                // the first shelf sit fully in view below it.
                 Layout.preferredHeight: cinematic ? Math.round(root.height * 0.60) : implicitHeight
                 Layout.bottomMargin: cinematic ? -Theme.spacingLarge : 0
                 cinematic: ConfigManager.heroBannerBackdropSyncEnabled
                 visible: ConfigManager.heroBannerEnabled && heroProvider.hasContent
                 heroModel: heroProvider.heroModel
-                scrolling: mainFlickable.moving
+                scrolling: mainFlickable.moving || scrollAnimation.running
                 onActiveFocusChanged: {
                     if (activeFocus) {
                         root.lastFocusedSection = "hero"
-                        root.ensureSectionVisible(heroBanner)
+                        scrollAnimation.to = 0
+                        scrollAnimation.restart()
                     } else {
                         heroBanner.resetToCarousel()
                     }
                 }
                 onVisibleChanged: if (visible) Qt.callLater(root.applyInitialFocus)
-                onMoveDownRequested: myMediaList.forceActiveFocus()
+                onMoveDownRequested: {
+                    var first = root.firstShelfList()
+                    if (first)
+                        first.forceActiveFocus()
+                }
                 onDetailsRequested: function(item) { root.handleHeroSelection(item) }
                 onPlayRequested: function(item) { root.playHeroItem(item) }
             }
-            
-            // My Media Section
-            ColumnLayout {
-                id: myMediaSection
-                Layout.fillWidth: true
-                spacing: Theme.sectionTitleSpacing
-                
-                SectionHeader {
-                    text: qsTr("My Media")
-                    level: "group"
-                    Layout.leftMargin: Theme.pageMarginX
-                    Layout.rightMargin: Theme.pageMarginX
-                    Layout.fillWidth: true
-                    Accessible.role: Accessible.Heading
-                    Accessible.name: text
-                }
-                
-                ListView {
-                    id: myMediaList
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: myMediaTileHeight + Theme.spacingLarge
-                    orientation: ListView.Horizontal
-                    spacing: root.cardSpacing
-                    leftMargin: Theme.pageMarginX
-                    rightMargin: Theme.pageMarginX
-                    topMargin: Theme.spacingLarge / 2
-                    clip: false
-                    focus: true
-                    preferredHighlightBegin: Theme.pageMarginX
-                    preferredHighlightEnd: width - Theme.pageMarginX
-                    highlightRangeMode: ListView.StrictlyEnforceRange
-                    highlightMoveDuration: 0
-                move: Transition {
-                    NumberAnimation { properties: "x"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
-                }
-                displaced: Transition {
-                    NumberAnimation { properties: "x"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
-                }
-                add: Transition {
-                    NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
-                }
-                populate: Transition {
-                    NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
-                }
-                remove: Transition {
-                    NumberAnimation { property: "opacity"; to: 0; duration: Theme.uiAnimationsEnabled ? Theme.durationShort : 0; easing.type: Easing.OutQuad }
-                }
-                    
-                    model: librariesModel
-                    
-                    // Glass library tile: collection icon and name. Library artwork is
-                    // not used here because server-generated library images usually
-                    // contain the library name already.
-                    delegate: Item {
-                        width: homeCardWidth
-                        height: myMediaTileHeight
-                        property bool isFocused: myMediaList.currentIndex === index && myMediaList.activeFocus
-                        property bool isHovered: InputModeManager.pointerActive && mouseArea.containsMouse
-                        scale: isFocused ? Theme.focusScale : 1.0
-                        z: isFocused ? 1 : 0
-                        Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
 
-                        Rectangle {
-                            id: tileSurface
-                            anchors.fill: parent
-                            radius: Theme.radiusLarge
-                            color: isFocused || isHovered ? Theme.surfaceGlassStrong : Theme.surfaceGlass
-                            border.width: Theme.borderWidth
-                            border.color: isHovered ? Theme.surfaceBorderStrong : Theme.surfaceBorder
-                            antialiasing: true
-
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: Theme.spacingLarge
-                                anchors.rightMargin: Theme.spacingLarge
-                                spacing: Theme.spacingMedium
-
-                                Text {
-                                    text: {
-                                        var type = String(modelData.collectionType || "").toLowerCase()
-                                        if (type === "tvshows") return Icons.tvShows
-                                        if (type === "movies") return Icons.movie
-                                        if (type === "music") return Icons.music
-                                        if (type === "boxsets") return Icons.videoLibrary
-                                        if (type === "homevideos" || type === "photos") return Icons.photo
-                                        return Icons.folder
-                                    }
-                                    font.family: Theme.fontIcon
-                                    font.pixelSize: Theme.iconSizeNav
-                                    color: isFocused ? Theme.textPrimary : Theme.textSecondary
-                                    Layout.alignment: Qt.AlignVCenter
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    Layout.alignment: Qt.AlignVCenter
-                                    spacing: 0
-
-                                    Text {
-                                        text: modelData.name || ""
-                                        font.pixelSize: Theme.fontSizeMedium
-                                        font.family: Theme.fontPrimary
-                                        font.weight: Theme.fontWeightStrong
-                                        color: Theme.textPrimary
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-
-                                    // Owning source in merged spaces.
-                                    Text {
-                                        visible: text !== ""
-                                        text: root.mergedMode ? (modelData.sourceLabel || "") : ""
-                                        font.pixelSize: Theme.fontSizeCaption
-                                        font.family: Theme.fontPrimary
-                                        color: Theme.textSecondary
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                            }
-
-                            FocusRing {
-                                active: isFocused
-                                radius: tileSurface.radius
-                            }
-                        }
-                        
-                        MouseArea {
-                            id: mouseArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: {
-                                myMediaList.currentIndex = index
-                                myMediaList.forceActiveFocus()
-                                handleLibrarySelection(modelData)
-                            }
-                        }
-
-                        Accessible.role: Accessible.Button
-                        Accessible.name: modelData.name
-                        Accessible.description: root.mergedMode && modelData.sourceLabel
-                                                ? qsTr("Browse %1 library from %2").arg(modelData.name).arg(modelData.sourceLabel)
-                                                : "Browse " + modelData.name + " library"
-                    }
-                    
-                    Keys.onReturnPressed: {
-                        if (currentIndex >= 0 && currentIndex < librariesModel.length) {
-                            handleLibrarySelection(librariesModel[currentIndex])
-                        }
-                    }
-                    Keys.onEnterPressed: {
-                        if (currentIndex >= 0 && currentIndex < librariesModel.length) {
-                            handleLibrarySelection(librariesModel[currentIndex])
-                        }
-                    }
-                    Keys.onUpPressed: {
-                        if (heroBanner.visible) {
-                            heroBanner.resetToCarousel()
-                            heroBanner.forceActiveFocus()
-                        }
-                    }
-                    Keys.onDownPressed: {
-                        if (continueWatchingSection.visible) {
-                            console.log("[FocusDebug] myMediaList Down -> continueWatchingList")
-                            continueWatchingList.forceActiveFocus()
-                        } else if (displayedNextUpModel.length > 0) {
-                            console.log("[FocusDebug] myMediaList Down -> nextUpList")
-                            nextUpList.forceActiveFocus()
-                        } else if (recentlyAddedRepeater.count > 0) {
-                            focusFirstVisibleRecentlyAddedList()
-                        }
-                    }
-
-                    onCurrentIndexChanged: {
-                        root.ensureListItemVisible(myMediaList)
-                        if (activeFocus) root.cancelInitialFocus()
-                    }
-                    onActiveFocusChanged: {
-                        if (activeFocus) root.ensureSectionVisible(myMediaSection)
-                        else root.cancelInitialFocus()
-                    }
-                }
-            }
-            
             ColumnLayout {
                 id: continueWatchingSection
                 Layout.fillWidth: true
@@ -1087,49 +755,39 @@ FocusScope {
                     Accessible.name: text
                 }
 
-                ListView {
+                ShelfList {
                     id: continueWatchingList
                     Layout.fillWidth: true
-                    Layout.preferredHeight: homeCardHeight + Theme.spacingLarge
-                    orientation: ListView.Horizontal
-                    spacing: root.cardSpacing
-                    leftMargin: Theme.pageMarginX
-                    rightMargin: Theme.pageMarginX
-                    topMargin: Theme.spacingLarge / 2
-                    clip: false
-                    preferredHighlightBegin: Theme.pageMarginX
-                    preferredHighlightEnd: width - Theme.pageMarginX
-                    highlightRangeMode: ListView.StrictlyEnforceRange
-                    highlightMoveDuration: 0
+                    Layout.preferredHeight: implicitHeight
+                    cardHeight: Theme.landscapeCardHeight
                     model: continueWatchingModel
                     delegate: landscapeCardDelegate
-                    Keys.onUpPressed: myMediaList.forceActiveFocus()
-                    Keys.onDownPressed: {
-                        if (displayedNextUpModel.length > 0) nextUpList.forceActiveFocus()
-                        else focusFirstVisibleRecentlyAddedList()
-                    }
+                    Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(continueWatchingList, -1) }
+                    Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(continueWatchingList, 1) }
                     Keys.onReturnPressed: {
-                        if (currentIndex >= 0 && currentIndex < continueWatchingModel.length) {
+                        if (currentIndex >= 0 && currentIndex < continueWatchingModel.length)
                             handleNextUpSelection(continueWatchingModel[currentIndex])
-                        }
                     }
                     Keys.onEnterPressed: {
-                        if (currentIndex >= 0 && currentIndex < continueWatchingModel.length) {
+                        if (currentIndex >= 0 && currentIndex < continueWatchingModel.length)
                             handleNextUpSelection(continueWatchingModel[currentIndex])
-                        }
                     }
-                    onCurrentIndexChanged: root.ensureListItemVisible(continueWatchingList)
-                    onActiveFocusChanged: if (activeFocus) root.ensureSectionVisible(continueWatchingSection)
+                    onCurrentIndexChanged: if (activeFocus) root.cancelInitialFocus()
+                    onActiveFocusChanged: {
+                        if (activeFocus)
+                            root.scrollToSection(continueWatchingSection)
+                        else
+                            root.cancelInitialFocus()
+                    }
                 }
             }
 
-            // Next Up Section
             ColumnLayout {
                 id: nextUpSection
                 Layout.fillWidth: true
                 spacing: Theme.sectionTitleSpacing
                 visible: displayedNextUpModel.length > 0
-                
+
                 SectionHeader {
                     text: qsTr("Up Next")
                     Layout.leftMargin: Theme.pageMarginX
@@ -1138,92 +796,54 @@ FocusScope {
                     Accessible.role: Accessible.Heading
                     Accessible.name: text
                 }
-                
-                ListView {
+
+                ShelfList {
                     id: nextUpList
                     Layout.fillWidth: true
-                    Layout.preferredHeight: homeCardHeight + Theme.spacingLarge
-                    orientation: ListView.Horizontal
-                    spacing: root.cardSpacing
-                    leftMargin: Theme.pageMarginX
-                    rightMargin: Theme.pageMarginX
-                    topMargin: Theme.spacingLarge / 2
-                    clip: false
-                    preferredHighlightBegin: Theme.pageMarginX
-                    preferredHighlightEnd: width - Theme.pageMarginX
-                    highlightRangeMode: ListView.StrictlyEnforceRange
-                    highlightMoveDuration: 0
-
-                    add: Transition {
-                        NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
-                    }
-                    populate: Transition {
-                        NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
-                    }
-                    addDisplaced: Transition {
-                        NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
-                    }
-                    move: Transition {
-                        NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
-                    }
-                    remove: Transition {
-                        NumberAnimation { property: "opacity"; to: 0; duration: Theme.uiAnimationsEnabled ? Theme.durationShort : 0; easing.type: Easing.OutQuad }
-                    }
-                    removeDisplaced: Transition {
-                        NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
-                    }
-                    displaced: Transition {
-                        NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
-                    }
-                    
+                    Layout.preferredHeight: implicitHeight
+                    cardHeight: Theme.landscapeCardHeight
                     model: displayedNextUpModel
                     delegate: landscapeCardDelegate
-                    
+                    Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(nextUpList, -1) }
+                    Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(nextUpList, 1) }
                     Keys.onReturnPressed: {
-                        if (currentIndex >= 0 && currentIndex < displayedNextUpModel.length) {
+                        if (currentIndex >= 0 && currentIndex < displayedNextUpModel.length)
                             handleNextUpSelection(displayedNextUpModel[currentIndex])
-                        }
                     }
                     Keys.onEnterPressed: {
-                        if (currentIndex >= 0 && currentIndex < displayedNextUpModel.length) {
+                        if (currentIndex >= 0 && currentIndex < displayedNextUpModel.length)
                             handleNextUpSelection(displayedNextUpModel[currentIndex])
-                        }
                     }
-                    Keys.onUpPressed: {
-                        if (continueWatchingSection.visible) continueWatchingList.forceActiveFocus()
-                        else myMediaList.forceActiveFocus()
+                    onCurrentIndexChanged: if (activeFocus) root.cancelInitialFocus()
+                    onActiveFocusChanged: {
+                        if (activeFocus)
+                            root.scrollToSection(nextUpSection)
+                        else
+                            root.cancelInitialFocus()
                     }
-                    Keys.onDownPressed: {
-                        if (recentlyAddedRepeater.count > 0) {
-                            focusFirstVisibleRecentlyAddedList()
-                        }
-                    }
-
-                    onCurrentIndexChanged: root.ensureListItemVisible(nextUpList)
-                    onActiveFocusChanged: if (activeFocus) root.ensureSectionVisible(nextUpSection)
                 }
             }
-            
-            // Recently Added Section
+
             ColumnLayout {
                 id: recentlyAddedSection
                 Layout.fillWidth: true
                 spacing: Theme.sectionSpacing
-                
+
                 Repeater {
                     id: recentlyAddedRepeater
                     model: librariesModel
-                    
+
                     delegate: ColumnLayout {
+                        id: recentlyAddedShelf
                         Layout.fillWidth: true
                         spacing: Theme.sectionTitleSpacing
-                        
+
                         property string libraryKey: root.libraryKey(modelData.connectionId, modelData.itemId)
                         property var items: recentlyAddedMap[libraryKey] || []
                         property string libraryId: modelData.itemId
                         property var recentlyAddedListRef: recentlyAddedList
                         visible: items.length > 0
-                        
+
                         SectionHeader {
                             text: qsTr("Recently Added")
                             detail: root.mergedMode && modelData.sourceLabel
@@ -1235,283 +855,40 @@ FocusScope {
                             Accessible.role: Accessible.Heading
                             Accessible.name: text + " - " + detail
                         }
-                        
-                        ListView {
+
+                        ShelfList {
                             id: recentlyAddedList
                             Layout.fillWidth: true
-                            Layout.preferredHeight: recentlyAddedPosterHeight + Math.round(120 * Theme.layoutScale)
-                            orientation: ListView.Horizontal
-                            spacing: root.cardSpacing
-                            leftMargin: Theme.pageMarginX
-                            rightMargin: Theme.pageMarginX
-                            topMargin: Theme.spacingLarge / 2
-                            clip: false
-                            preferredHighlightBegin: Theme.pageMarginX
-                            preferredHighlightEnd: width - Theme.pageMarginX
-                            highlightRangeMode: ListView.StrictlyEnforceRange
-                            highlightMoveDuration: 0
-                            
-                            add: Transition {
-                                NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
-                            }
-                            populate: Transition {
-                                NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
-                            }
-                            addDisplaced: Transition {
-                                NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
-                            }
-                            move: Transition {
-                                NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
-                            }
-                            remove: Transition {
-                                NumberAnimation { property: "opacity"; to: 0; duration: Theme.uiAnimationsEnabled ? Theme.durationShort : 0; easing.type: Easing.OutQuad }
-                            }
-                            removeDisplaced: Transition {
-                                NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
-                            }
-                            displaced: Transition {
-                                NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
-                            }
-                            
-                            model: parent.items
-                            
-                            property int libraryIndex: index === undefined ? -1 : index
-                            property string parentLibraryId: parent.libraryId
-                            
-                            delegate: Item {
-                                id: recentlyAddedDelegate
-                                width: recentlyAddedPosterWidth
-                                height: recentlyAddedPosterHeight + Math.round(100 * Theme.layoutScale)
-                                property bool isFocused: recentlyAddedList.currentIndex === index && recentlyAddedList.activeFocus
-                                property bool isHovered: InputModeManager.pointerActive && recentMouseArea.containsMouse
-                                readonly property string titleText: modelData.mediaType === "Episode"
-                                                                    ? (modelData.seriesName || modelData.name || "")
-                                                                    : (modelData.name || "")
-
-                                Column {
-                                    anchors.fill: parent
-                                    spacing: Theme.spacingMedium
-
-                                    // Poster image (2:3 aspect ratio) with rounded corners
-                                    Item {
-                                        id: recentImageContainer
-                                        width: recentlyAddedPosterWidth
-                                        height: recentlyAddedPosterHeight  // 2:3 poster aspect ratio
-                                        scale: isFocused ? Theme.focusScale : 1.0
-                                        z: isFocused ? 1 : 0
-                                        Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
-
-                                        ArtworkPlaceholder {
-                                            anchors.fill: parent
-                                            visible: recentCoverArt.status !== Image.Ready
-                                            loading: recentCoverArt.status === Image.Loading
-                                            iconGlyph: modelData.mediaType === "Movie" ? Icons.movie : Icons.tvShows
-                                            title: recentlyAddedDelegate.titleText
-                                        }
-                                        
-                                        Image {
-                                            id: recentCoverArt
-                                            anchors.fill: parent
-                                            fillMode: Image.PreserveAspectCrop
-                                            asynchronous: true
-                                            cache: true
-                                            visible: status === Image.Ready
-                                            property string seriesPrimaryUrl:
-                                                modelData.mediaType === "Episode"
-                                                ? root.artworkUrlFromRef(modelData.seriesPrimaryArtwork, 640)
-                                                : ""
-                                            property string itemPrimaryUrl:
-                                                root.artworkUrlFromRef(modelData.primaryArtwork, 640)
-                                            property var artworkCandidates: {
-                                                const candidates = [seriesPrimaryUrl, itemPrimaryUrl]
-                                                return candidates.filter(function(url) { return !!url })
-                                            }
-                                            property int artworkCandidateIndex: 0
-                                            source: artworkCandidates.length > 0
-                                                    ? artworkCandidates[Math.min(artworkCandidateIndex,
-                                                                                 artworkCandidates.length - 1)]
-                                                    : ""
-
-                                            layer.enabled: true
-                                            layer.effect: MultiEffect {
-                                                maskEnabled: true
-                                                maskSource: recentMask
-                                            }
-
-                                            onArtworkCandidatesChanged: artworkCandidateIndex = 0
-                                            onStatusChanged: {
-                                                if (status === Image.Error
-                                                        && artworkCandidateIndex + 1 < artworkCandidates.length) {
-                                                    artworkCandidateIndex++
-                                                }
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            id: recentMask
-                                            anchors.fill: parent
-                                            radius: Theme.imageRadius
-                                            visible: false
-                                            layer.enabled: true
-                                            layer.smooth: true
-                                        }
-
-                                        PosterBadgeOverlay {
-                                            anchors.fill: parent
-                                            item: modelData
-                                            topRightReserved: recentSeriesBadge.visible || recentMovieBadge.visible
-                                                              ? recentSeriesBadge.height : 0
-                                        }
-
-                                        FocusRing {
-                                            active: isFocused
-                                            radius: Theme.imageRadius
-                                        }
-
-                                        // Unwatched episode count badge (for Series only, not individual Episodes)
-                                        UnwatchedBadge {
-                                            id: recentSeriesBadge
-                                            anchors.top: parent.top
-                                            anchors.right: parent.right
-                                            parentWidth: parent.width
-                                            count: (modelData.mediaType === "Series")
-                                                   ? (modelData.unplayedItemCount || 0) : 0
-                                            isFullyWatched: (modelData.mediaType === "Series")
-                                                            ? (modelData.watched || false) : false
-                                            applicable: modelData.mediaType === "Series"
-                                        }
-
-                                        // Watched checkmark (for Movies only)
-                                        UnwatchedBadge {
-                                            id: recentMovieBadge
-                                            anchors.top: parent.top
-                                            anchors.right: parent.right
-                                            parentWidth: parent.width
-                                            count: 0
-                                            isFullyWatched: modelData.watched || false
-                                            applicable: modelData.mediaType === "Movie" &&
-                                                     modelData.watched
-                                        }
-                                    }
-
-                                    // Text container below the image
-                                    Column {
-                                        width: parent.width
-                                        spacing: Theme.spacingXSmall
-
-                                        // For episodes: seriesName, For series/movies: name
-                                        Text {
-                                            width: parent.width
-                                            text: recentlyAddedDelegate.titleText
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            font.family: Theme.fontPrimary
-                                            font.weight: Theme.fontWeightStrong
-                                            color: Theme.textPrimary
-                                            elide: Text.ElideRight
-                                            maximumLineCount: 1
-                                        }
-
-                                        Text {
-                                            width: parent.width
-                                            text: {
-                                                if (modelData.mediaType === "Episode") {
-                                                    var txt = ""
-                                                    if (modelData.parentIndexNumber >= 0 && modelData.indexNumber >= 0) {
-                                                        txt = "S" + modelData.parentIndexNumber + ":E" + modelData.indexNumber
-                                                        if (modelData.name) txt += " - " + modelData.name
-                                                    } else if (modelData.name) {
-                                                        txt = modelData.name
-                                                    }
-                                                    return txt
-                                                } else if (modelData.mediaType === "Series") {
-                                                    var startYear = modelData.productionYear || extractYear(modelData.premiereDate)
-                                                    if (!startYear) return ""
-                                                    if (modelData.status === "Continuing" || !modelData.endDate) {
-                                                        return startYear + " - Present"
-                                                    } else {
-                                                        var endYear = extractYear(modelData.endDate)
-                                                        if (endYear && endYear !== startYear) {
-                                                            return startYear + " - " + endYear
-                                                        }
-                                                        return startYear.toString()
-                                                    }
-                                                } else if (modelData.mediaType === "Movie") {
-                                                    var year = modelData.productionYear || extractYear(modelData.premiereDate)
-                                                    return year ? year.toString() : ""
-                                                }
-                                                return ""
-                                            }
-                                            font.pixelSize: Theme.fontSizeCaption
-                                            font.family: Theme.fontPrimary
-                                            color: Theme.textSecondary
-                                            elide: Text.ElideRight
-                                            maximumLineCount: 1
-                                        }
-                                    }
-                                }
-
-                                MouseArea {
-                                    id: recentMouseArea
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    onClicked: {
-                                        recentlyAddedList.currentIndex = index
-                                        recentlyAddedList.forceActiveFocus()
-                                        handleRecentlyAddedSelection(modelData, recentlyAddedList.parentLibraryId)
-                                    }
-                                }
-
-                                Accessible.role: Accessible.Button
-                                Accessible.name: modelData.name
-                                Accessible.description: "Details for " + modelData.name
-                            }
+                            Layout.preferredHeight: implicitHeight
+                            model: recentlyAddedShelf.items
+                            delegate: posterCardDelegate
+                            property string parentLibraryId: recentlyAddedShelf.libraryId
 
                             Keys.onReturnPressed: {
-                                if (currentIndex >= 0 && currentIndex < count) {
+                                if (currentIndex >= 0 && currentIndex < count)
                                     handleRecentlyAddedSelection(model[currentIndex], parentLibraryId)
-                                }
                             }
                             Keys.onEnterPressed: {
-                                if (currentIndex >= 0 && currentIndex < count) {
+                                if (currentIndex >= 0 && currentIndex < count)
                                     handleRecentlyAddedSelection(model[currentIndex], parentLibraryId)
-                                }
                             }
-                            Keys.onUpPressed: {
-                                if (libraryIndex === 0) {
-                                    if (displayedNextUpModel.length > 0) nextUpList.forceActiveFocus()
-                                    else if (continueWatchingSection.visible) continueWatchingList.forceActiveFocus()
-                                    else myMediaList.forceActiveFocus()
-                                } else {
-                                    for (var i = libraryIndex - 1; i >= 0; i--) {
-                                        var previousMeta = getRecentlyAddedDelegateMeta(i)
-                                        if (previousMeta.item && previousMeta.item.visible && previousMeta.recentlyAddedListRef) {
-                                            previousMeta.recentlyAddedListRef.forceActiveFocus()
-                                            break
-                                        }
-                                    }
-                                }
+                            Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(recentlyAddedList, -1) }
+                            Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(recentlyAddedList, 1) }
+                            onCurrentIndexChanged: if (activeFocus) root.cancelInitialFocus()
+                            onActiveFocusChanged: {
+                                if (activeFocus)
+                                    root.scrollToSection(recentlyAddedShelf)
+                                else
+                                    root.cancelInitialFocus()
                             }
-                            Keys.onDownPressed: {
-                                for (var i = libraryIndex + 1; i < recentlyAddedRepeater.count; i++) {
-                                    var followingMeta = getRecentlyAddedDelegateMeta(i)
-                                    if (followingMeta.item && followingMeta.item.visible && followingMeta.recentlyAddedListRef) {
-                                        followingMeta.recentlyAddedListRef.forceActiveFocus()
-                                        break
-                                    }
-                                }
-                            }
-
-                            onCurrentIndexChanged: root.ensureListItemVisible(recentlyAddedList)
-                            onActiveFocusChanged: if (activeFocus) root.ensureSectionVisible(recentlyAddedList.parent)
                         }
                     }
                 }
             }
-            
-            // Bottom spacing
-            Item { Layout.preferredHeight: Theme.paddingLarge }
-        } // end mainColumn
-    } // end Flickable
+
+            Item { Layout.preferredHeight: Theme.pageMarginBottom }
+        }
+    }
 
     WheelStepScroller {
         anchors.fill: mainFlickable
@@ -1520,7 +897,7 @@ FocusScope {
         stepPx: (homeCardHeight + Theme.spacingLarge) * 0.45
         pixelDeltaMultiplier: 0.7
     }
-    
+
     // Scrollbar for mainFlickable
     ScrollBar {
         id: scrollBar
@@ -1559,39 +936,12 @@ FocusScope {
     }
     
     // Functions
-    function ensureSectionVisible(targetItem, padding) {
-        if (!targetItem)
-            return
-        var extra = padding !== undefined ? padding : Theme.paddingLarge
-        var itemPos = targetItem.mapToItem(mainFlickable.contentItem, 0, 0)
-        var top = itemPos.y - extra
-        var bottom = itemPos.y + targetItem.height + extra
-        var viewTop = mainFlickable.contentY
-        var viewBottom = viewTop + mainFlickable.height
-        if (top < viewTop) {
-            mainFlickable.contentY = Math.max(0, top)
-        } else if (bottom > viewBottom) {
-            var maxY = Math.max(0, mainFlickable.contentHeight - mainFlickable.height)
-            mainFlickable.contentY = Math.min(maxY, bottom - mainFlickable.height)
-        }
-    }
-
     function ensureListItemVisible(listView) {
         if (!listView || listView.currentIndex < 0)
             return
         listView.positionViewAtIndex(listView.currentIndex, ListView.Visible)
     }
 
-    function handleLibrarySelection(library) {
-        console.log("Selected library: " + library.name)
-        // Save focus state before navigating
-        saveFocusState()
-        // Merged libraries open on the connection that owns them.
-        sourceRouter.run(library.connectionId || "", function() {
-            navigateToLibrary(library.itemId, library.name)
-        })
-    }
-    
     function handleNextUpSelection(item) {
         if (root.StackView.status !== StackView.Active) {
             console.log("[Home] Ignoring Next Up selection while screen is not active")
@@ -1768,12 +1118,8 @@ FocusScope {
         var orderedViews = orderLibraries(views)
         librariesModel = orderedViews
         heroProvider.rebuild()
-        if (orderedViews.length > 0) {
-            if (myMediaList.currentIndex < 0) {
-                myMediaList.currentIndex = 0
-            }
+        if (orderedViews.length > 0)
             Qt.callLater(root.applyInitialFocus)
-        }
 
         // Next Up and Recently Added for each library
         refreshDynamicContent()

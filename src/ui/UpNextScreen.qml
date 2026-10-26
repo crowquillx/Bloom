@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Shapes
+import QtQuick.Layouts
 import BloomUI
 
 /**
@@ -253,58 +254,21 @@ FocusScope {
         }
     }
 
-    // ---- Backdrop ----
-    // Opaque base matching Main's playback handoff surface, so the hop from
-    // video to this screen never shows the page underneath.
-    Rectangle {
+    // ---- Stage ----
+    // Opaque stage matching Main's playback handoff surface, so the hop from
+    // video to this screen never shows the page underneath. Without a next
+    // episode the art is quieted behind the "caught up" copy.
+    StageBackdrop {
+        id: stage
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
-        color: Theme.backgroundPrimary
-    }
-
-    Image {
-        id: backdropImage
-        anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
+        mode: "hero"
         source: root.backdropCandidates.length > root.backdropCandidateIndex
                 ? root.backdropCandidates[root.backdropCandidateIndex] : ""
-        fillMode: Image.PreserveAspectCrop
-        horizontalAlignment: Image.AlignRight
-        asynchronous: true
-        cache: true
-        opacity: status === Image.Ready ? (root.hasNextEpisode ? 1.0 : 0.55) : 0.0
-        Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
-        onStatusChanged: {
-            if (status === Image.Error
-                    && root.backdropCandidateIndex + 1 < root.backdropCandidates.length) {
+        dim: root.hasNextEpisode ? 0 : 0.45
+        onArtworkFailed: function(url) {
+            if (url === source && root.backdropCandidateIndex + 1 < root.backdropCandidates.length) {
                 root.backdropCandidateIndex++
             }
-        }
-    }
-
-    // Left scrim: solid behind the copy, clear over the right half of the art.
-    Rectangle {
-        anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
-        gradient: Gradient {
-            orientation: Gradient.Horizontal
-            GradientStop { position: 0.0; color: Theme.scrimStrong }
-            GradientStop { position: 0.4; color: Theme.scrimMedium }
-            GradientStop { position: 0.72; color: Theme.scrimClear }
-        }
-    }
-
-    // Bottom scrim under the card row.
-    Rectangle {
-        anchors.left: parent.left
-        anchors.leftMargin: -Theme.navRailReservedWidth
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: parent.height * 0.45
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Theme.scrimClear }
-            GradientStop { position: 0.55; color: Theme.scrimMedium }
-            GradientStop { position: 1.0; color: Theme.scrimStrong }
         }
     }
 
@@ -327,60 +291,72 @@ FocusScope {
             }
         }
 
+        // Hero block: at the gutter, below the navigation bar, a fixed reading
+        // measure (about half a 16:9 screen).
         Column {
             id: heroColumn
             anchors.left: parent.left
             anchors.leftMargin: Theme.pageMarginX
             anchors.top: parent.top
-            anchors.topMargin: Theme.pageMarginTop + Math.round(24 * Theme.layoutScale)
-            width: Math.min(Math.round(parent.width * 0.42), Math.round(780 * Theme.layoutScale))
+            anchors.topMargin: Theme.pageMarginTop
+            width: Math.min(Theme.heroCopyMaxWidth, parent.width - Theme.pageMarginX * 2)
             spacing: Theme.spacingMedium
             transform: Translate { id: heroTranslate }
 
-            // Series logo, or the series name when there is no logo.
+            // Why this screen is here, set as an eyebrow.
+            Text {
+                width: parent.width
+                text: !root.hasNextEpisode ? qsTr("You're all caught up")
+                      : (root.heroIsQueued ? qsTr("Next Episode") : qsTr("Episode"))
+                font.pixelSize: Theme.fontSizeCaption
+                font.family: Theme.fontPrimary
+                font.weight: Theme.fontWeightHeavy
+                font.capitalization: Font.AllUppercase
+                font.letterSpacing: Theme.eyebrowLetterSpacing
+                color: Theme.accentPrimary
+                elide: Text.ElideRight
+            }
+
+            // Series logo, or the series name in display type.
             Item {
                 width: parent.width
-                height: Math.round(170 * Theme.layoutScale)
+                height: logoImage.visible ? Theme.detailViewLogoHeight : seriesTitle.implicitHeight
+                visible: logoImage.visible || root.seriesName !== ""
 
                 ArtworkLogo {
                     id: logoImage
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
-                    width: Math.min(parent.width, Math.round(560 * Theme.layoutScale))
+                    width: Math.min(parent.width, Theme.seriesLogoMaxWidth)
                     height: parent.height
                     source: root.logoUrl
                     horizontalAlignment: Image.AlignLeft
                     sourceSize.width: 800
-                    visible: source !== "" && status !== Image.Error
+                    visible: root.logoUrl !== "" && status !== Image.Error
                     opacity: status === Image.Ready ? 1.0 : 0.0
-                    Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
+                    Behavior on opacity {
+                        enabled: Theme.uiAnimationsEnabled
+                        NumberAnimation { duration: Theme.durationFade }
+                    }
                 }
 
                 Text {
+                    id: seriesTitle
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     visible: !logoImage.visible
                     text: root.seriesName
-                    font.pixelSize: Theme.fontSizeDisplay
-                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeHero
+                    font.family: Theme.fontDisplay
                     font.weight: Theme.fontWeightHeavy
+                    font.letterSpacing: Theme.displayLetterSpacing
                     color: Theme.textPrimary
                     wrapMode: Text.WordWrap
                     maximumLineCount: 2
                     elide: Text.ElideRight
+                    lineHeight: 0.95
                 }
-            }
-
-            Item { width: 1; height: Theme.spacingSmall }
-
-            Text {
-                text: !root.hasNextEpisode ? qsTr("You're all caught up")
-                      : (root.heroIsQueued ? qsTr("Next Episode") : qsTr("Episode"))
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.fontPrimary
-                font.weight: Theme.fontWeightMedium
-                color: Theme.textSecondary
             }
 
             Text {
@@ -388,7 +364,7 @@ FocusScope {
                 text: root.hasNextEpisode
                       ? root.episodeTitle(root.heroEpisode)
                       : qsTr("There isn't another unwatched episode available right now.")
-                font.pixelSize: Theme.fontSizeHeader
+                font.pixelSize: Theme.fontSizeMedium
                 font.family: Theme.fontPrimary
                 font.weight: Theme.fontWeightStrong
                 color: Theme.textPrimary
@@ -406,11 +382,12 @@ FocusScope {
                 text: overviewText
                 font.pixelSize: Theme.fontSizeBody
                 font.family: Theme.fontPrimary
-                color: Theme.textSecondary
+                color: Theme.textPrimary
+                opacity: 0.86
                 wrapMode: Text.WordWrap
-                maximumLineCount: 2
+                maximumLineCount: 3
                 elide: Text.ElideRight
-                lineHeight: 1.15
+                lineHeight: 1.12
             }
 
             // Countdown ring, which becomes a spinner once playback is starting.
@@ -421,7 +398,10 @@ FocusScope {
                 height: root.showCountdownSlot ? ring.height + Theme.spacingSmall : 0
                 visible: height > 0
                 clip: true
-                Behavior on height { NumberAnimation { duration: Theme.durationLong; easing.type: Theme.easingStandard } }
+                Behavior on height {
+                    enabled: Theme.uiAnimationsEnabled
+                    NumberAnimation { duration: Theme.durationLong; easing.type: Theme.easingStandard }
+                }
 
                 Item {
                     id: ring
@@ -518,22 +498,23 @@ FocusScope {
                 }
             }
 
-            Item { width: 1; height: Theme.spacingXSmall }
-
+            // One primary action, then the secondary one.
             Row {
                 id: actionRow
-                spacing: Theme.spacingMedium
-                readonly property int iconButtonWidth: Math.round(206 * Theme.layoutScale)
-                readonly property int iconGlyphSize: Math.round(44 * Theme.layoutScale)
+                topPadding: Theme.spacingSmall
+                spacing: Theme.controlSpacing
 
                 ActionButton {
                     id: primaryButton
                     variant: "primary"
-                    implicitHeight: Theme.buttonHeightLarge
-                    width: root.hasNextEpisode ? actionRow.iconButtonWidth : implicitWidth
-                    text: root.hasNextEpisode ? "" : qsTr("Back to Series")
+                    implicitHeight: Theme.buttonHeightHero
+                    labelPixelSize: Theme.fontSizeMedium
+                    iconPixelSize: Theme.iconSizeLarge
+                    sidePadding: Math.round(40 * Theme.layoutScale)
+                    text: root.hasNextEpisode
+                          ? qsTr("Play %1").arg(root.episodeLabel(root.episodeData))
+                          : qsTr("Back to Series")
                     iconGlyph: root.hasNextEpisode ? Icons.playArrow : Icons.viewList
-                    iconPixelSize: root.hasNextEpisode ? actionRow.iconGlyphSize : Theme.fontSizeIcon
                     accessibleLabel: root.hasNextEpisode
                                      ? qsTr("Play %1").arg(root.episodeTitle(root.episodeData)) : ""
                     focus: true
@@ -553,16 +534,18 @@ FocusScope {
                 ActionButton {
                     id: secondaryButton
                     variant: "secondary"
-                    implicitHeight: Theme.buttonHeightLarge
-                    width: root.hasNextEpisode ? actionRow.iconButtonWidth : implicitWidth
+                    implicitHeight: Theme.buttonHeightHero
+                    labelPixelSize: Theme.fontSizeMedium
+                    iconPixelSize: Theme.iconSizeLarge
+                    sidePadding: Math.round(36 * Theme.layoutScale)
                     text: root.hasNextEpisode ? "" : qsTr("Home")
                     iconGlyph: root.hasNextEpisode ? Icons.close : Icons.home
                     accessibleLabel: root.hasNextEpisode ? qsTr("Close") : ""
-                    iconPixelSize: root.hasNextEpisode ? actionRow.iconGlyphSize : Theme.fontSizeIcon
                     toolTipText: root.hasNextEpisode ? qsTr("Back to episodes") : ""
                     enabled: !root.starting
 
                     KeyNavigation.left: primaryButton
+                    Keys.onRightPressed: function(event) { event.accepted = true }
                     Keys.onDownPressed: function(event) { event.accepted = cardRow.focusRow() }
                     Keys.onReturnPressed: function(event) { root.activateOnKey(event, secondaryButton.activate) }
                     Keys.onEnterPressed: function(event) { root.activateOnKey(event, secondaryButton.activate) }
@@ -576,8 +559,8 @@ FocusScope {
             }
         }
 
-        // ---- Bottom row: rest of the season, or recommendations ----
-        Item {
+        // ---- Bottom shelf: rest of the season, or recommendations ----
+        ColumnLayout {
             id: cardRow
             readonly property bool hasCards: root.hasNextEpisode ? root.upcomingEpisodes.length > 0
                                                                  : root.hasRecommendations
@@ -586,8 +569,8 @@ FocusScope {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: Theme.pageMarginTop
-            height: rowTitle.height + Theme.spacingSmall + activeList.height
+            anchors.bottomMargin: Theme.pageMarginBottom - Theme.shelfFocusMargin
+            spacing: Theme.sectionTitleSpacing
             visible: hasCards
             opacity: hasCards ? 1.0 : 0.0
             Behavior on opacity { NumberAnimation { duration: Theme.durationLong } }
@@ -599,215 +582,116 @@ FocusScope {
                 return true
             }
 
-            Text {
-                id: rowTitle
-                anchors.left: parent.left
-                anchors.leftMargin: Theme.pageMarginX
+            SectionHeader {
                 text: root.hasNextEpisode ? qsTr("Up Next") : qsTr("Recommended Next")
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                font.weight: Theme.fontWeightMedium
-                color: Theme.textPrimary
+                Layout.leftMargin: Theme.pageMarginX
+                Layout.rightMargin: Theme.pageMarginX
+                Layout.fillWidth: true
+                Accessible.role: Accessible.Heading
+                Accessible.name: text
             }
 
-            CardRowList {
+            ShelfList {
                 id: episodesList
-                anchors.left: parent.left
-                anchors.right: parent.right
-                onUpRequested: primaryButton.forceActiveFocus()
-                anchors.top: rowTitle.bottom
-                anchors.topMargin: Theme.spacingSmall
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
                 visible: root.hasNextEpisode
-                cardWidth: Math.round(400 * Theme.layoutScale)
-                cardHeight: Math.round(cardWidth * 9 / 16)
+                cardHeight: Theme.landscapeCardHeight
                 model: root.hasNextEpisode ? root.upcomingEpisodes : []
 
                 onActiveFocusChanged: {
                     if (activeFocus) root.cancelCountdown()
                 }
-                onActivated: function(index) { root.playEpisode(root.upcomingEpisodes[index]) }
 
-                delegate: Item {
+                Keys.onUpPressed: function(event) {
+                    primaryButton.forceActiveFocus()
+                    event.accepted = true
+                }
+                Keys.onDownPressed: function(event) { event.accepted = true }
+                Keys.onReturnPressed: function(event) { episodesList.activateCurrent(event) }
+                Keys.onEnterPressed: function(event) { episodesList.activateCurrent(event) }
+                Keys.onSpacePressed: function(event) { episodesList.activateCurrent(event) }
+
+                function activateCurrent(event) {
+                    if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.upcomingEpisodes.length)
+                        root.playEpisode(root.upcomingEpisodes[currentIndex])
+                    event.accepted = true
+                }
+
+                delegate: MediaCard {
                     id: episodeCard
                     required property var modelData
                     required property int index
                     readonly property bool queued: (modelData.itemId || "") === root.episodeId
-                    readonly property double progress: modelData.durationMs > 0 && modelData.positionMs > 0
-                                                       ? Math.min(1, modelData.positionMs / modelData.durationMs) : 0
 
-                    width: episodesList.cardWidth
-                    height: episodesList.height
-
-                    Accessible.role: Accessible.Button
+                    variant: "landscape"
+                    artworkSources: [root.artworkUrlFromRef(modelData.primaryArtwork || modelData.thumbArtwork, 640)]
+                    title: modelData.name || ""
+                    subtitle: root.episodeLabel(modelData)
+                    placeholderIcon: Icons.tvShows
+                    positionMs: modelData.positionMs || 0
+                    durationMs: modelData.durationMs || 0
+                    focused: ListView.isCurrentItem && ListView.view.activeFocus
                     Accessible.name: root.episodeTitle(modelData)
-                    Accessible.focusable: true
+                    onClicked: root.playEpisode(modelData)
 
+                    // The queued episode keeps a selection outline while
+                    // focus is elsewhere; focus draws the shared ring.
                     Rectangle {
-                        id: episodeFrame
-                        anchors.centerIn: parent
-                        width: episodesList.cardWidth
-                        height: episodesList.cardHeight
-                        radius: Theme.imageRadius
-                        color: Theme.artworkPlaceholder
-                        scale: episodeCard.activeFocus ? 1.0 : 0.97
-                        Behavior on scale { NumberAnimation { duration: Theme.durationShort; easing.type: Theme.easingStandard } }
-
-                        RoundedImage {
-                            anchors.fill: parent
-                            radius: parent.radius
-                            source: root.artworkUrlFromRef(episodeCard.modelData.primaryArtwork
-                                                           || episodeCard.modelData.thumbArtwork, 640)
-                            sourceWidth: 640
-                            sourceHeight: 360
-                            opacity: ready ? 1.0 : 0.0
-                            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
-                        }
-
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            height: parent.height * 0.5
-                            radius: parent.radius
-                            gradient: Gradient {
-                                GradientStop { position: 0.0; color: Theme.withAlpha(Theme.overlayTextBackground, 0.0) }
-                                GradientStop { position: 1.0; color: Theme.withAlpha(Theme.overlayTextBackground, 0.85) }
-                            }
-                        }
-
-                        Text {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: progressTrack.visible ? progressTrack.top : parent.bottom
-                            anchors.margins: Theme.spacingMedium
-                            text: root.episodeLabel(episodeCard.modelData)
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            font.weight: Theme.fontWeightStrong
-                            color: Theme.textOnDarkOverlay
-                            elide: Text.ElideRight
-                        }
-
-                        Rectangle {
-                            id: progressTrack
-                            visible: episodeCard.progress > 0
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            anchors.margins: Theme.spacingMedium
-                            height: Theme.progressHeight
-                            radius: height / 2
-                            color: Theme.progressTrackOnArtwork
-
-                            Rectangle {
-                                width: parent.width * episodeCard.progress
-                                height: parent.height
-                                radius: parent.radius
-                                color: Theme.progressFill
-                            }
-                        }
-
-                        // The queued episode keeps a selection outline while
-                        // focus is elsewhere; focus draws the shared ring.
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: parent.radius
-                            color: "transparent"
-                            visible: episodeCard.queued && !episodeCard.activeFocus
-                            border.width: Theme.selectionIndicatorWidth
-                            border.color: Theme.selectionIndicator
-                        }
-
-                        FocusRing {
-                            active: episodeCard.activeFocus
-                            radius: parent.radius
-                        }
-                    }
-
-                    MouseArea {
-                        anchors.fill: episodeFrame
-                        cursorShape: InputModeManager.pointerActive ? Qt.PointingHandCursor : Qt.BlankCursor
-                        onClicked: root.playEpisode(episodeCard.modelData)
+                        width: episodeCard.artworkWidth
+                        height: episodeCard.artworkHeight
+                        radius: Theme.radiusArtwork
+                        color: "transparent"
+                        border.width: Theme.selectionIndicatorWidth
+                        border.color: Theme.selectionIndicator
+                        visible: episodeCard.queued && !episodeCard.focused
                     }
                 }
             }
 
-            CardRowList {
+            ShelfList {
                 id: recommendationsList
-                anchors.left: parent.left
-                anchors.right: parent.right
-                onUpRequested: primaryButton.forceActiveFocus()
-                anchors.top: rowTitle.bottom
-                anchors.topMargin: Theme.spacingSmall
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
                 visible: !root.hasNextEpisode
-                cardWidth: Math.round(170 * Theme.layoutScale)
-                cardHeight: Math.round(300 * Theme.layoutScale)
                 model: root.hasNextEpisode ? [] : root.recommendationItems
 
-                onActivated: function(index) {
-                    if (currentItem) {
-                        root.activateRecommendation(root.recommendationItems[index], currentItem)
-                    }
+                Keys.onUpPressed: function(event) {
+                    primaryButton.forceActiveFocus()
+                    event.accepted = true
+                }
+                Keys.onDownPressed: function(event) { event.accepted = true }
+                Keys.onReturnPressed: function(event) { recommendationsList.activateCurrent(event) }
+                Keys.onEnterPressed: function(event) { recommendationsList.activateCurrent(event) }
+                Keys.onSpacePressed: function(event) { recommendationsList.activateCurrent(event) }
+
+                function activateCurrent(event) {
+                    if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.recommendationItems.length)
+                        root.activateRecommendation(root.recommendationItems[currentIndex], recommendationsList)
+                    event.accepted = true
                 }
 
-                delegate: FocusScope {
-                    id: recommendationDelegate
+                delegate: MediaCard {
                     required property var modelData
                     required property int index
+                    readonly property bool isSeerr: modelData.source === "seerr"
 
-                    width: recommendationsList.cardWidth
-                    height: recommendationsList.height
-
-                    SearchResultCard {
-                        anchors.centerIn: parent
-                        width: recommendationsList.cardWidth
-                        height: recommendationsList.cardHeight
-                        itemData: recommendationDelegate.modelData
-                        isFocused: recommendationDelegate.activeFocus
-
-                        onClicked: root.activateRecommendation(recommendationDelegate.modelData,
-                                                               recommendationDelegate)
+                    variant: "poster"
+                    artworkSources: [isSeerr ? (modelData.imageUrl || "")
+                                             : root.artworkUrlFromRef(modelData.primaryArtwork, 640)]
+                    title: modelData.name || ""
+                    subtitle: modelData.productionYear ? String(modelData.productionYear) : ""
+                    placeholderIcon: Icons.tvShows
+                    item: isSeerr ? null : modelData
+                    focused: ListView.isCurrentItem && ListView.view.activeFocus
+                    onClicked: {
+                        recommendationsList.currentIndex = index
+                        recommendationsList.forceActiveFocus()
+                        root.activateRecommendation(modelData, recommendationsList)
                     }
                 }
             }
         }
-    }
-
-    /// Horizontal card row that bleeds to the right edge and scrolls with focus.
-    component CardRowList: ListView {
-        id: list
-        property int cardWidth: 0
-        property int cardHeight: 0
-        /// Room above and below the cards for the focus ring.
-        property int verticalInset: Theme.focusRingGap + Theme.focusRingWidth + Theme.spacingXSmall
-        signal activated(int index)
-        signal upRequested()
-
-        function activateCurrent(event) {
-            if (!event.isAutoRepeat && currentIndex >= 0) activated(currentIndex)
-            event.accepted = true
-        }
-
-        height: cardHeight + verticalInset * 2
-        orientation: ListView.Horizontal
-        spacing: Theme.spacingMedium
-        leftMargin: Theme.pageMarginX
-        rightMargin: Theme.pageMarginX
-        clip: true
-        currentIndex: 0
-        boundsBehavior: Flickable.StopAtBounds
-        highlightRangeMode: ListView.ApplyRange
-        preferredHighlightBegin: Theme.pageMarginX
-        preferredHighlightEnd: width - Theme.pageMarginX
-        highlightMoveDuration: Theme.durationLong
-
-        Keys.onUpPressed: function(event) {
-            upRequested()
-            event.accepted = true
-        }
-        Keys.onReturnPressed: function(event) { activateCurrent(event) }
-        Keys.onEnterPressed: function(event) { activateCurrent(event) }
-        Keys.onSpacePressed: function(event) { activateCurrent(event) }
     }
 
     SeerrRequestDialog {

@@ -158,6 +158,8 @@ private:
     QHash<QString, QList<std::function<void()>>> m_waitingForSession;
     QList<QPointer<HttpRequestHandle>> m_requests;
     QVariantList m_views;
+    /// Libraries of unsupported types per member, from the last views fan-out.
+    QHash<QString, QStringList> m_unsupportedLibraryIds;
     bool m_viewsLoading = false;
     quint64 m_epoch = 0;
 };

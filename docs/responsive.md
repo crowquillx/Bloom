@@ -22,7 +22,7 @@ The [`ResponsiveLayoutManager`](../src/ui/ResponsiveLayoutManager.h) class is th
 | `layoutScale` | qreal | Logical pixels per Theme design unit (proportional to window size) |
 | `gridColumns` | int | Grid column count (7 at 16:9, more on wider viewports) |
 | `homeRowVisibleItems` | int | Visible items per home row (6 at 16:9, more on wider viewports) |
-| `sidebarDefaultMode` | QString | Default sidebar mode (always "rail") |
+| `sidebarDefaultMode` | QString | Legacy; always "rail" and unused by the navigation bar |
 | `aspectRatio` | qreal | Viewport aspect ratio (width / height) |
 | `viewportWidth` | int | Current viewport width in logical pixels |
 | `viewportHeight` | int | Current viewport height in logical pixels |
@@ -82,10 +82,12 @@ layoutScale     = baseLayoutScale * manualDpiScaleOverride
 > `"rail"`. `ResponsiveLayoutPolicyTest` guards the resolution and OS-scaling
 > independence.
 >
-> The navigation shell is a floating rail. Pages reserve a constant
-> `Theme.navRailReservedWidth`, and the rail expands as an overlay. The old
+> The navigation shell was later replaced by a top navigation bar
+> (`NavigationBar.qml`) that reserves no width; pages fill the window and
+> non-hero pages start at `Theme.pageMarginTop`. The rail's history: pages
+> reserved a constant rail width, and the rail expanded as an overlay. The old
 > 960 px overlay threshold and the content-margin animation were removed.
-> `NavigationRailTest` checks the rail metrics and fit at 720p, 1080p, 4K,
+> `NavigationBarTest` now checks the bar metrics and fit at 720p, 1080p, 4K,
 > 21:9, 4:3 and narrow windows.
 
 ## Manual DPI Scale Override
@@ -428,75 +430,19 @@ The alphabetical letter rail width and spacing scale with `Theme.layoutScale` (e
 
 Button padding and the back-button width scale with `Theme.layoutScale`, keeping touch/focus targets proportional at every window size.
 
-## SeriesDetailsView Responsive Layout
+## Detail pages: hero and shelves
 
-[`SeriesDetailsView.qml`](../src/ui/SeriesDetailsView.qml) is a single scrolling column inside `Theme.pageMarginX` / `Theme.pageMarginTop` margins, over a full-bleed, sharp backdrop with scrims.
+[`MovieDetailsView.qml`](../src/ui/MovieDetailsView.qml), [`SeriesDetailsView.qml`](../src/ui/SeriesDetailsView.qml), [`SeriesSeasonEpisodeView.qml`](../src/ui/SeriesSeasonEpisodeView.qml) and [`SeasonView.qml`](../src/ui/SeasonView.qml) are hero pages (`docs/style-guide.md`). Each is one scrolling column over a full-bleed `StageBackdrop`, laid out like Home:
 
-### Layout structure
+- **Stage**: `mode: "hero"` with the item's (or series') backdrop. A poster fallback is low resolution, so it uses `mode: "ambient"` instead. `dim` rises to 0.72 as the page scrolls past the hero.
+- **Hero**: a `DetailHero` block at `Theme.pageMarginX`, anchored to the foot of a hero area that is 60% of the page height. The copy keeps a fixed reading measure of 1040 design units (`Theme.heroCopyMaxWidth`), so ultrawide screens do not stretch it. When Read More expands the synopsis, the hero area grows so the copy never slides under `Theme.navBarReservedHeight`. Quality badges (4K, Dolby Vision, HDR10) are `MetadataChip`s in the hero; the poster is not shown.
+- **Actions**: one primary `ActionButton` at `Theme.buttonHeightHero` with a `Theme.fontSizeMedium` label, then labelled secondary buttons, then square icon buttons. Focusing any hero control scrolls back to the top.
+- **Shelves**: `SectionHeader` + `ShelfList`. Episodes and chapters are landscape `MediaCard`s, seasons and recommendations poster `MediaCard`s, people `PersonCard`s. Empty shelves are hidden.
+- **Scrolling**: the first shelf scrolls only as far as it needs to sit fully in view under the hero; later shelves land `56` design units below the top of the screen. `navigationRecessed` turns true once the page has scrolled past `Theme.navBarReservedHeight`.
+- **Episode browser**: `SeriesSeasonEpisodeView` heads its episode shelf with the season tabs (focusable only when there are several seasons). The hero describes the selected episode, and its synopsis keeps a fixed three-line slot (`stableSynopsisHeight`) so the action row does not jump while browsing. The selected episode card keeps a `selectionIndicator` outline while focus is in the hero.
+- **Chapters**: when no chapter has a thumbnail, the chapter shelf is replaced by a `ChapterTimeline` strip as the last section.
 
-A `GlassPanel` hero holds the poster (or `ArtworkPlaceholder`) next to the logo (`ArtworkLogo`) or title. Beside them sit a `MetadataLine`, ratings, genres, creators, a four-line overview with Read More, and the actions: the primary "Play/Resume S#E#" or "Start Series" `ActionButton`, mark watched, favorite and more. Seasons, Next Up, cast and recommendations follow below the hero as shelves.
-
-### Token usage
-
-| Element | Tokens used |
-|---------|-------------|
-| Root margins | `Theme.spacingLarge` |
-| Action button sizing | `Theme.buttonHeightLarge`, `Math.round(200 * Theme.layoutScale)` |
-| Typography | `Theme.fontSizeBody`, `Theme.fontSizeSmall`, `Theme.fontSizeHeader`, `Theme.fontSizeDisplay`, `Theme.fontSizeIcon` |
-| Spacing | `Theme.spacingSmall`, `Theme.spacingMedium`, `Theme.spacingLarge`, `Theme.spacingXLarge` |
-| Card radii | `Theme.radiusMedium`, `Theme.radiusLarge`, `Theme.radiusSmall` |
-| Season poster dimensions | `Theme.seasonPosterWidth`, `Theme.seasonPosterHeight` (with responsive capping) |
-| Next Up card | `Theme.nextUpHeight`, `Theme.nextUpImageHeight` |
-| Series logo | `Theme.seriesLogoHeight`, `Theme.seriesLogoMaxWidth` |
-| Overview max height | `Theme.seriesOverviewMaxHeight` |
-
-### Seasons grid
-
-The seasons grid uses `Theme.seasonPosterWidth`/`Theme.seasonPosterHeight` for cell sizing with responsive capping against viewport height (`root.height * 0.45`). Grid margins use `Theme.spacingMedium`. Custom keyboard navigation handles row/column traversal within the grid.
-
-## SeriesSeasonEpisodeView Responsive Layout
-
-[`SeriesSeasonEpisodeView.qml`](../src/ui/SeriesSeasonEpisodeView.qml) uses the responsive layout system for the episode browsing experience with seasons tabs, episode thumbnails, the selected-episode `Chapters` shelf, cast metadata, action buttons (Play, Mark Watched, Favorite, **Go to Series**, and the audio/subtitle context menu), and audio/subtitle track selection. **Go to Series** opens the parent series details view and returns to the same season/episode context via the library navigation stack. The portrait hero frame shows the season poster when available, then the series poster; landscape episode thumbs are only used as a last-resort fill.
-
-### Token usage
-
-| Element | Tokens used |
-|---------|-------------|
-| Main content area margins | `Theme.paddingLarge`, responsive top margin via `Math.round(N * Theme.layoutScale)` |
-| Season tabs | Height, width, padding all scale via `Math.round(N * Theme.layoutScale)` |
-| Series logo / name | Max height uses `Math.round(180 * Theme.layoutScale)` with viewport-relative capping |
-| Episode metadata typography | `Theme.fontSizeHeader`, `Theme.fontSizeBody`, `Theme.fontSizeCaption` |
-| Episode thumbnail delegate | Margins/spacing via `Theme.spacingSmall`, `Math.round(2 * Theme.layoutScale)` |
-| Chapter rail cards | Surface/radius tokens, `Theme.spacingSmall`/`Theme.spacingMedium`, and the shared `FocusRing` |
-| Focus indicator | `FocusRing` (`Theme.focusRing*` tokens) |
-| Played indicator icon | `Theme.fontSizeIcon` |
-| Read More button | Height/width via `Math.round(N * Theme.layoutScale)` |
-| Action buttons | `Theme.buttonHeightLarge`, `Math.round(N * Theme.layoutScale)` for widths |
-| Context menu | All dimensions scaled via `Math.round(N * Theme.layoutScale)` |
-| Spacing throughout | `Theme.spacingSmall`, `Theme.spacingMedium`, `Theme.spacingLarge` |
-
-### Animated transitions
-
-The Flickable `contentY` animation is gated by `Theme.uiAnimationsEnabled`:
-
-```qml
-Behavior on contentY {
-    enabled: Theme.uiAnimationsEnabled
-    NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic }
-}
-```
-
-All animation durations use Theme duration tokens (`Theme.durationNormal`, `Theme.durationLong`, `Theme.durationShort`).
-
-## Pinned detail headers
-
-`SeriesSeasonEpisodeView.qml` and `MovieDetailsView.qml` pin their header and scroll only the shelves below it:
-
-- **Pinned header**: the episode view pins the season tabs and the episode hero (`pinnedHeader`); the movie view pins its hero `GlassPanel`. Both sit outside the Flickable, so they never move.
-- **Shelf viewport**: the Flickable is anchored below the header and holds the remaining sections: Episodes, Chapters, and Cast & Crew in the episode view; Chapters, Cast & Crew, and Recommended From Your Library in the movie view.
-- **Snap to top**: when a shelf takes focus, `scrollSectionToTop()` puts its header at the top of the viewport. Focusing a header control resets the viewport to the first shelf.
-- **Space budget**: the expanded overview is capped at `overviewExpandedMaxLines` (about 30% of the page height), so Read More can't push the shelves off screen. The episode hero shows a three-line collapsed overview and omits the season name line, since the pinned tabs already show the season. The episode row is sized to fit the viewport, but never below `Theme.episodeListMinHeight`.
-- **Chapter row**: when no chapter has a thumbnail, both views drop the card row and show a `ChapterTimeline` strip as the last section instead. Otherwise `chapterRowHeight` sizes the chapter cards to the viewport too. In the episode view they match the episode card height; in the movie view they fill the viewport up to `Theme.episodeListHeight`. `chapterCardWidth` keeps the thumbnail at 16:9.
+Keyboard: Up from a shelf moves to the row above; above the first row is the primary action. Up from the action row goes to Read More when it is shown, otherwise it is left unhandled so it reaches the navigation bar. Down from the hero enters the first row.
 
 
 ## Future Enhancements

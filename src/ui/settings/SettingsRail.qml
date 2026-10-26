@@ -1,29 +1,41 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import BloomUI
 
+/**
+ * SettingsRail - the category list on the left of Settings.
+ *
+ * Selection (the category shown on the right) uses selectionBackground and the
+ * accent indicator; keyboard focus adds the shared FocusRing. Right or Enter
+ * moves into the category's rows. Up from the first entry is not accepted, so
+ * it reaches Main and focuses the navigation bar.
+ */
 FocusScope {
     id: root
 
     property int currentSection: 0
     readonly property string aboutAccountSectionKey: "about-account"
     readonly property string spacesSectionKey: "spaces"
+    readonly property alias listHasFocus: railList.activeFocus
 
     signal enterContentRequested()
 
-    implicitWidth: Math.round(380 * Theme.layoutScale)
+    implicitWidth: Math.round(520 * Theme.layoutScale)
+    implicitHeight: railList.contentHeight
 
     readonly property var sectionModel: [
-        { sectionKey: "playback",        name: qsTr("Playback"),        icon: "\ue037" },
-        { sectionKey: "home",            name: qsTr("Home"),            icon: "\ue88a" },
-        { sectionKey: "display",         name: qsTr("Display"),         icon: "\ue40a" },
-        { sectionKey: "video",           name: qsTr("Video"),           icon: "\ue04b" },
-        { sectionKey: "mpv",             name: qsTr("MPV"),             icon: "\ue429" },
-        { sectionKey: "input",           name: qsTr("Input"),           icon: "\ue312" },
-        { sectionKey: "integrations",    name: qsTr("Integrations"),    icon: "\ue2c3" },
-        { sectionKey: spacesSectionKey, name: qsTr("Spaces"),          icon: "" },
-        { sectionKey: aboutAccountSectionKey, name: qsTr("About & Account"), icon: "\ue88e" }
+        { sectionKey: "playback",        name: qsTr("Playback"),        icon: "" },
+        { sectionKey: "home",            name: qsTr("Home"),            icon: "" },
+        { sectionKey: "display",         name: qsTr("Display"),         icon: "" },
+        { sectionKey: "video",           name: qsTr("Video"),           icon: "" },
+        { sectionKey: "mpv",             name: qsTr("MPV"),             icon: "" },
+        { sectionKey: "input",           name: qsTr("Input"),           icon: "" },
+        { sectionKey: "integrations",    name: qsTr("Integrations"),    icon: "" },
+        { sectionKey: spacesSectionKey, name: qsTr("Spaces"),          icon: Icons.group },
+        { sectionKey: aboutAccountSectionKey, name: qsTr("About & Account"), icon: "" }
     ]
 
     onCurrentSectionChanged: {
@@ -32,123 +44,112 @@ FocusScope {
         }
     }
 
-    GlassPanel {
+    ListView {
+        id: railList
         anchors.fill: parent
-    }
-
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Theme.spacingMedium + Theme.spacingXSmall
+        model: root.sectionModel
+        // Clipped, so focus rings are drawn inset.
+        clip: true
+        focus: true
         spacing: Theme.spacingXSmall
+        boundsBehavior: Flickable.StopAtBounds
+        highlightMoveDuration: Theme.durationShort
+        Accessible.role: Accessible.List
+        Accessible.name: qsTr("Settings categories")
 
-        // Settings title
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: Theme.spacingSmall
-            Layout.topMargin: Theme.spacingSmall
-            Layout.bottomMargin: Theme.spacingMedium
-            spacing: Theme.spacingSmall
-
-            Text {
-                text: qsTr("Settings")
-                font.pixelSize: Theme.fontSizeHeader
-                font.family: Theme.fontPrimary
-                font.weight: Theme.fontWeightHeavy
-                color: Theme.textPrimary
+        onCurrentIndexChanged: {
+            if (currentIndex >= 0 && root.currentSection !== currentIndex) {
+                root.currentSection = currentIndex
             }
         }
 
-        ListView {
-            id: railList
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            model: sectionModel
-            clip: true
-            focus: true
-            boundsBehavior: Flickable.StopAtBounds
+        Component.onCompleted: {
+            currentIndex = root.currentSection
+        }
 
-            onCurrentIndexChanged: {
-                if (currentIndex >= 0 && root.currentSection !== currentIndex) {
-                    root.currentSection = currentIndex
-                }
-            }
+        Keys.onRightPressed: root.enterContentRequested()
+        Keys.onReturnPressed: root.enterContentRequested()
+        Keys.onEnterPressed: root.enterContentRequested()
 
-            Component.onCompleted: {
-                currentIndex = root.currentSection
-            }
+        delegate: ItemDelegate {
+            id: railDelegate
 
-            Keys.onRightPressed: root.enterContentRequested()
-            Keys.onReturnPressed: root.enterContentRequested()
-            Keys.onEnterPressed: root.enterContentRequested()
+            required property int index
+            required property var modelData
 
-            delegate: ItemDelegate {
-                id: railDelegate
-                width: railList.width
-                height: Theme.navRailItemHeight - Theme.spacingSmall
-                focusPolicy: Qt.StrongFocus
-                leftPadding: Theme.spacingMedium + Theme.spacingSmall
-                rightPadding: Theme.spacingMedium
+            width: railList.width
+            height: Theme.navBarItemHeight
+            focusPolicy: Qt.NoFocus
+            leftPadding: Theme.spacingMedium + Theme.spacingSmall
+            rightPadding: Theme.spacingMedium
 
-                property bool isActive: railList.currentIndex === index
-                property bool hasFocus: railDelegate.activeFocus || (railList.activeFocus && isActive)
+            readonly property bool isActive: railList.currentIndex === index
+            readonly property bool hasFocus: railList.activeFocus && isActive
 
-                background: Rectangle {
-                    id: railItemBackground
-                    radius: Theme.radiusMedium
-                    color: {
-                        if (railDelegate.hasFocus) return Theme.surfaceInteractiveHover
-                        if (railDelegate.isActive) return Theme.selectionBackground
-                        if (railDelegate.hovered) return Theme.surfaceInteractive
-                        return "transparent"
-                    }
+            Accessible.role: Accessible.ListItem
+            Accessible.name: modelData.name
+            Accessible.selected: isActive
 
-                    Behavior on color { enabled: Theme.uiAnimationsEnabled; ColorAnimation { duration: Theme.durationShort } }
-
-                    FocusRing {
-                        inset: true
-                        active: railDelegate.hasFocus
-                        radius: railItemBackground.radius
-                    }
+            background: Rectangle {
+                id: railItemBackground
+                radius: Theme.radiusMedium
+                color: {
+                    if (railDelegate.isActive) return Theme.selectionBackground
+                    if (railDelegate.hovered) return Theme.surfaceInteractive
+                    return "transparent"
                 }
 
-                // Accent bar on left edge for active item
+                Behavior on color { enabled: Theme.uiAnimationsEnabled; ColorAnimation { duration: Theme.durationShort } }
+
+                // Selection indicator on the leading edge.
                 Rectangle {
                     width: Theme.selectionIndicatorWidth
                     height: Math.round(parent.height * 0.44)
                     anchors.left: parent.left
-                    anchors.leftMargin: Math.round(6 * Theme.layoutScale)
+                    anchors.leftMargin: Theme.spacingSmall
                     anchors.verticalCenter: parent.verticalCenter
                     radius: width / 2
                     color: Theme.selectionIndicator
-                    visible: true
                     opacity: railDelegate.isActive ? 1.0 : 0.0
-                    Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
+                    Behavior on opacity { enabled: Theme.uiAnimationsEnabled; NumberAnimation { duration: Theme.durationShort } }
                 }
 
-                contentItem: RowLayout {
-                    spacing: Theme.spacingMedium
+                FocusRing {
+                    inset: true
+                    active: railDelegate.hasFocus
+                    radius: railItemBackground.radius
+                }
+            }
 
-                    Text {
-                        text: modelData.icon
-                        font.family: Theme.fontIcon
-                        font.pixelSize: Theme.fontSizeIcon
-                        color: railDelegate.isActive ? Theme.selectionIndicator : Theme.textSecondary
-                    }
+            contentItem: RowLayout {
+                spacing: Theme.spacingMedium
 
-                    Text {
-                        text: modelData.name
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        font.weight: railDelegate.isActive || railDelegate.hasFocus ? Theme.fontWeightStrong : Theme.fontWeightRegular
-                        color: railDelegate.isActive || railDelegate.hasFocus ? Theme.textPrimary : Theme.textSecondary
-                        elide: Text.ElideRight
-                        Layout.fillWidth: true
-                    }
+                Text {
+                    text: railDelegate.modelData.icon
+                    font.family: Theme.fontIcon
+                    font.pixelSize: Theme.iconSizeLarge
+                    color: railDelegate.isActive ? Theme.selectionIndicator : Theme.textSecondary
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.preferredWidth: Theme.iconSizeLarge
+                    horizontalAlignment: Text.AlignHCenter
+                    Accessible.ignored: true
                 }
 
-                onClicked: {
-                    root.currentSection = index
+                Text {
+                    text: railDelegate.modelData.name
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    font.weight: railDelegate.isActive ? Theme.fontWeightStrong : Theme.fontWeightMedium
+                    color: railDelegate.isActive || railDelegate.hovered ? Theme.textPrimary : Theme.textSecondary
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
                 }
+            }
+
+            onClicked: {
+                root.currentSection = index
+                railList.forceActiveFocus()
             }
         }
     }

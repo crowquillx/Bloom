@@ -59,15 +59,6 @@ Window {
         radius: Theme.radiusSmall
     }
     
-    function handleHomeNavigateToLibrary(libraryId, libraryName) {
-        playPointerSelectSound()
-        stackView.push("LibraryScreen.qml", {
-            currentParentId: libraryId,
-            currentLibraryId: libraryId,
-            currentLibraryName: libraryName
-        })
-    }
-
     function handleHomeNavigateToMovie(movieData, libraryId, libraryName) {
         playPointerSelectSound()
         stackView.push("LibraryScreen.qml", {
@@ -141,9 +132,6 @@ Window {
         target: window.homeNavigationSource
         enabled: target !== null
 
-        function onNavigateToLibrary(libraryId, libraryName) {
-            window.handleHomeNavigateToLibrary(libraryId, libraryName)
-        }
         function onNavigateToMovie(movieData, libraryId, libraryName) {
             window.handleHomeNavigateToMovie(movieData, libraryId, libraryName)
         }
@@ -179,7 +167,7 @@ Window {
                 console.log("Main.qml: homeScreen is valid, connecting signals...")
                 window.homeNavigationSource = homeScreen
             }
-            updateSidebarNavigation()
+            updateNavigationSelection()
 
             if (pendingStartupUpdatePopup) {
                 Qt.callLater(function() {
@@ -242,18 +230,15 @@ Window {
     // Properties
     // ========================================
     
-    /// Whether the user is logged in (controls sidebar visibility)
+    /// Whether the user is logged in (controls navigation bar visibility)
     property bool isLoggedIn: false
-    property var sidebarProxy: sidebarLoader.item || sidebarStub
+    property var navigationProxy: navigationLoader.item || navigationStub
     property bool pendingAuthenticatedNavigation: false
     property bool spaceResetPending: false
     
-    /// Left edge reserved for the floating navigation rail. Constant while
-    /// logged in: rail expansion overlays content instead of pushing it.
-    readonly property int contentOffset: isLoggedIn ? Theme.navRailReservedWidth : 0
-    /// True when a dialog was opened from the rail, so cancelling it returns
-    /// focus to the rail rather than the page behind it.
-    property bool dialogReturnsToRail: false
+    /// True when a dialog was opened from the navigation bar, so cancelling
+    /// it returns focus to the bar rather than the page behind it.
+    property bool dialogReturnsToNavigation: false
     readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
     readonly property bool useDetachedPlaybackOverlayWindow: Qt.platform.os === "windows"
     readonly property bool useDetachedScreensaverWindow: useDetachedPlaybackOverlayWindow && embeddedPlaybackActive
@@ -308,7 +293,7 @@ Window {
 
     function showLoginScreen() {
         pendingAuthenticatedNavigation = false
-        sidebarProxy.close()
+        navigationProxy.close()
         isLoggedIn = false
         homeNavigationSource = null
 
@@ -377,7 +362,7 @@ Window {
         stackView.clear()
         var homeScreen = stackView.push("HomeScreen.qml")
         window.homeNavigationSource = homeScreen || null
-        updateSidebarNavigation()
+        updateNavigationSelection()
         Qt.callLater(function() {
             var item = stackView.currentItem
             if (item)
@@ -385,8 +370,8 @@ Window {
         })
     }
 
-    function openSpacePicker(fromRail) {
-        window.dialogReturnsToRail = fromRail
+    function openSpacePicker(fromNavigation) {
+        window.dialogReturnsToNavigation = fromNavigation
         if (!spacePicker.opened)
             spacePicker.open()
     }
@@ -403,7 +388,7 @@ Window {
         if (!isOnRootHomeScreen() || homePowerDialog.opened) {
             return
         }
-        dialogReturnsToRail = false
+        dialogReturnsToNavigation = false
         homePowerDialog.open()
     }
 
@@ -517,54 +502,43 @@ Window {
     // Main Content Area
     // ========================================
     
-    // Focus scope for main content to enable keyboard navigation to/from sidebar
+    // Focus scope for main content to enable keyboard navigation to/from the
+    // navigation bar. Pages fill the window; the bar floats above them.
     FocusScope {
         id: mainContentArea
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.leftMargin: contentOffset
+        anchors.fill: parent
         visible: !embeddedPlaybackActive
-        property bool restoringFocusFromSidebar: false
+        property bool restoringFocusFromNavigation: false
         
-        function saveFocusForSidebar() {
+        function saveFocusForNavigation() {
             var currentItem = stackView.currentItem
-            if (currentItem && typeof currentItem["saveFocusForSidebar"] === "function") {
-                currentItem["saveFocusForSidebar"]()
+            if (currentItem && typeof currentItem["saveFocusForNavigation"] === "function") {
+                currentItem["saveFocusForNavigation"]()
             }
         }
 
-        function restoreFocusFromSidebar() {
-            restoringFocusFromSidebar = true
+        function restoreFocusFromNavigation() {
+            restoringFocusFromNavigation = true
             var currentItem = stackView.currentItem
-            if (currentItem && typeof currentItem["restoreFocusFromSidebar"] === "function") {
-                currentItem["restoreFocusFromSidebar"]()
+            if (currentItem && typeof currentItem["restoreFocusFromNavigation"] === "function") {
+                currentItem["restoreFocusFromNavigation"]()
             } else if (currentItem) {
                 currentItem.forceActiveFocus()
             } else {
                 forceActiveFocus()
             }
             Qt.callLater(function() {
-                restoringFocusFromSidebar = false
+                restoringFocusFromNavigation = false
             })
         }
         
-        // Handle Left arrow to focus sidebar when at left edge
-        Keys.onLeftPressed: function(event) {
-            if (isLoggedIn) {
-                saveFocusForSidebar()
-                if (sidebarProxy.expanded) {
-                    // When sidebar is expanded, focus the current page entry
-                    sidebarProxy.focusNavigation()
-                    event.accepted = true
-                } else if (!sidebarProxy.overlayMode) {
-                    // When sidebar is collapsed (rail mode), focus the current page entry
-                    sidebarProxy.focusRail()
-                    event.accepted = true
-                } else {
-                    event.accepted = false
-                }
+        // Up that no page item handled (the top edge of the page) moves focus
+        // into the navigation bar.
+        Keys.onUpPressed: function(event) {
+            if (isLoggedIn && navigationProxy.mainContent) {
+                saveFocusForNavigation()
+                navigationProxy.focusBar()
+                event.accepted = true
             } else {
                 event.accepted = false
             }
@@ -572,7 +546,7 @@ Window {
 
         // Explicitly forward focus to content when this scope receives it
         onActiveFocusChanged: {
-            if (restoringFocusFromSidebar) {
+            if (restoringFocusFromNavigation) {
                 return
             }
             var currentItem = stackView.currentItem
@@ -598,11 +572,11 @@ Window {
             initialItem: "LoginScreen.qml"
             
             onCurrentItemChanged: {
-                console.log("[FocusDebug] StackView.currentItemChanged:", currentItem ? currentItem.toString() : "null", "sidebar.expanded:", sidebarProxy.expanded)
+                console.log("[FocusDebug] StackView.currentItemChanged:", currentItem ? currentItem.toString() : "null", "navigation.focused:", navigationProxy.expanded)
                 window.trackPageOwner(currentItem)
                 // Let screens with restoreFocusState handle their own focus restoration
                 // This allows HomeScreen to restore focus to the previously selected item
-                if (currentItem && !sidebarProxy.expanded) {
+                if (currentItem && !navigationProxy.expanded) {
                     if (typeof currentItem["restoreFocusState"] === "function") {
                         console.log("[FocusDebug] Screen has restoreFocusState, letting it handle focus")
                         // Don't force focus here - let StackView.onStatusChanged in the screen handle it
@@ -610,10 +584,10 @@ Window {
                         console.log("[FocusDebug] Setting focus to currentItem (no restoreFocusState)")
                         currentItem.forceActiveFocus()
                     }
-                } else if (currentItem && sidebarProxy.expanded) {
-                    console.log("[FocusDebug] Skipping focus - sidebar is expanded, will restore later")
+                } else if (currentItem && navigationProxy.expanded) {
+                    console.log("[FocusDebug] Skipping focus - navigation bar has focus, will restore later")
                 }
-                updateSidebarNavigation()
+                updateNavigationSelection()
             }
         }
     }
@@ -856,7 +830,7 @@ Window {
         modal: true
         focus: true
         anchors.centerIn: parent
-        width: Math.min(Math.round(520 * Theme.layoutScale),
+        width: Math.min(Math.round(600 * Theme.layoutScale),
                         Math.max(0, window.width - (Theme.spacingLarge * 2)))
         padding: Theme.dialogPadding
         topPadding: Theme.spacingLarge
@@ -866,9 +840,9 @@ Window {
                 // The power and sign-out dialogs can open from the navigation
                 // rail; cancelling must return focus there, not to the page
                 // behind it.
-                if (window.dialogReturnsToRail) {
-                    window.dialogReturnsToRail = false
-                    sidebarProxy.focusDialogOrigin()
+                if (window.dialogReturnsToNavigation) {
+                    window.dialogReturnsToNavigation = false
+                    navigationProxy.focusDialogOrigin()
                     return
                 }
                 var item = stackView.currentItem
@@ -918,7 +892,7 @@ Window {
 
                 Text {
                     text: qsTr("Power")
-                    font.family: Theme.fontPrimary
+                    font.family: Theme.fontDisplay
                     font.pixelSize: Theme.fontSizeTitle
                     font.weight: Theme.fontWeightHeavy
                     color: Theme.textPrimary
@@ -992,7 +966,7 @@ Window {
         modal: true
         focus: true
         anchors.centerIn: parent
-        width: Math.min(Math.round(520 * Theme.layoutScale),
+        width: Math.min(Math.round(600 * Theme.layoutScale),
                         Math.max(0, window.width - (Theme.spacingLarge * 2)))
         padding: Theme.dialogPadding
         topPadding: Theme.spacingLarge
@@ -1034,7 +1008,7 @@ Window {
 
                 Text {
                     text: qsTr("Sign out?")
-                    font.family: Theme.fontPrimary
+                    font.family: Theme.fontDisplay
                     font.pixelSize: Theme.fontSizeTitle
                     font.weight: Theme.fontWeightHeavy
                     color: Theme.textPrimary
@@ -1099,7 +1073,7 @@ Window {
         }
         onManageRequested: {
             handedOff = true
-            window.dialogReturnsToRail = false
+            window.dialogReturnsToNavigation = false
             pushSettingsScreen({ focusSpaces: true })
         }
         onSignOutRequested: {
@@ -1292,7 +1266,7 @@ Window {
                     Text {
                         text: qsTr("Update Available")
                         font.pixelSize: Theme.fontSizeTitle
-                        font.family: Theme.fontPrimary
+                        font.family: Theme.fontDisplay
                         font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                     }
@@ -1469,7 +1443,7 @@ Window {
     }
     
     // ========================================
-    // Sidebar Navigation Shell
+    // Navigation Bar Shell
     // ========================================
     
     function saveHomeFocusState() {
@@ -1480,28 +1454,31 @@ Window {
     }
 
     QtObject {
-        id: sidebarStub
+        id: navigationStub
         property bool expanded: false
         property bool overlayMode: false
-        property int sidebarWidth: 0
+        property bool recessed: false
+        property Item mainContent: null
         property string currentNavigation: "home"
         property string currentLibraryId: ""
         property string currentLibraryConnectionId: ""
         function focusNavigation() {}
-        function focusRail() {}
+        function focusBar() {}
         function focusDialogOrigin() {}
         function close() {}
         function toggle() {}
     }
 
     Loader {
-        id: sidebarLoader
+        id: navigationLoader
         anchors.fill: parent
         active: isLoggedIn
         visible: active
 
-        sourceComponent: Sidebar {
+        sourceComponent: NavigationBar {
             visible: !embeddedPlaybackActive
+            // Pages scrolled into their content ask the bar to recede.
+            recessed: !!(stackView.currentItem && stackView.currentItem["navigationRecessed"] === true)
             currentNavigation: "home"
             mainContent: mainContentArea  // Connect to main content for focus navigation
 
@@ -1533,7 +1510,7 @@ Window {
                 }
             }
 
-            onLibraryRequested: function(libraryId, libraryName) {
+            onLibraryRequested: function(libraryId, libraryName, collectionType) {
                 playPointerSelectSound()
                 if (!libraryId)
                     return
@@ -1541,7 +1518,23 @@ Window {
                 stackView.push("LibraryScreen.qml", {
                     currentParentId: libraryId,
                     currentLibraryId: libraryId,
-                    currentLibraryName: libraryName
+                    currentLibraryName: libraryName,
+                    currentLibraryType: collectionType
+                })
+            }
+
+            // "All Movies" / "All Series": every library of a kind on one page.
+            onCombinedLibraryRequested: function(kind, libraryIds, title) {
+                playPointerSelectSound()
+                if (!libraryIds || libraryIds.length === 0)
+                    return
+                saveHomeFocusState()
+                stackView.push("LibraryScreen.qml", {
+                    currentParentId: "combined:" + kind,
+                    currentLibraryId: "combined:" + kind,
+                    currentLibraryName: title,
+                    currentLibraryType: kind === "series" ? "tvshows" : "movies",
+                    combinedLibraryIds: libraryIds
                 })
             }
 
@@ -1550,14 +1543,14 @@ Window {
             }
 
             onSignOutRequested: {
-                window.dialogReturnsToRail = expanded
+                window.dialogReturnsToNavigation = expanded
                 // Signing out clears stored credentials, so confirm first.
                 if (!signOutDialog.opened)
                     signOutDialog.open()
             }
 
             onExitRequested: {
-                window.dialogReturnsToRail = expanded
+                window.dialogReturnsToNavigation = expanded
                 // Offer Quit / Restart / power actions instead of quitting on a single press.
                 if (!homePowerDialog.opened)
                     homePowerDialog.open()
@@ -1566,16 +1559,16 @@ Window {
     }
     
     // Function to push settings screen and wire up signals
-    function updateSidebarNavigation() {
+    function updateNavigationSelection() {
         var item = stackView.currentItem
         var navigationId = (item && item["navigationId"]) ? item["navigationId"] : "home"
-        sidebarProxy.currentNavigation = navigationId
+        navigationProxy.currentNavigation = navigationId
         if (navigationId && navigationId.indexOf("library:") === 0) {
-            sidebarProxy.currentLibraryId = navigationId.substring("library:".length)
-            sidebarProxy.currentLibraryConnectionId = item["ownerConnectionId"] || ""
+            navigationProxy.currentLibraryId = navigationId.substring("library:".length)
+            navigationProxy.currentLibraryConnectionId = item["ownerConnectionId"] || ""
         } else {
-            sidebarProxy.currentLibraryId = ""
-            sidebarProxy.currentLibraryConnectionId = ""
+            navigationProxy.currentLibraryId = ""
+            navigationProxy.currentLibraryConnectionId = ""
         }
     }
 
@@ -1598,7 +1591,7 @@ Window {
             var settingsScreen = stackView.currentItem
             if (settingsScreen && settingsScreen["signOutRequested"]) {
                 settingsScreen["signOutRequested"].connect(function() {
-                    window.dialogReturnsToRail = false
+                    window.dialogReturnsToNavigation = false
                     if (!signOutDialog.opened)
                         signOutDialog.open()
                 })
@@ -1607,7 +1600,7 @@ Window {
                 settingsScreen["requestUpdateSectionFocus"]()
             }
         })
-        updateSidebarNavigation()
+        updateNavigationSelection()
     }
     
     // Function to push search screen and wire up signals
@@ -1646,7 +1639,7 @@ Window {
                 LibraryService.getNextUnplayedEpisode(seriesId)
             })
         }
-        updateSidebarNavigation()
+        updateNavigationSelection()
     }
     
     // ========================================
@@ -1913,17 +1906,17 @@ Window {
         sequences: ["Esc"]
         enabled: !PlayerController.isPlaybackActive
                  && stackView.depth > 1
-                 && !sidebarProxy.expanded
+                 && !navigationProxy.expanded
                  && !homePowerDialog.opened
                  && !signOutDialog.opened
                  && !spacePicker.opened
                  && !(stackView.currentItem && stackView.currentItem["handlesOwnBackNavigation"] === true)
         onActivated: {
-            console.log("[FocusDebug] Back shortcut activated, stackView.depth:", stackView.depth, "sidebar.expanded:", sidebarProxy.expanded)
+            console.log("[FocusDebug] Back shortcut activated, stackView.depth:", stackView.depth, "navigation.focused:", navigationProxy.expanded)
             if (stackView.depth > 1) {
                 if (InputModeManager.pointerActive) UiSoundController.playBack()
                 stackView.pop()
-                Qt.callLater(updateSidebarNavigation)
+                Qt.callLater(updateNavigationSelection)
             }
         }
     }
@@ -1932,7 +1925,7 @@ Window {
         sequences: ["Esc"]
         enabled: !PlayerController.isPlaybackActive
                  && isOnRootHomeScreen()
-                 && !sidebarProxy.expanded
+                 && !navigationProxy.expanded
                  && !homePowerDialog.opened
                  && !signOutDialog.opened
                  && !spacePicker.opened
@@ -1943,11 +1936,11 @@ Window {
         }
     }
     
-    // Sidebar toggle shortcut
+    // Navigation bar focus shortcut
     Shortcut {
         sequence: "M"
         enabled: isLoggedIn
-        onActivated: sidebarProxy.toggle()
+        onActivated: navigationProxy.toggle()
     }
 
     Shortcut {

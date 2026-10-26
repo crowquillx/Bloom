@@ -11,6 +11,7 @@ FocusScope {
     readonly property Item preferredEntryItem: defaultProfileCombo
 
     signal requestReturnToRail()
+    readonly property bool scrolled: flickable.scrolled
     signal openNewProfileDialog(Item returnFocusTarget)
     signal openImportConfigDialog(Item returnFocusTarget)
     signal openDeleteProfileDialog(string profileName, Item returnFocusTarget)
@@ -49,90 +50,40 @@ FocusScope {
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
-    GlassPanel {
-        anchors.fill: parent
-    }
-
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
-        Text {
-            text: qsTr("MPV")
-            font.pixelSize: Theme.fontSizeHeader
-            font.family: Theme.fontPrimary
-            font.weight: Theme.fontWeightHeavy
-            color: Theme.textPrimary
-            Layout.fillWidth: true
-            Layout.bottomMargin: Theme.spacingLarge
-            Layout.leftMargin: Theme.spacingMedium
-        }
-
-        Flickable {
+        SettingsScrollView {
             id: flickable
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: width
-            contentHeight: outerColumn.implicitHeight + 2 * Theme.spacingSmall
-            boundsBehavior: Flickable.StopAtBounds
-            clip: true
-
-            function ensureFocusVisible(item) {
-                if (!item) return
-                var mapped = item.mapToItem(outerColumn, 0, 0)
-                var itemY = outerColumn.y + mapped.y
-                var itemHeight = item.height
-                var viewTop = contentY
-                var viewBottom = contentY + height
-                var padding = 50
-                var maxScroll = Math.max(0, contentHeight - height)
-                if (itemY < viewTop + padding) {
-                    contentY = Math.max(0, itemY - padding)
-                } else if (itemY + itemHeight > viewBottom - padding) {
-                    contentY = Math.min(maxScroll, itemY + itemHeight - height + padding)
-                }
-            }
+            contentHeight: outerColumn.implicitHeight + Theme.pageMarginBottom
 
             ColumnLayout {
                 id: outerColumn
                 x: Theme.spacingMedium
                 y: Theme.spacingSmall
                 width: flickable.width - 2 * Theme.spacingMedium
-                spacing: Theme.spacingLarge
+                spacing: Theme.spacingSmall
 
-                // ========================================
-                // 1. Default Profile Selector
-                // ========================================
-                RowLayout {
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Profiles")
                     Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
+                }
 
-                    ColumnLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: qsTr("Default Profile")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                        }
-
-                        Text {
-                            text: qsTr("Profile used when no library or series override is set")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                SettingsRow {
+                    label: qsTr("Default Profile")
+                    description: qsTr("Profile used when no library or series override is set")
+                    dimmed: !defaultProfileCombo.enabled
+                    highlighted: defaultProfileCombo.activeFocus || defaultProfileCombo.popup.visible
+                    focusTarget: defaultProfileCombo
+                    onActivated: if (defaultProfileCombo.enabled) defaultProfileCombo.popup.open()
 
                     SettingsComboBox {
                         id: defaultProfileCombo
                         model: root.profileNames
-                        Layout.preferredWidth: Math.round(280 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
 
                         property bool initialized: false
@@ -175,6 +126,9 @@ FocusScope {
                         onActivated: function(index) {
                             applySelection(index)
                         }
+                        onSelectionAccepted: function(index) {
+                            applySelection(index)
+                        }
 
                         Connections {
                             target: ConfigManager
@@ -190,6 +144,8 @@ FocusScope {
                             }
                         }
 
+                        // Top of the page: Up goes to the navigation bar.
+                        Keys.onUpPressed: function(event) { event.accepted = false }
                         Keys.onDownPressed: function(event) {
                             if (!popup.visible) {
                                 profileEditorToggle.forceActiveFocus()
@@ -198,88 +154,19 @@ FocusScope {
                         }
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
-
-                        background: FieldBackground { control: defaultProfileCombo; implicitHeight: Theme.buttonHeightSmall }
-
-                        contentItem: Text {
-                            text: defaultProfileCombo.selectedText()
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                        }
-
-                        delegate: ItemDelegate {
-                            width: defaultProfileCombo.width
-                            contentItem: Text {
-                                text: defaultProfileCombo.optionTextAt(index)
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || defaultProfileCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: defaultProfileCombo.height + 5
-                            width: defaultProfileCombo.width
-                            implicitHeight: contentItem.implicitHeight
-                            padding: 1
-
-                            onOpened: {
-                                defaultProfilePopupList.currentIndex = defaultProfileCombo.highlightedIndex >= 0
-                                    ? defaultProfileCombo.highlightedIndex
-                                    : defaultProfileCombo.currentIndex
-                                defaultProfilePopupList.forceActiveFocus()
-                            }
-                            onClosed: defaultProfileCombo.forceActiveFocus()
-
-                            contentItem: ListView {
-                                id: defaultProfilePopupList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: defaultProfileCombo.popup.visible ? defaultProfileCombo.delegateModel : null
-                                currentIndex: defaultProfileCombo.highlightedIndex >= 0
-                                    ? defaultProfileCombo.highlightedIndex
-                                    : defaultProfileCombo.currentIndex
-
-                                ScrollIndicator.vertical: ScrollIndicator { }
-
-                                Keys.onReturnPressed: {
-                                    defaultProfileCombo.applySelection(currentIndex)
-                                    defaultProfileCombo.popup.close()
-                                }
-                                Keys.onEnterPressed: {
-                                    defaultProfileCombo.applySelection(currentIndex)
-                                    defaultProfileCombo.popup.close()
-                                }
-                                Keys.onEscapePressed: defaultProfileCombo.popup.close()
-                            }
-
-                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
-                        }
                     }
                 }
 
             // ========================================
             // 2. Profile Editor Toggle
             // ========================================
-            ActionButton {
+            SettingsRow {
                 id: profileEditorToggle
-                variant: "ghost"
-                text: qsTr("Edit Profiles")
-                iconGlyph: profileEditorToggle.expanded ? Icons.expandLess : Icons.expandMore
                 property bool expanded: false
-
-                Layout.alignment: Qt.AlignLeft
-                Layout.topMargin: Theme.spacingSmall
-                focusPolicy: Qt.StrongFocus
+                label: qsTr("Edit Profiles")
+                description: qsTr("Create, rename, import and tune mpv profiles")
+                Accessible.role: Accessible.Button
+                Accessible.name: (expanded ? qsTr("Collapse") : qsTr("Expand")) + " " + label
 
                 onActiveFocusChanged: {
                     if (activeFocus) {
@@ -288,14 +175,18 @@ FocusScope {
                     }
                 }
 
-
-
                 KeyNavigation.up: defaultProfileCombo
                 KeyNavigation.down: profileEditorToggle.expanded ? editProfileCombo : libraryProfilesToggle
 
-                onClicked: expanded = !expanded
-                Keys.onReturnPressed: expanded = !expanded
-                Keys.onEnterPressed: expanded = !expanded
+                onActivated: expanded = !expanded
+
+                Text {
+                    text: profileEditorToggle.expanded ? Icons.expandLess : Icons.expandMore
+                    font.family: Theme.fontIcon
+                    font.pixelSize: Theme.iconSizeLarge
+                    color: profileEditorToggle.highlighted ? Theme.textPrimary : Theme.textSecondary
+                    Accessible.ignored: true
+                }
             }
 
             // ========================================
@@ -303,25 +194,20 @@ FocusScope {
             // ========================================
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: Theme.spacingMedium
+                spacing: Theme.spacingSmall
                 visible: profileEditorToggle.expanded
 
                 // Select Profile to Edit
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
-                    Text {
-                        text: qsTr("Select Profile to Edit")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                    }
+                SettingsRow {
+                    label: qsTr("Select Profile to Edit")
+                    dimmed: !editProfileCombo.enabled
+                    highlighted: editProfileCombo.activeFocus || editProfileCombo.popup.visible
+                    focusTarget: editProfileCombo
+                    onActivated: if (editProfileCombo.enabled) editProfileCombo.popup.open()
 
                     SettingsComboBox {
                         id: editProfileCombo
                         model: root.profileNames
-                        Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
 
                         property bool initialized: false
@@ -386,79 +272,14 @@ FocusScope {
                                 event.accepted = true
                             }
                         }
-
-                        background: FieldBackground { control: editProfileCombo; implicitHeight: Theme.buttonHeightSmall }
-
-                        contentItem: Text {
-                            text: editProfileCombo.selectedText()
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                        }
-
-                        delegate: ItemDelegate {
-                            width: editProfileCombo.width
-                            contentItem: Text {
-                                text: editProfileCombo.optionTextAt(index)
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || editProfileCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: editProfileCombo.height + 5
-                            width: editProfileCombo.width
-                            implicitHeight: contentItem.implicitHeight
-                            padding: 1
-
-                            onOpened: {
-                                editProfilePopupList.currentIndex = editProfileCombo.highlightedIndex >= 0
-                                    ? editProfileCombo.highlightedIndex
-                                    : editProfileCombo.currentIndex
-                                editProfilePopupList.forceActiveFocus()
-                            }
-                            onClosed: editProfileCombo.forceActiveFocus()
-
-                            contentItem: ListView {
-                                id: editProfilePopupList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: editProfileCombo.popup.visible ? editProfileCombo.delegateModel : null
-                                currentIndex: editProfileCombo.highlightedIndex >= 0
-                                    ? editProfileCombo.highlightedIndex
-                                    : editProfileCombo.currentIndex
-
-                                ScrollIndicator.vertical: ScrollIndicator { }
-
-                                Keys.onReturnPressed: {
-                                    editProfileCombo.currentIndex = currentIndex
-                                    editProfileCombo.popup.close()
-                                }
-                                Keys.onEnterPressed: {
-                                    editProfileCombo.currentIndex = currentIndex
-                                    editProfileCombo.popup.close()
-                                }
-                                Keys.onEscapePressed: editProfileCombo.popup.close()
-                            }
-
-                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
-                        }
                     }
                 }
 
                 // Button Row
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
+                    Layout.topMargin: Theme.spacingXSmall
+                    spacing: Theme.controlSpacing
 
                     ActionButton {
                         id: newProfileBtn
@@ -479,8 +300,6 @@ FocusScope {
                         Keys.onDownPressed: profileEditor.forceActiveFocus()
                         Keys.onLeftPressed: editProfileCombo.forceActiveFocus()
                         Keys.onRightPressed: duplicateProfileBtn.forceActiveFocus()
-
-
 
                         onClicked: root.openNewProfileDialog(newProfileBtn)
                         Keys.onReturnPressed: root.openNewProfileDialog(newProfileBtn)
@@ -544,8 +363,6 @@ FocusScope {
                             })
                         }
 
-
-
                         onClicked: duplicateSelectedProfile()
                         Keys.onReturnPressed: duplicateSelectedProfile()
                         Keys.onEnterPressed: duplicateSelectedProfile()
@@ -587,8 +404,6 @@ FocusScope {
                             root.openRenameProfileDialog(editProfileCombo.currentText, renameProfileBtn)
                         }
 
-
-
                         onClicked: requestRenameSelectedProfile()
                         Keys.onReturnPressed: requestRenameSelectedProfile()
                         Keys.onEnterPressed: requestRenameSelectedProfile()
@@ -623,8 +438,6 @@ FocusScope {
                                 deleteProfileBtn.forceActiveFocus()
                             }
                         }
-
-
 
                         onClicked: root.openImportConfigDialog(importConfigBtn)
                         Keys.onReturnPressed: root.openImportConfigDialog(importConfigBtn)
@@ -672,8 +485,6 @@ FocusScope {
                             root.openDeleteProfileDialog(editProfileCombo.currentText, deleteProfileBtn)
                         }
 
-
-
                         onClicked: requestDeleteSelectedProfile()
                         Keys.onReturnPressed: requestDeleteSelectedProfile()
                         Keys.onEnterPressed: requestDeleteSelectedProfile()
@@ -684,6 +495,7 @@ FocusScope {
                 MpvProfileEditor {
                     id: profileEditor
                     Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
                     profileName: editProfileCombo.currentText || ""
                     parentFlickable: flickable
                     onDeleteRequested: root.openDeleteProfileDialog(profileName, profileEditor)
@@ -697,16 +509,13 @@ FocusScope {
             // ========================================
             // 4. Library Profiles Toggle
             // ========================================
-            ActionButton {
+            SettingsRow {
                 id: libraryProfilesToggle
-                variant: "ghost"
-                text: qsTr("Library Profiles")
-                iconGlyph: libraryProfilesToggle.expanded ? Icons.expandLess : Icons.expandMore
                 property bool expanded: false
-
-                Layout.alignment: Qt.AlignLeft
-                Layout.topMargin: Theme.spacingSmall
-                focusPolicy: Qt.StrongFocus
+                label: qsTr("Library Profiles")
+                description: qsTr("Use a different profile for each library")
+                Accessible.role: Accessible.Button
+                Accessible.name: (expanded ? qsTr("Collapse") : qsTr("Expand")) + " " + label
 
                 onActiveFocusChanged: {
                     if (activeFocus) {
@@ -714,8 +523,6 @@ FocusScope {
                         flickable.ensureFocusVisible(this)
                     }
                 }
-
-
 
                 Keys.onUpPressed: function(event) {
                     if (profileEditorToggle.expanded && profileEditor) {
@@ -733,9 +540,15 @@ FocusScope {
                     event.accepted = true
                 }
 
-                onClicked: expanded = !expanded
-                Keys.onReturnPressed: expanded = !expanded
-                Keys.onEnterPressed: expanded = !expanded
+                onActivated: expanded = !expanded
+
+                Text {
+                    text: libraryProfilesToggle.expanded ? Icons.expandLess : Icons.expandMore
+                    font.family: Theme.fontIcon
+                    font.pixelSize: Theme.iconSizeLarge
+                    color: libraryProfilesToggle.highlighted ? Theme.textPrimary : Theme.textSecondary
+                    Accessible.ignored: true
+                }
             }
 
             // ========================================
@@ -743,7 +556,7 @@ FocusScope {
             // ========================================
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: Theme.spacingMedium
+                spacing: Theme.spacingSmall
                 visible: libraryProfilesToggle.expanded
 
                 Text {
@@ -759,7 +572,7 @@ FocusScope {
                     id: libraryProfilesRepeater
                     model: LibraryViewModel.views
 
-                    delegate: RowLayout {
+                    delegate: SettingsRow {
                         id: libraryDelegate
                         required property var modelData
                         required property int index
@@ -772,22 +585,14 @@ FocusScope {
                             return [qsTr("Use Default")].concat(names)
                         }
 
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingMedium
-
-                        Text {
-                            text: libraryDelegate.name
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
-                        }
+                        label: libraryDelegate.name
+                        highlighted: libraryProfileCombo.activeFocus || libraryProfileCombo.popup.visible
+                        focusTarget: libraryProfileCombo
+                        onActivated: libraryProfileCombo.popup.open()
 
                         SettingsComboBox {
                             id: libraryProfileCombo
                             model: libraryDelegate.profileOptions
-                            Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                             focusPolicy: Qt.StrongFocus
 
                             property bool initialized: false
@@ -870,74 +675,6 @@ FocusScope {
                                 } else if (selected !== undefined && selected !== "") {
                                     ConfigManager.setLibraryProfile(libraryDelegate.itemId, selected)
                                 }
-                            }
-
-                            background: FieldBackground { control: libraryProfileCombo; implicitHeight: Theme.buttonHeightSmall }
-
-                            contentItem: Text {
-                                text: libraryProfileCombo.selectedText()
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                color: Theme.textPrimary
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: Theme.spacingSmall
-                            }
-
-                            delegate: ItemDelegate {
-                                width: libraryProfileCombo.width
-                                contentItem: Text {
-                                    text: libraryProfileCombo.optionTextAt(index)
-                                    color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                    font.pixelSize: Theme.fontSizeBody
-                                    font.family: Theme.fontPrimary
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                                background: Rectangle {
-                                    color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
-                                    radius: Theme.radiusSmall
-                                }
-                                highlighted: ListView.isCurrentItem || libraryProfileCombo.highlightedIndex === index
-                            }
-
-                            popup: Popup {
-                                y: libraryProfileCombo.height + 5
-                                width: libraryProfileCombo.width
-                                implicitHeight: contentItem.implicitHeight
-                                padding: 1
-
-                                onOpened: {
-                                    libraryProfilePopupList.currentIndex = libraryProfileCombo.highlightedIndex >= 0
-                                        ? libraryProfileCombo.highlightedIndex
-                                        : libraryProfileCombo.currentIndex
-                                    libraryProfilePopupList.forceActiveFocus()
-                                }
-                                onClosed: libraryProfileCombo.forceActiveFocus()
-
-                                contentItem: ListView {
-                                    id: libraryProfilePopupList
-                                    clip: true
-                                    implicitHeight: contentHeight
-                                    model: libraryProfileCombo.popup.visible ? libraryProfileCombo.delegateModel : null
-                                    currentIndex: libraryProfileCombo.highlightedIndex >= 0
-                                        ? libraryProfileCombo.highlightedIndex
-                                        : libraryProfileCombo.currentIndex
-
-                                    ScrollIndicator.vertical: ScrollIndicator { }
-
-                                    onCurrentIndexChanged: libraryProfileCombo.highlightedIndex = currentIndex
-
-                                    Keys.onReturnPressed: {
-                                        libraryProfileCombo.currentIndex = currentIndex
-                                        libraryProfileCombo.popup.close()
-                                    }
-                                    Keys.onEnterPressed: {
-                                        libraryProfileCombo.currentIndex = currentIndex
-                                        libraryProfileCombo.popup.close()
-                                    }
-                                    Keys.onEscapePressed: libraryProfileCombo.popup.close()
-                                }
-
-                                background: DialogSurface { floating: true; radius: Theme.radiusMedium }
                             }
                         }
                     }

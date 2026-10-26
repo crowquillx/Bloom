@@ -340,6 +340,9 @@ private:
     // Newest search; a replaced search (new term or library exclusions)
     // must not publish results after it.
     quint64 m_searchGeneration = 0;
+    /// Libraries of unsupported types per connection, from the last views
+    /// listing; search leaves them out (LibraryKinds).
+    QHash<QString, QStringList> m_unsupportedLibraryIds;
 
     // Cache validation state (per provider-owned endpoint).
     QHash<QString, QHash<int, QString>> m_pageCursors;

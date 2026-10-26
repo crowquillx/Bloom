@@ -18,7 +18,7 @@ calls the existing player request API.
 
 ## Layout
 
-The hero has two presentations. **Cinema mode** (`HeroBanner.cinematic`, used when Settings > Home > Sync page backdrop is on, the default) draws no card: the selected item's backdrop fills the page behind the rail, sharp and unblurred, and leading-edge and floor scrims keep the text legible. **Card mode** (sync off) shows the artwork inside a rounded card with its own scrims, over the normal rotating Home backdrop. Both modes use the same content: an uppercase accent eyebrow (source), the logo or title, the episode subtitle, a `MetadataLine`, the synopsis, and the actions (primary `ActionButton` reading "Play", "Resume" or "Resume S2 E3", plus a secondary "Details"). When the item has progress, a progress row shows the time left. Logos render through `ArtworkLogo`.
+The hero has two presentations. **Cinema mode** (`HeroBanner.cinematic`, used when Settings > Home > Sync page backdrop is on, the default) draws no card: the selected item's backdrop fills the page (`StageBackdrop` in `hero` mode) under the navigation bar, sharp and unblurred, and leading-edge and floor scrims keep the text legible. **Card mode** (sync off) shows the artwork inside a rounded card with its own scrims, over the normal rotating Home backdrop. Both modes use the same content: an uppercase accent eyebrow (source), the logo or title, the episode subtitle, a `MetadataLine`, the synopsis, and the actions (primary `ActionButton` reading "Play", "Resume" or "Resume S2 E3", plus a secondary "Details"). When the item has progress, a progress row shows the time left. Logos render through `ArtworkLogo`.
 
 Logo and info (badge, metadata chips, action buttons) can be placed independently under
 Settings > Home:
@@ -46,14 +46,16 @@ merged space member owns keep their own overview.
 
 ## Focus
 
-The hero receives initial Home focus when enabled and populated. Hero items arrive after the shelves load, so on first activation My Media holds provisional focus until the hero has content, and the hero then takes over. If the user moves off My Media first (another tile, another row, or the rail), the hand-off is cancelled and late hero data never steals focus. Returning to Home restores the last focused section instead.
+The hero receives initial Home focus when enabled and populated. Hero items arrive after the shelves load, so on first activation the first shelf (Continue Watching, Up Next or Recently Added) holds provisional focus until the hero has content, and the hero then takes over. If the user moves within or off that shelf first (another card, another row, or the navigation bar), the hand-off is cancelled and late hero data never steals focus. Returning to Home restores the last focused section instead. Home has no library tiles; libraries live in the navigation bar.
+
+In cinema mode the hero fills about the top 60% of Home, keeps its copy below `Theme.navBarReservedHeight`, and the first shelf sits fully in view below it. Up from carousel mode is not accepted, so it reaches the navigation bar.
 
 Focus is two-tier:
 
 - **Carousel mode** (hero card focused): Left/Right changes the hero item. Enter/Return enters
-  Play/Details. Down moves to My Media.
+  Play/Details. Down moves to the first shelf. Up moves to the navigation bar.
 - **Actions mode** (Play/Details focused): Left/Right moves between buttons. Enter/Return activates
-  the focused button. Esc or Up returns to carousel mode. Down moves to My Media.
+  the focused button. Esc or Up returns to carousel mode. Down moves to the first shelf.
 
 Leaving the hero resets to carousel mode. Auto-cycle pauses during focus, scrolling, and playback.
 

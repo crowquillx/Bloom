@@ -107,7 +107,7 @@ Dialog {
 
             Text {
                 text: qsTr("Switch space")
-                font.family: Theme.fontPrimary
+                font.family: Theme.fontDisplay
                 font.pixelSize: Theme.fontSizeTitle
                 font.weight: Theme.fontWeightHeavy
                 color: Theme.textPrimary

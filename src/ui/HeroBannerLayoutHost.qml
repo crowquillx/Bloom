@@ -10,7 +10,10 @@ Item {
     property bool centerLarge: false
     property real edgeMargin: Theme.spacingXLarge
     property real extraBottomInset: 0
-    property real contentWidthRatio: 0.58
+    /// Space reserved at the top of the region (the navigation bar floats
+    /// over a cinematic hero).
+    property real topInset: 0
+    property real contentWidthRatio: 0.50
     property Item positionRoot: parent
     default property alias content: contentColumn.data
 
@@ -23,7 +26,7 @@ Item {
             return 0
         if (centerLarge)
             return maxContentWidth * 0.62
-        return Math.min(Theme.seriesLogoMaxWidth, maxContentWidth * contentWidthRatio)
+        return Math.min(Theme.heroCopyMaxWidth, maxContentWidth * contentWidthRatio)
     }
     readonly property bool contentAlignRight: placement === "bottomRight" || placement === "topRight"
     readonly property bool contentAlignCenter: placement === "bottomCenter" || placement === "topCenter"
@@ -72,15 +75,15 @@ Item {
         switch (resolvedPlacement) {
         case "topLeft":
             x = margin
-            y = margin
+            y = margin + topInset
             break
         case "topRight":
             x = regionWidth - blockWidth - margin
-            y = margin
+            y = margin + topInset
             break
         case "topCenter":
             x = (regionWidth - blockWidth) / 2
-            y = margin
+            y = margin + topInset
             break
         case "bottomLeft":
             x = margin
@@ -96,7 +99,7 @@ Item {
             break
         case "center":
             x = (regionWidth - blockWidth) / 2
-            y = (regionHeight - blockHeight) / 2
+            y = topInset + (regionHeight - topInset - blockHeight) / 2
             break
         default:
             x = margin
@@ -106,6 +109,7 @@ Item {
     }
 
     onExtraBottomInsetChanged: Qt.callLater(applyPlacement)
+    onTopInsetChanged: Qt.callLater(applyPlacement)
 
     onParentChanged: Qt.callLater(applyPlacement)
     onPositionRootChanged: Qt.callLater(applyPlacement)

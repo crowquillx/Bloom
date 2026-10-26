@@ -176,6 +176,8 @@ qt_add_qml_module(Bloom
         ui/settings/SettingsInfoRow.qml
         ui/settings/SettingsGroupDivider.qml
         ui/settings/SettingsRowBackground.qml
+        ui/settings/SettingsRow.qml
+        ui/settings/SettingsScrollView.qml
         ui/settings/PlaybackSettings.qml
         ui/settings/DisplaySettings.qml
         ui/settings/HomeSettings.qml
@@ -202,7 +204,12 @@ qt_add_qml_module(Bloom
         ui/RetryButton.qml
         ui/Theme.qml
         ui/Icons.qml
-        ui/Sidebar.qml
+        ui/NavigationBar.qml
+        ui/StageBackdrop.qml
+        ui/MediaCard.qml
+        ui/ShelfList.qml
+        ui/PageHeader.qml
+        ui/DetailHero.qml
         ui/SpacePickerDialog.qml
         ui/SpaceAvatar.qml
         ui/MediaProgressBar.qml

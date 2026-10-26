@@ -244,7 +244,8 @@ protected:
             for (const QJsonValue &value : account->views) {
                 libraries.append(QJsonObject{
                     {QStringLiteral("id"), value.toObject().value(QStringLiteral("Id"))},
-                    {QStringLiteral("name"), value.toObject().value(QStringLiteral("Name"))}});
+                    {QStringLiteral("name"), value.toObject().value(QStringLiteral("Name"))},
+                    {QStringLiteral("type"), QStringLiteral("movies")}});
             }
             return new FakeReply(request, 200, QJsonDocument(libraries).toJson(QJsonDocument::Compact),
                                  this);
@@ -292,12 +293,13 @@ protected:
     }
 };
 
-QJsonObject view(const QString &id, const QString &name)
+QJsonObject view(const QString &id, const QString &name,
+                 const QString &collectionType = QStringLiteral("movies"))
 {
     return {{QStringLiteral("Id"), id},
             {QStringLiteral("Name"), name},
             {QStringLiteral("Type"), QStringLiteral("CollectionFolder")},
-            {QStringLiteral("CollectionType"), QStringLiteral("movies")}};
+            {QStringLiteral("CollectionType"), collectionType}};
 }
 
 ServerConnection connection(const QString &id, const QString &host, const QString &userId)
@@ -370,6 +372,7 @@ private slots:
     void mergedSpaceHidesAndUnsearchesChosenLibraries();
     void singleSpaceHidesAndUnsearchesChosenLibraries();
     void scopedSearchInterleavesLibrariesByRank();
+    void unsupportedLibrariesLeaveViewsAndSearch();
     void pooledMemberRenewsExpiredTokenOnceAndSavesIt();
     void rejectedRenewalNeedsSignInButKeepsCredentials();
     void unreachableRenewalKeepsMemberUntilServerReturns();
@@ -977,6 +980,53 @@ void WorkspaceRoutingTest::singleSpaceHidesAndUnsearchesChosenLibraries()
     QSignalSpy results(&library, &LibraryService::canonicalSearchResultsLoaded);
     library.search(QStringLiteral("Heist"), 50,
                    m_workspaces->searchHiddenLibraryIds(QStringLiteral("alice")));
+    QTRY_COMPARE(results.count(), 1);
+    QCOMPARE(itemIds(results.first().at(2).toList()), QStringList({QStringLiteral("m-alice")}));
+    QStringList scopes;
+    for (const RecordedRequest &request : std::as_const(m_servers->requests)) {
+        if (request.path == QStringLiteral("/Items")) {
+            scopes.append(request.parentId);
+        }
+    }
+    QCOMPARE(scopes, QStringList({QStringLiteral("lib-movies")}));
+}
+
+void WorkspaceRoutingTest::unsupportedLibrariesLeaveViewsAndSearch()
+{
+    // Only movie and series libraries exist in the app: a music library (or
+    // any other type) never reaches views, and search goes around it.
+    Account &alice = m_servers->accountsByToken[QStringLiteral("token-alice")];
+    alice.views.append(view(QStringLiteral("lib-music"), QStringLiteral("Music"),
+                            QStringLiteral("music")));
+    alice.itemsByLibrary.insert(QStringLiteral("lib-movies"),
+                                QJsonArray{movie(QStringLiteral("m-alice"), QStringLiteral("Heist"))});
+    alice.itemsByLibrary.insert(QStringLiteral("lib-music"),
+                                QJsonArray{movie(QStringLiteral("x-alice"), QStringLiteral("Heist Live"))});
+
+    // Searching before the library list is known lists it first instead of
+    // assuming no library is of an unsupported type.
+    {
+        LibraryService fresh(m_auth.get());
+        m_servers->requests.clear();
+        QSignalSpy freshResults(&fresh, &LibraryService::canonicalSearchResultsLoaded);
+        fresh.search(QStringLiteral("Heist"), 50, {});
+        QTRY_COMPARE(freshResults.count(), 1);
+        QCOMPARE(itemIds(freshResults.first().at(2).toList()),
+                 QStringList({QStringLiteral("m-alice")}));
+    }
+
+    LibraryService library(m_auth.get());
+    QSignalSpy views(&library, &LibraryService::canonicalViewsLoadedForConnection);
+    library.getViews();
+    QTRY_COMPARE(views.count(), 1);
+    const QVariantList listed = views.first().at(1).toList();
+    QCOMPARE(viewRefs(listed), QStringList({QStringLiteral("alice/lib-movies")}));
+    QCOMPARE(listed.first().toMap().value(QStringLiteral("libraryKind")).toString(),
+             QStringLiteral("movies"));
+
+    m_servers->requests.clear();
+    QSignalSpy results(&library, &LibraryService::canonicalSearchResultsLoaded);
+    library.search(QStringLiteral("Heist"), 50, {});
     QTRY_COMPARE(results.count(), 1);
     QCOMPARE(itemIds(results.first().at(2).toList()), QStringList({QStringLiteral("m-alice")}));
     QStringList scopes;

@@ -12,6 +12,23 @@ FontLoader::FontLoader(QObject *parent)
 
 void FontLoader::load()
 {
+    // Bundled UI typefaces so every platform renders the same type: Inter for
+    // text and controls, Inter Display for page titles and heroes.
+    static const char *const kTypefaces[] = {
+        ":/fonts/inter/Inter-Regular.ttf",
+        ":/fonts/inter/Inter-Medium.ttf",
+        ":/fonts/inter/Inter-SemiBold.ttf",
+        ":/fonts/inter/Inter-Bold.ttf",
+        ":/fonts/inter/InterDisplay-SemiBold.ttf",
+        ":/fonts/inter/InterDisplay-Bold.ttf",
+        ":/fonts/inter/InterDisplay-ExtraBold.ttf",
+    };
+    for (const char *path : kTypefaces) {
+        if (QFontDatabase::addApplicationFont(QString::fromLatin1(path)) == -1) {
+            qCWarning(lcUi) << "Failed to load bundled typeface" << path;
+        }
+    }
+
     int fontId = QFontDatabase::addApplicationFont(":/fonts/MaterialSymbolsOutlined.ttf");
     if (fontId == -1) {
         qCWarning(lcUi) << "Failed to load Material Symbols font";

@@ -274,9 +274,9 @@ FocusScope {
                 text: root.primaryTitle(root.currentItem)
                 visible: root.currentLogoUrl === "" || heroLogoImage.status === Image.Error
                 font.pixelSize: Theme.fontSizeHero
-                font.family: Theme.fontPrimary
+                font.family: Theme.fontDisplay
                 font.weight: Theme.fontWeightHeavy
-                font.letterSpacing: -Math.round(0.5 * Theme.layoutScale)
+                font.letterSpacing: Theme.displayLetterSpacing
                 color: Theme.textPrimary
                 wrapMode: Text.WordWrap
                 maximumLineCount: 2
@@ -314,7 +314,7 @@ FocusScope {
         font.family: Theme.fontPrimary
         font.weight: Theme.fontWeightHeavy
         font.capitalization: Font.AllUppercase
-        font.letterSpacing: Math.round(2 * Theme.layoutScale)
+        font.letterSpacing: Theme.eyebrowLetterSpacing
         color: Theme.accentPrimary
     }
 
@@ -370,7 +370,10 @@ FocusScope {
                 variant: "primary"
                 visible: root.currentItem && root.currentItem.mediaType !== "Series"
                 focusPolicy: root.actionsFocused ? Qt.StrongFocus : Qt.NoFocus
-                implicitHeight: Theme.buttonHeightLarge
+                implicitHeight: Theme.buttonHeightHero
+                labelPixelSize: Theme.fontSizeMedium
+                iconPixelSize: Theme.iconSizeLarge
+                sidePadding: Math.round(40 * Theme.layoutScale)
                 text: root.playLabel(root.currentItem)
                 iconGlyph: Icons.playArrow
                 onClicked: root.playRequested(root.currentItem)
@@ -388,7 +391,10 @@ FocusScope {
                 id: detailsBtn
                 variant: playBtn.visible ? "secondary" : "primary"
                 focusPolicy: root.actionsFocused ? Qt.StrongFocus : Qt.NoFocus
-                implicitHeight: Theme.buttonHeightLarge
+                implicitHeight: Theme.buttonHeightHero
+                labelPixelSize: Theme.fontSizeMedium
+                iconPixelSize: Theme.iconSizeLarge
+                sidePadding: Math.round(40 * Theme.layoutScale)
                 text: qsTr("Details")
                 iconGlyph: playBtn.visible ? "" : Icons.info
                 onClicked: root.detailsRequested(root.currentItem)
@@ -546,6 +552,7 @@ FocusScope {
                 centerLarge: root.logoPlacement === "centerLarge"
                 edgeMargin: root.contentEdgeMargin
                 extraBottomInset: root.carouselBottomInset
+                topInset: root.cinematic ? Theme.navBarReservedHeight : 0
                 HeroBadge { layoutBlockAlignment: combinedHost.contentLayoutAlignment }
                 HeroLogoSection { blockPlacement: root.logoPlacement }
                 HeroMetadataRow { layoutBlockAlignment: combinedHost.contentLayoutAlignment }
@@ -583,6 +590,7 @@ FocusScope {
                 centerLarge: root.logoPlacement === "centerLarge"
                 edgeMargin: root.contentEdgeMargin
                 extraBottomInset: root.carouselBottomInset
+                topInset: root.cinematic ? Theme.navBarReservedHeight : 0
                 HeroLogoSection { blockPlacement: root.logoPlacement }
             }
 
@@ -592,6 +600,7 @@ FocusScope {
                 placement: root.infoPlacement
                 edgeMargin: root.contentEdgeMargin
                 extraBottomInset: root.carouselBottomInset
+                topInset: root.cinematic ? Theme.navBarReservedHeight : 0
                 HeroBadge { layoutBlockAlignment: infoHost.contentLayoutAlignment }
                 HeroMetadataRow { layoutBlockAlignment: infoHost.contentLayoutAlignment }
                 HeroSynopsisText { layoutBlockAlignment: infoHost.contentLayoutAlignment }

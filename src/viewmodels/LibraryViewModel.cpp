@@ -1,6 +1,7 @@
 #include "LibraryViewModel.h"
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
+#include "models/LibraryKinds.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/DetailViewCache.h"
 #include "../utils/LibraryCacheStore.h"
@@ -116,6 +117,8 @@ void LibraryViewModel::loadLibrary(const QString &parentId, const QString &colle
     }
 
     beginGeneration();
+    m_combinedMode = false;
+    m_combinedLibraryIds.clear();
     const bool parentChanged = m_currentParentId != parentId;
     m_currentParentId = parentId;
     m_currentCollectionType = collectionType;
@@ -191,6 +194,159 @@ void LibraryViewModel::loadLibrary(const QString &parentId, const QString &colle
     m_libraryService->getItems(query);
 }
 
+void LibraryViewModel::loadCombinedLibraries(const QStringList &libraryIds,
+                                             const QString &collectionType,
+                                             int limit)
+{
+    if (!m_libraryService) {
+        setError("Library service not available");
+        emit loadError(errorMessage());
+        return;
+    }
+
+    beginGeneration();
+    const QString kind = LibraryKinds::kindForCollectionType(collectionType);
+    const QString parentId =
+        QStringLiteral("combined:") + (kind.isEmpty() ? collectionType : kind);
+    const bool parentChanged = m_currentParentId != parentId;
+    m_combinedMode = true;
+    m_combinedLibraryIds = libraryIds;
+    m_currentParentId = parentId;
+    m_currentCollectionType = collectionType;
+    m_pageLimit = limit;
+    m_loadingViews = false;
+    m_activeDatasetKey.clear();
+    m_activeConnectionId = requestConnectionId();
+    if (parentChanged) {
+        emit currentParentIdChanged();
+    }
+
+    // Library order means nothing across libraries, so it merges by title.
+    m_combinedCursor.reset(libraryIds,
+                           m_sortBy.isEmpty() ? QStringLiteral("title") : m_sortBy,
+                           m_sortOrder);
+    m_combinedTarget = limit > 0 ? limit : 200;
+    m_combinedInitialLoad = true;
+    m_loadTimer.restart();
+    clearError();
+    if (!m_items.isEmpty()) {
+        beginResetModel();
+        m_items.clear();
+        endResetModel();
+    }
+    setTotalRecordCount(0);
+    setLoading(true);
+    emit canLoadMoreChanged();
+    qCDebug(lcViewModels) << "LibraryViewModel::loadCombinedLibraries" << libraryIds
+                          << collectionType << "limit:" << limit;
+    pumpCombined();
+}
+
+LibraryItemQuery LibraryViewModel::combinedQuery(const QString &libraryId, int offset,
+                                                 int limit) const
+{
+    LibraryItemQuery query = buildCurrentQuery(offset, limit, false);
+    query.parentId = libraryId;
+    // Flat, sorted lists of the library's titles so the pages can merge.
+    query.recursive = !query.includeItemTypes.isEmpty();
+    if (query.sortBy.isEmpty()) {
+        query.sortBy = QStringLiteral("title");
+    }
+    return query;
+}
+
+void LibraryViewModel::requestCombinedPages()
+{
+    // Each page covers what the view still wants, so one round usually fills it.
+    const int pageSize = qBound(50, m_combinedTarget - static_cast<int>(m_items.size()), 200);
+    for (const QString &libraryId : m_combinedCursor.librariesNeedingPages()) {
+        LibraryItemQuery query =
+            combinedQuery(libraryId, m_combinedCursor.nextOffset(libraryId), pageSize);
+        query.requestKey = registerRequest(
+            LoadKind::CombinedPage, libraryId, QString(), query.startIndex, pageSize, false);
+        m_libraryService->getItems(query);
+    }
+}
+
+void LibraryViewModel::pumpCombined()
+{
+    while (static_cast<int>(m_items.size()) < m_combinedTarget) {
+        const QVariantList batch =
+            m_combinedCursor.take(m_combinedTarget - static_cast<int>(m_items.size()));
+        if (batch.isEmpty()) {
+            break;
+        }
+        appendItems(QJsonArray::fromVariantList(batch));
+    }
+    // Once every library is drained, the rows shown are the whole list
+    // (empty folders are dropped on insert), so stop offering more.
+    setTotalRecordCount(m_combinedCursor.finished()
+                            ? static_cast<int>(m_items.size())
+                            : qMax(m_combinedCursor.totalCount(), static_cast<int>(m_items.size())));
+
+    const bool satisfied = static_cast<int>(m_items.size()) >= m_combinedTarget
+                           || m_combinedCursor.finished();
+    if (!satisfied) {
+        requestCombinedPages();
+        return;
+    }
+
+    if (m_combinedInitialLoad) {
+        m_combinedInitialLoad = false;
+        setLoading(false);
+        qCDebug(lcViewModels) << "LibraryViewModel: combined load completed in"
+                              << m_loadTimer.elapsed() << "ms with" << m_items.size() << "items";
+        emit loadComplete();
+    } else if (m_isLoadingMore) {
+        setIsLoadingMore(false);
+        emit loadMoreComplete();
+    }
+    emit canLoadMoreChanged();
+}
+
+void LibraryViewModel::publishCombinedFilterOptions()
+{
+    const auto sorted = [](QStringList values) {
+        std::sort(values.begin(), values.end(), [](const QString &a, const QString &b) {
+            return QString::localeAwareCompare(a, b) < 0;
+        });
+        return values;
+    };
+    m_availableGenres = sorted(m_combinedGenres);
+    m_availableTags = sorted(m_combinedTags);
+    m_availableStudios = sorted(m_combinedStudios);
+    setFilterOptionsLoading(false);
+    emit filterOptionsChanged();
+}
+
+std::optional<LibraryViewModel::RequestIdentity>
+LibraryViewModel::takeCombinedRequest(const QString &connectionId,
+                                      const QString &parentId,
+                                      const QString &requestKey)
+{
+    const auto it = m_pendingRequests.find(requestKey);
+    if (it == m_pendingRequests.end()) {
+        rejectStaleRequest(requestKey, QStringLiteral("request is no longer pending"));
+        return std::nullopt;
+    }
+    const RequestIdentity request = it.value();
+    if (!m_combinedMode || request.generation != m_requestGeneration) {
+        rejectStaleRequest(requestKey, QStringLiteral("generation changed"));
+        return std::nullopt;
+    }
+    if ((!connectionId.isEmpty() && connectionId != request.connectionId)
+        || request.connectionId != m_activeConnectionId) {
+        rejectStaleRequest(requestKey, QStringLiteral("connection changed"));
+        return std::nullopt;
+    }
+    if (request.parentId != parentId || !m_combinedLibraryIds.contains(parentId)) {
+        rejectStaleRequest(requestKey, QStringLiteral("library changed"));
+        return std::nullopt;
+    }
+    m_pendingRequests.erase(it);
+    return request;
+}
+
 void LibraryViewModel::loadViews()
 {
     if (!m_libraryService) {
@@ -200,6 +356,8 @@ void LibraryViewModel::loadViews()
     }
 
     beginGeneration();
+    m_combinedMode = false;
+    m_combinedLibraryIds.clear();
     const bool parentChanged = !m_currentParentId.isEmpty();
     m_currentParentId.clear();
     m_currentCollectionType.clear();
@@ -223,6 +381,10 @@ void LibraryViewModel::loadViews()
 
 void LibraryViewModel::refresh()
 {
+    if (m_combinedMode) {
+        loadCombinedLibraries(m_combinedLibraryIds, m_currentCollectionType, m_pageLimit);
+        return;
+    }
     if (m_loadingViews || m_currentParentId.isEmpty()) {
         loadViews();
     } else {
@@ -265,6 +427,15 @@ void LibraryViewModel::loadMore(int limit)
     
     // Can't load more for views (top-level libraries)
     if (m_loadingViews || m_currentParentId.isEmpty()) {
+        return;
+    }
+
+    if (m_combinedMode) {
+        setIsLoadingMore(true);
+        m_loadMoreTimer.restart();
+        clearError();
+        m_combinedTarget = static_cast<int>(m_items.size()) + qMax(1, limit);
+        pumpCombined();
         return;
     }
     
@@ -383,6 +554,13 @@ void LibraryViewModel::onItemsLoaded(const QString &connectionId,
                                      const QVariantList &canonicalItems,
                                      int totalRecordCount)
 {
+    if (m_pendingRequests.value(requestKey).kind == LoadKind::CombinedPage) {
+        if (takeCombinedRequest(connectionId, parentId, requestKey)) {
+            m_combinedCursor.addPage(parentId, canonicalItems, totalRecordCount);
+            pumpCombined();
+        }
+        return;
+    }
     const auto request =
         takeCurrentRequest(connectionId, parentId, requestKey);
     if (!request) {
@@ -463,6 +641,14 @@ void LibraryViewModel::onItemsNotModified(const QString &connectionId,
                                           const QString &parentId,
                                           const QString &requestKey)
 {
+    if (m_pendingRequests.value(requestKey).kind == LoadKind::CombinedPage) {
+        // Combined pages never send validators, so treat this as a failed page.
+        if (takeCombinedRequest(connectionId, parentId, requestKey)) {
+            m_combinedCursor.pageFailed(parentId);
+            pumpCombined();
+        }
+        return;
+    }
     const auto request =
         takeCurrentRequest(connectionId, parentId, requestKey);
     if (!request) {
@@ -500,6 +686,25 @@ void LibraryViewModel::onItemsFailed(const QString &connectionId,
                                      const QString &requestKey,
                                      const QString &error)
 {
+    if (m_pendingRequests.value(requestKey).kind == LoadKind::CombinedPage) {
+        if (takeCombinedRequest(connectionId, parentId, requestKey)) {
+            qCWarning(lcViewModels) << "LibraryViewModel: combined library page failed"
+                                    << parentId << error;
+            m_combinedCursor.pageFailed(parentId);
+            // Every library failing is an error; one failing still shows the rest.
+            if (m_combinedCursor.finished() && m_items.isEmpty()
+                && m_combinedCursor.totalCount() == 0) {
+                setLoading(false);
+                setIsLoadingMore(false);
+                setError(mapNetworkError(QStringLiteral("getItems"), error));
+                emit loadError(error);
+                emit canLoadMoreChanged();
+                return;
+            }
+            pumpCombined();
+        }
+        return;
+    }
     const auto request =
         takeCurrentRequest(connectionId, parentId, requestKey);
     if (!request) {
@@ -542,6 +747,26 @@ void LibraryViewModel::onFilterOptionsLoaded(const QString &connectionId,
                                              const QStringList &tags,
                                              const QStringList &studios)
 {
+    if (m_combinedFilterRequestKeys.contains(requestKey)) {
+        if (!takeCombinedRequest(connectionId, parentId, requestKey)) {
+            return;
+        }
+        m_combinedFilterRequestKeys.remove(requestKey);
+        const auto unite = [](QStringList &into, const QStringList &values) {
+            for (const QString &value : values) {
+                if (!into.contains(value)) {
+                    into.append(value);
+                }
+            }
+        };
+        unite(m_combinedGenres, genres);
+        unite(m_combinedTags, tags);
+        unite(m_combinedStudios, studios);
+        if (m_combinedFilterRequestKeys.isEmpty()) {
+            publishCombinedFilterOptions();
+        }
+        return;
+    }
     const auto request =
         takeCurrentRequest(connectionId, parentId, requestKey);
     if (!request || request->kind != LoadKind::FilterOptions
@@ -562,6 +787,18 @@ void LibraryViewModel::onFilterOptionsFailed(const QString &connectionId,
                                              const QString &requestKey,
                                              const QString &error)
 {
+    if (m_combinedFilterRequestKeys.contains(requestKey)) {
+        if (takeCombinedRequest(connectionId, parentId, requestKey)) {
+            m_combinedFilterRequestKeys.remove(requestKey);
+            qCWarning(lcViewModels) << "LibraryViewModel: combined filter options failed"
+                                    << parentId << error;
+            // The other libraries' options still count.
+            if (m_combinedFilterRequestKeys.isEmpty()) {
+                publishCombinedFilterOptions();
+            }
+        }
+        return;
+    }
     const auto request =
         takeCurrentRequest(connectionId, parentId, requestKey);
     if (!request || request->kind != LoadKind::FilterOptions
@@ -771,6 +1008,10 @@ void LibraryViewModel::clearFilters()
 
 void LibraryViewModel::reloadWithCurrentQuery()
 {
+    if (m_combinedMode) {
+        loadCombinedLibraries(m_combinedLibraryIds, m_currentCollectionType, m_pageLimit);
+        return;
+    }
     if (!m_currentParentId.isEmpty()) {
         loadLibrary(m_currentParentId, m_currentCollectionType, 0, m_pageLimit);
     }
@@ -784,6 +1025,25 @@ void LibraryViewModel::loadFilterOptions(const QString &parentId, const QString 
     }
     if (!m_activeFilterRequestKey.isEmpty()) {
         m_pendingRequests.remove(m_activeFilterRequestKey);
+    }
+    if (m_combinedMode) {
+        // Union of every combined library's genres, tags and studios.
+        for (const QString &key : std::as_const(m_combinedFilterRequestKeys)) {
+            m_pendingRequests.remove(key);
+        }
+        m_combinedFilterRequestKeys.clear();
+        m_combinedGenres.clear();
+        m_combinedTags.clear();
+        m_combinedStudios.clear();
+        setFilterOptionsLoading(!m_combinedLibraryIds.isEmpty());
+        for (const QString &libraryId : std::as_const(m_combinedLibraryIds)) {
+            const QString requestKey = registerRequest(
+                LoadKind::FilterOptions, libraryId, QString(), 0, 0, false);
+            m_combinedFilterRequestKeys.insert(requestKey);
+            m_libraryService->getFilterOptionsForRequest(
+                libraryId, includeItemTypesForCollection(collectionType), true, requestKey);
+        }
+        return;
     }
     setFilterOptionsLoading(true);
     m_activeFilterRequestKey = registerRequest(
@@ -847,7 +1107,7 @@ QStringList LibraryViewModel::includeItemTypesForCollection(const QString &colle
     if (collectionType == "movies") {
         return {"Movie"};
     }
-    if (collectionType == "tvshows" || collectionType == "anime") {
+    if (collectionType == "tvshows" || collectionType == "series" || collectionType == "anime") {
         return {"Series"};
     }
     if (collectionType == "mixed" || collectionType.isEmpty()) {
@@ -913,6 +1173,7 @@ void LibraryViewModel::beginGeneration()
 {
     ++m_requestGeneration;
     m_pendingRequests.clear();
+    m_combinedFilterRequestKeys.clear();
     m_activeViewsRequestKey.clear();
     m_activeInitialRequestKey.clear();
     m_activeLoadMoreRequestKey.clear();
@@ -1476,6 +1737,9 @@ void LibraryViewModel::reopenCacheStore()
 
     setItems(QJsonArray());
     setTotalRecordCount(0);
+    // Combined pages belong to the previous connection's libraries.
+    m_combinedMode = false;
+    m_combinedLibraryIds.clear();
     m_views.clear();
     emit viewsChanged();
     if (!m_currentParentId.isEmpty()) {

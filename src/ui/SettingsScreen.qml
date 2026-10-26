@@ -1,17 +1,21 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Effects
 import BloomUI
 import "settings"
 
 /**
- * SettingsScreen — Left-rail + content-panel orchestrator.
+ * SettingsScreen - Panel archetype (docs/style-guide.md, "Panels and rows").
  *
- * Layout: narrow left rail (section list) + wide right content panel.
- * Each section is a standalone FocusScope inside a StackLayout.
- * Settings update immediately in memory. ConfigManager atomically persists
- * ordinary changes and coalesces high-frequency slider/session values.
+ * An ambient stage, the "Settings" PageHeader, then a category list on the
+ * left (SettingsRail) and the selected category's rows on the right. Each
+ * category is a standalone FocusScope inside a StackLayout. Settings update
+ * immediately in memory; ConfigManager atomically persists ordinary changes
+ * and coalesces high-frequency slider/session values.
+ *
+ * Keys: Right/Enter from the list enters the rows, Left/Escape from the rows
+ * returns to the list, Up from the top of either is left unaccepted so Main
+ * focuses the navigation bar, and Escape on the list goes back.
  */
 FocusScope {
     id: root
@@ -29,10 +33,39 @@ FocusScope {
     property bool saveToastArmed: false
     property string pendingSettingsToastMessage: qsTr("Settings saved")
 
-    // Rotating backdrop state
-    property var backdropCandidates: []
-    property string backdropConnectionId: ""
-    property string currentBackdropUrl: ""
+    // The navigation bar recedes while the selected category is scrolled into
+    // its rows; the page then slides up into the space the bar leaves.
+    readonly property bool navigationRecessed: {
+        if (activeSessionsVisible) return false
+        var section = currentSectionItem()
+        return !!section && section.scrolled === true
+    }
+    readonly property bool raisedLayout: navigationRecessed && root.activeFocus
+    property Item _navigationReturnItem: null
+
+    function saveFocusForNavigation() {
+        var item = root.Window.activeFocusItem
+        _navigationReturnItem = item && isWithinPage(item) ? item : null
+    }
+
+    function restoreFocusFromNavigation() {
+        var item = _navigationReturnItem
+        _navigationReturnItem = null
+        if (activeSessionsVisible) {
+            activeSessionsScreen.forceActiveFocus()
+        } else if (item && item.visible && item.enabled && isWithinPage(item)) {
+            item.forceActiveFocus()
+        } else {
+            settingsRail.focusRail()
+        }
+    }
+
+    function isWithinPage(item) {
+        for (var p = item; p; p = p.parent) {
+            if (p === root) return true
+        }
+        return false
+    }
 
     // Cached MPV profile names (shared with MpvSettings)
     property var profileNames: []
@@ -207,7 +240,6 @@ FocusScope {
 
     Component.onCompleted: {
         updateProfileNames()
-        refreshBackdropCandidates()
         settingsRail.focusRail()
         Qt.callLater(function() {
             root.saveToastArmed = true
@@ -223,10 +255,6 @@ FocusScope {
 
     StackView.onStatusChanged: {
         if (StackView.status === StackView.Active) {
-            if (backdropCandidates.length === 0
-                    || backdropConnectionId !== LibraryService.getActiveConnectionId()) {
-                refreshBackdropCandidates()
-            }
             if (focusUpdatesOnActivate) {
                 requestUpdateSectionFocus()
                 focusUpdatesOnActivate = false
@@ -240,164 +268,12 @@ FocusScope {
     }
 
     // ========================================
-    // Backdrop
+    // Stage
     // ========================================
 
-    function resetBackdropCandidates() {
-        backdropCandidates = []
-        backdropConnectionId = ""
-        currentBackdropUrl = ""
-    }
-
-    function refreshBackdropCandidates() {
-        resetBackdropCandidates()
-        backdropConnectionId = LibraryService.getActiveConnectionId()
-        LibraryService.getViews()
-    }
-
-    function addBackdropCandidate(item) {
-        const artwork = item ? item.backdropArtwork : null
-        if (!artwork || !artwork.itemId) return
-        for (var i = 0; i < backdropCandidates.length; ++i) {
-            const candidate = backdropCandidates[i]
-            if (candidate.connectionId === artwork.connectionId
-                    && candidate.itemId === artwork.itemId
-                    && candidate.index === artwork.index
-                    && candidate.tag === artwork.tag) {
-                return
-            }
-        }
-        const newCandidates = backdropCandidates.slice()
-        newCandidates.push(artwork)
-        backdropCandidates = newCandidates
-        if (backdropCandidates.length === 1) selectRandomBackdrop()
-    }
-
-    function selectRandomBackdrop() {
-        if (backdropCandidates.length === 0) { currentBackdropUrl = ""; return }
-        const randomIndex = Math.floor(Math.random() * backdropCandidates.length)
-        const artwork = backdropCandidates[randomIndex]
-        currentBackdropUrl = LibraryService.getCachedArtworkUrlFromRef(artwork, 1920)
-    }
-
-    Connections {
-        target: AuthenticationService
-        function onLoginSuccess() { root.refreshBackdropCandidates() }
-        function onLoggedOut() { root.resetBackdropCandidates() }
-        function onSessionExpired() { root.resetBackdropCandidates() }
-        function onSessionExpiredAfterPlayback() { root.resetBackdropCandidates() }
-    }
-
-    Connections {
-        target: LibraryService
-        function onCanonicalViewsLoadedForConnection(connectionId, views) {
-            if (connectionId !== backdropConnectionId || !views || views.length === undefined) return
-            const ids = []
-            for (var i = 0; i < views.length; ++i) ids.push(views[i].itemId)
-            LibraryService.getNextUp()
-            for (var j = 0; j < ids.length; ++j) LibraryService.getLatestMedia(ids[j])
-        }
-        function onCanonicalNextUpLoaded(connectionId, items) {
-            if (connectionId !== backdropConnectionId || !items || items.length === undefined) return
-            for (var i = 0; i < items.length; ++i) addBackdropCandidate(items[i])
-        }
-        function onCanonicalLatestMediaLoaded(connectionId, parentId, items) {
-            if (connectionId !== backdropConnectionId || !items || items.length === undefined) return
-            for (var i = 0; i < items.length; ++i) addBackdropCandidate(items[i])
-        }
-    }
-
-    Timer {
-        id: backdropRotationTimer
-        interval: ConfigManager.backdropRotationInterval
-        repeat: true
-        running: backdropCandidates.length > 1 && !PlayerController.isPlaybackActive
-        onTriggered: selectRandomBackdrop()
-    }
-
-    onCurrentBackdropUrlChanged: {
-        var target = backdropContainer.showBackdrop1 ? backdrop2 : backdrop1
-        if (target.source.toString() === currentBackdropUrl && target.status === Image.Ready) {
-            if (target === backdrop1) backdropContainer.showBackdrop1 = true
-            else backdropContainer.showBackdrop1 = false
-            return
-        }
-        target.source = currentBackdropUrl
-    }
-
-    // ========================================
-    // Background layers
-    // ========================================
-
-    Rectangle {
+    StageBackdrop {
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
-        z: -3
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Theme.backgroundPrimary }
-            GradientStop { position: 1.0; color: Theme.backgroundSecondary }
-        }
-    }
-
-    Rectangle {
-        id: backdropContainer
-        anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
-        z: -2
-        color: "transparent"
-        clip: true
-        property bool showBackdrop1: true
-
-        Image {
-            id: backdrop1
-            anchors.fill: parent
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true; cache: true
-            opacity: parent.showBackdrop1 ? 1.0 : 0.0
-            visible: true
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                blurEnabled: true; blur: 1.0
-                blurMax: Math.round(Theme.blurRadius * 1.5)
-            }
-            onStatusChanged: backdropContainer.checkStatus(this)
-        }
-
-        Image {
-            id: backdrop2
-            anchors.fill: parent
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true; cache: true
-            opacity: parent.showBackdrop1 ? 0.0 : 1.0
-            visible: true
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                blurEnabled: true; blur: 1.0
-                blurMax: Math.round(Theme.blurRadius * 1.5)
-            }
-            onStatusChanged: backdropContainer.checkStatus(this)
-        }
-
-        function checkStatus(img) {
-            if (img.source.toString() !== root.currentBackdropUrl) return
-            if (img.status === Image.Ready || (img.status === Image.Null && root.currentBackdropUrl === "")) {
-                if (img === backdrop1) showBackdrop1 = true
-                else showBackdrop1 = false
-            }
-        }
-
-        // Stronger gradient scrim over the backdrop
-        Rectangle {
-            anchors.fill: parent
-            z: 1
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.72) }
-                GradientStop { position: 0.35; color: Theme.withAlpha(Theme.backgroundPrimary, 0.82) }
-                GradientStop { position: 1.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.90) }
-            }
-        }
+        mode: "ambient"
     }
 
     // ========================================
@@ -445,88 +321,116 @@ FocusScope {
     }
 
     // ========================================
-    // Two-panel layout: Rail + Content
+    // Layout: header, category list + rows
     // ========================================
 
-    RowLayout {
+    Item {
+        id: pageLayout
         enabled: !root.activeSessionsVisible
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.leftMargin: Theme.pageMarginX
         anchors.rightMargin: Theme.pageMarginX
-        anchors.topMargin: Theme.pageMarginTop
-        anchors.bottomMargin: Theme.pageMarginTop
-        spacing: Theme.spacingXLarge
+        // Slides up into the bar's space while the bar is receded.
+        y: root.raisedLayout ? Theme.spacingXLarge : Theme.pageMarginTop
+        height: parent.height - y
 
-        // Left rail
-        SettingsRail {
-            id: settingsRail
-            Layout.fillHeight: true
-            Layout.preferredWidth: implicitWidth
-
-            onEnterContentRequested: root.enterContentPanel()
+        Behavior on y {
+            enabled: Theme.uiAnimationsEnabled
+            NumberAnimation { duration: Theme.durationLong; easing.type: Theme.easingEmphasized }
         }
 
-        // Right content panel
-        StackLayout {
-            id: contentStack
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            currentIndex: settingsRail.currentSection
+        PageHeader {
+            id: pageHeader
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            title: qsTr("Settings")
+        }
 
-            PlaybackSettings {
-                id: playbackSection
-                onRequestReturnToRail: root.returnToRail()
+        RowLayout {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: pageHeader.bottom
+            anchors.bottom: parent.bottom
+            anchors.topMargin: Theme.spacingXLarge
+            spacing: Theme.pageMarginX
+
+            // Category list
+            SettingsRail {
+                id: settingsRail
+                Layout.fillHeight: true
+                Layout.preferredWidth: implicitWidth
+                Layout.bottomMargin: Theme.pageMarginBottom
+
+                onEnterContentRequested: root.enterContentPanel()
             }
 
-            HomeSettings {
-                id: homeSection
-                onRequestReturnToRail: root.returnToRail()
-            }
+            // Rows of the selected category. Capped width so rows keep their
+            // proportions on ultrawide screens.
+            StackLayout {
+                id: contentStack
+                Layout.fillWidth: true
+                Layout.maximumWidth: Math.round(1460 * Theme.layoutScale)
+                Layout.fillHeight: true
+                Layout.alignment: Qt.AlignLeft | Qt.AlignTop
+                currentIndex: settingsRail.currentSection
 
-            DisplaySettings {
-                id: displaySection
-                onRequestReturnToRail: root.returnToRail()
-            }
+                PlaybackSettings {
+                    id: playbackSection
+                    onRequestReturnToRail: root.returnToRail()
+                }
 
-            VideoSettings {
-                id: videoSection
-                onRequestReturnToRail: root.returnToRail()
-            }
+                HomeSettings {
+                    id: homeSection
+                    onRequestReturnToRail: root.returnToRail()
+                }
 
-            MpvSettings {
-                id: mpvSection
-                profileNames: root.profileNames
-                onRequestReturnToRail: root.returnToRail()
-                onOpenNewProfileDialog: function(returnTarget) { root.openNewProfileDialog(returnTarget) }
-                onOpenImportConfigDialog: function(returnTarget) { root.openImportConfigDialog(returnTarget) }
-                onOpenDeleteProfileDialog: function(name, returnTarget) { root.openDeleteProfileDialog(name, returnTarget) }
-                onOpenRenameProfileDialog: function(name, returnTarget) { root.openRenameProfileDialog(name, returnTarget) }
-            }
+                DisplaySettings {
+                    id: displaySection
+                    onRequestReturnToRail: root.returnToRail()
+                }
 
-            InputSettings {
-                id: inputSection
-                onRequestReturnToRail: root.returnToRail()
-            }
+                VideoSettings {
+                    id: videoSection
+                    onRequestReturnToRail: root.returnToRail()
+                }
 
-            IntegrationsSettings {
-                id: integrationsSection
-                onRequestReturnToRail: root.returnToRail()
-            }
+                MpvSettings {
+                    id: mpvSection
+                    profileNames: root.profileNames
+                    onRequestReturnToRail: root.returnToRail()
+                    onOpenNewProfileDialog: function(returnTarget) { root.openNewProfileDialog(returnTarget) }
+                    onOpenImportConfigDialog: function(returnTarget) { root.openImportConfigDialog(returnTarget) }
+                    onOpenDeleteProfileDialog: function(name, returnTarget) { root.openDeleteProfileDialog(name, returnTarget) }
+                    onOpenRenameProfileDialog: function(name, returnTarget) { root.openRenameProfileDialog(name, returnTarget) }
+                }
 
-            SpaceSettings {
-                id: spacesSection
-                onRequestReturnToRail: root.returnToRail()
-            }
+                InputSettings {
+                    id: inputSection
+                    onRequestReturnToRail: root.returnToRail()
+                }
 
-            AboutAccountSettings {
-                id: aboutAccountSection
-                appVersion: root.buildAppVersion
-                appBuildChannel: root.buildChannel
-                appBuildId: root.buildId
-                qtVersion: root.buildQtVersion
-                onRequestReturnToRail: root.returnToRail()
-                onSignOutRequested: root.signOutRequested()
-                onSessionsRequested: root.openActiveSessions()
+                IntegrationsSettings {
+                    id: integrationsSection
+                    onRequestReturnToRail: root.returnToRail()
+                }
+
+                SpaceSettings {
+                    id: spacesSection
+                    onRequestReturnToRail: root.returnToRail()
+                }
+
+                AboutAccountSettings {
+                    id: aboutAccountSection
+                    appVersion: root.buildAppVersion
+                    appBuildChannel: root.buildChannel
+                    appBuildId: root.buildId
+                    qtVersion: root.buildQtVersion
+                    onRequestReturnToRail: root.returnToRail()
+                    onSignOutRequested: root.signOutRequested()
+                    onSessionsRequested: root.openActiveSessions()
+                }
             }
         }
     }
