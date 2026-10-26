@@ -47,23 +47,17 @@ FocusScope {
             }
         })
     }
-    readonly property int heroPosterWidth: Math.round(320 * Theme.layoutScale)
-    readonly property int heroPosterHeight: Math.round(heroPosterWidth * 1.5)
-    readonly property int heroPanelPadding: Theme.spacingXLarge
-    readonly property int heroActionsBottomSpacing: Theme.spacingMedium
-    // The hero is pinned, so an expanded overview is capped to keep room for the
-    // scrolling shelves below it.
-    readonly property int overviewExpandedMaxLines: Math.max(4, Math.floor(root.height * 0.3 / (Theme.fontSizeBody * 1.45)))
+    // Hero copy keeps a fixed reading measure (about half a 16:9 screen), so
+    // ultrawide screens do not stretch it. Theme.heroCopyMaxWidth
+    readonly property int heroBlockWidth: Math.min(Math.round(1040 * Theme.layoutScale),
+                                                   root.width - Theme.pageMarginX * 2)
     readonly property int peopleCardWidth: Math.round(176 * Theme.layoutScale)
     readonly property int peopleCardHeight: Math.round(320 * Theme.layoutScale)
-    // Chapter cards match the episode card height so both shelves fill the
-    // viewport below the pinned header.
-    readonly property int chapterRowHeight: Math.max(Math.round(224 * Theme.layoutScale),
-                                                     episodesList.responsiveHeight - Math.round(50 * Theme.layoutScale))
-    readonly property int chapterTextAllowance: Math.round((Theme.fontSizeBody + Theme.fontSizeCaption) * 1.4)
-                                                + Theme.spacingSmall * 4
-    readonly property int chapterCardWidth: Math.round((chapterRowHeight - chapterTextAllowance) * 16 / 9)
-                                            + Theme.spacingSmall * 2
+    // Request sharper stills for the scaled cards at high display scaling.
+    readonly property int cardImageWidth: Math.round(Theme.landscapeCardWidth * Math.max(2, Screen.devicePixelRatio))
+    readonly property int shelfScrollOffset: Math.round(56 * Theme.layoutScale)
+    /// The navigation bar recedes once the page scrolls into the shelves.
+    readonly property bool navigationRecessed: mainContentFlickable.contentY > Theme.navBarReservedHeight
     readonly property var focusedEpisodePeople: SeriesDetailsViewModel.focusedEpisodePeople || []
     readonly property bool focusedEpisodeDetailsLoading: SeriesDetailsViewModel.focusedEpisodeDetailsLoading
     readonly property var focusedEpisodeChapters: SeriesDetailsViewModel.focusedEpisodeChapters || []
@@ -88,23 +82,6 @@ FocusScope {
         if (!focusedEpisodeChaptersLoading)
             lastEpisodeHadChapterCards = focusedEpisodeChapters.length > 0 && focusedEpisodeChaptersHaveImages
     }
-    readonly property string selectedEpisodeImageUrl: selectedEpisodeData
-                                                     ? (selectedEpisodeData.imageUrl || "")
-                                                     : ""
-    // Prefer season poster, then series poster. Episode thumbs are landscape and only
-    // used as a last-resort fill for the portrait hero frame.
-    readonly property string selectedSeasonImageUrl: {
-        if (SeriesDetailsViewModel.selectedSeasonIndex >= 0) {
-            var season = SeriesDetailsViewModel.seasonsModel.getItem(SeriesDetailsViewModel.selectedSeasonIndex)
-            if (season && season.imageUrl) {
-                return season.imageUrl
-            }
-        }
-        return SeriesDetailsViewModel.posterUrl || ""
-    }
-    readonly property string heroArtworkUrl: selectedSeasonImageUrl || selectedEpisodeImageUrl || ""
-    readonly property bool heroArtworkUsesFit: selectedSeasonImageUrl === ""
-                                               && selectedEpisodeImageUrl !== ""
     readonly property string selectedEpisodeLabel: {
         if (!selectedEpisodeData) {
             return ""
@@ -165,7 +142,7 @@ FocusScope {
     property real selectedEpisodePlaybackPosition: episodesList.currentItem ? episodesList.currentItem.playbackPosition : 0
     property bool selectedEpisodeIsFavorite: episodesList.currentItem ? episodesList.currentItem.isFavorite : false
     
-    property bool overviewExpanded: false
+    property alias overviewExpanded: detailHero.synopsisExpanded
     onSelectedEpisodeIdChanged: {
         overviewExpanded = false
         clearEpisodePlaybackState()
@@ -496,7 +473,6 @@ FocusScope {
         suppressInteractionTracking = true
         episodesList.currentIndex = targetIndex
         suppressInteractionTracking = false
-        episodesList.positionViewAtIndex(targetIndex, ListView.Center)
         updateSelectedEpisode(targetIndex)
         initialEpisodeSelectionPending = false
         
@@ -533,7 +509,6 @@ FocusScope {
         suppressInteractionTracking = true
         episodesList.currentIndex = index
         suppressInteractionTracking = false
-        episodesList.positionViewAtIndex(index, alignmentMode || ListView.Center)
         updateSelectedEpisode(index)
         return true
     }
@@ -1084,742 +1059,505 @@ FocusScope {
         LibraryService.toggleFavorite(selectedEpisodeId, !selectedEpisodeIsFavorite)
     }
     
-    // Backdrop with fade. Full-bleed under the floating rail, sharp artwork
-    // with a leading-edge scrim and a floor for the episode shelf.
-    Item {
-        id: backdropContainer
+    // ---- Navigation and scrolling ----
+
+    // Shelves below the hero, in focus order (visible ones only). The season
+    // tabs head the episode shelf and only take focus with several seasons.
+    function shelfTargets() {
+        const targets = []
+        if (seasonsTabList.count > 1) targets.push(seasonsTabList)
+        targets.push(episodesList)
+        if (chapterSection.visible && chapterList.count > 0) targets.push(chapterList)
+        if (castSection.visible && castList.count > 0) targets.push(castList)
+        if (chapterTimeline.visible && chapterTimeline.count > 0) targets.push(chapterTimeline)
+        return targets
+    }
+
+    function sectionFor(target) {
+        if (target === seasonsTabList || target === episodesList) return episodesSection
+        if (target === chapterTimeline) return chapterTimeline
+        return target ? target.parent : null
+    }
+
+    function focusTarget(target) {
+        if (target === seasonsTabList) {
+            seasonsTabList.currentIndex = Math.max(0, SeriesDetailsViewModel.selectedSeasonIndex)
+        }
+        target.forceActiveFocus()
+    }
+
+    // Moves focus to the row above or below. Above the first row is the
+    // hero's primary action; below the last row nothing happens.
+    function moveShelfFocus(fromTarget, delta) {
+        const targets = shelfTargets()
+        const index = targets.indexOf(fromTarget)
+        const target = index + delta
+        if (index >= 0 && target >= 0 && target < targets.length) {
+            focusTarget(targets[target])
+        } else if (target < 0 && playResumeButton.enabled) {
+            playResumeButton.forceActiveFocus()
+        }
+        return true
+    }
+
+    function heroDown(event) {
+        const targets = shelfTargets()
+        if (targets.length > 0) {
+            focusTarget(targets[0])
+        }
+        event.accepted = true
+    }
+
+    // Up from the action row: Read More when shown, otherwise leave the key
+    // unhandled so it reaches the navigation bar.
+    function heroUp(event) {
+        if (detailHero.readMoreButton.visible) {
+            detailHero.readMoreButton.forceActiveFocus()
+            event.accepted = true
+        } else {
+            event.accepted = false
+        }
+    }
+
+    function scrollTo(y) {
+        const maxY = Math.max(0, mainContentFlickable.contentHeight - mainContentFlickable.height)
+        scrollAnimation.to = Math.max(0, Math.min(maxY, y))
+        scrollAnimation.restart()
+    }
+
+    // The episode shelf scrolls only as far as it needs to sit fully in view
+    // under the hero, so the hero keeps describing the focused episode; later
+    // shelves land in the same spot near the top.
+    function scrollToSection(section) {
+        if (!section) {
+            return
+        }
+        const top = section.mapToItem(mainContentColumn, 0, 0).y
+        if (section === episodesSection) {
+            scrollTo(top + section.height + Theme.spacingLarge - mainContentFlickable.height)
+        } else {
+            scrollTo(top - root.shelfScrollOffset)
+        }
+    }
+
+    function remainingLabel(ms) {
+        const minutes = Math.max(1, Math.round(ms / 60000))
+        return minutes >= 60
+               ? qsTr("%1h %2m left").arg(Math.floor(minutes / 60)).arg(minutes % 60)
+               : qsTr("%1 min left").arg(minutes)
+    }
+
+    function episodeCode(seasonNumber, episodeNumber) {
+        if (!(episodeNumber > 0)) {
+            return qsTr("Special")
+        }
+        return qsTr("S%1 E%2").arg(seasonNumber || 0).arg(episodeNumber)
+    }
+
+    function episodeCardSubtitle(seasonNumber, episodeNumber, durationMs, positionMs) {
+        const parts = [episodeCode(seasonNumber, episodeNumber)]
+        if (positionMs > 0 && durationMs > positionMs) {
+            parts.push(remainingLabel(durationMs - positionMs))
+        } else if (durationMs > 0) {
+            parts.push(formatRuntime(durationMs))
+        }
+        return parts.join("  ·  ")
+    }
+
+    readonly property string heroEyebrow: {
+        if (!selectedEpisodeData) {
+            return ""
+        }
+        if (selectedSeasonNumber <= 0 || selectedEpisodeNumber <= 0) {
+            return qsTr("Special")
+        }
+        return qsTr("Season %1  ·  Episode %2").arg(selectedSeasonNumber).arg(selectedEpisodeNumber)
+    }
+
+    // ---- Stage ----
+    // The series backdrop stays put while browsing episodes. A poster fallback
+    // is low resolution, so it is shown softened instead.
+    StageBackdrop {
+        id: stage
         anchors.fill: parent
-        z: 0
-        clip: true
-
-        Rectangle {
-            anchors.fill: parent
-            color: Theme.backgroundPrimary
-        }
-
-        Image {
-            id: backdropImage
-            anchors.fill: parent
-            source: SeriesDetailsViewModel.backdropUrl || SeriesDetailsViewModel.posterUrl
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            opacity: status === Image.Ready ? 1.0 : 0.0
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
-
-            // Poster fallbacks are low resolution; soften them.
-            layer.enabled: !SeriesDetailsViewModel.backdropUrl
-            layer.effect: MultiEffect {
-                blurEnabled: true
-                blur: 0.8
-                blurMax: 48
-            }
-        }
-
-        Rectangle {
-            anchors.fill: parent
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
-                GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.90) }
-                GradientStop { position: 0.45; color: Theme.withAlpha(Theme.backgroundPrimary, 0.55) }
-                GradientStop { position: 0.85; color: Theme.withAlpha(Theme.backgroundPrimary, 0.10) }
-            }
-        }
-
-        Rectangle {
-            anchors.fill: parent
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.0) }
-                GradientStop { position: 0.45; color: Theme.withAlpha(Theme.backgroundPrimary, 0.25) }
-                GradientStop { position: 0.75; color: Theme.withAlpha(Theme.backgroundPrimary, 0.82) }
-                GradientStop { position: 1.0; color: Theme.withAlpha(Theme.backgroundPrimary, 0.96) }
-            }
-        }
-    }
-    
-    // Pinned header: the season tabs and episode hero stay in place while the
-    // shelves below scroll.
-    ColumnLayout {
-        id: pinnedHeader
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.leftMargin: Theme.pageMarginX
-        anchors.rightMargin: Theme.pageMarginX
-        anchors.topMargin: Theme.pageMarginTop
-        spacing: Theme.sectionSpacing - Theme.spacingMedium
-        z: 2
-
-        ListView {
-            id: seasonsTabList
-            Layout.fillWidth: true
-            Layout.preferredHeight: Theme.buttonHeightSmall + Theme.spacingSmall
-            orientation: ListView.Horizontal
-            spacing: Theme.spacingSmall
-            clip: false
-            model: SeriesDetailsViewModel.seasonsModel
-            currentIndex: Math.max(0, SeriesDetailsViewModel.selectedSeasonIndex)
-
-            onActiveFocusChanged: {
-                if (activeFocus) {
-                    mainContentFlickable.contentY = 0
-                }
-            }
-
-            delegate: ItemDelegate {
-                width: seasonTabText.implicitWidth + Theme.spacingXLarge
-                height: Theme.buttonHeightSmall
-                padding: 0
-                leftPadding: 0
-                rightPadding: 0
-                topPadding: 0
-                bottomPadding: 0
-
-                property bool isSelected: SeriesDetailsViewModel.selectedSeasonId === model.itemId
-
-                KeyNavigation.down: playResumeButton
-
-                // Season tabs: selected = accent underline, focus = ring.
-                background: Rectangle {
-                    id: seasonTabBackground
-                    radius: Theme.radiusSmall
-                    color: parent.down ? Theme.surfaceInteractivePressed
-                         : (parent.hovered || parent.activeFocus ? Theme.surfaceInteractive : "transparent")
-
-                    Rectangle {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.bottom: parent.bottom
-                        width: parent.width - Theme.spacingLarge
-                        height: Theme.selectionIndicatorWidth
-                        radius: height / 2
-                        color: Theme.selectionIndicator
-                        visible: isSelected
-                    }
-
-                    FocusRing {
-                        inset: true
-                        active: seasonTabBackground.parent.activeFocus
-                        radius: seasonTabBackground.radius
-                    }
-                }
-
-                contentItem: Text {
-                    id: seasonTabText
-                    text: model.name || (model.indexNumber > 0 ? qsTr("Season %1").arg(model.indexNumber) : qsTr("Specials"))
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    font.weight: isSelected ? Theme.fontWeightStrong : Theme.fontWeightRegular
-                    color: isSelected ? Theme.textPrimary : Theme.textSecondary
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-
-                onClicked: {
-                    SeriesDetailsViewModel.selectSeason(index)
-                }
-
-                Keys.onReturnPressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onEnterPressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-            }
-        }
-
-        GlassPanel {
-            id: heroPanel
-            Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(heroPosterHeight + root.heroPanelPadding * 2,
-                                             heroContent.implicitHeight + root.heroPanelPadding * 2)
-
-            RowLayout {
-                id: heroContent
-                anchors.fill: parent
-                anchors.margins: root.heroPanelPadding
-                spacing: Theme.spacingXLarge + Theme.spacingSmall
-
-                Item {
-                    Layout.preferredWidth: heroPosterWidth
-                    Layout.preferredHeight: heroPosterHeight
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: Theme.imageRadius
-                        color: root.heroArtworkUsesFit ? Theme.surfaceSunken : "transparent"
-
-                        Image {
-                            id: heroPosterImage
-                            anchors.fill: parent
-                            anchors.margins: heroArtworkUsesFit ? Theme.spacingSmall : 0
-                            source: heroArtworkUrl
-                            fillMode: root.heroArtworkUsesFit ? Image.PreserveAspectFit : Image.PreserveAspectCrop
-                            asynchronous: true
-                            cache: true
-
-                            layer.enabled: true
-                            layer.effect: MultiEffect {
-                                maskEnabled: true
-                                maskSource: heroPosterMask
-                            }
-                        }
-
-                        Rectangle {
-                            id: heroPosterMask
-                            anchors.fill: parent
-                            radius: Theme.imageRadius
-                            visible: false
-                            layer.enabled: true
-                            layer.smooth: true
-                        }
-
-                        ArtworkPlaceholder {
-                            anchors.fill: parent
-                            visible: heroPosterImage.status !== Image.Ready
-                            loading: heroPosterImage.status === Image.Loading
-                            iconGlyph: Icons.tvShows
-                        }
-
-                        Row {
-                            anchors.top: parent.top
-                            anchors.right: parent.right
-                            anchors.margins: Theme.spacingSmall
-                            spacing: Theme.spacingXSmall
-                            opacity: root.hasMediaBadges() ? 1.0 : 0.0
-
-                            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
-
-                            MetadataChip {
-                                text: root.videoResolutionBadge()
-                                onArtwork: true
-                            }
-                            MetadataChip {
-                                text: root.videoHdrBadge()
-                                onArtwork: true
-                            }
-                        }
-
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.bottom: parent.bottom
-                            anchors.margins: Theme.spacingMedium
-                            radius: Theme.radiusMedium
-                            color: Theme.overlayTextBackground
-                            border.width: 1
-                            border.color: Theme.overlayTextBorder
-                            visible: selectedEpisodeLabel !== ""
-                            implicitHeight: episodeLabelText.implicitHeight + Math.round(14 * Theme.layoutScale)
-                            implicitWidth: episodeLabelText.implicitWidth + Math.round(26 * Theme.layoutScale)
-
-                            Text {
-                                id: episodeLabelText
-                                anchors.centerIn: parent
-                                text: selectedEpisodeLabel
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.family: Theme.fontPrimary
-                                font.weight: Theme.fontWeightHeavy
-                                color: Theme.textOnDarkOverlay
-                            }
-                        }
-                    }
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    spacing: Theme.spacingMedium
-
-                    Item {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: displayLogoUrl !== "" ? Theme.detailViewLogoHeight : titleFallback.implicitHeight
-
-                        ArtworkLogo {
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: Math.min(Theme.seriesLogoMaxWidth, parent.width)
-                            height: parent.height
-                            source: displayLogoUrl
-                            fillMode: Image.PreserveAspectFit
-                            horizontalAlignment: Image.AlignLeft
-                            asynchronous: true
-                            cache: true
-                            visible: displayLogoUrl !== ""
-                            opacity: status === Image.Ready ? 1.0 : 0.0
-                            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
-                        }
-
-                        Text {
-                            id: titleFallback
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width
-                            text: displayName || seriesName
-                            visible: displayLogoUrl === ""
-                            font.pixelSize: Theme.fontSizeHero
-                            font.family: Theme.fontPrimary
-                            font.weight: Theme.fontWeightHeavy
-                            color: Theme.textPrimary
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    Text {
-                        text: selectedEpisodeName !== "" ? selectedEpisodeName : qsTr("Select an episode")
-                        Layout.fillWidth: true
-                        font.pixelSize: Theme.fontSizeTitle
-                        font.family: Theme.fontPrimary
-                        font.weight: Theme.fontWeightHeavy
-                        color: Theme.textPrimary
-                        wrapMode: Text.WordWrap
-                    }
-
-                    MetadataLine {
-                        Layout.fillWidth: true
-                        font.pixelSize: Theme.fontSizeBody
-                        items: [selectedEpisodeLabel,
-                                selectedEpisodeDurationMs > 0 ? formatRuntime(selectedEpisodeDurationMs) : "",
-                                selectedEpisodeDurationMs > 0 ? calculateEndTime(selectedEpisodeDurationMs) : "",
-                                selectedEpisodeCommunityRating > 0 ? formatRating(selectedEpisodeCommunityRating) : "",
-                                selectedEpisodePremiereDate !== "" ? formatPremiereDate(selectedEpisodePremiereDate) : "",
-                                selectedEpisodeIsPlayed ? qsTr("Watched")
-                                                        : (selectedEpisodePlaybackPosition > 0 ? qsTr("In Progress") : "")]
-                    }
-
-                    Item {
-                        id: overviewContainer
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: root.overviewExpanded
-                                               ? overviewColumn.implicitHeight
-                                               : overviewContainer.collapsedLayoutHeight
-
-                        // Collapsed height is fixed so the hero does not jump while browsing
-                        // episodes with different overview lengths.
-                        readonly property int collapsedLines: 3
-                        readonly property int collapsedHeight: Math.round(Theme.fontSizeBody * 1.45 * collapsedLines)
-                        readonly property int buttonRowHeight: Theme.buttonHeightSmall
-                        readonly property int collapsedLayoutHeight: collapsedHeight + buttonRowHeight + overviewColumn.spacing
-                        property bool hasOverflow: overviewText.truncated || root.overviewExpanded
-
-                        ColumnLayout {
-                            id: overviewColumn
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            spacing: Theme.spacingSmall
-
-                            Text {
-                                id: overviewText
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: root.overviewExpanded ? implicitHeight : overviewContainer.collapsedHeight
-                                verticalAlignment: Text.AlignTop
-                                text: selectedEpisodeOverview || qsTr("No description available.")
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                color: selectedEpisodeOverview ? Theme.textPrimary : Theme.textSecondary
-                                opacity: 0.9
-                                lineHeight: 1.12
-                                wrapMode: Text.WordWrap
-                                maximumLineCount: root.overviewExpanded ? root.overviewExpandedMaxLines : overviewContainer.collapsedLines
-                                elide: Text.ElideRight
-                            }
-
-                            Item {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: overviewContainer.buttonRowHeight
-
-                                ActionButton {
-                                    id: readMoreButton
-                                    variant: "ghost"
-                                    visible: overviewContainer.hasOverflow
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: -Theme.spacingMedium
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    implicitHeight: overviewContainer.buttonRowHeight
-                                    sidePadding: Theme.spacingMedium
-                                    labelPixelSize: Theme.fontSizeSmall
-                                    text: root.overviewExpanded ? qsTr("Show Less") : qsTr("Read More")
-                                    iconGlyph: root.overviewExpanded ? Icons.expandLess : Icons.expandMore
-
-                                    KeyNavigation.up: seasonsTabList
-                                    KeyNavigation.down: playResumeButton
-
-                                    Keys.onReturnPressed: (event) => {
-                                        if (event.isAutoRepeat) {
-                                            event.accepted = true
-                                            return
-                                        }
-                                        clicked()
-                                        event.accepted = true
-                                    }
-
-                                    Keys.onEnterPressed: (event) => {
-                                        if (event.isAutoRepeat) {
-                                            event.accepted = true
-                                            return
-                                        }
-                                        clicked()
-                                        event.accepted = true
-                                    }
-
-                                    onClicked: root.overviewExpanded = !root.overviewExpanded
-                                }
-                            }
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.bottomMargin: root.heroActionsBottomSpacing
-                        spacing: Theme.spacingMedium
-
-                        ActionButton {
-                            id: playResumeButton
-                            variant: "primary"
-                            readonly property bool loadingPlayback: selectedEpisodeId !== "" && playbackInfoLoadingItemId === selectedEpisodeId
-                            text: selectedEpisodePlaybackPosition > 0 ? qsTr("Resume Episode") : qsTr("Play Episode")
-                            iconGlyph: Icons.playArrow
-                            busy: loadingPlayback
-                            enabled: selectedEpisodeId !== ""
-                            implicitHeight: Theme.buttonHeightLarge
-                            Layout.minimumWidth: Math.round(260 * Theme.layoutScale)
-
-                            Accessible.name: selectedEpisodePlaybackPosition > 0 ? qsTr("Resume Episode") : qsTr("Play Episode")
-
-                            KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
-                            KeyNavigation.right: playFromBeginningButton
-
-                            onActiveFocusChanged: {
-                                if (activeFocus) {
-                                    mainContentFlickable.contentY = 0
-                                }
-                            }
-
-                            Keys.onDownPressed: (event) => {
-                                if (episodesList.count > 0) {
-                                    episodesList.forceActiveFocus()
-                                } else if (castSection.visible && castList.count > 0) {
-                                    castSection.focusCurrentOrFirst()
-                                }
-                                event.accepted = true
-                            }
-
-                            Keys.onReturnPressed: (event) => {
-                                if (!event.isAutoRepeat && enabled) {
-                                    clicked()
-                                    event.accepted = true
-                                }
-                            }
-
-                            Keys.onEnterPressed: (event) => {
-                                if (!event.isAutoRepeat && enabled) {
-                                    clicked()
-                                    event.accepted = true
-                                }
-                            }
-
-                            onClicked: startPlayback(false, playResumeButton)
-                        }
-
-                        SecondaryActionButton {
-                            id: playFromBeginningButton
-                            text: qsTr("From Start")
-                            iconGlyph: Icons.replay
-                            showLabel: false
-                            Layout.preferredHeight: Theme.buttonHeightLarge
-                            Layout.preferredWidth: Theme.buttonHeightLarge
-
-                            KeyNavigation.left: playResumeButton
-                            KeyNavigation.right: watchedToggleButton
-                            KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
-
-                            onActiveFocusChanged: {
-                                if (activeFocus) {
-                                    mainContentFlickable.contentY = 0
-                                }
-                            }
-
-                            Keys.onDownPressed: (event) => {
-                                if (episodesList.count > 0) {
-                                    episodesList.forceActiveFocus()
-                                } else if (castSection.visible && castList.count > 0) {
-                                    castSection.focusCurrentOrFirst()
-                                }
-                                event.accepted = true
-                            }
-
-                            Keys.onReturnPressed: (event) => {
-                                if (!event.isAutoRepeat && enabled) {
-                                    clicked()
-                                    event.accepted = true
-                                }
-                            }
-
-                            Keys.onEnterPressed: (event) => {
-                                if (!event.isAutoRepeat && enabled) {
-                                    clicked()
-                                    event.accepted = true
-                                }
-                            }
-
-                            onClicked: startPlayback(true, playFromBeginningButton)
-                        }
-
-                        SecondaryActionButton {
-                            id: watchedToggleButton
-                            text: selectedEpisodeIsPlayed ? qsTr("Mark Unwatched") : qsTr("Mark Watched")
-                            iconGlyph: selectedEpisodeIsPlayed ? Icons.visibilityOff : Icons.visibility
-                            iconColor: selectedEpisodeIsPlayed ? Theme.accentPrimary : Theme.textPrimary
-                            showLabel: false
-                            enabled: selectedEpisodeId !== ""
-                            Layout.preferredHeight: Theme.buttonHeightLarge
-                            Layout.preferredWidth: Theme.buttonHeightLarge
-
-                            KeyNavigation.left: playFromBeginningButton
-                            KeyNavigation.right: favoriteButton
-                            KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
-
-                            onActiveFocusChanged: {
-                                if (activeFocus) {
-                                    mainContentFlickable.contentY = 0
-                                }
-                            }
-
-                            Keys.onDownPressed: (event) => {
-                                if (episodesList.count > 0) {
-                                    episodesList.forceActiveFocus()
-                                } else if (castSection.visible && castList.count > 0) {
-                                    castSection.focusCurrentOrFirst()
-                                }
-                                event.accepted = true
-                            }
-
-                            Keys.onReturnPressed: (event) => {
-                                if (!event.isAutoRepeat && enabled) {
-                                    clicked()
-                                    event.accepted = true
-                                }
-                            }
-
-                            Keys.onEnterPressed: (event) => {
-                                if (!event.isAutoRepeat && enabled) {
-                                    clicked()
-                                    event.accepted = true
-                                }
-                            }
-
-                            onClicked: toggleWatchedStatus()
-                        }
-
-                        SecondaryActionButton {
-                            id: favoriteButton
-                            text: selectedEpisodeIsFavorite ? qsTr("Favorited") : qsTr("Favorite")
-                            iconGlyph: selectedEpisodeIsFavorite ? Icons.favorite : Icons.favoriteBorder
-                            iconColor: selectedEpisodeIsFavorite ? Theme.favoriteColor : Theme.textPrimary
-                            showLabel: false
-                            enabled: selectedEpisodeId !== ""
-                            Layout.preferredHeight: Theme.buttonHeightLarge
-                            Layout.preferredWidth: Theme.buttonHeightLarge
-
-                            KeyNavigation.left: watchedToggleButton
-                            KeyNavigation.right: goToSeriesButton
-                            KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
-
-                            onActiveFocusChanged: {
-                                if (activeFocus) {
-                                    mainContentFlickable.contentY = 0
-                                }
-                            }
-
-                            Keys.onDownPressed: (event) => {
-                                if (episodesList.count > 0) {
-                                    episodesList.forceActiveFocus()
-                                } else if (castSection.visible && castList.count > 0) {
-                                    castSection.focusCurrentOrFirst()
-                                }
-                                event.accepted = true
-                            }
-
-                            Keys.onReturnPressed: (event) => {
-                                if (!event.isAutoRepeat && enabled) {
-                                    clicked()
-                                    event.accepted = true
-                                }
-                            }
-
-                            Keys.onEnterPressed: (event) => {
-                                if (!event.isAutoRepeat && enabled) {
-                                    clicked()
-                                    event.accepted = true
-                                }
-                            }
-
-                            onClicked: toggleFavorite()
-                        }
-
-                        SecondaryActionButton {
-                            id: goToSeriesButton
-                            text: qsTr("Go to Series")
-                            iconGlyph: Icons.tvShows
-                            showLabel: true
-                            enabled: seriesId !== ""
-                            Layout.preferredHeight: Theme.buttonHeightLarge
-
-                            KeyNavigation.left: favoriteButton
-                            KeyNavigation.right: contextMenuButton
-                            KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
-
-                            onActiveFocusChanged: {
-                                if (activeFocus) {
-                                    mainContentFlickable.contentY = 0
-                                }
-                            }
-
-                            Keys.onDownPressed: (event) => {
-                                if (episodesList.count > 0) {
-                                    episodesList.forceActiveFocus()
-                                } else if (castSection.visible && castList.count > 0) {
-                                    castSection.focusCurrentOrFirst()
-                                }
-                                event.accepted = true
-                            }
-
-                            Keys.onReturnPressed: (event) => {
-                                if (!event.isAutoRepeat && enabled) {
-                                    clicked()
-                                    event.accepted = true
-                                }
-                            }
-
-                            Keys.onEnterPressed: (event) => {
-                                if (!event.isAutoRepeat && enabled) {
-                                    clicked()
-                                    event.accepted = true
-                                }
-                            }
-
-                            onClicked: root.seriesDetailsRequested(selectedEpisodeId)
-                        }
-
-                        SecondaryActionButton {
-                            id: contextMenuButton
-                            text: ""
-                            iconGlyph: Icons.moreHoriz
-                            accessibleLabel: qsTr("Audio and subtitle options")
-                            enabled: selectedEpisodeId !== ""
-                            Layout.preferredHeight: Theme.buttonHeightLarge
-                            Layout.preferredWidth: Theme.buttonHeightLarge
-
-                            KeyNavigation.left: goToSeriesButton
-                            KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
-
-                            onActiveFocusChanged: {
-                                if (activeFocus) {
-                                    mainContentFlickable.contentY = 0
-                                }
-                            }
-
-                            Keys.onDownPressed: (event) => {
-                                if (episodesList.count > 0) {
-                                    episodesList.forceActiveFocus()
-                                } else if (castSection.visible && castList.count > 0) {
-                                    castSection.focusCurrentOrFirst()
-                                }
-                                event.accepted = true
-                            }
-
-                            Keys.onReturnPressed: if (enabled) openTrackSelector()
-                            Keys.onEnterPressed: if (enabled) openTrackSelector()
-                            onClicked: openTrackSelector()
-                        }
-
-                        Item { Layout.fillWidth: true }
-                    }
-                }
-            }
-        }
+        z: -1
+        mode: SeriesDetailsViewModel.backdropUrl ? "hero" : "ambient"
+        source: SeriesDetailsViewModel.backdropUrl || SeriesDetailsViewModel.posterUrl
+        // Quiet the artwork as the page scrolls into the shelves.
+        dim: Math.min(0.72, mainContentFlickable.contentY / Math.max(1, heroArea.height) * 0.72)
     }
 
-    // Episodes, chapters and cast scroll beneath the pinned header.
+    NumberAnimation {
+        id: scrollAnimation
+        target: mainContentFlickable
+        property: "contentY"
+        duration: Theme.durationLong
+        easing.type: Theme.easingStandard
+    }
+
+    // The hero and the shelves scroll together, like Home. The episode shelf
+    // sits fully in view under the hero, which follows the focused episode.
     Flickable {
         id: mainContentFlickable
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: pinnedHeader.bottom
-        anchors.bottom: parent.bottom
-        anchors.leftMargin: Theme.pageMarginX
-        anchors.rightMargin: Theme.pageMarginX
-        anchors.topMargin: Theme.sectionSpacing - Theme.spacingMedium
+        anchors.fill: parent
         contentWidth: width
-        contentHeight: mainContentColumn.implicitHeight + bottomMargin
-        
-        // Bottom margin to ensure last item is fully visible
-        readonly property int bottomMargin: Math.round(150 * Theme.layoutScale)
+        contentHeight: mainContentColumn.implicitHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
-        z: 1
-        
-        // The header is pinned and the shelf viewport is short, so the focused
-        // section snaps its header to the top of the viewport.
-        function scrollSectionToTop(item) {
-            if (!item) return
-            var itemTop = item.mapToItem(mainContentColumn, 0, 0).y
-            contentY = Math.max(0, Math.min(itemTop, contentHeight - height))
-        }
-        
-        Behavior on contentY {
-            enabled: Theme.uiAnimationsEnabled
-            NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic }
-        }
-        
+
         ColumnLayout {
             id: mainContentColumn
             width: mainContentFlickable.width
-            spacing: Theme.sectionSpacing - Theme.spacingMedium
+            spacing: Theme.sectionSpacing
 
+            // Hero: about the top 60% of the screen. The copy sits at its foot
+            // and grows upwards, never under the navigation bar.
+            Item {
+                id: heroArea
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.max(Math.round(root.height * 0.60),
+                                                 Theme.navBarReservedHeight + detailHero.height)
+
+                DetailHero {
+                    id: detailHero
+                    x: Theme.pageMarginX
+                    anchors.bottom: parent.bottom
+                    width: root.heroBlockWidth
+                    eyebrow: root.heroEyebrow
+                    logoSource: displayLogoUrl
+                    title: seriesName || SeriesDetailsViewModel.title
+                    subtitle: selectedEpisodeName
+                    metadataItems: [selectedEpisodeDurationMs > 0 ? formatRuntime(selectedEpisodeDurationMs) : "",
+                                    selectedEpisodeDurationMs > 0 ? calculateEndTime(selectedEpisodeDurationMs) : "",
+                                    selectedEpisodeCommunityRating > 0 ? formatRating(selectedEpisodeCommunityRating) : "",
+                                    selectedEpisodePremiereDate !== "" ? formatPremiereDate(selectedEpisodePremiereDate) : "",
+                                    selectedEpisodeIsPlayed ? qsTr("Watched")
+                                                            : (selectedEpisodePlaybackPosition > 0 ? qsTr("In Progress") : "")]
+                    qualityBadges: [root.videoResolutionBadge(), root.videoHdrBadge()]
+                    synopsis: selectedEpisodeOverview
+                    synopsisPlaceholder: selectedEpisodeData ? qsTr("No description available.") : ""
+                    // Browsing episodes must not move the action row.
+                    stableSynopsisHeight: true
+                    synopsisExpandedLines: Math.max(4, Math.floor(root.height * 0.3 / (Theme.fontSizeBody * 1.45)))
+                    primaryAction: playResumeButton
+                    progress: !selectedEpisodeIsPlayed && selectedEpisodePlaybackPosition > 0 && selectedEpisodeDurationMs > 0
+                              ? Math.min(1, selectedEpisodePlaybackPosition / selectedEpisodeDurationMs) : 0
+                    footnote: progress > 0 ? root.remainingLabel(selectedEpisodeDurationMs - selectedEpisodePlaybackPosition) : ""
+
+                    ActionButton {
+                        id: playResumeButton
+                        variant: "primary"
+                        readonly property bool loadingPlayback: selectedEpisodeId !== "" && playbackInfoLoadingItemId === selectedEpisodeId
+                        text: selectedEpisodePlaybackPosition > 0 ? qsTr("Resume Episode") : qsTr("Play Episode")
+                        iconGlyph: Icons.playArrow
+                        busy: loadingPlayback
+                        enabled: selectedEpisodeId !== ""
+                        implicitHeight: Theme.buttonHeightHero
+                        labelPixelSize: Theme.fontSizeMedium
+                        iconPixelSize: Theme.iconSizeLarge
+                        sidePadding: Math.round(40 * Theme.layoutScale)
+
+                        Accessible.name: text
+
+                        KeyNavigation.right: goToSeriesButton
+
+                        onActiveFocusChanged: if (activeFocus) root.scrollTo(0)
+                        Keys.onUpPressed: (event) => root.heroUp(event)
+                        Keys.onDownPressed: (event) => root.heroDown(event)
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: startPlayback(false, playResumeButton)
+                    }
+
+                    SecondaryActionButton {
+                        id: goToSeriesButton
+                        text: qsTr("Go to Series")
+                        iconGlyph: Icons.tvShows
+                        enabled: seriesId !== ""
+                        implicitHeight: Theme.buttonHeightHero
+                        labelPixelSize: Theme.fontSizeMedium
+                        iconPixelSize: Theme.iconSizeLarge
+                        sidePadding: Math.round(36 * Theme.layoutScale)
+
+                        KeyNavigation.left: playResumeButton
+                        KeyNavigation.right: playFromBeginningButton
+
+                        onActiveFocusChanged: if (activeFocus) root.scrollTo(0)
+                        Keys.onUpPressed: (event) => root.heroUp(event)
+                        Keys.onDownPressed: (event) => root.heroDown(event)
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: root.seriesDetailsRequested(selectedEpisodeId)
+                    }
+
+                    SecondaryActionButton {
+                        id: playFromBeginningButton
+                        text: qsTr("From Start")
+                        iconGlyph: Icons.replay
+                        showLabel: false
+                        accessibleLabel: qsTr("Play from start")
+                        enabled: selectedEpisodeId !== ""
+                        implicitHeight: Theme.buttonHeightHero
+                        iconPixelSize: Theme.iconSizeLarge
+
+                        KeyNavigation.left: goToSeriesButton
+                        KeyNavigation.right: watchedToggleButton
+
+                        onActiveFocusChanged: if (activeFocus) root.scrollTo(0)
+                        Keys.onUpPressed: (event) => root.heroUp(event)
+                        Keys.onDownPressed: (event) => root.heroDown(event)
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: startPlayback(true, playFromBeginningButton)
+                    }
+
+                    SecondaryActionButton {
+                        id: watchedToggleButton
+                        text: selectedEpisodeIsPlayed ? qsTr("Mark Unwatched") : qsTr("Mark Watched")
+                        iconGlyph: selectedEpisodeIsPlayed ? Icons.visibilityOff : Icons.visibility
+                        iconColor: selectedEpisodeIsPlayed ? Theme.accentPrimary : Theme.textPrimary
+                        showLabel: false
+                        accessibleLabel: text
+                        enabled: selectedEpisodeId !== ""
+                        implicitHeight: Theme.buttonHeightHero
+                        iconPixelSize: Theme.iconSizeLarge
+
+                        KeyNavigation.left: playFromBeginningButton
+                        KeyNavigation.right: favoriteButton
+
+                        onActiveFocusChanged: if (activeFocus) root.scrollTo(0)
+                        Keys.onUpPressed: (event) => root.heroUp(event)
+                        Keys.onDownPressed: (event) => root.heroDown(event)
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: toggleWatchedStatus()
+                    }
+
+                    SecondaryActionButton {
+                        id: favoriteButton
+                        text: selectedEpisodeIsFavorite ? qsTr("Favorited") : qsTr("Favorite")
+                        iconGlyph: selectedEpisodeIsFavorite ? Icons.favorite : Icons.favoriteBorder
+                        iconColor: selectedEpisodeIsFavorite ? Theme.favoriteColor : Theme.textPrimary
+                        showLabel: false
+                        accessibleLabel: text
+                        enabled: selectedEpisodeId !== ""
+                        implicitHeight: Theme.buttonHeightHero
+                        iconPixelSize: Theme.iconSizeLarge
+
+                        KeyNavigation.left: watchedToggleButton
+                        KeyNavigation.right: contextMenuButton
+
+                        onActiveFocusChanged: if (activeFocus) root.scrollTo(0)
+                        Keys.onUpPressed: (event) => root.heroUp(event)
+                        Keys.onDownPressed: (event) => root.heroDown(event)
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: toggleFavorite()
+                    }
+
+                    SecondaryActionButton {
+                        id: contextMenuButton
+                        text: ""
+                        iconGlyph: Icons.moreHoriz
+                        accessibleLabel: qsTr("Audio and subtitle options")
+                        enabled: selectedEpisodeId !== ""
+                        implicitHeight: Theme.buttonHeightHero
+                        iconPixelSize: Theme.iconSizeLarge
+
+                        KeyNavigation.left: favoriteButton
+
+                        onActiveFocusChanged: if (activeFocus) root.scrollTo(0)
+                        Keys.onUpPressed: (event) => root.heroUp(event)
+                        Keys.onDownPressed: (event) => root.heroDown(event)
+                        Keys.onRightPressed: (event) => { event.accepted = true }
+
+                        Keys.onReturnPressed: if (enabled) openTrackSelector()
+                        Keys.onEnterPressed: if (enabled) openTrackSelector()
+                        onClicked: openTrackSelector()
+                    }
+                }
+            }
+
+            // Episodes, headed by the season tabs.
             ColumnLayout {
                 id: episodesSection
                 Layout.fillWidth: true
-                spacing: Theme.spacingMedium
-
-                Text {
-                    id: episodesHeader
-                    text: qsTr("Episodes")
-                    font.pixelSize: Theme.fontSizeHeader
-                    font.family: Theme.fontPrimary
-                    font.weight: Theme.fontWeightHeavy
-                    color: Theme.textPrimary
-                }
+                spacing: Theme.sectionTitleSpacing
 
                 ListView {
+                    id: seasonsTabList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.buttonHeightSmall
+                    orientation: ListView.Horizontal
+                    spacing: Theme.spacingSmall
+                    // Tab labels line up with the gutter.
+                    leftMargin: Theme.pageMarginX - Theme.spacingMedium
+                    rightMargin: Theme.pageMarginX
+                    clip: false
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: SeriesDetailsViewModel.seasonsModel
+                    currentIndex: Math.max(0, SeriesDetailsViewModel.selectedSeasonIndex)
+                    highlightMoveDuration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0
+                    Accessible.role: Accessible.PageTabList
+                    Accessible.name: qsTr("Seasons")
+
+                    onActiveFocusChanged: if (activeFocus) root.scrollToSection(episodesSection)
+                    onCurrentIndexChanged: if (currentIndex >= 0) positionViewAtIndex(currentIndex, ListView.Contain)
+
+                    delegate: ItemDelegate {
+                        id: seasonTab
+                        required property int index
+                        required property var name
+                        required property var indexNumber
+                        required property var itemId
+                        readonly property bool isSelected: SeriesDetailsViewModel.selectedSeasonId === itemId
+
+                        width: seasonTabText.implicitWidth + Theme.spacingMedium * 2
+                        height: Theme.buttonHeightSmall
+                        padding: 0
+                        leftPadding: 0
+                        rightPadding: 0
+                        topPadding: 0
+                        bottomPadding: 0
+                        focusPolicy: seasonsTabList.count > 1 ? Qt.StrongFocus : Qt.NoFocus
+                        Accessible.role: Accessible.PageTab
+                        Accessible.name: seasonTabText.text
+                        Accessible.selected: isSelected
+
+                        // Selected = selection fill and indicator; focus = ring.
+                        background: Rectangle {
+                            id: seasonTabBackground
+                            radius: Theme.radiusSmall
+                            color: seasonTab.down ? Theme.surfaceInteractivePressed
+                                 : (seasonTab.activeFocus || seasonTab.hovered ? Theme.surfaceInteractiveHover
+                                    : (seasonTab.isSelected && seasonsTabList.count > 1 ? Theme.selectionBackground : "transparent"))
+
+                            Rectangle {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                anchors.bottom: parent.bottom
+                                width: parent.width - Theme.spacingMedium * 2
+                                height: Theme.selectionIndicatorWidth
+                                radius: height / 2
+                                color: Theme.selectionIndicator
+                                visible: seasonTab.isSelected && seasonsTabList.count > 1
+                            }
+
+                            FocusRing {
+                                active: seasonTab.activeFocus
+                                radius: seasonTabBackground.radius
+                            }
+                        }
+
+                        contentItem: Text {
+                            id: seasonTabText
+                            text: seasonTab.name || (seasonTab.indexNumber > 0 ? qsTr("Season %1").arg(seasonTab.indexNumber)
+                                                                               : qsTr("Specials"))
+                            font.pixelSize: seasonsTabList.count > 1 ? Theme.fontSizeMedium : Theme.fontSizeHeader
+                            font.family: Theme.fontPrimary
+                            font.weight: seasonTab.isSelected ? Theme.fontWeightHeavy : Theme.fontWeightMedium
+                            color: seasonTab.isSelected ? Theme.textPrimary : Theme.textSecondary
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        onClicked: SeriesDetailsViewModel.selectSeason(index)
+
+                        Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(seasonsTabList, -1) }
+                        Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(seasonsTabList, 1) }
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                            }
+                            event.accepted = true
+                        }
+                    }
+                }
+
+                ShelfList {
                     id: episodesList
                     Layout.fillWidth: true
-                    // Fit one full row of cards in the viewport below the pinned header.
-                    readonly property int responsiveHeight: Math.max(
-                        Theme.episodeListMinHeight,
-                        Math.min(Theme.episodeListHeight, root.height * 0.4,
-                                 mainContentFlickable.height - episodesHeader.height - episodesSection.spacing))
-                    Layout.preferredHeight: responsiveHeight
-                    orientation: ListView.Horizontal
-                    spacing: Theme.spacingLarge
-                    clip: true
-                    highlightMoveDuration: Theme.durationNormal
-                    highlightMoveVelocity: -1
+                    Layout.preferredHeight: implicitHeight
+                    cardHeight: Theme.landscapeCardHeight
                     model: SeriesDetailsViewModel.episodesModel
 
                     StateMessage {
                         parent: episodesList
-                        anchors.centerIn: parent
-                        width: parent.width
+                        x: Theme.pageMarginX
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - Theme.pageMarginX * 2
                         compact: true
                         visible: episodesList.count === 0
                         kind: SeriesDetailsViewModel.isLoading ? "loading" : "empty"
@@ -1829,23 +1567,11 @@ FocusScope {
                         // Focus can still land on the empty list; keep it visible.
                         FocusRing {
                             active: episodesList.activeFocus
-                            inset: true
                             radius: Theme.radiusLarge
                         }
                     }
 
-                    KeyNavigation.up: playResumeButton
-                    KeyNavigation.down: chapterSection.visible && chapterList.count > 0
-                                        ? chapterList
-                                        : (castSection.visible && castList.count > 0
-                                           ? castList
-                                           : (chapterTimeline.visible ? chapterTimeline : null))
-
-                    onActiveFocusChanged: {
-                        if (activeFocus) {
-                            mainContentFlickable.scrollSectionToTop(episodesSection)
-                        }
-                    }
+                    onActiveFocusChanged: if (activeFocus) root.scrollToSection(episodesSection)
 
                     onCurrentIndexChanged: {
                         if (currentIndex >= 0 && currentIndex < count) {
@@ -1857,152 +1583,53 @@ FocusScope {
                         }
                     }
 
-                    Keys.onDownPressed: (event) => {
-                        if (chapterSection.visible && chapterList.count > 0) {
-                            chapterSection.focusCurrentOrFirst()
-                            event.accepted = true
-                            return
+                    Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(episodesList, -1) }
+                    Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(episodesList, 1) }
+
+                    Keys.onReturnPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count) {
+                            userHasInteracted = true
+                            startPlayback(false, episodesList)
                         }
-                        if (castSection.visible && castList.count > 0) {
-                            castSection.focusCurrentOrFirst()
-                            event.accepted = true
-                            return
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count) {
+                            userHasInteracted = true
+                            startPlayback(false, episodesList)
                         }
-                        if (chapterTimeline.visible) {
-                            chapterTimeline.forceActiveFocus()
-                            event.accepted = true
-                            return
-                        }
-                        event.accepted = false
+                        event.accepted = true
                     }
 
-                    delegate: ItemDelegate {
-                        id: episodeDelegate
-                        readonly property int textAllowance: Math.round(50 * Theme.layoutScale)
-                        readonly property int availableThumbHeight: Math.max(1, episodesList.responsiveHeight - textAllowance)
-                        readonly property bool isPlayed: model.isPlayed || false
-                        readonly property bool isFavorite: model.isFavorite || false
-                        readonly property string itemId: model.itemId || ""
-                        readonly property var playbackPosition: model.positionMs || 0
+                    delegate: MediaCard {
+                        id: episodeCard
+                        required property int index
+                        required property var name
+                        required property var imageUrl
+                        required property var itemId
+                        required property var indexNumber
+                        required property var parentIndexNumber
+                        required property var isPlayed
+                        required property var isFavorite
+                        // Runtime and resume point come through `model`:
+                        // MediaCard already has positionMs/durationMs.
+                        required property var model
+                        // Read by the hero through episodesList.currentItem.
+                        readonly property real playbackPosition: model.positionMs || 0
+                        readonly property real runtimeMs: model.durationMs || 0
 
-                        width: Math.round(availableThumbHeight * 16 / 9)
-                        height: availableThumbHeight
-                        implicitHeight: availableThumbHeight + textAllowance
-                        implicitWidth: width
-
-                        background: Rectangle {
-                            radius: Theme.radiusMedium
-                            color: Theme.cardBackground
-                            border.width: episodeDelegate.ListView.isCurrentItem && !episodeDelegate.activeFocus ? Theme.selectionIndicatorWidth : 0
-                            border.color: Theme.selectionIndicator
-                            FocusRing { inset: true; active: episodeDelegate.activeFocus; radius: parent.radius }
-
-                            Image {
-                                id: episodeThumbnailSource
-                                anchors.fill: parent
-                                anchors.margins: Math.round(2 * Theme.layoutScale)
-                                source: model.imageUrl
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                cache: true
-                                visible: true
-                                opacity: 0.9
-
-                                layer.enabled: true
-                                layer.effect: MultiEffect {
-                                    maskEnabled: true
-                                    maskSource: episodeThumbnailMask
-                                }
-                            }
-
-                            Rectangle {
-                                id: episodeThumbnailMask
-                                anchors.fill: parent
-                                anchors.margins: Math.round(2 * Theme.layoutScale)
-                                radius: Theme.radiusMedium
-                                visible: false
-                                layer.enabled: true
-                                layer.smooth: true
-                            }
-
-                            Rectangle {
-                                anchors.fill: parent
-                                anchors.margins: Math.round(2 * Theme.layoutScale)
-                                gradient: Gradient {
-                                    GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0) }
-                                    GradientStop { position: 0.6; color: Qt.rgba(0, 0, 0, 0.3) }
-                                    GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.8) }
-                                }
-                            }
-
-                            MediaProgressBar {
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                anchors.leftMargin: Math.round(2 * Theme.layoutScale)
-                                anchors.rightMargin: Math.round(2 * Theme.layoutScale)
-                                anchors.bottomMargin: Math.round(2 * Theme.layoutScale)
-                                positionMs: model.positionMs || 0
-                                durationMs: model.durationMs || 0
-                            }
-
-                            Text {
-                                anchors.top: parent.top
-                                anchors.right: parent.right
-                                anchors.margins: Theme.spacingMedium
-                                text: Icons.checkCircle
-                                font.family: Theme.fontIcon
-                                font.pixelSize: Theme.fontSizeIcon
-                                color: Theme.accentPrimary
-                                visible: model.isPlayed || false
-
-                                layer.enabled: true
-                                layer.effect: MultiEffect {
-                                    shadowEnabled: true
-                                    shadowHorizontalOffset: 0
-                                    shadowVerticalOffset: 1
-                                    shadowBlur: 0.2
-                                    shadowColor: "black"
-                                }
-                            }
-                        }
-
-                        contentItem: ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: Theme.spacingMedium
-                            // Keep the text clear of the progress line on in-progress episodes.
-                            anchors.bottomMargin: (model.positionMs || 0) > 0 ? Theme.progressHeight + Theme.spacingMedium * 2 : Theme.spacingMedium
-                            spacing: Math.round(2 * Theme.layoutScale)
-
-                            Item { Layout.fillHeight: true }
-
-                            Text {
-                                text: model.indexNumber > 0 ? ("E" + model.indexNumber) : qsTr("Special")
-                                font.pixelSize: Theme.fontSizeCaption
-                                font.family: Theme.fontPrimary
-                                color: Theme.accentPrimary
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: model.name || ""
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                font.bold: true
-                                color: Theme.textPrimary
-                                wrapMode: Text.WordWrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                            }
-
-                            Text {
-                                visible: model.durationMs > 0
-                                text: formatRuntime(model.durationMs)
-                                font.pixelSize: Theme.fontSizeCaption
-                                font.family: Theme.fontPrimary
-                                color: Theme.textSecondary
-                            }
-                        }
+                        variant: "landscape"
+                        artworkSources: [imageUrl || ""]
+                        title: name || ""
+                        subtitle: root.episodeCardSubtitle(parentIndexNumber, indexNumber, runtimeMs,
+                                                           isPlayed ? 0 : playbackPosition)
+                        placeholderIcon: Icons.tvShows
+                        positionMs: isPlayed ? 0 : playbackPosition
+                        durationMs: runtimeMs
+                        showWatchState: !!isPlayed
+                        watched: !!isPlayed
+                        focused: ListView.isCurrentItem && ListView.view.activeFocus
+                        Accessible.description: qsTr("Play %1").arg(name || "")
 
                         onClicked: {
                             userHasInteracted = true
@@ -2010,478 +1637,140 @@ FocusScope {
                             episodesList.forceActiveFocus()
                         }
 
-                        Keys.onReturnPressed: (event) => {
-                            if (event.isAutoRepeat) {
-                                event.accepted = true
-                                return
-                            }
-                            userHasInteracted = true
-                            episodesList.currentIndex = index
-                            startPlayback(false, episodesList)
-                            event.accepted = true
-                        }
-                        Keys.onEnterPressed: (event) => {
-                            if (event.isAutoRepeat) {
-                                event.accepted = true
-                                return
-                            }
-                            userHasInteracted = true
-                            episodesList.currentIndex = index
-                            startPlayback(false, episodesList)
-                            event.accepted = true
+                        // The episode the hero describes keeps a selection
+                        // outline while focus is elsewhere.
+                        Rectangle {
+                            width: episodeCard.artworkWidth
+                            height: episodeCard.artworkHeight
+                            radius: Theme.radiusArtwork
+                            color: "transparent"
+                            border.width: Theme.selectionIndicatorWidth
+                            border.color: Theme.selectionIndicator
+                            visible: episodeCard.ListView.isCurrentItem && !episodeCard.focused
                         }
                     }
                 }
             }
 
-            FocusScope {
+            ColumnLayout {
                 id: chapterSection
                 Layout.fillWidth: true
-                Layout.preferredHeight: implicitHeight
+                spacing: Theme.sectionTitleSpacing
+                // Chapters without images use the compact timeline further
+                // down. While the next episode's chapters load, keep the shelf
+                // if the last episode had cards so the page does not jump.
                 visible: selectedEpisodeId !== ""
                          && ((focusedEpisodeChapters.length > 0 && focusedEpisodeChaptersHaveImages)
                              || ((focusedEpisodeChaptersLoading || chapterPreloadTimer.running)
                                  && focusedEpisodeChapters.length === 0 && lastEpisodeHadChapterCards))
-                implicitHeight: chapterSectionContent.implicitHeight
 
-                function focusCurrentOrFirst() {
-                    if (chapterList.count <= 0) {
-                        if (castSection.visible && castList.count > 0) {
-                            castSection.focusCurrentOrFirst()
-                        } else {
-                            episodesList.forceActiveFocus()
-                        }
-                        return
-                    }
-                    chapterList.currentIndex = Math.max(0, chapterList.currentIndex)
-                    chapterList.forceActiveFocus()
-                    Qt.callLater(function() {
-                        if (chapterList.currentItem) {
-                            chapterList.currentItem.forceActiveFocus()
-                        }
-                    })
+                SectionHeader {
+                    text: qsTr("Chapters")
+                    Layout.leftMargin: Theme.pageMarginX
+                    Layout.rightMargin: Theme.pageMarginX
+                    Layout.fillWidth: true
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
                 }
 
-                ColumnLayout {
-                    id: chapterSectionContent
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    spacing: Theme.spacingMedium
+                ShelfList {
+                    id: chapterList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    cardHeight: Theme.landscapeCardHeight
+                    model: focusedEpisodeChapters
 
-                    Text {
-                        text: qsTr("Chapters")
-                        font.pixelSize: Theme.fontSizeHeader
-                        font.family: Theme.fontPrimary
-                        font.weight: Theme.fontWeightHeavy
-                        color: Theme.textPrimary
-                    }
-
-                    Rectangle {
-                        visible: (focusedEpisodeChaptersLoading || chapterPreloadTimer.running) && focusedEpisodeChapters.length === 0
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: root.chapterRowHeight
-                        radius: Theme.radiusMedium
-                        color: Theme.surfaceSunken
-
-                        Row {
-                            anchors.fill: parent
-                            anchors.margins: Theme.spacingMedium
-                            spacing: Theme.spacingMedium
-                            Repeater {
-                                model: 3
-                                Rectangle {
-                                    width: root.chapterCardWidth
-                                    height: parent.height
-                                    radius: Theme.radiusMedium
-                                    color: Theme.surfaceInteractive
-                                    opacity: 0.72
-                                    SequentialAnimation on opacity {
-                                        running: Theme.uiAnimationsEnabled && parent.visible
-                                        loops: Animation.Infinite
-                                        NumberAnimation { to: 0.42; duration: Theme.durationNormal }
-                                        NumberAnimation { to: 0.72; duration: Theme.durationNormal }
-                                    }
-                                }
-                            }
+                    delegate: MediaCard {
+                        required property var modelData
+                        required property int index
+                        variant: "landscape"
+                        artworkSources: [modelData.thumbnailUrl || ""]
+                        title: modelData.name || qsTr("Chapter %1").arg(index + 1)
+                        subtitle: formatChapterTime((modelData.startMs || 0) / 1000)
+                        placeholderIcon: Icons.movie
+                        focused: ListView.isCurrentItem && ListView.view.activeFocus
+                        onClicked: {
+                            chapterList.currentIndex = index
+                            chapterList.forceActiveFocus()
+                            startPlayback(false, chapterList, modelData.startMs || 0)
                         }
                     }
 
-                    ListView {
-                        id: chapterList
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: root.chapterRowHeight
-                        orientation: ListView.Horizontal
-                        spacing: Theme.spacingMedium
-                        model: focusedEpisodeChapters
-                        visible: focusedEpisodeChapters.length > 0
-                        clip: true
-                        interactive: false
-                        boundsBehavior: Flickable.StopAtBounds
-
-                        onActiveFocusChanged: {
-                            if (activeFocus) {
-                                mainContentFlickable.scrollSectionToTop(chapterSection)
-                            }
-                        }
-
-                        onCurrentIndexChanged: {
-                            if (activeFocus && currentIndex >= 0) {
-                                positionViewAtIndex(currentIndex, ListView.Contain)
-                            }
-                        }
-
-                        Keys.onUpPressed: (event) => {
-                            episodesList.forceActiveFocus()
-                            event.accepted = true
-                        }
-
-                        Keys.onDownPressed: (event) => {
-                            if (castSection.visible && castList.count > 0) {
-                                castSection.focusCurrentOrFirst()
-                                event.accepted = true
-                            } else {
-                                event.accepted = false
-                            }
-                        }
-
-                        delegate: FocusScope {
-                            id: chapterDelegate
-                            required property int index
-                            required property var modelData
-                            width: root.chapterCardWidth
-                            height: chapterList.height
-                            focus: chapterList.activeFocus && chapterList.currentIndex === index
-
-                            Keys.onLeftPressed: (event) => {
-                                if (index > 0) {
-                                    chapterList.currentIndex = index - 1
-                                    Qt.callLater(function() {
-                                        if (chapterList.currentItem) chapterList.currentItem.forceActiveFocus()
-                                    })
-                                    event.accepted = true
-                                } else {
-                                    event.accepted = false
-                                }
-                            }
-
-                            Keys.onRightPressed: (event) => {
-                                if (index + 1 < chapterList.count) {
-                                    chapterList.currentIndex = index + 1
-                                    Qt.callLater(function() {
-                                        if (chapterList.currentItem) chapterList.currentItem.forceActiveFocus()
-                                    })
-                                    event.accepted = true
-                                } else {
-                                    event.accepted = false
-                                }
-                            }
-
-                            Keys.onUpPressed: (event) => {
-                                episodesList.forceActiveFocus()
-                                event.accepted = true
-                            }
-
-                            Keys.onDownPressed: (event) => {
-                                if (castSection.visible && castList.count > 0) {
-                                    castSection.focusCurrentOrFirst()
-                                    event.accepted = true
-                                } else {
-                                    event.accepted = false
-                                }
-                            }
-
-                            Keys.onReturnPressed: (event) => {
-                                if (!event.isAutoRepeat) {
-                                    startPlayback(false, chapterDelegate, modelData.startMs || 0)
-                                }
-                                event.accepted = true
-                            }
-                            Keys.onEnterPressed: (event) => {
-                                if (!event.isAutoRepeat) {
-                                    startPlayback(false, chapterDelegate, modelData.startMs || 0)
-                                }
-                                event.accepted = true
-                            }
-
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: Theme.radiusMedium
-                                color: Theme.cardBackground
-                                FocusRing { inset: true; active: chapterDelegate.activeFocus; radius: parent.radius }
-
-                                ColumnLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: Theme.spacingSmall
-                                    spacing: Theme.spacingSmall
-
-                                    Rectangle {
-                                        Layout.fillWidth: true
-                                        Layout.fillHeight: true
-                                        radius: Theme.radiusMedium
-                                        color: Theme.cardBackgroundHover
-                                        clip: true
-
-                                        Image {
-                                            id: chapterThumbnail
-                                            anchors.fill: parent
-                                            source: modelData.thumbnailUrl || ""
-                                            fillMode: Image.PreserveAspectCrop
-                                            asynchronous: true
-                                            visible: source.toString().length > 0 && status === Image.Ready
-                                        }
-
-                                        Text {
-                                            anchors.centerIn: parent
-                                            visible: chapterThumbnail.status !== Image.Ready
-                                            text: Icons.movie
-                                            font.family: Theme.fontIcon
-                                            font.pixelSize: Math.round(48 * Theme.layoutScale)
-                                            color: Theme.textSecondary
-                                        }
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: modelData.name || qsTr("Chapter")
-                                        font.pixelSize: Theme.fontSizeBody
-                                        font.family: Theme.fontPrimary
-                                        font.bold: true
-                                        color: Theme.textPrimary
-                                        elide: Text.ElideRight
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: formatChapterTime((modelData.startMs || 0) / 1000)
-                                        font.pixelSize: Theme.fontSizeCaption
-                                        font.family: Theme.fontPrimary
-                                        color: Theme.textSecondary
-                                    }
-                                }
-                            }
-                        }
+                    onActiveFocusChanged: if (activeFocus) root.scrollToSection(chapterSection)
+                    Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(chapterList, -1) }
+                    Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(chapterList, 1) }
+                    Keys.onReturnPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < focusedEpisodeChapters.length)
+                            startPlayback(false, chapterList, focusedEpisodeChapters[currentIndex].startMs || 0)
+                        event.accepted = true
                     }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: root.chapterRowHeight
-                        visible: !focusedEpisodeChaptersLoading && !chapterPreloadTimer.running && focusedEpisodeChapters.length === 0
-                        radius: Theme.radiusMedium
-                        color: Theme.surfaceSunken
-                        Text {
-                            anchors.centerIn: parent
-                            text: qsTr("No chapters available.")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                        }
+                    Keys.onEnterPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < focusedEpisodeChapters.length)
+                            startPlayback(false, chapterList, focusedEpisodeChapters[currentIndex].startMs || 0)
+                        event.accepted = true
                     }
-                }
-
-                WheelStepScroller {
-                    anchors.fill: parent
-                    target: chapterList
-                    orientation: Qt.Horizontal
-                    stepPx: root.chapterCardWidth + Theme.spacingMedium
                 }
             }
 
-            FocusScope {
+            ColumnLayout {
                 id: castSection
                 Layout.fillWidth: true
-                Layout.preferredHeight: implicitHeight
-                visible: selectedEpisodeId !== ""
-                implicitHeight: castSectionContent.implicitHeight
+                spacing: Theme.sectionTitleSpacing
+                visible: selectedEpisodeId !== "" && focusedEpisodePeople.length > 0
 
-                function focusCurrentOrFirst() {
-                    if (castList.count <= 0) {
-                        episodesList.forceActiveFocus()
-                        return
-                    }
-                    castList.currentIndex = Math.max(0, castList.currentIndex)
-                    castList.forceActiveFocus()
+                SectionHeader {
+                    text: qsTr("Cast & Crew")
+                    Layout.leftMargin: Theme.pageMarginX
+                    Layout.rightMargin: Theme.pageMarginX
+                    Layout.fillWidth: true
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
                 }
 
-                ColumnLayout {
-                    id: castSectionContent
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    spacing: Theme.spacingMedium
+                ShelfList {
+                    id: castList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    cardHeight: root.peopleCardHeight
+                    model: focusedEpisodePeople
 
-                    Text {
-                        text: qsTr("Cast & Crew")
-                        font.pixelSize: Theme.fontSizeHeader
-                        font.family: Theme.fontPrimary
-                        font.weight: Theme.fontWeightHeavy
-                        color: Theme.textPrimary
+                    delegate: PersonCard {
+                        required property var modelData
+                        required property int index
+                        width: root.peopleCardWidth
+                        height: root.peopleCardHeight
+                        itemData: modelData
+                        isFocused: ListView.isCurrentItem && ListView.view.activeFocus
+                        onActiveFocusChanged: if (activeFocus) castList.currentIndex = index
                     }
 
-                    Rectangle {
-                        visible: focusedEpisodeDetailsLoading && focusedEpisodePeople.length === 0
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
-                        radius: Theme.radiusMedium
-                        color: Theme.surfaceSunken
-                        Row {
-                            anchors.fill: parent
-                            anchors.margins: Theme.spacingMedium
-                            spacing: Theme.spacingMedium
-                            Repeater {
-                                model: 4
-                                Rectangle {
-                                    width: root.peopleCardWidth
-                                    height: root.peopleCardHeight
-                                    radius: Theme.radiusMedium
-                                    color: Theme.surfaceInteractive
-                                    opacity: 0.72
-                                    SequentialAnimation on opacity {
-                                        running: Theme.uiAnimationsEnabled && parent.visible
-                                        loops: Animation.Infinite
-                                        NumberAnimation { to: 0.42; duration: Theme.durationNormal }
-                                        NumberAnimation { to: 0.72; duration: Theme.durationNormal }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    ListView {
-                        id: castList
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
-                        orientation: ListView.Horizontal
-                        spacing: Theme.spacingMedium
-                        model: focusedEpisodePeople
-                        visible: focusedEpisodePeople.length > 0
-                        clip: false
-                        interactive: false
-                        boundsBehavior: Flickable.StopAtBounds
-                        leftMargin: Math.round(8 * Theme.layoutScale)
-                        rightMargin: Math.round(8 * Theme.layoutScale)
-                        topMargin: Math.round(8 * Theme.layoutScale)
-                        bottomMargin: Math.round(8 * Theme.layoutScale)
-
-                        onActiveFocusChanged: {
-                            if (activeFocus) {
-                                mainContentFlickable.scrollSectionToTop(castSection)
-                            }
-                        }
-
-                        onCurrentIndexChanged: {
-                            if (activeFocus && currentIndex >= 0) {
-                                positionViewAtIndex(currentIndex, ListView.Contain)
-                            }
-                        }
-
-                        delegate: FocusScope {
-                            id: castDelegate
-                            required property int index
-                            required property var modelData
-                            width: root.peopleCardWidth
-                            height: root.peopleCardHeight
-
-                            Keys.onLeftPressed: (event) => {
-                                if (index > 0) {
-                                    castList.currentIndex = index - 1
-                                    event.accepted = true
-                                } else {
-                                    event.accepted = false
-                                }
-                            }
-
-                            Keys.onRightPressed: {
-                                if (index + 1 < castList.count) {
-                                    castList.currentIndex = index + 1
-                                }
-                            }
-
-                            Keys.onUpPressed: {
-                                if (chapterSection.visible && chapterList.count > 0) {
-                                    chapterSection.focusCurrentOrFirst()
-                                } else {
-                                    episodesList.forceActiveFocus()
-                                }
-                            }
-
-                            Keys.onDownPressed: (event) => {
-                                if (chapterTimeline.visible) {
-                                    chapterTimeline.forceActiveFocus()
-                                }
-                                event.accepted = true
-                            }
-
-                            Keys.onReturnPressed: (event) => {
-                                event.accepted = true
-                            }
-
-                            Keys.onEnterPressed: (event) => {
-                                event.accepted = true
-                            }
-
-                            onActiveFocusChanged: {
-                                if (activeFocus) {
-                                    castList.currentIndex = index
-                                }
-                            }
-
-                            PersonCard {
-                                anchors.fill: parent
-                                itemData: modelData
-                                isFocused: castList.activeFocus && castList.currentIndex === index
-                            }
-                        }
-
-                        WheelStepScroller {
-                            anchors.fill: parent
-                            target: castList
-                            orientation: Qt.Horizontal
-                            stepPx: root.peopleCardWidth + Theme.spacingMedium
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
-                        visible: !focusedEpisodeDetailsLoading && focusedEpisodePeople.length === 0
-                        radius: Theme.radiusMedium
-                        color: Theme.surfaceSunken
-                        Text {
-                            anchors.centerIn: parent
-                            text: qsTr("No cast or crew listed.")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                        }
-                    }
+                    onActiveFocusChanged: if (activeFocus) root.scrollToSection(castSection)
+                    Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(castList, -1) }
+                    Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(castList, 1) }
+                    Keys.onReturnPressed: (event) => { event.accepted = true }
+                    Keys.onEnterPressed: (event) => { event.accepted = true }
                 }
             }
 
             ChapterTimeline {
                 id: chapterTimeline
                 Layout.fillWidth: true
+                Layout.leftMargin: Theme.pageMarginX
+                Layout.rightMargin: Theme.pageMarginX
                 Layout.preferredHeight: implicitHeight
                 visible: selectedEpisodeId !== "" && focusedEpisodeChapters.length > 0 && !focusedEpisodeChaptersHaveImages
                 chapters: focusedEpisodeChapters
                 durationMs: selectedEpisodeDurationMs
                 positionMs: selectedEpisodePlaybackPosition
 
-                onActiveFocusChanged: {
-                    if (activeFocus) {
-                        mainContentFlickable.scrollSectionToTop(chapterTimeline)
-                    }
-                }
+                onActiveFocusChanged: if (activeFocus) root.scrollToSection(chapterTimeline)
                 onChapterActivated: (startMs) => startPlayback(false, chapterTimeline, startMs)
 
-                Keys.onUpPressed: (event) => {
-                    if (castSection.visible && castList.count > 0) {
-                        castSection.focusCurrentOrFirst()
-                    } else {
-                        episodesList.forceActiveFocus()
-                    }
-                    event.accepted = true
-                }
-                Keys.onDownPressed: (event) => event.accepted = true
+                Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(chapterTimeline, -1) }
+                Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(chapterTimeline, 1) }
             }
+
+            Item { Layout.preferredHeight: Theme.pageMarginBottom }
         }
     }  // End of mainContentFlickable
 
@@ -2490,7 +1779,7 @@ FocusScope {
         target: mainContentFlickable
         stepPx: Math.round(130 * Theme.layoutScale)
     }
-    
+
     // Context Menu for Audio/Subtitle Selection
     BloomMenu {
         id: contextMenu

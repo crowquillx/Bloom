@@ -36,6 +36,8 @@ Item {
 
     /// Emitted when `source` finished loading and is now on screen.
     signal artworkShown(string url)
+    /// Emitted when `source` failed to load, so the page can try a fallback.
+    signal artworkFailed(string url)
 
     property bool showA: true
 
@@ -174,6 +176,7 @@ Item {
                 root.artworkShown(root.source)
         } else if (img.status === Image.Error) {
             console.log("Stage backdrop failed to load: " + img.source)
+            root.artworkFailed(root.source)
         }
     }
 

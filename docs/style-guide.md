@@ -121,6 +121,9 @@ screen. Top to bottom:
 7. **Progress** (optional): a slim bar under the primary action with
    "18 min left".
 
+Detail pages (movie, series, season, episode) build this block with
+`DetailHero`; Home's carousel and Up Next lay it out themselves.
+
 The hero occupies about the top 60% of the screen. The first shelf sits fully
 in view below it, and the next shelf's header peeks in.
 
