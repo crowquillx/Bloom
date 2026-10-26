@@ -61,6 +61,42 @@ Item {
     readonly property bool lifted: focused || hovered
     readonly property alias artworkStatus: artwork.status
 
+    // Decode size for the artwork; pre-rounded variants are generated at it.
+    readonly property int decodeWidth: variant === "landscape" ? 960 : 640
+    readonly property int decodeHeight: variant === "landscape" ? 540 : 960
+    readonly property string roundedImageMode: typeof ConfigManager !== "undefined"
+                                               ? (ConfigManager.roundedImageMode || "auto") : "auto"
+    readonly property bool roundedPreprocessEnabled: typeof ConfigManager !== "undefined"
+                                                     && ConfigManager.roundedImagePreprocessEnabled
+    property string preRoundedSource: ""
+
+    function refreshPreRounded() {
+        preRoundedSource = ""
+        if (roundedImageMode === "shader" || !roundedPreprocessEnabled)
+            return
+        if (typeof ImageCacheProvider === "undefined" || !ImageCacheProvider
+                || typeof ImageCacheProvider.requestRoundedImage !== "function")
+            return
+        var base = artwork.currentSource
+        if (!base)
+            return
+        // The radius is in decoded pixels, so scale it to match the on-screen radius.
+        var radius = Math.round(Theme.radiusArtwork * decodeWidth / Math.max(1, artworkWidth))
+        preRoundedSource = ImageCacheProvider.requestRoundedImage(base, radius, decodeWidth, decodeHeight) || ""
+    }
+
+    onRoundedImageModeChanged: refreshPreRounded()
+    onRoundedPreprocessEnabledChanged: refreshPreRounded()
+
+    Connections {
+        target: typeof ImageCacheProvider !== "undefined" ? ImageCacheProvider : null
+        ignoreUnknownSignals: true
+        function onRoundedImageReady(url, fileUrl) {
+            if (url && fileUrl && url === artwork.currentSource)
+                root.preRoundedSource = fileUrl
+        }
+    }
+
     signal clicked()
 
     implicitWidth: artworkWidth
@@ -109,38 +145,33 @@ Item {
             title: root.hasCaption ? "" : root.title
         }
 
-        Image {
+        // Hybrid rounded artwork (docs/images.md): cached pre-rounded PNGs
+        // when available, otherwise the shader or software path.
+        RoundedImage {
             id: artwork
             property int candidateIndex: 0
             readonly property var candidates: (root.artworkSources || []).filter(function(url) { return !!url })
+            readonly property string currentSource: candidates.length > 0
+                                                    ? candidates[Math.min(candidateIndex, candidates.length - 1)] : ""
             anchors.fill: parent
-            source: candidates.length > 0 ? candidates[Math.min(candidateIndex, candidates.length - 1)] : ""
+            source: currentSource
+            preRoundedSource: root.preRoundedSource
+            mode: root.roundedImageMode
+            preferPreRounded: root.roundedPreprocessEnabled
+            allowShader: root.roundedImageMode !== "prerender"
+            radius: Theme.radiusArtwork
+            sourceWidth: root.decodeWidth
+            sourceHeight: root.decodeHeight
             fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            visible: status === Image.Ready
+            visible: ready
             opacity: root.muted ? 0.45 : 1.0
 
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                maskEnabled: true
-                maskSource: artworkMask
-            }
-
             onCandidatesChanged: candidateIndex = 0
+            onCurrentSourceChanged: root.refreshPreRounded()
             onStatusChanged: {
                 if (status === Image.Error && candidateIndex + 1 < candidates.length)
                     candidateIndex++
             }
-        }
-
-        Rectangle {
-            id: artworkMask
-            anchors.fill: parent
-            radius: Theme.radiusArtwork
-            visible: false
-            layer.enabled: true
-            layer.smooth: true
         }
 
         // Hairline edge so dark art separates from a dark stage.

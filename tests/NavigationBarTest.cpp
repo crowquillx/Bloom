@@ -17,7 +17,7 @@
 
 namespace {
 
-// Minimal stand-ins for the context objects Sidebar.qml and Theme.qml read.
+// Minimal stand-ins for the context objects NavigationBar.qml and Theme.qml read.
 
 class StubLayout : public QObject
 {
@@ -126,8 +126,9 @@ public:
     bool cursorHidden = false;
 };
 
-// Page stand-in: a FocusScope at the rail's reserved offset whose focused
-// child sends Left to the rail, like the real screens do at their left edge.
+// Page stand-in: a FocusScope filling the window, like every page under the
+// floating bar. Its focused child sends unhandled Up to the bar, as Main.qml
+// does for Up at the top edge of a page.
 constexpr auto kScene = R"QML(
 import QtQuick
 import BloomUI
@@ -137,11 +138,11 @@ Item {
     width: 1920
     height: 1080
 
-    readonly property int reservedWidth: Theme.navRailReservedWidth
-    readonly property int collapsedWidth: Theme.navRailCollapsedWidth
-    readonly property int expandedWidth: Theme.navRailExpandedWidth
-    readonly property int railInset: Theme.navRailInset
-    readonly property int itemHeight: Theme.navRailItemHeight
+    readonly property int barInsetTop: Theme.navBarInsetTop
+    readonly property int barHeight: Theme.navBarHeight
+    readonly property int itemHeight: Theme.navBarItemHeight
+    readonly property int reservedHeight: Theme.navBarReservedHeight
+    readonly property int pageMarginTop: Theme.pageMarginTop
     readonly property real layoutScale: Theme.layoutScale
     property string lastNavigation: ""
     property int spacePickerRequests: 0
@@ -149,13 +150,11 @@ Item {
     FocusScope {
         id: content
         objectName: "content"
-        x: rail.sidebarWidth
-        width: parent.width - x
-        height: parent.height
+        anchors.fill: parent
         focus: true
 
         property int restoreCount: 0
-        function restoreFocusFromSidebar() {
+        function restoreFocusFromNavigation() {
             restoreCount++
             contentTarget.forceActiveFocus()
         }
@@ -165,13 +164,13 @@ Item {
             objectName: "contentTarget"
             anchors.fill: parent
             focus: true
-            Keys.onLeftPressed: rail.focusRail()
+            Keys.onUpPressed: bar.focusBar()
         }
     }
 
-    Sidebar {
-        id: rail
-        objectName: "rail"
+    NavigationBar {
+        id: bar
+        objectName: "bar"
         anchors.fill: parent
         mainContent: content
         onNavigationRequested: function(navigationId) { scene.lastNavigation = navigationId }
@@ -183,7 +182,7 @@ Item {
 
 } // namespace
 
-class NavigationRailTest : public QObject
+class NavigationBarTest : public QObject
 {
     Q_OBJECT
 
@@ -192,22 +191,23 @@ private slots:
     void init();
     void cleanup();
 
-    void collapsedRailReservesItsFootprint();
-    void keyboardFocusExpandsWithoutMovingContent();
-    void upDownVisitEveryDestinationInOrder();
+    void barFloatsOverFullWidthContent();
+    void upFromPageLandsOnCurrentEntry();
+    void leftRightVisitEveryDestinationInOrder();
     void currentPageStaysDistinctFromFocus();
-    void rightAndEscapeRestorePageFocus();
+    void downAndEscapeRestorePageFocus();
     void activationNavigatesAndReturnsToCurrentEntry();
     void shiftEnterReordersLibraries();
-    void pointerPinExpandsWithoutTakingFocus();
-    void railMetricsFollowLayoutScale_data();
-    void railMetricsFollowLayoutScale();
+    void recessedBarReturnsWhenFocused();
+    void barMetricsFollowLayoutScale_data();
+    void barMetricsFollowLayoutScale();
 
 private:
     QQuickItem *item(const QString &name) const;
     QString focusedName() const;
     void press(Qt::Key key, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
-    void focusRailFromPage();
+    void focusBarFromPage();
+    QRectF sceneBounds(const QString &name) const;
 
     QTemporaryDir m_moduleRoot;
     StubLayout m_layout;
@@ -219,18 +219,18 @@ private:
     std::unique_ptr<QQuickView> m_view;
 };
 
-void NavigationRailTest::initTestCase()
+void NavigationBarTest::initTestCase()
 {
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QVERIFY(m_moduleRoot.isValid());
 
-    // Stage the subset of BloomUI the rail needs as a local QML module.
+    // Stage the subset of BloomUI the bar needs as a local QML module.
     QDir root(m_moduleRoot.path());
     QVERIFY(root.mkdir(QStringLiteral("BloomUI")));
     const QDir module(root.filePath(QStringLiteral("BloomUI")));
     const QDir sourceDir(QStringLiteral(BLOOM_UI_SOURCE_DIR));
     for (const auto &file : {QStringLiteral("Theme.qml"), QStringLiteral("Icons.qml"),
-                             QStringLiteral("FocusRing.qml"), QStringLiteral("Sidebar.qml"),
+                             QStringLiteral("FocusRing.qml"), QStringLiteral("NavigationBar.qml"),
                              QStringLiteral("SourceRouter.qml")}) {
         QVERIFY2(QFile::copy(sourceDir.filePath(file), module.filePath(file)), qPrintable(file));
     }
@@ -240,7 +240,7 @@ void NavigationRailTest::initTestCase()
                  "singleton Theme 1.0 Theme.qml\n"
                  "singleton Icons 1.0 Icons.qml\n"
                  "FocusRing 1.0 FocusRing.qml\n"
-                 "Sidebar 1.0 Sidebar.qml\n"
+                 "NavigationBar 1.0 NavigationBar.qml\n"
                  "SourceRouter 1.0 SourceRouter.qml\n");
     qmldir.close();
 
@@ -259,7 +259,7 @@ void NavigationRailTest::initTestCase()
     };
 }
 
-void NavigationRailTest::init()
+void NavigationBarTest::init()
 {
     m_sidebarSettings.libraryOrder.clear();
     m_layout.apply(1920, 1080);
@@ -284,12 +284,12 @@ void NavigationRailTest::init()
     QTRY_COMPARE(focusedName(), QStringLiteral("contentTarget"));
 }
 
-void NavigationRailTest::cleanup()
+void NavigationBarTest::cleanup()
 {
     m_view.reset();
 }
 
-QQuickItem *NavigationRailTest::item(const QString &name) const
+QQuickItem *NavigationBarTest::item(const QString &name) const
 {
     // Repeater delegates have no QObject parent, so walk the visual tree.
     QList<QQuickItem *> pending{m_view->rootObject()};
@@ -302,208 +302,217 @@ QQuickItem *NavigationRailTest::item(const QString &name) const
     return nullptr;
 }
 
-QString NavigationRailTest::focusedName() const
+QString NavigationBarTest::focusedName() const
 {
     QQuickItem *focused = m_view->activeFocusItem();
     return focused ? focused->objectName() : QString();
 }
 
-void NavigationRailTest::press(Qt::Key key, Qt::KeyboardModifiers modifiers)
+void NavigationBarTest::press(Qt::Key key, Qt::KeyboardModifiers modifiers)
 {
     QTest::keyClick(m_view.get(), key, modifiers);
 }
 
-void NavigationRailTest::focusRailFromPage()
+void NavigationBarTest::focusBarFromPage()
 {
-    press(Qt::Key_Left);
-    QVERIFY(item(QStringLiteral("rail"))->hasActiveFocus());
+    press(Qt::Key_Up);
+    QVERIFY(item(QStringLiteral("bar"))->hasActiveFocus());
 }
 
-void NavigationRailTest::collapsedRailReservesItsFootprint()
+QRectF NavigationBarTest::sceneBounds(const QString &name) const
 {
-    QQuickItem *scene = m_view->rootObject();
-    QQuickItem *rail = item(QStringLiteral("rail"));
-    QQuickItem *panel = item(QStringLiteral("railPanel"));
-    QVERIFY(rail && panel);
-
-    QCOMPARE(rail->property("expanded").toBool(), false);
-    QCOMPARE(qRound(panel->width()), scene->property("collapsedWidth").toInt());
-    QCOMPARE(qRound(panel->x()), scene->property("railInset").toInt());
-    QCOMPARE(qRound(item(QStringLiteral("content"))->x()), scene->property("reservedWidth").toInt());
-    QCOMPARE(scene->property("reservedWidth").toInt(),
-             scene->property("railInset").toInt() + scene->property("collapsedWidth").toInt());
+    QQuickItem *entry = item(name);
+    if (!entry)
+        return {};
+    return entry->mapRectToScene(QRectF(0, 0, entry->width(), entry->height()));
 }
 
-void NavigationRailTest::keyboardFocusExpandsWithoutMovingContent()
+void NavigationBarTest::barFloatsOverFullWidthContent()
 {
     QQuickItem *scene = m_view->rootObject();
     QQuickItem *content = item(QStringLiteral("content"));
-    const QRectF contentBefore(content->position(), content->size());
+    QQuickItem *bar = item(QStringLiteral("navigationBar"));
+    QVERIFY(content && bar);
 
-    focusRailFromPage();
+    // Pages fill the window; the bar reserves no width.
+    QCOMPARE(content->x(), 0.0);
+    QCOMPARE(content->width(), scene->width());
 
-    QCOMPARE(item(QStringLiteral("rail"))->property("expanded").toBool(), true);
-    QCOMPARE(qRound(item(QStringLiteral("railPanel"))->width()), scene->property("expandedWidth").toInt());
-    QCOMPARE(QRectF(content->position(), content->size()), contentBefore);
+    QCOMPARE(qRound(bar->y()), scene->property("barInsetTop").toInt());
+    QCOMPARE(qRound(bar->height()), scene->property("barHeight").toInt());
+    // Pages without a hero start below the bar.
+    QCOMPARE(scene->property("pageMarginTop").toInt(), scene->property("reservedHeight").toInt());
+    QVERIFY(scene->property("reservedHeight").toInt()
+            > scene->property("barInsetTop").toInt() + scene->property("barHeight").toInt());
 }
 
-void NavigationRailTest::upDownVisitEveryDestinationInOrder()
+void NavigationBarTest::upFromPageLandsOnCurrentEntry()
 {
-    focusRailFromPage();
-    QCOMPARE(focusedName(), QStringLiteral("railEntry_home"));
+    focusBarFromPage();
+    QCOMPARE(focusedName(), QStringLiteral("navEntry_home"));
+    QCOMPARE(item(QStringLiteral("bar"))->property("expanded").toBool(), true);
+}
+
+void NavigationBarTest::leftRightVisitEveryDestinationInOrder()
+{
+    focusBarFromPage();
+    QCOMPARE(focusedName(), QStringLiteral("navEntry_home"));
 
     const QStringList expected{
-        QStringLiteral("railEntry_search"),
-        QStringLiteral("railLibrary_0"),
-        QStringLiteral("railLibrary_1"),
-        QStringLiteral("railEntry_settings"),
-        QStringLiteral("railEntry_account"),
-        QStringLiteral("railEntry_exit"),
+        QStringLiteral("navLibrary_0"),
+        QStringLiteral("navLibrary_1"),
+        QStringLiteral("navEntry_search"),
+        QStringLiteral("navEntry_settings"),
+        QStringLiteral("navEntry_account"),
+        QStringLiteral("navEntry_exit"),
     };
     m_inputMode.lastMode.clear();
     for (const QString &name : expected) {
-        press(Qt::Key_Down);
+        press(Qt::Key_Right);
         QCOMPARE(focusedName(), name);
     }
     QCOMPARE(m_inputMode.lastMode, QStringLiteral("keyboard"));
     QVERIFY(m_inputMode.cursorHidden);
 
     // Clamped at the ends rather than wrapping or leaking focus.
-    press(Qt::Key_Down);
-    QCOMPARE(focusedName(), QStringLiteral("railEntry_exit"));
+    press(Qt::Key_Right);
+    QCOMPARE(focusedName(), QStringLiteral("navEntry_exit"));
 
     for (qsizetype i = expected.size() - 2; i >= 0; --i) {
-        press(Qt::Key_Up);
+        press(Qt::Key_Left);
         QCOMPARE(focusedName(), expected.at(i));
     }
-    press(Qt::Key_Up);
-    QCOMPARE(focusedName(), QStringLiteral("railEntry_home"));
-    press(Qt::Key_Up);
-    QCOMPARE(focusedName(), QStringLiteral("railEntry_home"));
-
-    // Left inside the rail is consumed so focus never escapes off-screen.
     press(Qt::Key_Left);
-    QCOMPARE(focusedName(), QStringLiteral("railEntry_home"));
+    QCOMPARE(focusedName(), QStringLiteral("navEntry_home"));
+    press(Qt::Key_Left);
+    QCOMPARE(focusedName(), QStringLiteral("navEntry_home"));
+
+    // Up inside the bar is consumed so focus never escapes off-screen.
+    press(Qt::Key_Up);
+    QCOMPARE(focusedName(), QStringLiteral("navEntry_home"));
 }
 
-void NavigationRailTest::currentPageStaysDistinctFromFocus()
+void NavigationBarTest::currentPageStaysDistinctFromFocus()
 {
-    focusRailFromPage();
-    press(Qt::Key_Down);
+    focusBarFromPage();
+    press(Qt::Key_Right);
 
-    QQuickItem *home = item(QStringLiteral("railEntry_home"));
-    QQuickItem *search = item(QStringLiteral("railEntry_search"));
+    QQuickItem *home = item(QStringLiteral("navEntry_home"));
+    QQuickItem *movies = item(QStringLiteral("navLibrary_0"));
     QCOMPARE(home->property("selected").toBool(), true);
     QCOMPARE(home->hasActiveFocus(), false);
-    QCOMPARE(search->property("selected").toBool(), false);
-    QCOMPARE(search->hasActiveFocus(), true);
+    QCOMPARE(movies->property("selected").toBool(), false);
+    QCOMPARE(movies->hasActiveFocus(), true);
 }
 
-void NavigationRailTest::rightAndEscapeRestorePageFocus()
+void NavigationBarTest::downAndEscapeRestorePageFocus()
 {
-    QQuickItem *rail = item(QStringLiteral("rail"));
+    QQuickItem *bar = item(QStringLiteral("bar"));
     QQuickItem *content = item(QStringLiteral("content"));
 
-    focusRailFromPage();
-    press(Qt::Key_Down);
+    focusBarFromPage();
     press(Qt::Key_Right);
+    press(Qt::Key_Down);
     QCOMPARE(focusedName(), QStringLiteral("contentTarget"));
-    QCOMPARE(rail->property("expanded").toBool(), false);
+    QCOMPARE(bar->property("expanded").toBool(), false);
     QCOMPARE(content->property("restoreCount").toInt(), 1);
 
-    focusRailFromPage();
+    focusBarFromPage();
     press(Qt::Key_Escape);
     QTRY_COMPARE(focusedName(), QStringLiteral("contentTarget"));
-    QCOMPARE(rail->property("expanded").toBool(), false);
+    QCOMPARE(bar->property("expanded").toBool(), false);
     QCOMPARE(content->property("restoreCount").toInt(), 2);
 }
 
-void NavigationRailTest::activationNavigatesAndReturnsToCurrentEntry()
+void NavigationBarTest::activationNavigatesAndReturnsToCurrentEntry()
 {
     QQuickItem *scene = m_view->rootObject();
-    QQuickItem *rail = item(QStringLiteral("rail"));
+    QQuickItem *bar = item(QStringLiteral("bar"));
 
-    focusRailFromPage();
-    press(Qt::Key_Down);
+    focusBarFromPage();
+    press(Qt::Key_Right);
+    press(Qt::Key_Right);
+    press(Qt::Key_Right);
+    QCOMPARE(focusedName(), QStringLiteral("navEntry_search"));
     press(Qt::Key_Return);
     QCOMPARE(scene->property("lastNavigation").toString(), QStringLiteral("search"));
-    QCOMPARE(rail->property("currentNavigation").toString(), QStringLiteral("search"));
+    QCOMPARE(bar->property("currentNavigation").toString(), QStringLiteral("search"));
     QTRY_COMPARE(focusedName(), QStringLiteral("contentTarget"));
 
-    // Re-entering lands on the current page's entry, not the top of the rail.
-    focusRailFromPage();
-    QCOMPARE(focusedName(), QStringLiteral("railEntry_search"));
+    // Re-entering lands on the current page's entry, not the first tab.
+    focusBarFromPage();
+    QCOMPARE(focusedName(), QStringLiteral("navEntry_search"));
 
-    press(Qt::Key_Down);
-    press(Qt::Key_Down);
+    press(Qt::Key_Left);
     press(Qt::Key_Return);
     QCOMPARE(scene->property("lastNavigation").toString(), QStringLiteral("library:lib-shows"));
     QTRY_COMPARE(focusedName(), QStringLiteral("contentTarget"));
-    focusRailFromPage();
-    QCOMPARE(focusedName(), QStringLiteral("railLibrary_1"));
-    QCOMPARE(item(QStringLiteral("railLibrary_1"))->property("selected").toBool(), true);
-    QCOMPARE(item(QStringLiteral("railEntry_search"))->property("selected").toBool(), false);
+    focusBarFromPage();
+    QCOMPARE(focusedName(), QStringLiteral("navLibrary_1"));
+    QCOMPARE(item(QStringLiteral("navLibrary_1"))->property("selected").toBool(), true);
+    QCOMPARE(item(QStringLiteral("navEntry_search"))->property("selected").toBool(), false);
 
-    // Account access stays in the rail: the entry opens the space
-    // picker, which also offers sign-out.
-    press(Qt::Key_Down);
-    press(Qt::Key_Down);
-    QCOMPARE(focusedName(), QStringLiteral("railEntry_account"));
+    // Account access stays in the bar: the avatar opens the space picker,
+    // which also offers sign-out.
+    press(Qt::Key_Right);
+    press(Qt::Key_Right);
+    press(Qt::Key_Right);
+    QCOMPARE(focusedName(), QStringLiteral("navEntry_account"));
     press(Qt::Key_Return);
     QCOMPARE(scene->property("spacePickerRequests").toInt(), 1);
 
     // A cancelled confirmation dialog hands focus back to the entry that
     // opened it, not to the current page's entry.
     item(QStringLiteral("contentTarget"))->forceActiveFocus();
-    QVERIFY(QMetaObject::invokeMethod(rail, "focusDialogOrigin"));
-    QCOMPARE(focusedName(), QStringLiteral("railEntry_account"));
+    QVERIFY(QMetaObject::invokeMethod(bar, "focusDialogOrigin"));
+    QCOMPARE(focusedName(), QStringLiteral("navEntry_account"));
 }
 
-void NavigationRailTest::shiftEnterReordersLibraries()
+void NavigationBarTest::shiftEnterReordersLibraries()
 {
-    QQuickItem *rail = item(QStringLiteral("rail"));
+    QQuickItem *bar = item(QStringLiteral("bar"));
 
-    focusRailFromPage();
-    press(Qt::Key_Down);
-    press(Qt::Key_Down);
-    QCOMPARE(focusedName(), QStringLiteral("railLibrary_0"));
+    focusBarFromPage();
+    press(Qt::Key_Right);
+    QCOMPARE(focusedName(), QStringLiteral("navLibrary_0"));
 
     press(Qt::Key_Return, Qt::ShiftModifier);
-    QCOMPARE(rail->property("reorderingIndex").toInt(), 0);
+    QCOMPARE(bar->property("reorderingIndex").toInt(), 0);
 
-    press(Qt::Key_Down);
+    press(Qt::Key_Right);
     QCOMPARE(m_sidebarSettings.libraryOrder,
              QStringList({QStringLiteral("lib-shows"), QStringLiteral("lib-movies")}));
-    QTRY_COMPARE(focusedName(), QStringLiteral("railLibrary_1"));
-    QCOMPARE(rail->property("reorderingIndex").toInt(), 1);
+    QTRY_COMPARE(focusedName(), QStringLiteral("navLibrary_1"));
+    QCOMPARE(bar->property("reorderingIndex").toInt(), 1);
 
     // Enter finishes reordering without navigating.
     press(Qt::Key_Return);
-    QCOMPARE(rail->property("reorderingIndex").toInt(), -1);
+    QCOMPARE(bar->property("reorderingIndex").toInt(), -1);
     QCOMPARE(m_view->rootObject()->property("lastNavigation").toString(), QString());
-    QCOMPARE(focusedName(), QStringLiteral("railLibrary_1"));
+    QCOMPARE(focusedName(), QStringLiteral("navLibrary_1"));
 }
 
-void NavigationRailTest::pointerPinExpandsWithoutTakingFocus()
+void NavigationBarTest::recessedBarReturnsWhenFocused()
 {
-    QQuickItem *rail = item(QStringLiteral("rail"));
-    QQuickItem *toggle = item(QStringLiteral("railToggle"));
-    QVERIFY(toggle);
+    QQuickItem *bar = item(QStringLiteral("bar"));
+    QQuickItem *panel = item(QStringLiteral("navigationBar"));
 
-    const QPointF center = toggle->mapToScene(QPointF(toggle->width() / 2, toggle->height() / 2));
-    QTest::mouseClick(m_view.get(), Qt::LeftButton, Qt::NoModifier, center.toPoint());
-
-    QCOMPARE(rail->property("pinnedOpen").toBool(), true);
-    QCOMPARE(rail->property("expanded").toBool(), true);
+    QVERIFY(bar->setProperty("recessed", true));
+    QCOMPARE(bar->property("shown").toBool(), false);
+    QVERIFY(panel->y() + panel->height() <= 0);
     QCOMPARE(focusedName(), QStringLiteral("contentTarget"));
 
-    press(Qt::Key_Escape);
-    QCOMPARE(rail->property("pinnedOpen").toBool(), false);
-    QCOMPARE(rail->property("expanded").toBool(), false);
+    // Up from the page brings the receded bar back with focus on it.
+    focusBarFromPage();
+    QCOMPARE(bar->property("shown").toBool(), true);
+    QCOMPARE(qRound(panel->y()), m_view->rootObject()->property("barInsetTop").toInt());
+
+    press(Qt::Key_Down);
     QCOMPARE(focusedName(), QStringLiteral("contentTarget"));
+    QCOMPARE(bar->property("shown").toBool(), false);
 }
 
-void NavigationRailTest::railMetricsFollowLayoutScale_data()
+void NavigationBarTest::barMetricsFollowLayoutScale_data()
 {
     QTest::addColumn<int>("width");
     QTest::addColumn<int>("height");
@@ -516,7 +525,7 @@ void NavigationRailTest::railMetricsFollowLayoutScale_data()
     QTest::newRow("narrow") << 800 << 900;
 }
 
-void NavigationRailTest::railMetricsFollowLayoutScale()
+void NavigationBarTest::barMetricsFollowLayoutScale()
 {
     QFETCH(int, width);
     QFETCH(int, height);
@@ -530,34 +539,35 @@ void NavigationRailTest::railMetricsFollowLayoutScale()
     const qreal scale = scene->property("layoutScale").toReal();
     QVERIFY(scale > 0);
 
-    // Rail tokens are pure design units: no breakpoints or pixel clamps.
-    QCOMPARE(scene->property("collapsedWidth").toInt(), qRound(96 * scale));
-    QCOMPARE(scene->property("expandedWidth").toInt(), qRound(360 * scale));
-    QCOMPARE(scene->property("itemHeight").toInt(), qRound(72 * scale));
-    QCOMPARE(qRound(item(QStringLiteral("content"))->x()), scene->property("reservedWidth").toInt());
+    // Bar tokens are pure design units: no breakpoints or pixel clamps.
+    QCOMPARE(scene->property("barHeight").toInt(), qRound(76 * scale));
+    QCOMPARE(scene->property("itemHeight").toInt(), qRound(64 * scale));
+    QCOMPARE(scene->property("barInsetTop").toInt(), qRound(34 * scale));
 
-    // The reserved strip stays a small fraction of the window at every shape.
-    QVERIFY(scene->property("reservedWidth").toReal() <= width * 0.16);
+    // The reserved band stays a small fraction of the window at every shape.
+    QVERIFY(scene->property("reservedHeight").toReal() <= height * 0.16);
 
-    // Every destination remains on-screen in the collapsed and expanded rail.
-    QQuickItem *panel = item(QStringLiteral("railPanel"));
-    for (bool expanded : {false, true}) {
-        if (expanded) {
-            focusRailFromPage();
-            QVERIFY(QQuickTest::qWaitForPolish(m_view.get()));
-        }
-        QVERIFY(panel->x() + panel->width() <= width);
-        for (const auto &name : {QStringLiteral("railEntry_home"), QStringLiteral("railEntry_settings"),
-                                 QStringLiteral("railEntry_account"), QStringLiteral("railEntry_exit")}) {
-            QQuickItem *entry = item(name);
-            const QRectF bounds = entry->mapRectToScene(QRectF(0, 0, entry->width(), entry->height()));
-            QVERIFY2(bounds.top() >= 0 && bounds.bottom() <= height,
-                     qPrintable(QStringLiteral("%1 outside window: %2..%3 of %4")
-                                    .arg(name).arg(bounds.top()).arg(bounds.bottom()).arg(height)));
-            QVERIFY2(bounds.right() <= panel->x() + panel->width() + 1, qPrintable(name));
-        }
+    // The utility cluster and the first tab are always on-screen.
+    for (const auto &name : {QStringLiteral("navEntry_home"), QStringLiteral("navEntry_settings"),
+                             QStringLiteral("navEntry_account"), QStringLiteral("navEntry_exit")}) {
+        const QRectF bounds = sceneBounds(name);
+        QVERIFY2(bounds.left() >= 0 && bounds.right() <= width && bounds.top() >= 0 && bounds.bottom() <= height,
+                 qPrintable(QStringLiteral("%1 outside window: %2,%3 %4x%5 of %6x%7")
+                                .arg(name).arg(bounds.x()).arg(bounds.y())
+                                .arg(bounds.width()).arg(bounds.height()).arg(width).arg(height)));
     }
+
+    // Tabs that overflow scroll into view when focused.
+    focusBarFromPage();
+    press(Qt::Key_Right);
+    press(Qt::Key_Right);
+    press(Qt::Key_Right);
+    QCOMPARE(focusedName(), QStringLiteral("navEntry_search"));
+    QTRY_VERIFY2(sceneBounds(QStringLiteral("navEntry_search")).right()
+                     <= sceneBounds(QStringLiteral("navEntry_settings")).left(),
+                 "focused tab hidden under the utility cluster");
+    QVERIFY(sceneBounds(QStringLiteral("navEntry_search")).left() >= 0);
 }
 
-QTEST_MAIN(NavigationRailTest)
-#include "NavigationRailTest.moc"
+QTEST_MAIN(NavigationBarTest)
+#include "NavigationBarTest.moc"

@@ -34,7 +34,11 @@ FocusScope {
     readonly property bool expanded: root.activeFocus
 
     /// Bar is on screen: not recessed, or focused, or pointer-revealed.
-    readonly property bool shown: !recessed || root.activeFocus || pointerReveal.containsMouse
+    readonly property bool shown: !recessed || root.activeFocus || pointerRevealed
+    /// The pointer (not a stale cursor position) is resting at the top edge.
+    readonly property bool pointerRevealed: pointerReveal.containsMouse
+                                            && typeof InputModeManager !== "undefined"
+                                            && InputModeManager.pointerActive === true
 
     /// Navigation destinations around the library list.
     readonly property var leadingItems: [
@@ -750,7 +754,11 @@ FocusScope {
                         required property int index
                         objectName: "navLibrary_" + index
                         iconGlyph: root.libraryIcon(modelData)
-                        label: modelData.name || ""
+                        // Merged spaces can list the same library name once
+                        // per account, so the owning source is part of the tab.
+                        label: root.mergedLibraries && modelData.sourceLabel
+                               ? qsTr("%1 · %2").arg(modelData.name || "").arg(modelData.sourceLabel)
+                               : (modelData.name || "")
                         toolTipLabel: modelData.sourceLabel ? qsTr("%1 · %2").arg(modelData.name || "").arg(modelData.sourceLabel)
                                                             : (modelData.name || "")
                         selected: root.isCurrentLibrary(modelData)

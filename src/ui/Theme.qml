@@ -694,6 +694,9 @@ QtObject {
     property int landscapeCardWidth: Math.round(456 * layoutScale)
     property int landscapeCardHeight: Math.round(256 * layoutScale)
     property int cardCaptionHeight: Math.round(84 * layoutScale)
+    // Widest a hero copy block may grow (about half a 16:9 screen); fixed so
+    // ultrawide screens don't stretch the reading measure.
+    property int heroCopyMaxWidth: Math.round(1040 * layoutScale)
     // Room above/below a shelf so the focused card's scale and ring are not clipped.
     property int shelfFocusMargin: Math.round(22 * layoutScale)
 

@@ -41,8 +41,10 @@ configuration/transport → providers → network services.
   (the Home hero uses edge light cues instead). Build from shared components
   (`ActionButton`, `BloomMenu`, `DialogSurface`, `StateMessage`, ...) and
   semantic tokens in `src/ui/Theme.qml`, the single token source.
-- Pages reserve `Theme.navRailReservedWidth`; the `Sidebar.qml` rail expands as
-  an overlay without shifting content.
+- Follow `docs/style-guide.md`: every page sits on a `StageBackdrop`, cards are
+  `MediaCard`, and only Home, detail pages and Up Next carry a hero. The
+  `NavigationBar.qml` top bar floats over pages; non-hero pages start at
+  `Theme.pageMarginTop`, and Up at a page's top edge must reach the bar.
 - Full QML/focus conventions: `docs/developer_notes.md`.
 
 ## Ownership map
@@ -133,7 +135,8 @@ move/clip across show/hide, resize, minimize/restore, maximize, and fullscreen.
 - Canonical media/artwork/playback models → `docs/canonical-models.md`
 - Bloom profiles (spaces), merged reads, routing → `docs/profiles.md`
 - View models and loading/error state → `docs/viewmodels.md`
-- Theme tokens, rail, shared components → `docs/theme.md`; scaling math and
+- Page anatomy, heroes, shelves, cards, adding a screen → `docs/style-guide.md`
+- Theme tokens, navigation bar, shared components → `docs/theme.md`; scaling math and
   ultrawide layout → `docs/responsive.md`
 - QML, focus, logging conventions → `docs/developer_notes.md`
 - Keyboard/controller bindings → `docs/input-bindings.md`

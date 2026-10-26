@@ -78,6 +78,10 @@ FocusScope {
     property bool restoringFocusFromSeriesDetailsReturn: false
     property bool restoringFocusFromMovieDetailsReturn: false
     property var _seerrRecommendationCache: ({})
+    /// The navigation bar recedes while the grid (or a detail view) is
+    /// scrolled into its content.
+    readonly property bool navigationRecessed: contentLoader.item
+                                               ? contentLoader.item["navigationRecessed"] === true : false
     readonly property bool canRestoreUpNextEpisodeContext: currentSeriesId !== "" && (showSeasonView || showSeriesDetails)
 
     component LibraryComboBox: ComboBox {
@@ -178,7 +182,7 @@ FocusScope {
 
         background: Rectangle {
             id: comboBackground
-            implicitHeight: Theme.buttonHeightSmall
+            implicitHeight: Theme.buttonHeightMedium
             radius: Theme.radiusControl
             color: combo.hovered || combo.activeFocus ? Theme.surfaceInteractiveHover : Theme.surfaceInteractive
             border.width: Theme.borderWidth
@@ -214,7 +218,7 @@ FocusScope {
         delegate: ItemDelegate {
             id: comboDelegate
             width: combo.width - Theme.spacingSmall * 2
-            implicitHeight: Theme.buttonHeightSmall
+            implicitHeight: Theme.buttonHeightMedium
             highlighted: ListView.isCurrentItem || combo.highlightedIndex === index
             onClicked: combo.commitIndex(index)
 
@@ -564,82 +568,15 @@ FocusScope {
     property string roundedImageMode: ConfigManager.roundedImageMode || "auto"
     property bool roundedPreprocessEnabled: ConfigManager.roundedImagePreprocessEnabled
 
-    // Backdrop Container with Cross-fade and Gradient
-    Rectangle {
-        id: backdropContainer
+    // Stage: the focused item's artwork, softened behind the grid; sharp
+    // behind detail views, which draw their own hero over it.
+    StageBackdrop {
+        id: stage
         anchors.fill: parent
         z: 0
-        radius: Theme.radiusLarge
-        color: "transparent"
-        clip: true
-
-        property bool showBackdrop1: true
-
-        Image {
-            id: backdrop1
-            anchors.fill: parent
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            opacity: parent.showBackdrop1 ? 1.0 : 0.0
-            visible: true
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
-
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                blurEnabled: true
-                blur: 1.0
-                blurMax: Theme.blurRadius
-            }
-
-            onStatusChanged: backdropContainer.checkStatus(this)
-        }
-
-        Image {
-            id: backdrop2
-            anchors.fill: parent
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            opacity: parent.showBackdrop1 ? 0.0 : 1.0
-            visible: true
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
-
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                blurEnabled: true
-                blur: 1.0
-                blurMax: Theme.blurRadius
-            }
-
-            onStatusChanged: backdropContainer.checkStatus(this)
-        }
-
-        function checkStatus(img) {
-            // Only act if this image is loading the CURRENT requested url
-            if (img.source.toString() !== root.currentBackdropUrl) return
-
-            if (img.status === Image.Ready || (img.status === Image.Null && root.currentBackdropUrl === "")) {
-                // New image loaded (or cleared), switch to it
-                if (img === backdrop1) showBackdrop1 = true
-                else showBackdrop1 = false
-            } else if (img.status === Image.Error) {
-                console.log("Backdrop failed to load: " + img.source)
-                // Try next candidate
-                root.loadNextBackdropCandidate()
-            }
-        }
-
-        // Gradient Overlay
-        Rectangle {
-            anchors.fill: parent
-            z: 1 // Above images
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: Theme.gradientOverlayStart }
-                GradientStop { position: 0.4; color: Theme.gradientOverlayMiddle }
-                GradientStop { position: 1.0; color: Theme.gradientOverlayEnd }
-            }
-        }
+        mode: (root.showMovieDetails || root.showSeriesDetails || root.showSeasonView) ? "hero" : "ambient"
+        source: root.currentBackdropUrl
+        onArtworkFailed: root.loadNextBackdropCandidate()
     }
 
     // Timer to cycle backdrop candidates when viewing a Series/Season/Episode/Movie detail
@@ -654,20 +591,6 @@ FocusScope {
         onTriggered: {
             cycleBackdropCandidate()
         }
-    }
-
-    onCurrentBackdropUrlChanged: {
-        // Load the new URL into the INACTIVE image
-        var target = backdropContainer.showBackdrop1 ? backdrop2 : backdrop1
-        
-        // If the target is already displaying this URL (unlikely but possible), just switch immediately
-        if (target.source.toString() === currentBackdropUrl && target.status === Image.Ready) {
-             if (target === backdrop1) backdropContainer.showBackdrop1 = true
-             else backdropContainer.showBackdrop1 = false
-             return
-        }
-
-        target.source = currentBackdropUrl
     }
 
     // Main Content - conditionally show SeriesDetailsView, SeasonView, EpisodeView, MovieDetailsView or regular grid
@@ -988,74 +911,85 @@ FocusScope {
             }
         }
         
+    // The header collapses (and the navigation bar recedes) once the grid is
+    // scrolled, so browsing uses the full height. It returns at the top of
+    // the grid or whenever a header control has focus.
+    readonly property bool headerControlFocused: searchField.activeFocus
+                                                 || sortCombo.activeFocus || sortCombo.popup.visible
+                                                 || orderCombo.activeFocus || orderCombo.popup.visible
+                                                 || filterDrawerButton.activeFocus || backButton.activeFocus
+    // Keyboard: expanded while the first row has focus. Pointer: at the top.
+    readonly property bool headerExpanded: queryToolbarPinned || headerControlFocused || showFilterPanel
+                                           || !grid.activeFocus || grid.count === 0
+                                           || (InputModeManager.pointerActive ? grid.atYBeginning
+                                                                              : grid.currentIndex < grid.columns)
+    readonly property bool navigationRecessed: !headerExpanded
+
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: Theme.pageMarginX
         anchors.rightMargin: Theme.pageMarginX - Theme.spacingMedium
-        anchors.topMargin: Theme.pageMarginTop
+        anchors.topMargin: headerExpanded ? Theme.pageMarginTop : Theme.navBarInsetTop
         anchors.bottomMargin: 0
         spacing: Theme.spacingLarge
+
+        Behavior on anchors.topMargin {
+            enabled: Theme.uiAnimationsEnabled
+            NumberAnimation { duration: Theme.durationLong; easing.type: Theme.easingStandard }
+        }
 
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: Theme.spacingSmall
+            spacing: Theme.spacingMedium
+
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: headerExpanded && !showSeriesDetails ? headerRow.implicitHeight : 0
+                visible: Layout.preferredHeight > 0
+                opacity: headerExpanded ? 1.0 : 0.0
+                clip: !headerExpanded
+
+                Behavior on Layout.preferredHeight {
+                    enabled: Theme.uiAnimationsEnabled
+                    NumberAnimation { duration: Theme.durationLong; easing.type: Theme.easingStandard }
+                }
+                Behavior on opacity {
+                    enabled: Theme.uiAnimationsEnabled
+                    NumberAnimation { duration: Theme.durationNormal }
+                }
 
             RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.spacingMedium
-                visible: !showSeriesDetails
+                id: headerRow
+                width: parent.width
+                spacing: Theme.controlSpacing
 
-                ColumnLayout {
+                PageHeader {
                     Layout.fillWidth: true
-                    spacing: Theme.spacingSmall
-
-                    Text {
-                        text: currentParentId === "" ? "Libraries" : (currentLibraryName || "Library")
-                        font.pixelSize: Theme.fontSizeDisplay
-                        font.family: Theme.fontPrimary
-                        font.weight: Theme.fontWeightHeavy
-                        color: Theme.textPrimary
-                        Accessible.role: Accessible.Heading
-                        Accessible.name: text
-                    }
-
-                    Text {
-                        visible: currentParentId !== ""
-                        text: {
-                            var loaded = LibraryViewModel.rowCount()
-                            var total = LibraryViewModel.totalRecordCount
-                            if (total > 0 && loaded > 0) {
-                                return loaded < total ? `${loaded} of ${total} titles` : `${total} titles`
-                            }
+                    eyebrow: currentParentId === "" ? "" : qsTr("Library")
+                    title: currentParentId === "" ? qsTr("Libraries") : (currentLibraryName || qsTr("Library"))
+                    detail: {
+                        if (currentParentId === "")
                             return ""
-                        }
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
+                        var loaded = LibraryViewModel.rowCount()
+                        var total = LibraryViewModel.totalRecordCount
+                        if (total > 0 && loaded > 0)
+                            return loaded < total ? qsTr("%1 of %2 titles").arg(loaded).arg(total)
+                                                  : qsTr("%1 titles").arg(total)
+                        return ""
                     }
                 }
 
-                Item { Layout.fillWidth: true }
-                
 	                RowLayout {
 	                    id: queryToolbar
+	                    Layout.alignment: Qt.AlignBottom
 	                    visible: showPaginationControls
-                                 && (queryToolbarPinned
-                                     || grid.contentY <= 1
-                                     || searchField.activeFocus
-                                     || sortCombo.activeFocus
-                                     || sortCombo.popup.visible
-                                     || orderCombo.activeFocus
-                                     || orderCombo.popup.visible
-                                     || filterDrawerButton.activeFocus
-                                     || showFilterPanel)
-	                    spacing: Theme.spacingSmall
+	                    spacing: Theme.controlSpacing
 
                     TextField {
                         id: searchField
-                        Layout.preferredWidth: Math.round(300 * Theme.layoutScale)
-                        Layout.preferredHeight: Theme.buttonHeightSmall
+                        Layout.preferredWidth: Math.round(380 * Theme.layoutScale)
+                        Layout.preferredHeight: Theme.buttonHeightMedium
                         placeholderText: "Search"
                         text: librarySearchText
                         selectByMouse: true
@@ -1072,8 +1006,8 @@ FocusScope {
                         KeyNavigation.down: grid
                         background: Rectangle {
                             id: searchFieldBackground
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusControl
+                            implicitHeight: Theme.buttonHeightMedium
+                            radius: height / 2
                             color: searchField.activeFocus ? Theme.surfaceInteractiveHover : Theme.surfaceInteractive
                             border.width: Theme.borderWidth
                             border.color: Theme.surfaceBorder
@@ -1098,7 +1032,7 @@ FocusScope {
 
                     LibraryComboBox {
                         id: sortCombo
-                                                Layout.preferredHeight: Theme.buttonHeightSmall
+                        Layout.preferredHeight: Theme.buttonHeightMedium
                         model: ["Library order", "Title", "Release date", "Date added", "Rating", "Year", "Random"]
                         values: ["", "title", "releaseDate", "dateAdded", "rating", "year", "random"]
                         Accessible.name: "Sort library"
@@ -1114,7 +1048,7 @@ FocusScope {
 
                     LibraryComboBox {
                         id: orderCombo
-                                                Layout.preferredHeight: Theme.buttonHeightSmall
+                        Layout.preferredHeight: Theme.buttonHeightMedium
                         model: ["Ascending", "Descending"]
                         values: ["ascending", "descending"]
                         Accessible.name: "Sort order"
@@ -1134,7 +1068,7 @@ FocusScope {
                         text: LibraryViewModel.activeFilterCount > 0 ? ("Filters " + LibraryViewModel.activeFilterCount) : "Filters"
                         iconGlyph: Icons.filter
                         selected: showFilterPanel
-                        Layout.preferredHeight: Theme.buttonHeightSmall
+                        Layout.preferredHeight: Theme.buttonHeightMedium
                         Accessible.name: text
                         KeyNavigation.left: orderCombo
                         KeyNavigation.right: backButton
@@ -1187,7 +1121,8 @@ FocusScope {
                     Accessible.role: Accessible.Button
                     Accessible.name: text
                     Accessible.description: "Return to previous library view"
-                    Layout.preferredHeight: Theme.buttonHeightSmall
+                    Layout.alignment: Qt.AlignBottom
+                    Layout.preferredHeight: Theme.buttonHeightMedium
                     
                     KeyNavigation.left: filterDrawerButton
                     KeyNavigation.down: grid
@@ -1212,10 +1147,11 @@ FocusScope {
                     onClicked: navigateBack()
                 }
             }
+            }
             
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: showFilterPanel ? Math.round(300 * Theme.layoutScale) : 0
+                Layout.preferredHeight: showFilterPanel ? Math.round(380 * Theme.layoutScale) : 0
                 visible: showFilterPanel
                 color: Theme.surfaceGlassStrong
                 radius: Theme.radiusPanel
@@ -1235,8 +1171,7 @@ FocusScope {
 
 		                        LibraryComboBox {
 		                            id: favoriteFilterCombo
-		                            	                            Layout.preferredHeight: Theme.buttonHeightSmall
-                                labelFontSize: Theme.fontSizeSmall
+		                            	                            Layout.preferredHeight: Theme.buttonHeightMedium
                             model: ["Any favorite", "Favorites", "Not favorite"]
 	                            values: ["any", "favorite", "notFavorite"]
 		                            Component.onCompleted: syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
@@ -1251,8 +1186,7 @@ FocusScope {
 	
 	                        LibraryComboBox {
 	                            id: addedSinceCombo
-	                            	                            Layout.preferredHeight: Theme.buttonHeightSmall
-                                labelFontSize: Theme.fontSizeSmall
+	                            	                            Layout.preferredHeight: Theme.buttonHeightMedium
                             model: ["Any added date", "Last 7 days", "Last 30 days", "Last 90 days", "Last year"]
 	                            values: ["any", "7d", "30d", "90d", "1y"]
 		                            Component.onCompleted: syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
@@ -1269,7 +1203,7 @@ FocusScope {
 	                        Slider {
 	                            id: ratingSlider
 	                            Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
-                                Layout.preferredHeight: Theme.buttonHeightSmall
+                                Layout.preferredHeight: Theme.buttonHeightMedium
                             from: 0
                             to: 10
                             stepSize: 0.5
@@ -1355,7 +1289,7 @@ FocusScope {
 	                            id: clearFiltersButton
 	                            variant: "ghost"
 	                            text: "Clear"
-	                            Layout.preferredHeight: Theme.buttonHeightSmall
+	                            Layout.preferredHeight: Theme.buttonHeightMedium
 	                            KeyNavigation.left: ratingSlider
 	                            KeyNavigation.down: facetTabs
                             onClicked: {
@@ -1407,7 +1341,7 @@ FocusScope {
 	                        }
 	                        TabButton {
                                 width: implicitContentWidth + Theme.spacingXLarge * 2
-                                implicitHeight: Theme.buttonHeightSmall
+                                implicitHeight: Theme.buttonHeightMedium
                                 text: "Genres"
                                 contentItem: Text {
                                     text: parent.text
@@ -1439,7 +1373,7 @@ FocusScope {
                             }
 	                        TabButton {
                                 width: implicitContentWidth + Theme.spacingXLarge * 2
-                                implicitHeight: Theme.buttonHeightSmall
+                                implicitHeight: Theme.buttonHeightMedium
                                 text: "Tags"
                                 contentItem: Text {
                                     text: parent.text
@@ -1471,7 +1405,7 @@ FocusScope {
                             }
 	                        TabButton {
                                 width: implicitContentWidth + Theme.spacingXLarge * 2
-                                implicitHeight: Theme.buttonHeightSmall
+                                implicitHeight: Theme.buttonHeightMedium
                                 text: currentLibraryType === "tvshows" ? "Networks" : "Studios"
                                 contentItem: Text {
                                     text: parent.text
@@ -1510,8 +1444,8 @@ FocusScope {
 	                        Accessible.role: Accessible.List
 	                        Accessible.name: "Filter choices"
 	                        clip: true
-	                        cellWidth: Math.round(220 * Theme.layoutScale)
-	                        cellHeight: Theme.buttonHeightSmall + Theme.spacingMedium
+	                        cellWidth: Math.round(260 * Theme.layoutScale)
+	                        cellHeight: Theme.buttonHeightMedium + Theme.spacingMedium
 	                        boundsBehavior: Flickable.StopAtBounds
 	                        KeyNavigation.up: facetTabs
 	                        KeyNavigation.down: grid
@@ -1553,7 +1487,7 @@ FocusScope {
                                 anchors.leftMargin: Theme.spacingXSmall
                                 anchors.rightMargin: Theme.spacingXSmall
 	                                anchors.verticalCenter: parent.verticalCenter
-	                                height: Theme.buttonHeightSmall
+	                                height: Theme.buttonHeightMedium
                                 radius: Theme.radiusControl
                                 color: parent.selected ? Theme.selectionBackground : Theme.surfaceInteractive
                                 border.width: Theme.borderWidth
@@ -1570,7 +1504,7 @@ FocusScope {
 	                                anchors.rightMargin: Theme.spacingMedium
 	                                text: (facetDelegate.selected ? "\u2713  " : "") + facetDelegate.modelData
 	                                color: Theme.textPrimary
-	                                font.pixelSize: Theme.fontSizeSmall
+	                                font.pixelSize: Theme.fontSizeBody
 	                                font.family: Theme.fontPrimary
 	                                horizontalAlignment: Text.AlignHCenter
 	                                verticalAlignment: Text.AlignVCenter
@@ -1616,7 +1550,9 @@ FocusScope {
                 property int columns: Math.max(Theme.gridColumns, 1)
 
                 cellWidth: width / Math.max(columns, 1)
-                cellHeight: (cellWidth - Theme.spacingLarge) * 1.5 + Math.round(96 * Theme.layoutScale)
+                // Poster cards fill each column, leaving the card gap between them.
+                readonly property int cardWidth: Math.round(cellWidth - Theme.cardGap)
+                cellHeight: Math.round(cardWidth * 3 / 2) + Theme.cardCaptionHeight + Theme.cardGap
 
                 Behavior on opacity {
                     enabled: Theme.uiAnimationsEnabled
@@ -1666,7 +1602,7 @@ FocusScope {
                 leftMargin: 0
                 rightMargin: 0
                 // Extra headroom so focused first-row posters/badges do not clip at the top.
-                topMargin: Math.round(42 * Theme.layoutScale)
+                topMargin: Theme.shelfFocusMargin
                 preferredHighlightBegin: height * 0.05
                 preferredHighlightEnd: height * 0.95
                 // ApplyRange can clamp pointer-driven wheel scrolling to the current item.
@@ -1761,218 +1697,34 @@ FocusScope {
                     id: delegateItem
                     width: grid.cellWidth
                     height: grid.cellHeight
+                    z: card.focused ? 2 : 0
 
                     // Access the full item data from the model
                     required property var modelData
                     required property string imageUrl
                     required property int index
-                    property string roundedImageSource: ""
-                    property bool baseImageFailed: false
 
-                    // Poster dimensions — fill nearly the full cell with minimal spacing
-                    property real posterWidth: grid.cellWidth - Theme.spacingLarge
-                    property real posterHeight: posterWidth * 1.5
-
-                    // Handle item pooling/reuse
-                    GridView.onPooled: {
-                        // Reset state when item goes to pool
-                        coverArt.source = ""
-                        roundedImageSource = ""
-                        baseImageFailed = false
-                    }
-                    GridView.onReused: {
-                        // Rebind image source when item is reused
-                        baseImageFailed = false
-                        coverArt.source = Qt.binding(function() {
-                            return baseImageFailed ? "" : getImageSource()
-                        })
-                        refreshRoundedImageSource()
-                    }
-
-                    function getImageSource() {
-                        return delegateItem.imageUrl || ""
-                    }
-
-                    function getRoundedImageSource() {
-                        if (roundedImageMode === "shader" || !roundedPreprocessEnabled)
-                            return ""
-                        if (!ImageCacheProvider || typeof ImageCacheProvider.requestRoundedImage !== "function")
-                            return ""
-                        var base = delegateItem.getImageSource()
-                        if (!base || base === "")
-                            return ""
-                        return ImageCacheProvider.requestRoundedImage(base, Theme.imageRadius, 640, 960) || ""
-                    }
-
-                    function refreshRoundedImageSource() {
-                        roundedImageSource = getRoundedImageSource()
-                    }
-
-                    onImageUrlChanged: {
-                        baseImageFailed = false
-                        refreshRoundedImageSource()
-                    }
-                    Component.onCompleted: refreshRoundedImageSource()
-
-                    Connections {
-                        target: root
-                        function onRoundedImageModeChanged() {
-                            delegateItem.refreshRoundedImageSource()
-                        }
-                        function onRoundedPreprocessEnabledChanged() {
-                            delegateItem.refreshRoundedImageSource()
-                        }
-                    }
-
-                    Connections {
-                        target: ImageCacheProvider
-                        function onRoundedImageReady(url, fileUrl) {
-                            if (!url || !fileUrl)
-                                return
-                            if (delegateItem.getImageSource() === url) {
-                                delegateItem.roundedImageSource = fileUrl
-                            }
-                        }
-                    }
-
-                    property bool isFocused: grid.currentIndex === index && grid.activeFocus
-                    property bool isHovered: InputModeManager.pointerActive && mouseArea.containsMouse
-                    scale: isFocused ? Theme.focusScale : 1.0
-                    z: isFocused ? 2 : 0
-                    transformOrigin: Item.Bottom
-                    Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
-
-                    Column {
-                        anchors.fill: parent
-                        anchors.topMargin: Theme.spacingSmall
-                        spacing: Theme.spacingSmall
-
-                        // Poster image (2:3 aspect ratio) with rounded corners
-                        Rectangle {
-                            id: imageContainer
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            width: delegateItem.posterWidth
-                            height: delegateItem.posterHeight
-                            radius: Theme.imageRadius
-                            clip: false
-                            color: "transparent"
-
-                            ArtworkPlaceholder {
-                                anchors.fill: parent
-                                visible: coverArt.status !== Image.Ready
-                                loading: coverArt.status === Image.Loading
-                                iconGlyph: delegateItem.modelData.mediaType === "Series" ? Icons.tvShows
-                                         : (delegateItem.modelData.mediaType === "Movie" ? Icons.movie : Icons.folder)
-                                title: formatTitle(delegateItem.modelData)
-                            }
-
-                            RoundedImage {
-                                id: coverArt
-                                anchors.fill: parent
-                                fillMode: Image.PreserveAspectCrop
-                                mode: root.roundedImageMode
-                                preferPreRounded: root.roundedPreprocessEnabled
-                                allowShader: root.roundedImageMode !== "prerender"
-                                radius: Theme.imageRadius
-                                sourceWidth: 640
-                                sourceHeight: 960
-                                preRoundedSource: delegateItem.roundedImageSource
-                                asynchronous: true
-                                cache: true
-                                mipmap: true
-                                smooth: true
-                                visible: true
-                                source: delegateItem.baseImageFailed
-                                    ? "" : delegateItem.getImageSource()
-                                onStatusChanged: {
-                                    if (status === Image.Error) {
-                                        delegateItem.baseImageFailed = true
-                                    }
-                                }
-                            }
-
-                            FocusRing {
-                                active: delegateItem.isFocused
-                                radius: Theme.imageRadius
-                            }
-
-                            PosterBadgeOverlay {
-                                anchors.fill: parent
-                                item: delegateItem.modelData
-                                topRightReserved: librarySeriesBadge.visible || libraryMovieBadge.visible
-                                                  ? librarySeriesBadge.height : 0
-                            }
-
-                            // Unwatched episode count badge (for Series only)
-                            UnwatchedBadge {
-                                id: librarySeriesBadge
-                                anchors.top: parent.top
-                                anchors.right: parent.right
-                                parentWidth: parent.width
-                                count: delegateItem.modelData.mediaType === "Series"
+                    MediaCard {
+                        id: card
+                        anchors.top: parent.top
+                        anchors.topMargin: Math.round(Theme.cardGap / 2)
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        variant: "poster"
+                        artworkWidth: grid.cardWidth
+                        artworkSources: [delegateItem.imageUrl]
+                        title: formatTitle(delegateItem.modelData)
+                        subtitle: formatCardSubtitle(delegateItem.modelData)
+                        placeholderIcon: delegateItem.modelData.mediaType === "Series" ? Icons.tvShows
+                                       : (delegateItem.modelData.mediaType === "Movie" ? Icons.movie : Icons.folder)
+                        item: delegateItem.modelData
+                        showWatchState: delegateItem.modelData.mediaType === "Series"
+                                        || (delegateItem.modelData.mediaType === "Movie" && !!delegateItem.modelData.watched)
+                        unplayedCount: delegateItem.modelData.mediaType === "Series"
                                        ? (delegateItem.modelData.unplayedItemCount || 0) : 0
-                                isFullyWatched: delegateItem.modelData.mediaType === "Series"
-                                                && (delegateItem.modelData.watched || false)
-                                applicable: delegateItem.modelData.mediaType === "Series"
-                            }
-
-                            // Watched checkmark (for Movies only)
-                            UnwatchedBadge {
-                                id: libraryMovieBadge
-                                anchors.top: parent.top
-                                anchors.right: parent.right
-                                parentWidth: parent.width
-                                count: 0
-                                isFullyWatched: delegateItem.modelData.watched || false
-                                applicable: delegateItem.modelData.mediaType === "Movie"
-                                         && (delegateItem.modelData.watched || false)
-                            }
-                        }
-
-                        // Title text below poster
-                        Text {
-                            id: titleText
-                            width: delegateItem.posterWidth
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            horizontalAlignment: Text.AlignHCenter
-                            text: formatTitle(delegateItem.modelData)
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            font.weight: Theme.fontWeightStrong
-                            color: Theme.textPrimary
-                            elide: Text.ElideRight
-                            maximumLineCount: 1
-                        }
-
-                        // Year/subtitle text
-                        Text {
-                            id: yearText
-                            width: delegateItem.posterWidth
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            horizontalAlignment: Text.AlignHCenter
-                            text: {
-                                var start = delegateItem.modelData.productionYear || extractYear(delegateItem.modelData.premiereDate)
-                                if (!start) return ""
-                                if (delegateItem.modelData.mediaType === "Series" && delegateItem.modelData.endDate) {
-                                    var end = extractYear(delegateItem.modelData.endDate)
-                                    if (end && end !== start) {
-                                        return start + " - " + end
-                                    }
-                                }
-                                return start
-                            }
-                            font.pixelSize: Theme.fontSizeCaption
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            elide: Text.ElideRight
-                            maximumLineCount: 1
-                        }
-                    }
-
-                    MouseArea {
-                        id: mouseArea
-                        anchors.fill: parent
-                        hoverEnabled: true
+                        watched: !!delegateItem.modelData.watched
+                        positionMs: delegateItem.modelData.positionMs || 0
+                        durationMs: delegateItem.modelData.durationMs || 0
+                        focused: grid.currentIndex === delegateItem.index && grid.activeFocus
                         onClicked: {
                             grid.forceActiveFocus()
                             grid.currentIndex = delegateItem.index
@@ -1981,8 +1733,8 @@ FocusScope {
                     }
 
                     Accessible.role: Accessible.ListItem
-                    Accessible.name: titleText.text + (yearText.text ? ", " + yearText.text : "")
-                    Accessible.description: "Press to select " + titleText.text
+                    Accessible.name: card.Accessible.name
+                    Accessible.description: qsTr("Press to select %1").arg(card.title)
                 }
                 }
 
@@ -3069,6 +2821,33 @@ FocusScope {
         if (mediaType === "Movie" && durationMs)
             parts.push(Math.round(durationMs / 60000) + " min")
         return parts.join(" • ")
+    }
+
+    // Poster subtitle per the style guide: year for movies, a year range for
+    // series, "S1 E4 · Title" for episodes.
+    function formatCardSubtitle(item) {
+        if (!item)
+            return ""
+        const mediaType = item.mediaType || ""
+        if (mediaType === "Episode") {
+            const season = item.parentIndexNumber
+            const episode = item.indexNumber
+            if (season !== undefined && season >= 0 && episode !== undefined && episode >= 0)
+                return "S" + season + " E" + episode
+            return ""
+        }
+        if (mediaType === "Season")
+            return item.childCount ? qsTr("%n episode(s)", "", item.childCount) : ""
+        const start = item.productionYear || extractYear(item.premiereDate)
+        if (!start)
+            return ""
+        if (mediaType === "Series") {
+            if (item.status === "Continuing")
+                return qsTr("%1 – Present").arg(start)
+            const end = extractYear(item.endDate)
+            return end && end !== start ? start + " – " + end : String(start)
+        }
+        return String(start)
     }
 
     function formatTypeChip(item) {

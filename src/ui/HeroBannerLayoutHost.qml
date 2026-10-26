@@ -26,7 +26,7 @@ Item {
             return 0
         if (centerLarge)
             return maxContentWidth * 0.62
-        return Math.min(Theme.seriesLogoMaxWidth, maxContentWidth * contentWidthRatio)
+        return Math.min(Theme.heroCopyMaxWidth, maxContentWidth * contentWidthRatio)
     }
     readonly property bool contentAlignRight: placement === "bottomRight" || placement === "topRight"
     readonly property bool contentAlignCenter: placement === "bottomCenter" || placement === "topCenter"

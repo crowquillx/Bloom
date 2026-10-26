@@ -38,7 +38,7 @@ Hybrid mode prefers cached pre-rounded PNGs, falls back to the shader path, and 
   - `mode: ConfigManager.roundedImageMode`
   - `preferPreRounded: ConfigManager.roundedImagePreprocessEnabled`
   - `allowShader: ConfigManager.roundedImageMode !== "prerender"`
-- Request cached rounded assets from `ImageCacheProvider.requestRoundedImage(...)` and set `preRoundedSource` when available. Example in `LibraryScreen.qml`.
+- Request cached rounded assets from `ImageCacheProvider.requestRoundedImage(...)` and set `preRoundedSource` when available. `MediaCard.qml` does this for every card (Home shelves, library grids, search, detail shelves), scaling the radius to the decoded size so pre-rounded and shader corners match.
 
 ## Smoke checklist
 - Build: `.qsb` packaged under `:/shaders`; app loads without shader warnings.

@@ -755,19 +755,19 @@ target_link_libraries(ResponsiveLayoutPolicyTest
 
 add_test(NAME ResponsiveLayoutPolicyTest COMMAND ResponsiveLayoutPolicyTest)
 
-add_executable(NavigationRailTest
-    NavigationRailTest.cpp
+add_executable(NavigationBarTest
+    NavigationBarTest.cpp
 )
 
-target_compile_definitions(NavigationRailTest PRIVATE
+target_compile_definitions(NavigationBarTest PRIVATE
     BLOOM_UI_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/ui"
 )
 
-target_include_directories(NavigationRailTest PRIVATE
+target_include_directories(NavigationBarTest PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(NavigationRailTest
+target_link_libraries(NavigationBarTest
     PRIVATE
         Bloom::ResponsiveLayoutPolicy
         Qt6::Core
@@ -779,8 +779,8 @@ target_link_libraries(NavigationRailTest
         Qt6::Test
 )
 
-add_test(NAME NavigationRailTest COMMAND NavigationRailTest)
-set_tests_properties(NavigationRailTest PROPERTIES
+add_test(NAME NavigationBarTest COMMAND NavigationBarTest)
+set_tests_properties(NavigationBarTest PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
 
@@ -1238,7 +1238,11 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/SecondaryActionButton.qml
     ${CMAKE_SOURCE_DIR}/src/ui/Theme.qml
     ${CMAKE_SOURCE_DIR}/src/ui/Icons.qml
-    ${CMAKE_SOURCE_DIR}/src/ui/Sidebar.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/NavigationBar.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/StageBackdrop.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/MediaCard.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/ShelfList.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/PageHeader.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MediaProgressBar.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MpvProfileEditor.qml
     ${CMAKE_SOURCE_DIR}/src/ui/EmbeddedPlaybackOverlay.qml

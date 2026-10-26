@@ -101,8 +101,9 @@ Never draw page backgrounds by hand. If a page needs a new scrim, add it to
 
 ## Hero
 
-The hero block is left-aligned at the gutter and never wider than half the
-screen. Top to bottom:
+The hero block is left-aligned at the gutter and never wider than
+`Theme.heroCopyMaxWidth` (about half a 16:9 screen, fixed so ultrawide
+screens don't stretch the reading measure). Top to bottom:
 
 1. **Eyebrow** (optional): why this is here ("Recently Added", "Season 2").
    `fontSizeCaption`, heavy, uppercase, `eyebrowLetterSpacing`,

@@ -22,7 +22,7 @@ The [`ResponsiveLayoutManager`](../src/ui/ResponsiveLayoutManager.h) class is th
 | `layoutScale` | qreal | Logical pixels per Theme design unit (proportional to window size) |
 | `gridColumns` | int | Grid column count (7 at 16:9, more on wider viewports) |
 | `homeRowVisibleItems` | int | Visible items per home row (6 at 16:9, more on wider viewports) |
-| `sidebarDefaultMode` | QString | Default sidebar mode (always "rail") |
+| `sidebarDefaultMode` | QString | Legacy; always "rail" and unused by the navigation bar |
 | `aspectRatio` | qreal | Viewport aspect ratio (width / height) |
 | `viewportWidth` | int | Current viewport width in logical pixels |
 | `viewportHeight` | int | Current viewport height in logical pixels |
@@ -82,10 +82,12 @@ layoutScale     = baseLayoutScale * manualDpiScaleOverride
 > `"rail"`. `ResponsiveLayoutPolicyTest` guards the resolution and OS-scaling
 > independence.
 >
-> The navigation shell is a floating rail. Pages reserve a constant
-> `Theme.navRailReservedWidth`, and the rail expands as an overlay. The old
+> The navigation shell was later replaced by a top navigation bar
+> (`NavigationBar.qml`) that reserves no width; pages fill the window and
+> non-hero pages start at `Theme.pageMarginTop`. The rail's history: pages
+> reserved a constant rail width, and the rail expanded as an overlay. The old
 > 960 px overlay threshold and the content-margin animation were removed.
-> `NavigationRailTest` checks the rail metrics and fit at 720p, 1080p, 4K,
+> `NavigationBarTest` now checks the bar metrics and fit at 720p, 1080p, 4K,
 > 21:9, 4:3 and narrow windows.
 
 ## Manual DPI Scale Override

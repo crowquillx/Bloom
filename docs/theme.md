@@ -60,28 +60,34 @@ Built-in variants:
 - `Catppuccin`: flavors `Latte`, `Frappé`, `Macchiato`, `Mocha`; color schemes `Rosewater`, `Flamingo`, `Pink`, `Mauve`, `Red`, `Maroon`, `Peach`, `Yellow`, `Green`, `Teal`, `Sky`, `Sapphire`, `Blue`, `Lavender`; default `Mocha` + `Mauve`.
 
 ### 1. Typography
-Sizes are design units multiplied by `layoutScale`.
-- `fontSizeHero` (72): cardless hero titles when no logo exists
-- `fontSizeDisplay` (48): detail-view titles
-- `fontSizeHeader` (38): page and dialog headers
-- `fontSizeTitle` (32): section headers and card titles
-- `fontSizeMedium` (28): subtitles
-- `fontSizeBody` (24): body text, controls and rail labels
-- `fontSizeSmall` (21): metadata and secondary text
-- `fontSizeCaption` (18): tooltips, eyebrow labels and sublabels
+Inter (`fontPrimary`) and Inter Display (`fontDisplay`) are bundled under
+`src/resources/fonts/inter` (SIL OFL) and registered by `FontLoader`, so type
+renders identically on every platform. Sizes are design units multiplied by
+`layoutScale`; roles are listed in `docs/style-guide.md#typography`.
+- `fontSizeHero` (84): hero titles when no logo exists (`fontDisplay`)
+- `fontSizeDisplay` (60): page titles (`fontDisplay`, via `PageHeader`)
+- `fontSizeHeader` (36): shelf and section headers
+- `fontSizeTitle` (32): dialog titles and the brand
+- `fontSizeMedium` (28): hero subtitles, navigation tabs, hero buttons
+- `fontSizeBody` (24): body text, synopsis, controls and row labels
+- `fontSizeSmall` (21): metadata, descriptions and poster titles
+- `fontSizeCaption` (18): captions, eyebrow labels and badges; nothing is smaller
+- `displayLetterSpacing` tightens display type; `eyebrowLetterSpacing` spaces uppercase eyebrows.
 - Weights: `fontWeightRegular`, `fontWeightMedium`, `fontWeightStrong`, `fontWeightHeavy`. `fontMono` is for mpv arguments.
 
 ### 2. Spacing
 - `spacingSmall` (8), `spacingMedium` (20), `spacingLarge` (32), `spacingXLarge` (40)
-- `paddingLarge` / `pageMarginX` (56): horizontal page margin to the right of the rail
-- `pageMarginTop` (48), `sectionSpacing` (56) between shelves, `sectionTitleSpacing` (18) between a header and its content
+- `pageMarginX` (96): left and right page gutter; copy, shelf headers, first cards and grids align to it
+- `pageMarginTop` (= `navBarReservedHeight`): where non-hero pages start, below the navigation bar; `pageMarginBottom` (64) after the last row
+- `paddingLarge` (56), `sectionSpacing` (56) between shelves, `sectionTitleSpacing` (18) between a header and its content
 - `controlSpacing` (16) between adjacent buttons, `panelPadding` (40) inside glass panels, `dialogPadding` (40)
 
 ### 3. Dimensions
 - Radii: `radiusSmall` (10), `radiusMedium` / `radiusControl` (16), `radiusLarge` (22), `radiusXLarge` / `radiusDialog` (30), `radiusArtwork` / `imageRadius` (20), `radiusPanel` (32)
-- Buttons: `buttonHeightSmall` (52), `buttonHeightMedium` (60), `buttonHeightLarge` (68), `buttonIconSize` (60)
-- Rail: `navRailInset` (20), `navRailCollapsedWidth` (96), `navRailExpandedWidth` (360), `navRailItemHeight` (72), `navRailReservedWidth` (inset + collapsed width), `iconSizeNav` (34)
-- `posterWidth` / `posterHeight` (2:3), `cardWidthMedium` / `cardHeightMedium` (16:9)
+- Buttons: `buttonHeightSmall` (52), `buttonHeightMedium` (60), `buttonHeightLarge` (68), `buttonHeightHero` (84, hero actions), `buttonIconSize` (60)
+- Navigation bar: `navBarInsetTop` (34), `navBarHeight` (76), `navBarItemHeight` (64), `navBarReservedHeight` (inset + height + 30), `navBarScrimHeight` (260), `iconSizeNav` (30)
+- Cards: `posterCardWidth` × `posterCardHeight` (268 × 402, 2:3), `landscapeCardWidth` × `landscapeCardHeight` (456 × 256, 16:9), `cardCaptionHeight` (84), `cardGap` (28), `shelfFocusMargin` (22, room for the focus lift). Fixed design units: wider screens show more cards, never bigger ones.
+- Legacy sizes `posterWidth` / `posterHeight` (2:3) and `cardWidthMedium` / `cardHeightMedium` (16:9) remain for older views
 - `detailViewLogoHeight`: hero logo height for movie and series detail views, with a fixed 1.14 boost
 - `seriesLogoHeight` / `seriesLogoMaxWidth`: generic logo bounds for series and related logo usages
 
@@ -101,7 +107,7 @@ Every theme resolves to the same semantic roles. New QML should use these roles 
 | Scrims | `scrimModal`, `scrimStrong`, `scrimMedium`, `scrimSoft`, `scrimClear` | Derived from `backgroundPrimary`, so light flavors get light scrims |
 | Elevation | `elevationShadow` | Blurred drop shadow under raised surfaces (focused hero card) |
 | Artwork | `artworkPlaceholder`, `artworkPlaceholderIcon` | Missing or loading art |
-| Rail | `navRailBackground`, `navRailBackgroundCollapsed` | |
+| Stage | `stageBase`, `stageGlowPrimary`, `stageGlowSecondary`, `stageAmbientArtOpacity` | `StageBackdrop`'s ambient glow and muted art |
 
 Older tokens (`cardBackground`, `buttonPrimaryBackground`, `focusBorder`, `button*BorderFocused`, `chipBackground`, `hoverOverlay`) are kept as aliases of the semantic roles so older components inherit the new look. Do not use them in new code. `Theme.withAlpha(color, alpha)` and `Theme.mix(a, b, t)` derive variants without hardcoding colors.
 
@@ -109,7 +115,7 @@ Older tokens (`cardBackground`, `buttonPrimaryBackground`, `focusBorder`, `butto
 - **Focus** (where the keyboard or gamepad is) is always the shared `FocusRing`: a high-contrast outline separated by `focusRingGap`, with a halo, so it stays visible over bright or busy artwork. Artwork cards may also scale by `Theme.focusScale`.
 - **Selection** (current page, active tab, chosen option, checked filter) uses `selectionBackground` plus a `selectionIndicator` bar, underline or check mark.
 - A control can be both. Never signal focus with accent color alone.
-- Inside clipped containers such as lists, popups and the rail, use `FocusRing { inset: true }` so the ring is not clipped.
+- Inside clipped containers such as lists and popups, use `FocusRing { inset: true }` so the ring is not clipped.
 - The Home hero carousel is the one exception. A ring cuts across its full-bleed artwork, so focus lights its side edges and shows Left/Right paddles instead (see `docs/hero-banner.md`). The paddles are a shape cue, so focus does not rely on color alone.
 
 ### Shared Components
@@ -119,6 +125,11 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 |-----------|-----|
 | `ActionButton` | Every text/icon button. `variant`: `primary`, `secondary`, `ghost`, `destructive`; `selected` for toggles; `busy` swaps the icon for a spinner while keeping the label; includes its own `FocusRing`. Callers wire Enter/Return. |
 | `FocusRing` | Focus indicator; place it inside a focusable item's background. |
+| `NavigationBar` | The shell's top navigation (owned by `Main.qml`). |
+| `StageBackdrop` | Full-bleed page background: artwork in `hero` or `ambient` mode with the standard scrims, or the ambient accent glow without art. |
+| `MediaCard` | The one media card: `poster` (caption below) or `landscape` (title on the art, progress), with focus lift, badges and hybrid rounded artwork. |
+| `ShelfList` | Horizontal shelf `ListView` aligned to the gutter with focus room and transitions. |
+| `PageHeader` | Eyebrow, display title and detail line for non-hero pages, with a trailing slot for toolbars. |
 | `GlassPanel` | Rounded glass surface (`strong`, `bordered`). |
 | `DialogSurface` / `ModalScrim` | `Dialog`/`Popup` background and `Overlay.modal`. |
 | `ModalFocusGuard` | Keeps focus inside an open modal `Dialog` when the page behind it restores focus late (`popup`, optional `fallbackItem`). |
@@ -133,14 +144,12 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `ArtworkLogo` | Provider title logos; adds a legibility shadow on light themes (white logos over light scrims). |
 | `settings/SettingsRowBackground` | Settings row hover and focus treatment. |
 
-### Navigation Rail
-`Sidebar.qml` is a floating rail inset by `navRailInset` from the window edges. Pages reserve only `navRailReservedWidth` on the left. Full-bleed backdrops extend under the rail with `anchors.leftMargin: -Theme.navRailReservedWidth`.
+### Navigation Bar
+`NavigationBar.qml` floats over the top of every signed-in page on its own soft scrim, inset `navBarInsetTop` from the top and aligned to the page gutters. Pages fill the window and reserve no width; non-hero pages start at `pageMarginTop`, hero pages draw under the bar.
 
-The rail shows large icons when collapsed. It expands to `navRailExpandedWidth` with labels while keyboard or gamepad focus is inside it, or while pointer-pinned via the logo toggle. Expansion overlays the page with a scrim and never moves, resizes or recrops it.
+Entry order (left to right): Home, the libraries (in the saved order; Shift+Enter reorders, then Left/Right move the library), Search, then the utility cluster: Update (only when available), Settings, the space avatar (space picker and sign out), and Exit. Tabs that overflow scroll horizontally.
 
-Entry order: Home, Search, the "My Media" libraries (in the saved order; Shift+Enter reorders), Update available (only when present), Settings, the account entry (sign out), and Exit.
-
-Focus behavior: Left at a page's edge calls `Sidebar.focusRail()`, which lands on the current page's entry. Up/Down move through entries, Right returns focus to the page, Esc/Back closes the rail, and Enter navigates. `NavigationRailTest` covers focus order, expansion without layout shift, focus restoration, reordering, pointer pinning and rail metrics across window shapes.
+Focus behavior: Up that no page item accepts reaches `Main.qml`, which calls `NavigationBar.focusBar()`; focus lands on the current page's entry. Left/Right move through entries, Down or Esc/Back return focus to the page (`restoreFocusFromNavigation()`), and Enter navigates. `M` also toggles focus into the bar. Pages expose `navigationRecessed` to slide the bar away while scrolled into content; it returns when focused or when the pointer rests at the top edge. `NavigationBarTest` covers focus order, focus restoration, reordering, recess and metrics across window shapes.
 
 
 ### Playback Overlay Tokens
@@ -167,7 +176,7 @@ Use these instead of hardcoded playback overlay colors so built-in themes remain
 
 Artwork overlays (poster badges/labels drawn on top of images) should use `overlayTextBackground`, `overlayTextBorder`, and `textOnDarkOverlay` rather than theme `chip*` / `textPrimary` tokens. Poster artwork can be bright or busy in any theme, so translucent theme chips (especially Rosé Pine / light flavors) lose contrast. `MetadataChip { onArtwork: true }` applies these tokens.
 
-Full-page blurred backdrops (Home, Library) are covered by `gradientOverlayStart` → `gradientOverlayMiddle` → `gradientOverlayEnd`. These are derived from `backgroundPrimary` at 65–88% opacity so page text stays legible over bright artwork and the scrim follows the active theme (light flavors get a light scrim). Note that QML reads 8-digit hex colors as `#AARRGGBB`, not CSS `#RRGGBBAA`; prefer `Qt.rgba()` when a token needs alpha.
+Page backdrops are drawn by `StageBackdrop`; don't hand-roll page scrims. Older full-page blurred backdrops are covered by `gradientOverlayStart` → `gradientOverlayMiddle` → `gradientOverlayEnd`. These are derived from `backgroundPrimary` at 65–88% opacity so page text stays legible over bright artwork and the scrim follows the active theme (light flavors get a light scrim). Note that QML reads 8-digit hex colors as `#AARRGGBB`, not CSS `#RRGGBBAA`; prefer `Qt.rgba()` when a token needs alpha.
 
 ## Layout Patterns
 
@@ -216,8 +225,9 @@ Migrating from old `dpiScale` system:
 4.  **Verify Animations**: Ensure all generic animations use `Theme.duration*` tokens.
 
 ## Visual Principles
-- **Floating cinema**: expansive, sharp backdrops behind content, with scrims (`scrim*`) for legibility. Blur is reserved for pages without a hero.
-- **Soft glass**: `GlassPanel` / `surfaceGlass*` for panels and controls; avoid heavy borders.
+See `docs/style-guide.md` for the full page anatomy.
+- **Artwork is the interface**: every page sits on a full-bleed `StageBackdrop`; sharp behind heroes, softened behind dense content.
+- **Open layouts**: content sits on the stage; `surfaceGlass*` is for floating chrome and controls, not for boxing page content. Avoid heavy borders.
 - **Rounded artwork**: `radiusArtwork` for posters and thumbnails, `radiusPanel` for panels.
 - **Restrained color**: accent is for selection, progress and small highlights. Primary actions use the inverse fill.
 - **Clear focus**: the `FocusRing` is the focus signal everywhere except the Home hero carousel, and it must remain visible on every surface.
