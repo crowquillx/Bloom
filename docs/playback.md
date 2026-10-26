@@ -267,13 +267,13 @@ Track Preference Persistence
 - When navigating to a new episode in the same season, explicit preferences and subtitle delay are restored. If track preferences are missing or invalid for the new source, Bloom falls back through the standard resolution order.
 - Use `PlayerController.getLastAudioTrackForSeason(seasonId)` and `getLastSubtitleTrackForSeason(seasonId)` to retrieve.
 - Use `PlayerController.setExplicitSeasonAudioPreference(seasonId, index)` and `setExplicitSeasonSubtitlePreference(seasonId, index)` to save.
-- `SeriesSeasonEpisodeView` preloads provider-neutral chapter metadata for the highlighted episode and keeps a `Chapters` rail between `Episodes` and `Cast & Crew`; missing chapters resolve to a quiet reserved empty state.
-- Activating a chapter card reuses the normal episode playback request, including track preference/version-prompt handling, and sets canonical `startPositionMs` so playback begins at the selected chapter.
+- `SeriesSeasonEpisodeView` preloads provider-neutral chapter metadata for the highlighted episode and keeps a `Chapters` card rail between `Episodes` and `Cast & Crew`. When no chapter has a thumbnail, the rail is replaced by a compact `ChapterTimeline` strip after `Cast & Crew`; an episode without chapters shows neither.
+- Activating a chapter card or a timeline chapter reuses the normal episode playback request, including track preference/version-prompt handling, and sets canonical `startPositionMs` so playback begins at the selected chapter.
 
 ### Movies (Per-Movie)
 - Preferences are stored by movie ID for rewatches.
 - When the user changes audio/subtitle track in `MovieDetailsView`, the preference is immediately saved.
-- `MovieDetailsView` exposes the same chapter-card playback rail above `Cast & Crew`; activating a chapter starts the movie at that chapter's start tick.
+- `MovieDetailsView` exposes the same chapter-card playback rail above `Cast & Crew`, or the `ChapterTimeline` strip after `Recommended From Your Library` when no chapter has a thumbnail; activating a chapter starts the movie at that chapter's start tick.
 - Detail-page primary `Play` / `Resume` controls remain pressable while playback info is preparing, show a spinner in place of the normal glyph, and preserve the existing "still preparing" toast on press.
 - When returning to the same movie, explicit preferences and subtitle delay are restored instead of server defaults. If none were saved, Bloom uses Jellyfin/file defaults.
 - Use `PlayerController.getLastAudioTrackForMovie(movieId)` and `getLastSubtitleTrackForMovie(movieId)` to retrieve.

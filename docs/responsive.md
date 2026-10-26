@@ -488,6 +488,16 @@ Behavior on contentY {
 
 All animation durations use Theme duration tokens (`Theme.durationNormal`, `Theme.durationLong`, `Theme.durationShort`).
 
+## Pinned detail headers
+
+`SeriesSeasonEpisodeView.qml` and `MovieDetailsView.qml` pin their header and scroll only the shelves below it:
+
+- **Pinned header**: the episode view pins the season tabs and the episode hero (`pinnedHeader`); the movie view pins its hero `GlassPanel`. Both sit outside the Flickable, so they never move.
+- **Shelf viewport**: the Flickable is anchored below the header and holds the remaining sections: Episodes, Chapters, and Cast & Crew in the episode view; Chapters, Cast & Crew, and Recommended From Your Library in the movie view.
+- **Snap to top**: when a shelf takes focus, `scrollSectionToTop()` puts its header at the top of the viewport. Focusing a header control resets the viewport to the first shelf.
+- **Space budget**: the expanded overview is capped at `overviewExpandedMaxLines` (about 30% of the page height), so Read More can't push the shelves off screen. The episode hero shows a three-line collapsed overview and omits the season name line, since the pinned tabs already show the season. The episode row is sized to fit the viewport, but never below `Theme.episodeListMinHeight`.
+- **Chapter row**: when no chapter has a thumbnail, both views drop the card row and show a `ChapterTimeline` strip as the last section instead. Otherwise `chapterRowHeight` sizes the chapter cards to the viewport too. In the episode view they match the episode card height; in the movie view they fill the viewport up to `Theme.episodeListHeight`. `chapterCardWidth` keeps the thumbnail at 16:9.
+
 
 ## Future Enhancements
 

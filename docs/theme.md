@@ -127,6 +127,7 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `FieldBackground` | Text field and combo box backgrounds with focus and error states. |
 | `SectionHeader` | Page/section/group headers with optional detail text. |
 | `MetadataLine` | Year, runtime and rating text joined by a separator. |
+| `ChapterTimeline` | Compact chapter picker for chapters without images: a runtime track with a tick per chapter; Left/Right moves, Enter emits `chapterActivated(startMs)`. The owning view wires Up/Down. |
 | `StateMessage` | Loading, empty and error states with an optional focusable action. |
 | `ArtworkPlaceholder` | Missing or loading artwork with an icon and title. |
 | `ArtworkLogo` | Provider title logos; adds a legibility shadow on light themes (white logos over light scrims). |

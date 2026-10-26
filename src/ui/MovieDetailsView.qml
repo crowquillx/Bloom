@@ -30,6 +30,15 @@ FocusScope {
     readonly property var castAndCrew: MovieDetailsViewModel.people || []
     readonly property var chapters: MovieDetailsViewModel.chapters || []
     readonly property bool chaptersLoading: MovieDetailsViewModel.chaptersLoading
+    // Chapters without images use the compact timeline at the bottom instead of cards.
+    readonly property bool chaptersHaveImages: {
+        for (var i = 0; i < chapters.length; ++i) {
+            if (chapters[i].thumbnailUrl) {
+                return true
+            }
+        }
+        return false
+    }
     readonly property var libraryRecommendations: MovieDetailsViewModel.similarItems || []
     readonly property bool libraryRecommendationsLoading: MovieDetailsViewModel.similarItemsLoading
     readonly property bool isLoading: MovieDetailsViewModel.isLoading
@@ -43,8 +52,20 @@ FocusScope {
     readonly property int heroPosterHeight: Math.round(heroPosterWidth * 1.5)
     readonly property int heroPanelPadding: Theme.spacingXLarge
     readonly property int heroActionsBottomSpacing: Theme.spacingMedium
+    // The hero is pinned, so an expanded overview is capped to keep room for the
+    // scrolling shelves below it.
+    readonly property int overviewExpandedMaxLines: Math.max(4, Math.floor(root.height * 0.3 / (Theme.fontSizeBody * 1.45)))
     readonly property int peopleCardWidth: Math.round(176 * Theme.layoutScale)
     readonly property int peopleCardHeight: Math.round(320 * Theme.layoutScale)
+    // Chapters fill one row of the shelf viewport below the pinned hero.
+    readonly property int chapterRowHeight: Math.max(
+        Math.round(224 * Theme.layoutScale),
+        Math.min(Theme.episodeListHeight, root.height * 0.4,
+                 contentFlickable.height - chapterHeader.height - chapterSectionContent.spacing))
+    readonly property int chapterTextAllowance: Math.round((Theme.fontSizeBody + Theme.fontSizeCaption) * 1.4)
+                                                + Theme.spacingSmall * 4
+    readonly property int chapterCardWidth: Math.round((chapterRowHeight - chapterTextAllowance) * 16 / 9)
+                                            + Theme.spacingSmall * 2
     readonly property int recommendationCardWidth: Math.round(236 * Theme.layoutScale)
     readonly property int recommendationCardHeight: recommendationCardWidth + Math.round(recommendationCardWidth * 0.5) + Math.round(74 * Theme.layoutScale)
     readonly property int shelfEdgePadding: Math.round(14 * Theme.layoutScale)
@@ -520,6 +541,9 @@ FocusScope {
         if (itemIsDescendant(activeItem, chapterList)) {
             return "chapters"
         }
+        if (itemIsDescendant(activeItem, chapterTimeline)) {
+            return "chapterTimeline"
+        }
         if (itemIsDescendant(activeItem, libraryRecommendationsList)) {
             return "libraryRecommendations"
         }
@@ -537,6 +561,7 @@ FocusScope {
         }
         if (area === "cast") return Math.max(0, castList.currentIndex)
         if (area === "chapters") return Math.max(0, chapterList.currentIndex)
+        if (area === "chapterTimeline") return Math.max(0, chapterTimeline.currentIndex)
         if (area === "libraryRecommendations") return Math.max(0, libraryRecommendationsList.currentIndex)
         return 0
     }
@@ -582,21 +607,28 @@ FocusScope {
         if (area === "cast" && castSection.visible && castList.count > 0) {
             castList.currentIndex = Math.min(targetIndex, castList.count - 1)
             castList.positionViewAtIndex(castList.currentIndex, ListView.Contain)
-            ensureItemVisible(castSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+            root.scrollSectionToTop(castSection)
             return focusCurrentViewItem(castList)
         }
 
         if (area === "chapters" && chapterSection.visible && chapterList.count > 0) {
             chapterList.currentIndex = Math.min(targetIndex, chapterList.count - 1)
             chapterList.positionViewAtIndex(chapterList.currentIndex, ListView.Contain)
-            ensureItemVisible(chapterSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+            root.scrollSectionToTop(chapterSection)
             return focusCurrentViewItem(chapterList)
+        }
+
+        if (area === "chapterTimeline" && chapterTimeline.visible && chapterTimeline.count > 0) {
+            chapterTimeline.currentIndex = Math.min(targetIndex, chapterTimeline.count - 1)
+            root.scrollSectionToTop(chapterTimeline)
+            chapterTimeline.forceActiveFocus()
+            return true
         }
 
         if (area === "libraryRecommendations" && libraryRecommendationsSection.visible && libraryRecommendationsList.count > 0) {
             libraryRecommendationsList.currentIndex = Math.min(targetIndex, libraryRecommendationsList.count - 1)
             libraryRecommendationsList.positionViewAtIndex(libraryRecommendationsList.currentIndex, ListView.Contain)
-            ensureItemVisible(libraryRecommendationsSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+            root.scrollSectionToTop(libraryRecommendationsSection)
             return focusCurrentViewItem(libraryRecommendationsList)
         }
 
@@ -624,7 +656,7 @@ FocusScope {
         if (desiredArea === "cast" && !castReady && !recsReady && (castPending || recsPending)) {
             return false
         }
-        if (desiredArea === "chapters" && !chaptersReady && chaptersPending) {
+        if ((desiredArea === "chapters" || desiredArea === "chapterTimeline") && !chaptersReady && chaptersPending) {
             return false
         }
         if (desiredArea === "libraryRecommendations" && !recsReady && !castReady && (recsPending || castPending)) {
@@ -686,25 +718,16 @@ FocusScope {
         }
     }
 
-    function ensureItemVisible(item, topPadding, bottomPadding) {
+    // The hero is pinned and the shelf viewport is short, so the focused section
+    // snaps its header to the top of the viewport.
+    function scrollSectionToTop(item) {
         if (!item) {
             return
         }
 
-        const pos = item.mapToItem(contentColumn, 0, 0)
-        const itemTop = pos.y
-        const itemBottom = itemTop + item.height
-        const viewportTop = contentFlickable.contentY
-        const viewportBottom = viewportTop + contentFlickable.height
-        const topInset = topPadding !== undefined ? topPadding : Math.round(48 * Theme.layoutScale)
-        const bottomInset = bottomPadding !== undefined ? bottomPadding : Math.round(96 * Theme.layoutScale)
+        const itemTop = item.mapToItem(contentColumn, 0, 0).y
         const maxScroll = Math.max(0, contentFlickable.contentHeight - contentFlickable.height)
-
-        if (itemTop < viewportTop + topInset) {
-            contentFlickable.contentY = Math.max(0, itemTop - topInset)
-        } else if (itemBottom > viewportBottom - bottomInset) {
-            contentFlickable.contentY = Math.min(maxScroll, itemBottom - contentFlickable.height + bottomInset)
-        }
+        contentFlickable.contentY = Math.max(0, Math.min(itemTop, maxScroll))
     }
 
     function ensureTopVisible() {
@@ -720,6 +743,8 @@ FocusScope {
             castSection.focusCurrentOrFirst()
         } else if (libraryRecommendationsSection.visible) {
             libraryRecommendationsSection.focusCurrentOrFirst()
+        } else if (chapterTimeline.visible) {
+            chapterTimeline.forceActiveFocus()
         }
     }
 
@@ -757,6 +782,9 @@ FocusScope {
     function nextSectionAfterCast() {
         if (libraryRecommendationsSection.visible) {
             return libraryRecommendationsSection
+        }
+        if (chapterTimeline.visible) {
+            return chapterTimeline
         }
         return null
     }
@@ -908,12 +936,386 @@ FocusScope {
         message: qsTr("Loading movie details…")
     }
 
-    Flickable {
-        id: contentFlickable
-        anchors.fill: parent
+    // Pinned hero: stays in place while the shelves below scroll.
+    GlassPanel {
+        id: heroPanel
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
         anchors.leftMargin: Theme.pageMarginX
         anchors.rightMargin: Theme.pageMarginX
         anchors.topMargin: Theme.pageMarginTop
+        z: 2
+        height: Math.max(heroPosterHeight + root.heroPanelPadding * 2,
+                         heroContent.implicitHeight + root.heroPanelPadding * 2)
+
+        RowLayout {
+            id: heroContent
+            anchors.fill: parent
+            anchors.margins: root.heroPanelPadding
+            spacing: Theme.spacingXLarge + Theme.spacingSmall
+
+            Item {
+                Layout.preferredWidth: heroPosterWidth
+                Layout.preferredHeight: heroPosterHeight
+
+                Item {
+                    anchors.fill: parent
+
+                    Image {
+                        id: heroPosterImage
+                        anchors.fill: parent
+                        source: posterUrl
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
+
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            maskEnabled: true
+                            maskSource: posterMask
+                        }
+                    }
+
+                    Rectangle {
+                        id: posterMask
+                        anchors.fill: parent
+                        radius: Theme.imageRadius
+                        visible: false
+                        layer.enabled: true
+                        layer.smooth: true
+                    }
+
+                    ArtworkPlaceholder {
+                        anchors.fill: parent
+                        visible: heroPosterImage.status !== Image.Ready
+                        loading: heroPosterImage.status === Image.Loading
+                        iconGlyph: Icons.movie
+                        title: movieName
+                    }
+
+                    Row {
+                        anchors.top: parent.top
+                        anchors.right: parent.right
+                        anchors.margins: Theme.spacingSmall
+                        spacing: Theme.spacingXSmall
+                        opacity: root.hasMediaBadges() ? 1.0 : 0.0
+
+                        Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
+
+                        MetadataChip {
+                            text: root.videoResolutionBadge()
+                            onArtwork: true
+                        }
+                        MetadataChip {
+                            text: root.videoHdrBadge()
+                            onArtwork: true
+                        }
+                    }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: Theme.spacingMedium
+
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: logoUrl !== "" ? Theme.detailViewLogoHeight : titleFallback.implicitHeight
+
+                    ArtworkLogo {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.min(Theme.seriesLogoMaxWidth, parent.width)
+                        height: parent.height
+                        source: logoUrl
+                        fillMode: Image.PreserveAspectFit
+                        horizontalAlignment: Image.AlignLeft
+                        asynchronous: true
+                        cache: true
+                        visible: logoUrl !== ""
+                        opacity: status === Image.Ready ? 1.0 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
+                    }
+
+                    Text {
+                        id: titleFallback
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width
+                        text: movieName
+                        visible: logoUrl === ""
+                        font.pixelSize: Theme.fontSizeHero
+                        font.family: Theme.fontPrimary
+                        font.weight: Theme.fontWeightHeavy
+                        color: Theme.textPrimary
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                        lineHeight: 0.95
+                    }
+                }
+
+                MetadataLine {
+                    Layout.fillWidth: true
+                    font.pixelSize: Theme.fontSizeBody
+                    items: [productionYear > 0 ? String(productionYear) : "", officialRating,
+                            formatRuntime(durationMs), calculateEndTime(durationMs), formatCommunityRating()]
+                }
+
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+                    visible: movieRatingsRepeater.count > 0
+
+                    Repeater {
+                        id: movieRatingsRepeater
+                        model: root.visibleExternalRatings()
+
+                        RatingMetadataChip {
+                            required property var modelData
+                            ratingData: modelData
+                        }
+                    }
+                }
+
+                MetadataLine {
+                    Layout.fillWidth: true
+                    separator: "  \u00b7  "
+                    color: Theme.textTertiary
+                    items: genres || []
+                }
+
+                Item {
+                    id: overviewContainer
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: overviewColumn.implicitHeight
+
+                    property bool expanded: false
+                    readonly property int collapsedLines: 4
+                    property bool hasOverflow: overviewText.truncated || expanded
+
+                    ColumnLayout {
+                        id: overviewColumn
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            id: overviewText
+                            Layout.fillWidth: true
+                            text: movieOverview || qsTr("No description available.")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: movieOverview ? Theme.textPrimary : Theme.textSecondary
+                            opacity: 0.9
+                            lineHeight: 1.12
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: overviewContainer.expanded ? root.overviewExpandedMaxLines : overviewContainer.collapsedLines
+                            elide: Text.ElideRight
+                        }
+
+                        ActionButton {
+                            id: readMoreButton
+                            variant: "ghost"
+                            visible: overviewContainer.hasOverflow
+                            Layout.alignment: Qt.AlignLeft
+                            Layout.leftMargin: -Theme.spacingMedium
+                            implicitHeight: Theme.buttonHeightSmall
+                            sidePadding: Theme.spacingMedium
+                            labelPixelSize: Theme.fontSizeSmall
+                            text: overviewContainer.expanded ? qsTr("Show Less") : qsTr("Read More")
+                            iconGlyph: overviewContainer.expanded ? Icons.expandLess : Icons.expandMore
+                            onClicked: overviewContainer.expanded = !overviewContainer.expanded
+                            Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                            Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                            Keys.onDownPressed: (event) => { playButton.forceActiveFocus(); event.accepted = true }
+                            Keys.onUpPressed: (event) => { event.accepted = true }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.bottomMargin: root.heroActionsBottomSpacing
+                    spacing: Theme.spacingMedium
+
+                    ActionButton {
+                        id: playButton
+                        variant: "primary"
+                        text: positionMs > 0 ? qsTr("Resume") : qsTr("Play")
+                        iconGlyph: Icons.playArrow
+                        busy: playbackInfoLoading
+                        enabled: movieId !== ""
+                        implicitHeight: Theme.buttonHeightLarge
+                        Layout.minimumWidth: Math.round(240 * Theme.layoutScale)
+
+                        Accessible.name: positionMs > 0 ? qsTr("Resume") : qsTr("Play")
+
+                        KeyNavigation.right: markWatchedButton
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root.ensureTopVisible()
+                            }
+                        }
+
+                        Keys.onDownPressed: (event) => {
+                            root.focusFirstLowerSection()
+                            event.accepted = true
+                        }
+
+                        Keys.onUpPressed: (event) => {
+                            if (readMoreButton.visible)
+                                readMoreButton.forceActiveFocus()
+                            event.accepted = true
+                        }
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: root.startPlaybackWithTracks()
+                    }
+
+                    SecondaryActionButton {
+                        id: markWatchedButton
+                        text: isPlayed ? qsTr("Mark Unwatched") : qsTr("Mark Watched")
+                        iconGlyph: isPlayed ? Icons.visibilityOff : Icons.visibility
+                        Layout.preferredHeight: Theme.buttonHeightLarge
+
+                        KeyNavigation.left: playButton
+                        KeyNavigation.right: contextMenuButton
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root.ensureTopVisible()
+                            }
+                        }
+
+                        Keys.onDownPressed: (event) => {
+                            root.focusFirstLowerSection()
+                            event.accepted = true
+                        }
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: {
+                            if (isPlayed) {
+                                MovieDetailsViewModel.markAsUnwatched()
+                            } else {
+                                MovieDetailsViewModel.markAsWatched()
+                            }
+                        }
+                    }
+
+                    SecondaryActionButton {
+                        id: contextMenuButton
+                        text: ""
+                        iconGlyph: Icons.moreHoriz
+                        accessibleLabel: qsTr("More options")
+                        Layout.preferredHeight: Theme.buttonHeightLarge
+                        Layout.preferredWidth: Theme.buttonHeightLarge
+
+                        KeyNavigation.left: markWatchedButton
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root.ensureTopVisible()
+                            }
+                        }
+
+                        Keys.onDownPressed: (event) => {
+                            root.focusFirstLowerSection()
+                            event.accepted = true
+                        }
+
+                        Keys.onReturnPressed: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
+                        Keys.onEnterPressed: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
+                        onClicked: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
+
+                ColumnLayout {
+                    visible: positionMs > 0 && !isPlayed
+                    Layout.fillWidth: true
+                    spacing: Math.round(4 * Theme.layoutScale)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: qsTr("%1 of %2 min watched").arg(root.watchedMinutes()).arg(root.totalMinutes())
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Text {
+                            text: qsTr("%1 min remaining").arg(root.remainingMinutes())
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: Theme.progressHeight
+                        radius: height / 2
+                        color: Theme.progressTrack
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: durationMs > 0 ? parent.width * Math.min(1, positionMs / durationMs) : 0
+                            radius: height / 2
+                            color: Theme.progressFill
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Chapters, cast and recommendations scroll beneath the pinned hero.
+    Flickable {
+        id: contentFlickable
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: heroPanel.bottom
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.pageMarginX
+        anchors.rightMargin: Theme.pageMarginX
+        anchors.topMargin: Theme.sectionSpacing
         contentWidth: width
         contentHeight: contentColumn.implicitHeight + Math.round(180 * Theme.layoutScale)
         clip: true
@@ -929,375 +1331,14 @@ FocusScope {
             width: contentFlickable.width
             spacing: Theme.sectionSpacing
 
-            GlassPanel {
-                id: heroPanel
-                Layout.fillWidth: true
-                Layout.preferredHeight: Math.max(heroPosterHeight + root.heroPanelPadding * 2,
-                                                 heroContent.implicitHeight + root.heroPanelPadding * 2)
-
-                RowLayout {
-                    id: heroContent
-                    anchors.fill: parent
-                    anchors.margins: root.heroPanelPadding
-                    spacing: Theme.spacingXLarge + Theme.spacingSmall
-
-                    Item {
-                        Layout.preferredWidth: heroPosterWidth
-                        Layout.preferredHeight: heroPosterHeight
-
-                        Item {
-                            anchors.fill: parent
-
-                            Image {
-                                id: heroPosterImage
-                                anchors.fill: parent
-                                source: posterUrl
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                cache: true
-
-                                layer.enabled: true
-                                layer.effect: MultiEffect {
-                                    maskEnabled: true
-                                    maskSource: posterMask
-                                }
-                            }
-
-                            Rectangle {
-                                id: posterMask
-                                anchors.fill: parent
-                                radius: Theme.imageRadius
-                                visible: false
-                                layer.enabled: true
-                                layer.smooth: true
-                            }
-
-                            ArtworkPlaceholder {
-                                anchors.fill: parent
-                                visible: heroPosterImage.status !== Image.Ready
-                                loading: heroPosterImage.status === Image.Loading
-                                iconGlyph: Icons.movie
-                                title: movieName
-                            }
-
-                            Row {
-                                anchors.top: parent.top
-                                anchors.right: parent.right
-                                anchors.margins: Theme.spacingSmall
-                                spacing: Theme.spacingXSmall
-                                opacity: root.hasMediaBadges() ? 1.0 : 0.0
-
-                                Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
-
-                                MetadataChip {
-                                    text: root.videoResolutionBadge()
-                                    onArtwork: true
-                                }
-                                MetadataChip {
-                                    text: root.videoHdrBadge()
-                                    onArtwork: true
-                                }
-                            }
-                        }
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        spacing: Theme.spacingMedium
-
-                        Item {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: logoUrl !== "" ? Theme.detailViewLogoHeight : titleFallback.implicitHeight
-
-                            ArtworkLogo {
-                                anchors.left: parent.left
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: Math.min(Theme.seriesLogoMaxWidth, parent.width)
-                                height: parent.height
-                                source: logoUrl
-                                fillMode: Image.PreserveAspectFit
-                                horizontalAlignment: Image.AlignLeft
-                                asynchronous: true
-                                cache: true
-                                visible: logoUrl !== ""
-                                opacity: status === Image.Ready ? 1.0 : 0.0
-                                Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
-                            }
-
-                            Text {
-                                id: titleFallback
-                                anchors.left: parent.left
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width
-                                text: movieName
-                                visible: logoUrl === ""
-                                font.pixelSize: Theme.fontSizeHero
-                                font.family: Theme.fontPrimary
-                                font.weight: Theme.fontWeightHeavy
-                                color: Theme.textPrimary
-                                wrapMode: Text.WordWrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                                lineHeight: 0.95
-                            }
-                        }
-
-                        MetadataLine {
-                            Layout.fillWidth: true
-                            font.pixelSize: Theme.fontSizeBody
-                            items: [productionYear > 0 ? String(productionYear) : "", officialRating,
-                                    formatRuntime(durationMs), calculateEndTime(durationMs), formatCommunityRating()]
-                        }
-
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingMedium
-                            visible: movieRatingsRepeater.count > 0
-
-                            Repeater {
-                                id: movieRatingsRepeater
-                                model: root.visibleExternalRatings()
-
-                                RatingMetadataChip {
-                                    required property var modelData
-                                    ratingData: modelData
-                                }
-                            }
-                        }
-
-                        MetadataLine {
-                            Layout.fillWidth: true
-                            separator: "  \u00b7  "
-                            color: Theme.textTertiary
-                            items: genres || []
-                        }
-
-                        Item {
-                            id: overviewContainer
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: overviewColumn.implicitHeight
-
-                            property bool expanded: false
-                            readonly property int collapsedLines: 4
-                            property bool hasOverflow: overviewText.truncated || expanded
-
-                            ColumnLayout {
-                                id: overviewColumn
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                spacing: Theme.spacingSmall
-
-                                Text {
-                                    id: overviewText
-                                    Layout.fillWidth: true
-                                    text: movieOverview || qsTr("No description available.")
-                                    font.pixelSize: Theme.fontSizeBody
-                                    font.family: Theme.fontPrimary
-                                    color: movieOverview ? Theme.textPrimary : Theme.textSecondary
-                                    opacity: 0.9
-                                    lineHeight: 1.12
-                                    wrapMode: Text.WordWrap
-                                    maximumLineCount: overviewContainer.expanded ? 1000 : overviewContainer.collapsedLines
-                                    elide: Text.ElideRight
-                                }
-
-                                ActionButton {
-                                    id: readMoreButton
-                                    variant: "ghost"
-                                    visible: overviewContainer.hasOverflow
-                                    Layout.alignment: Qt.AlignLeft
-                                    Layout.leftMargin: -Theme.spacingMedium
-                                    implicitHeight: Theme.buttonHeightSmall
-                                    sidePadding: Theme.spacingMedium
-                                    labelPixelSize: Theme.fontSizeSmall
-                                    text: overviewContainer.expanded ? qsTr("Show Less") : qsTr("Read More")
-                                    iconGlyph: overviewContainer.expanded ? Icons.expandLess : Icons.expandMore
-                                    onClicked: overviewContainer.expanded = !overviewContainer.expanded
-                                    Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                                    Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                                    Keys.onDownPressed: (event) => { playButton.forceActiveFocus(); event.accepted = true }
-                                    Keys.onUpPressed: (event) => { event.accepted = true }
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.bottomMargin: root.heroActionsBottomSpacing
-                            spacing: Theme.spacingMedium
-
-                            ActionButton {
-                                id: playButton
-                                variant: "primary"
-                                text: positionMs > 0 ? qsTr("Resume") : qsTr("Play")
-                                iconGlyph: Icons.playArrow
-                                busy: playbackInfoLoading
-                                enabled: movieId !== ""
-                                implicitHeight: Theme.buttonHeightLarge
-                                Layout.minimumWidth: Math.round(240 * Theme.layoutScale)
-
-                                Accessible.name: positionMs > 0 ? qsTr("Resume") : qsTr("Play")
-
-                                KeyNavigation.right: markWatchedButton
-
-                                onActiveFocusChanged: {
-                                    if (activeFocus) {
-                                        root.ensureTopVisible()
-                                    }
-                                }
-
-                                Keys.onDownPressed: (event) => {
-                                    root.focusFirstLowerSection()
-                                    event.accepted = true
-                                }
-
-                                Keys.onUpPressed: (event) => {
-                                    if (readMoreButton.visible)
-                                        readMoreButton.forceActiveFocus()
-                                    event.accepted = true
-                                }
-
-                                Keys.onReturnPressed: (event) => {
-                                    if (!event.isAutoRepeat && enabled) {
-                                        clicked()
-                                        event.accepted = true
-                                    }
-                                }
-
-                                Keys.onEnterPressed: (event) => {
-                                    if (!event.isAutoRepeat && enabled) {
-                                        clicked()
-                                        event.accepted = true
-                                    }
-                                }
-
-                                onClicked: root.startPlaybackWithTracks()
-                            }
-
-                            SecondaryActionButton {
-                                id: markWatchedButton
-                                text: isPlayed ? qsTr("Mark Unwatched") : qsTr("Mark Watched")
-                                iconGlyph: isPlayed ? Icons.visibilityOff : Icons.visibility
-                                Layout.preferredHeight: Theme.buttonHeightLarge
-
-                                KeyNavigation.left: playButton
-                                KeyNavigation.right: contextMenuButton
-
-                                onActiveFocusChanged: {
-                                    if (activeFocus) {
-                                        root.ensureTopVisible()
-                                    }
-                                }
-
-                                Keys.onDownPressed: (event) => {
-                                    root.focusFirstLowerSection()
-                                    event.accepted = true
-                                }
-
-                                Keys.onReturnPressed: (event) => {
-                                    if (!event.isAutoRepeat) {
-                                        clicked()
-                                        event.accepted = true
-                                    }
-                                }
-
-                                Keys.onEnterPressed: (event) => {
-                                    if (!event.isAutoRepeat) {
-                                        clicked()
-                                        event.accepted = true
-                                    }
-                                }
-
-                                onClicked: {
-                                    if (isPlayed) {
-                                        MovieDetailsViewModel.markAsUnwatched()
-                                    } else {
-                                        MovieDetailsViewModel.markAsWatched()
-                                    }
-                                }
-                            }
-
-                            SecondaryActionButton {
-                                id: contextMenuButton
-                                text: ""
-                                iconGlyph: Icons.moreHoriz
-                                accessibleLabel: qsTr("More options")
-                                Layout.preferredHeight: Theme.buttonHeightLarge
-                                Layout.preferredWidth: Theme.buttonHeightLarge
-
-                                KeyNavigation.left: markWatchedButton
-
-                                onActiveFocusChanged: {
-                                    if (activeFocus) {
-                                        root.ensureTopVisible()
-                                    }
-                                }
-
-                                Keys.onDownPressed: (event) => {
-                                    root.focusFirstLowerSection()
-                                    event.accepted = true
-                                }
-
-                                Keys.onReturnPressed: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
-                                Keys.onEnterPressed: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
-                                onClicked: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
-                            }
-
-                            Item { Layout.fillWidth: true }
-                        }
-
-                        ColumnLayout {
-                            visible: positionMs > 0 && !isPlayed
-                            Layout.fillWidth: true
-                            spacing: Math.round(4 * Theme.layoutScale)
-
-                            RowLayout {
-                                Layout.fillWidth: true
-
-                                Text {
-                                    text: qsTr("%1 of %2 min watched").arg(root.watchedMinutes()).arg(root.totalMinutes())
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.family: Theme.fontPrimary
-                                    color: Theme.textSecondary
-                                }
-
-                                Item { Layout.fillWidth: true }
-
-                                Text {
-                                    text: qsTr("%1 min remaining").arg(root.remainingMinutes())
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.family: Theme.fontPrimary
-                                    color: Theme.textSecondary
-                                }
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: Theme.progressHeight
-                                radius: height / 2
-                                color: Theme.progressTrack
-
-                                Rectangle {
-                                    anchors.left: parent.left
-                                    anchors.top: parent.top
-                                    anchors.bottom: parent.bottom
-                                    width: durationMs > 0 ? parent.width * Math.min(1, positionMs / durationMs) : 0
-                                    radius: height / 2
-                                    color: Theme.progressFill
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             FocusScope {
                 id: chapterSection
                 Layout.fillWidth: true
                 Layout.preferredHeight: implicitHeight
                 // Hide the whole section rather than showing an empty panel.
-                visible: movieId !== "" && (chaptersLoading || chapters.length > 0)
+                visible: movieId !== ""
+                         && ((chaptersLoading && chapters.length === 0)
+                             || (chapters.length > 0 && chaptersHaveImages))
                 implicitHeight: chapterSectionContent.implicitHeight
 
                 function focusCurrentOrFirst() {
@@ -1319,6 +1360,7 @@ FocusScope {
                     spacing: Theme.spacingMedium
 
                     Text {
+                        id: chapterHeader
                         text: qsTr("Chapters")
                         font.pixelSize: Theme.fontSizeHeader
                         font.family: Theme.fontPrimary
@@ -1328,7 +1370,7 @@ FocusScope {
 
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
+                        Layout.preferredHeight: root.chapterRowHeight
                         visible: chaptersLoading && chapters.length === 0
                         radius: Theme.radiusMedium
                         color: Theme.surfaceSunken
@@ -1339,7 +1381,7 @@ FocusScope {
                             Repeater {
                                 model: 3
                                 Rectangle {
-                                    width: Math.round(248 * Theme.layoutScale)
+                                    width: root.chapterCardWidth
                                     height: parent.height
                                     radius: Theme.radiusMedium
                                     color: Theme.surfaceInteractive
@@ -1358,7 +1400,7 @@ FocusScope {
                     ListView {
                         id: chapterList
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
+                        Layout.preferredHeight: root.chapterRowHeight
                         orientation: ListView.Horizontal
                         spacing: Theme.spacingMedium
                         model: chapters
@@ -1367,14 +1409,14 @@ FocusScope {
                         interactive: false
                         boundsBehavior: Flickable.StopAtBounds
 
-                        onActiveFocusChanged: if (activeFocus) root.ensureItemVisible(chapterSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+                        onActiveFocusChanged: if (activeFocus) root.scrollSectionToTop(chapterSection)
                         onCurrentIndexChanged: if (activeFocus && currentIndex >= 0) positionViewAtIndex(currentIndex, ListView.Contain)
 
                         delegate: FocusScope {
                             id: chapterDelegate
                             required property int index
                             required property var modelData
-                            width: Math.round(248 * Theme.layoutScale)
+                            width: root.chapterCardWidth
                             height: chapterList.height
                             focus: chapterList.activeFocus && chapterList.currentIndex === index
                             Keys.onLeftPressed: (event) => { if (index > 0) { chapterList.currentIndex = index - 1; event.accepted = true } else event.accepted = false }
@@ -1395,7 +1437,7 @@ FocusScope {
                                     spacing: Theme.spacingSmall
                                     Rectangle {
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: Math.round(132 * Theme.layoutScale)
+                                        Layout.fillHeight: true
                                         radius: Theme.radiusMedium
                                         color: Theme.cardBackgroundHover
                                         clip: true
@@ -1412,7 +1454,7 @@ FocusScope {
                                             visible: movieChapterThumbnail.status !== Image.Ready
                                             text: Icons.movie
                                             font.family: Theme.fontIcon
-                                            font.pixelSize: Math.round(32 * Theme.layoutScale)
+                                            font.pixelSize: Math.round(48 * Theme.layoutScale)
                                             color: Theme.textSecondary
                                         }
                                     }
@@ -1425,7 +1467,7 @@ FocusScope {
 
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
+                        Layout.preferredHeight: root.chapterRowHeight
                         visible: !chaptersLoading && chapters.length === 0
                         radius: Theme.radiusMedium
                         color: Theme.surfaceSunken
@@ -1433,7 +1475,7 @@ FocusScope {
                     }
                 }
 
-                WheelStepScroller { anchors.fill: parent; target: chapterList; orientation: Qt.Horizontal; stepPx: Math.round(248 * Theme.layoutScale) + Theme.spacingMedium }
+                WheelStepScroller { anchors.fill: parent; target: chapterList; orientation: Qt.Horizontal; stepPx: root.chapterCardWidth + Theme.spacingMedium }
             }
 
             FocusScope {
@@ -1511,7 +1553,7 @@ FocusScope {
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
-                                root.ensureItemVisible(castSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+                                root.scrollSectionToTop(castSection)
                             }
                         }
 
@@ -1546,7 +1588,7 @@ FocusScope {
                             }
 
                             Keys.onUpPressed: {
-                                if (chapterList.count > 0) chapterSection.focusCurrentOrFirst()
+                                if (chapterSection.visible && chapterList.count > 0) chapterSection.focusCurrentOrFirst()
                                 else playButton.forceActiveFocus()
                             }
 
@@ -1654,7 +1696,7 @@ FocusScope {
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
-                                root.ensureItemVisible(libraryRecommendationsSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+                                root.scrollSectionToTop(libraryRecommendationsSection)
                             }
                         }
 
@@ -1697,6 +1739,9 @@ FocusScope {
                             }
 
                             Keys.onDownPressed: (event) => {
+                                if (chapterTimeline.visible) {
+                                    chapterTimeline.forceActiveFocus()
+                                }
                                 event.accepted = true
                             }
 
@@ -1734,6 +1779,31 @@ FocusScope {
                         }
                     }
                 }
+            }
+
+            ChapterTimeline {
+                id: chapterTimeline
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                visible: movieId !== "" && chapters.length > 0 && !chaptersHaveImages
+                chapters: root.chapters
+                durationMs: root.durationMs
+                positionMs: root.positionMs
+
+                onActiveFocusChanged: if (activeFocus) root.scrollSectionToTop(chapterTimeline)
+                onChapterActivated: (startMs) => root.startPlaybackWithTracksAt(startMs, chapterTimeline)
+
+                Keys.onUpPressed: (event) => {
+                    if (libraryRecommendationsSection.visible && libraryRecommendationsList.count > 0) {
+                        libraryRecommendationsSection.focusCurrentOrFirst()
+                    } else if (castList.count > 0) {
+                        castSection.focusCurrentOrFirst()
+                    } else {
+                        playButton.forceActiveFocus()
+                    }
+                    event.accepted = true
+                }
+                Keys.onDownPressed: (event) => event.accepted = true
             }
         }
     }

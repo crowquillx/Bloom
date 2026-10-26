@@ -206,6 +206,7 @@ qt_add_qml_module(Bloom
         ui/SpacePickerDialog.qml
         ui/SpaceAvatar.qml
         ui/MediaProgressBar.qml
+        ui/ChapterTimeline.qml
         ui/MpvProfileEditor.qml
         ui/VideoSurface.qml
         ui/EmbeddedPlaybackOverlay.qml
