@@ -97,9 +97,6 @@ FocusScope {
         property string lastBackdropUrl: ""
     }
     
-    // Signal to request navigation to library screen
-    signal navigateToLibrary(var libraryId, var libraryName)
-    
     // Signals for specific item navigation (from Recently Added)
     signal navigateToMovie(var movieData, var libraryId, var libraryName)
     signal navigateToEpisode(var episodeData, var seriesId, var libraryId, var libraryName)
@@ -931,39 +928,12 @@ FocusScope {
     }
     
     // Functions
-    function ensureSectionVisible(targetItem, padding) {
-        if (!targetItem)
-            return
-        var extra = padding !== undefined ? padding : Theme.paddingLarge
-        var itemPos = targetItem.mapToItem(mainFlickable.contentItem, 0, 0)
-        var top = itemPos.y - extra
-        var bottom = itemPos.y + targetItem.height + extra
-        var viewTop = mainFlickable.contentY
-        var viewBottom = viewTop + mainFlickable.height
-        if (top < viewTop) {
-            mainFlickable.contentY = Math.max(0, top)
-        } else if (bottom > viewBottom) {
-            var maxY = Math.max(0, mainFlickable.contentHeight - mainFlickable.height)
-            mainFlickable.contentY = Math.min(maxY, bottom - mainFlickable.height)
-        }
-    }
-
     function ensureListItemVisible(listView) {
         if (!listView || listView.currentIndex < 0)
             return
         listView.positionViewAtIndex(listView.currentIndex, ListView.Visible)
     }
 
-    function handleLibrarySelection(library) {
-        console.log("Selected library: " + library.name)
-        // Save focus state before navigating
-        saveFocusState()
-        // Merged libraries open on the connection that owns them.
-        sourceRouter.run(library.connectionId || "", function() {
-            navigateToLibrary(library.itemId, library.name)
-        })
-    }
-    
     function handleNextUpSelection(item) {
         if (root.StackView.status !== StackView.Active) {
             console.log("[Home] Ignoring Next Up selection while screen is not active")

@@ -59,15 +59,6 @@ Window {
         radius: Theme.radiusSmall
     }
     
-    function handleHomeNavigateToLibrary(libraryId, libraryName) {
-        playPointerSelectSound()
-        stackView.push("LibraryScreen.qml", {
-            currentParentId: libraryId,
-            currentLibraryId: libraryId,
-            currentLibraryName: libraryName
-        })
-    }
-
     function handleHomeNavigateToMovie(movieData, libraryId, libraryName) {
         playPointerSelectSound()
         stackView.push("LibraryScreen.qml", {
@@ -141,9 +132,6 @@ Window {
         target: window.homeNavigationSource
         enabled: target !== null
 
-        function onNavigateToLibrary(libraryId, libraryName) {
-            window.handleHomeNavigateToLibrary(libraryId, libraryName)
-        }
         function onNavigateToMovie(movieData, libraryId, libraryName) {
             window.handleHomeNavigateToMovie(movieData, libraryId, libraryName)
         }
@@ -842,7 +830,7 @@ Window {
         modal: true
         focus: true
         anchors.centerIn: parent
-        width: Math.min(Math.round(520 * Theme.layoutScale),
+        width: Math.min(Math.round(600 * Theme.layoutScale),
                         Math.max(0, window.width - (Theme.spacingLarge * 2)))
         padding: Theme.dialogPadding
         topPadding: Theme.spacingLarge
@@ -904,7 +892,7 @@ Window {
 
                 Text {
                     text: qsTr("Power")
-                    font.family: Theme.fontPrimary
+                    font.family: Theme.fontDisplay
                     font.pixelSize: Theme.fontSizeTitle
                     font.weight: Theme.fontWeightHeavy
                     color: Theme.textPrimary
@@ -978,7 +966,7 @@ Window {
         modal: true
         focus: true
         anchors.centerIn: parent
-        width: Math.min(Math.round(520 * Theme.layoutScale),
+        width: Math.min(Math.round(600 * Theme.layoutScale),
                         Math.max(0, window.width - (Theme.spacingLarge * 2)))
         padding: Theme.dialogPadding
         topPadding: Theme.spacingLarge
@@ -1020,7 +1008,7 @@ Window {
 
                 Text {
                     text: qsTr("Sign out?")
-                    font.family: Theme.fontPrimary
+                    font.family: Theme.fontDisplay
                     font.pixelSize: Theme.fontSizeTitle
                     font.weight: Theme.fontWeightHeavy
                     color: Theme.textPrimary
@@ -1278,7 +1266,7 @@ Window {
                     Text {
                         text: qsTr("Update Available")
                         font.pixelSize: Theme.fontSizeTitle
-                        font.family: Theme.fontPrimary
+                        font.family: Theme.fontDisplay
                         font.weight: Theme.fontWeightHeavy
                         color: Theme.textPrimary
                     }
