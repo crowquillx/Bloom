@@ -207,6 +207,7 @@ qt_add_qml_module(Bloom
         ui/MediaCard.qml
         ui/ShelfList.qml
         ui/PageHeader.qml
+        ui/DetailHero.qml
         ui/SpacePickerDialog.qml
         ui/SpaceAvatar.qml
         ui/MediaProgressBar.qml

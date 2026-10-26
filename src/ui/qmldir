@@ -41,3 +41,4 @@ StageBackdrop 1.0 StageBackdrop.qml
 MediaCard 1.0 MediaCard.qml
 ShelfList 1.0 ShelfList.qml
 PageHeader 1.0 PageHeader.qml
+DetailHero 1.0 DetailHero.qml
