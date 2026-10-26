@@ -1243,6 +1243,7 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/MediaCard.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ShelfList.qml
     ${CMAKE_SOURCE_DIR}/src/ui/PageHeader.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/DetailHero.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MediaProgressBar.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MpvProfileEditor.qml
     ${CMAKE_SOURCE_DIR}/src/ui/EmbeddedPlaybackOverlay.qml

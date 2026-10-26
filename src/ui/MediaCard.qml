@@ -114,7 +114,8 @@ Item {
         width: root.artworkWidth
         height: root.artworkHeight
         scale: root.focused ? Theme.focusScale : 1.0
-        transformOrigin: root.hasCaption ? Item.Bottom : Item.Center
+        // Lift from the centre so the focus ring never reaches the shelf header.
+        transformOrigin: Item.Center
         Behavior on scale {
             enabled: Theme.uiAnimationsEnabled
             NumberAnimation { duration: Theme.durationNormal; easing.type: Theme.easingEmphasized }
