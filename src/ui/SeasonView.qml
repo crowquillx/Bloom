@@ -257,7 +257,11 @@ FocusScope {
                         onClicked: {
                             episodesList.currentIndex = index
                             episodesList.forceActiveFocus()
-                            root.episodeSelected(model.modelData)
+                            // A multi-role model has no modelData; read the
+                            // item the same way the Return/Enter handlers do.
+                            var item = SeriesDetailsViewModel.episodesModel.getItem(index)
+                            if (item)
+                                root.episodeSelected(item)
                         }
                     }
 

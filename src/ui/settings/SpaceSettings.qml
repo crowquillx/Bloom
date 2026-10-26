@@ -204,8 +204,10 @@ FocusScope {
             target = item.y - margin
         else if (item.y + item.height + margin > current + rowList.height)
             target = item.y + item.height + margin - rowList.height
-        var minY = rowList.originY
-        var maxY = rowList.originY + Math.max(0, rowList.contentHeight - rowList.height)
+        // The list's own margins are part of the scrollable range.
+        var minY = rowList.originY - rowList.topMargin
+        var maxY = Math.max(minY, rowList.originY + rowList.contentHeight
+                                  + rowList.bottomMargin - rowList.height)
         target = Math.max(minY, Math.min(maxY, target))
         if (Math.abs(target - rowList.contentY) < 1)
             return

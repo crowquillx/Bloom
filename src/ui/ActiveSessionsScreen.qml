@@ -36,8 +36,18 @@ FocusScope {
 
     function refresh() {
         if (sessionService) {
+            root.rememberListFocus()
             sessionService.fetchActiveSessions();
         }
+    }
+
+    // A refresh or revoke can empty the list for a moment (it hides while
+    // empty), so remember that it had focus and give it back when rows return.
+    property bool restoreListFocus: false
+
+    function rememberListFocus() {
+        if (sessionsList.activeFocus)
+            root.restoreListFocus = true
     }
 
     Component.onCompleted: Qt.callLater(function() {
@@ -67,10 +77,17 @@ FocusScope {
             Qt.callLater(function() {
                 if (!root.visible)
                     return
-                if (sessionsList.count === 0 && sessionsList.activeFocus) {
+                if (sessionsList.count > 0) {
+                    if (sessionsList.currentIndex >= sessionsList.count)
+                        sessionsList.currentIndex = sessionsList.count - 1
+                    if (root.restoreListFocus) {
+                        root.restoreListFocus = false
+                        sessionsList.forceActiveFocus()
+                    }
+                } else if ((root.restoreListFocus || sessionsList.activeFocus) && !root.loading) {
+                    // The update finished with no rows: fall back to the header.
+                    root.restoreListFocus = false
                     backButton.forceActiveFocus()
-                } else if (sessionsList.currentIndex >= sessionsList.count) {
-                    sessionsList.currentIndex = sessionsList.count - 1
                 }
             })
         }
@@ -216,6 +233,7 @@ FocusScope {
                     readonly property bool canRevoke: !isCurrent || root.authenticationMode
                     function requestRevoke() {
                         if (canRevoke && revokeButton.enabled && root.sessionService) {
+                            root.rememberListFocus()
                             root.sessionService.revokeSession(modelData.id)
                         }
                     }
