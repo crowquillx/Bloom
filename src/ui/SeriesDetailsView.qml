@@ -14,7 +14,7 @@ FocusScope {
     property bool restorePendingReturnState: false
     property var seerrRecommendationCacheStore: null
     property int seerrRecommendationCacheTtlMs: 10 * 60 * 1000
-    readonly property bool isRestoringReturnFocus: restoringFocusFromSidebar
+    readonly property bool isRestoringReturnFocus: restoringFocusFromNavigation
                                                  || restoringFocusFromReturnState
                                                  || suppressHeroAutofocus
                                                  || hasPendingReturnStateForCurrentSeries()
@@ -611,7 +611,7 @@ FocusScope {
         if (!activeFocus) {
             return
         }
-        if ((restoringFocusFromSidebar && savedFocusItem)
+        if ((restoringFocusFromNavigation && savedFocusItem)
                 || restoringFocusFromReturnState
                 || suppressHeroAutofocus
                 || hasPendingReturnStateForCurrentSeries()) {
@@ -678,7 +678,6 @@ FocusScope {
     // leading-edge scrim for the hero copy and a floor for the shelves.
     Item {
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
         z: -1
         clip: true
 
@@ -1937,17 +1936,17 @@ FocusScope {
 
     property var savedFocusItem: null
     property int savedSeasonIndex: -1
-    property bool restoringFocusFromSidebar: false
+    property bool restoringFocusFromNavigation: false
     property bool restoringFocusFromReturnState: false
     property bool suppressHeroAutofocus: false
 
-    function saveFocusForSidebar() {
+    function saveFocusForNavigation() {
         savedSeasonIndex = seasonsGrid.currentIndex
         savedFocusItem = root.Window.activeFocusItem
     }
 
-    function restoreFocusFromSidebar() {
-        restoringFocusFromSidebar = true
+    function restoreFocusFromNavigation() {
+        restoringFocusFromNavigation = true
         Qt.callLater(root.restoreSavedSidebarFocus)
     }
 
@@ -1969,7 +1968,7 @@ FocusScope {
 
         savedFocusItem = null
         Qt.callLater(function() {
-            restoringFocusFromSidebar = false
+            restoringFocusFromNavigation = false
         })
     }
 

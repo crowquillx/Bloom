@@ -62,7 +62,6 @@ FocusScope {
     // Background
     Rectangle {
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
         gradient: Gradient {
             GradientStop { position: 0.0; color: Theme.mix(Theme.backgroundPrimary, Theme.accentPrimary, 0.06) }
             GradientStop { position: 1.0; color: Theme.backgroundSecondary }

@@ -19,7 +19,7 @@ SearchResultCard 1.0 SearchResultCard.qml
 SeerrComboBox 1.0 SeerrComboBox.qml
 PosterBadgeOverlay 1.0 PosterBadgeOverlay.qml
 UnwatchedBadge 1.0 UnwatchedBadge.qml
-Sidebar 1.0 Sidebar.qml
+NavigationBar 1.0 NavigationBar.qml
 MediaProgressBar 1.0 MediaProgressBar.qml
 MpvProfileEditor 1.0 MpvProfileEditor.qml
 ScreensaverOverlay 1.0 ScreensaverOverlay.qml
@@ -37,3 +37,7 @@ singleton AccessibilityHelpers 1.0 AccessibilityHelpers.qml
 
 
 
+StageBackdrop 1.0 StageBackdrop.qml
+MediaCard 1.0 MediaCard.qml
+ShelfList 1.0 ShelfList.qml
+PageHeader 1.0 PageHeader.qml

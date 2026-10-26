@@ -258,14 +258,12 @@ FocusScope {
     // video to this screen never shows the page underneath.
     Rectangle {
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
         color: Theme.backgroundPrimary
     }
 
     Image {
         id: backdropImage
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
         source: root.backdropCandidates.length > root.backdropCandidateIndex
                 ? root.backdropCandidates[root.backdropCandidateIndex] : ""
         fillMode: Image.PreserveAspectCrop
@@ -285,7 +283,6 @@ FocusScope {
     // Left scrim: solid behind the copy, clear over the right half of the art.
     Rectangle {
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
         gradient: Gradient {
             orientation: Gradient.Horizontal
             GradientStop { position: 0.0; color: Theme.scrimStrong }
@@ -297,7 +294,6 @@ FocusScope {
     // Bottom scrim under the card row.
     Rectangle {
         anchors.left: parent.left
-        anchors.leftMargin: -Theme.navRailReservedWidth
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: parent.height * 0.45

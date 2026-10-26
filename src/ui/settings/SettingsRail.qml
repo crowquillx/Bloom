@@ -84,7 +84,7 @@ FocusScope {
             delegate: ItemDelegate {
                 id: railDelegate
                 width: railList.width
-                height: Theme.navRailItemHeight - Theme.spacingSmall
+                height: Theme.navBarItemHeight - Theme.spacingSmall
                 focusPolicy: Qt.StrongFocus
                 leftPadding: Theme.spacingMedium + Theme.spacingSmall
                 rightPadding: Theme.spacingMedium

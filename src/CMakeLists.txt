@@ -202,7 +202,11 @@ qt_add_qml_module(Bloom
         ui/RetryButton.qml
         ui/Theme.qml
         ui/Icons.qml
-        ui/Sidebar.qml
+        ui/NavigationBar.qml
+        ui/StageBackdrop.qml
+        ui/MediaCard.qml
+        ui/ShelfList.qml
+        ui/PageHeader.qml
         ui/SpacePickerDialog.qml
         ui/SpaceAvatar.qml
         ui/MediaProgressBar.qml

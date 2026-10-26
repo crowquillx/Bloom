@@ -12,7 +12,7 @@ FocusScope {
     property string movieId: ""
     property var pendingReturnState: null
     property bool restorePendingReturnState: false
-    readonly property bool isRestoringReturnFocus: restoringFocusFromSidebar
+    readonly property bool isRestoringReturnFocus: restoringFocusFromNavigation
                                                  || restoringFocusFromReturnState
                                                  || suppressHeroAutofocus
                                                  || hasPendingReturnStateForCurrentMovie()
@@ -812,7 +812,7 @@ FocusScope {
         if (!activeFocus) {
             return
         }
-        if (restoringFocusFromSidebar
+        if (restoringFocusFromNavigation
                 || restoringFocusFromReturnState
                 || suppressHeroAutofocus
                 || hasPendingReturnStateForCurrentMovie()) {
@@ -873,7 +873,6 @@ FocusScope {
     // leading-edge scrim for the hero copy and a floor for the shelves.
     Item {
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
         z: -1
         clip: true
 
@@ -2038,18 +2037,18 @@ FocusScope {
     property var savedFocusItem: null
     property string savedFocusArea: "hero"
     property int savedFocusIndex: 0
-    property bool restoringFocusFromSidebar: false
+    property bool restoringFocusFromNavigation: false
     property bool restoringFocusFromReturnState: false
     property bool suppressHeroAutofocus: false
 
-    function saveFocusForSidebar() {
+    function saveFocusForNavigation() {
         savedFocusItem = root.Window.activeFocusItem
         savedFocusArea = currentFocusArea()
         savedFocusIndex = currentFocusIndex()
     }
 
-    function restoreFocusFromSidebar() {
-        restoringFocusFromSidebar = true
+    function restoreFocusFromNavigation() {
+        restoringFocusFromNavigation = true
         Qt.callLater(root.restoreSavedSidebarFocus)
     }
 
@@ -2067,7 +2066,7 @@ FocusScope {
         savedFocusArea = "hero"
         savedFocusIndex = 0
         Qt.callLater(function() {
-            restoringFocusFromSidebar = false
+            restoringFocusFromNavigation = false
         })
     }
 }

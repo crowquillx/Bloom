@@ -331,7 +331,6 @@ FocusScope {
 
     Rectangle {
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
         z: -3
         gradient: Gradient {
             GradientStop { position: 0.0; color: Theme.backgroundPrimary }
@@ -342,7 +341,6 @@ FocusScope {
     Rectangle {
         id: backdropContainer
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
         z: -2
         color: "transparent"
         clip: true

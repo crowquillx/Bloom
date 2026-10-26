@@ -3,5 +3,13 @@
     <qresource prefix="/">
         <file>fonts/MaterialSymbolsOutlined.ttf</file>
         <file>fonts/Material-Design-Iconic-Font.ttf</file>
+        <file>fonts/inter/Inter-Regular.ttf</file>
+        <file>fonts/inter/Inter-Medium.ttf</file>
+        <file>fonts/inter/Inter-SemiBold.ttf</file>
+        <file>fonts/inter/Inter-Bold.ttf</file>
+        <file>fonts/inter/InterDisplay-SemiBold.ttf</file>
+        <file>fonts/inter/InterDisplay-Bold.ttf</file>
+        <file>fonts/inter/InterDisplay-ExtraBold.ttf</file>
+        <file>fonts/inter/LICENSE.txt</file>
     </qresource>
 </RCC>

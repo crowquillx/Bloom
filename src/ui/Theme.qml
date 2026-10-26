@@ -477,7 +477,7 @@ QtObject {
     property color focusRingHalo: themeIsLight ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(0, 0, 0, 0.55)
     property int focusRingWidth: Math.max(1, Math.round(3 * layoutScale))
     property int focusRingGap: Math.max(1, Math.round(4 * layoutScale))
-    property real focusScale: 1.04
+    property real focusScale: 1.05
     property color selectionBackground: withAlpha(accentPrimary, themeIsLight ? 0.16 : 0.22)
     property color selectionIndicator: accentPrimary
     property color selectionText: textPrimary
@@ -581,15 +581,19 @@ QtObject {
     // Font sizes scale with layoutScale for consistent visual proportions.
     // Captions bottom out at 18 design units so metadata stays readable from
     // across a room.
-    property string fontPrimary: "Inter" // Fallback to system if not available
+    // Inter and Inter Display are bundled (FontLoader), so type renders the
+    // same on every platform. Display is for page titles, hero titles and
+    // text fallbacks for missing logos; everything else uses Primary.
+    property string fontPrimary: "Inter"
+    property string fontDisplay: "Inter Display"
     property string fontIcon: "Material Symbols Outlined" // Icon font for UI elements
     property string fontMono: "monospace"
 
     // Base font sizes (at layoutScale 1.0)
-    property int fontSizeHeroBase: 72
-    property int fontSizeDisplayBase: 48
+    property int fontSizeHeroBase: 84
+    property int fontSizeDisplayBase: 60
     property int fontSizeIconBase: 26
-    property int fontSizeHeaderBase: 38
+    property int fontSizeHeaderBase: 36
     property int fontSizeTitleBase: 32
     property int fontSizeBodyBase: 24
     property int fontSizeSmallBase: 21
@@ -609,7 +613,11 @@ QtObject {
     property int iconSizeSmall: fontSizeSmall
     property int iconSizeMedium: fontSizeIcon
     property int iconSizeLarge: fontSizeMedium
-    property int iconSizeNav: Math.round(34 * layoutScale)
+    property int iconSizeNav: Math.round(30 * layoutScale)
+    // Display type tracks tighter; eyebrows (small uppercase labels above
+    // titles) track wider.
+    property real displayLetterSpacing: -0.6 * layoutScale
+    property real eyebrowLetterSpacing: 2.2 * layoutScale
 
     // Weights: regular body, medium metadata, strong labels/buttons, heavy titles.
     property int fontWeightRegular: Font.Normal
@@ -637,9 +645,13 @@ QtObject {
     property int paddingLarge: Math.round(paddingLargeBase * layoutScale)
 
     // Semantic spacing: page gutters, gaps between sections, and gaps between
-    // controls inside a group.
-    property int pageMarginX: paddingLarge
-    property int pageMarginTop: Math.round(48 * layoutScale)
+    // controls inside a group. pageMarginX is the left/right safe gutter every
+    // page aligns its copy and first card to. pageMarginTop clears the
+    // floating navigation bar; hero pages start at 0 and keep their copy
+    // below navBarReservedHeight instead.
+    property int pageMarginX: Math.round(96 * layoutScale)
+    property int pageMarginTop: navBarReservedHeight
+    property int pageMarginBottom: Math.round(64 * layoutScale)
     property int sectionSpacing: Math.round(56 * layoutScale)
     property int sectionTitleSpacing: Math.round(18 * layoutScale)
     property int controlSpacing: Math.round(16 * layoutScale)
@@ -647,17 +659,43 @@ QtObject {
     property int dialogPadding: Math.round(40 * layoutScale)
 
     // ============================
-    // Navigation rail
+    // Navigation bar
     // ============================
-    // The rail floats inset from the window edge. Content reserves only the
-    // collapsed footprint; expansion overlays content without moving it.
-    property int navRailInset: Math.round(20 * layoutScale)
-    property int navRailCollapsedWidth: Math.round(96 * layoutScale)
-    property int navRailExpandedWidth: Math.round(360 * layoutScale)
-    property int navRailItemHeight: Math.round(72 * layoutScale)
-    property int navRailReservedWidth: navRailInset + navRailCollapsedWidth
-    property color navRailBackground: surfaceDialog
-    property color navRailBackgroundCollapsed: withAlpha(mix(backgroundPrimary, surfaceTint, 0.35), themeIsLight ? 0.80 : 0.58)
+    // The bar floats over the top of every page. Pages without a hero start
+    // their content at pageMarginTop (navBarReservedHeight); hero pages draw
+    // under the bar. The bar recedes while a page is scrolled into its
+    // content and returns when focus moves back up to it.
+    property int navBarInsetTop: Math.round(34 * layoutScale)
+    property int navBarHeight: Math.round(76 * layoutScale)
+    property int navBarItemHeight: Math.round(64 * layoutScale)
+    property int navBarReservedHeight: navBarInsetTop + navBarHeight + Math.round(30 * layoutScale)
+    property int navBarScrimHeight: Math.round(260 * layoutScale)
+
+    // ============================
+    // Stage (page backdrop)
+    // ============================
+    // Every page sits on a full-bleed stage: artwork (StageBackdrop) or the
+    // ambient theme glow. Scrims are tinted from the theme background so copy
+    // stays legible over arbitrary art. "hero" keeps art vivid behind a
+    // leading-edge scrim; "ambient" mutes it behind content.
+    property color stageBase: backgroundPrimary
+    property color stageGlowPrimary: withAlpha(accentPrimary, themeIsLight ? 0.20 : 0.16)
+    property color stageGlowSecondary: withAlpha(accentSecondary, themeIsLight ? 0.16 : 0.12)
+    property real stageAmbientArtOpacity: themeIsLight ? 0.22 : 0.30
+
+    // ============================
+    // Cards and shelves
+    // ============================
+    // Fixed design-unit sizes: a card covers the same fraction of the screen
+    // at every resolution; wider viewports simply show more of them.
+    property int cardGap: Math.round(28 * layoutScale)
+    property int posterCardWidth: Math.round(268 * layoutScale)
+    property int posterCardHeight: Math.round(402 * layoutScale)
+    property int landscapeCardWidth: Math.round(456 * layoutScale)
+    property int landscapeCardHeight: Math.round(256 * layoutScale)
+    property int cardCaptionHeight: Math.round(84 * layoutScale)
+    // Room above/below a shelf so the focused card's scale and ring are not clipped.
+    property int shelfFocusMargin: Math.round(22 * layoutScale)
 
     // ============================
     // Responsive Dimensions
@@ -801,6 +839,8 @@ QtObject {
     property color buttonTabBorderFocused: focusRing
 
     // Button dimensions (responsive)
+    // Hero actions (Home hero, detail pages, Up Next) are the largest controls.
+    property int buttonHeightHero: Math.round(84 * layoutScale)
     property int buttonHeightLarge: Math.round(68 * layoutScale)
     property int buttonHeightMedium: Math.round(60 * layoutScale)
     property int buttonHeightSmall: Math.round(52 * layoutScale)

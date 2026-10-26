@@ -74,7 +74,7 @@ FocusScope {
     property var currentMovieData: null
     
     property var pendingEpisodeData: null
-    property bool restoringFocusFromSidebar: false
+    property bool restoringFocusFromNavigation: false
     property bool restoringFocusFromSeriesDetailsReturn: false
     property bool restoringFocusFromMovieDetailsReturn: false
     property var _seerrRecommendationCache: ({})
@@ -302,23 +302,23 @@ FocusScope {
         }
     }
 
-    function saveFocusForSidebar() {
-        if (contentLoader.item && typeof contentLoader.item.saveFocusForSidebar === "function") {
-            contentLoader.item.saveFocusForSidebar()
+    function saveFocusForNavigation() {
+        if (contentLoader.item && typeof contentLoader.item.saveFocusForNavigation === "function") {
+            contentLoader.item.saveFocusForNavigation()
         }
     }
 
-    function restoreFocusFromSidebar() {
-        restoringFocusFromSidebar = true
-        if (contentLoader.item && typeof contentLoader.item.restoreFocusFromSidebar === "function") {
-            contentLoader.item.restoreFocusFromSidebar()
+    function restoreFocusFromNavigation() {
+        restoringFocusFromNavigation = true
+        if (contentLoader.item && typeof contentLoader.item.restoreFocusFromNavigation === "function") {
+            contentLoader.item.restoreFocusFromNavigation()
         } else if (contentLoader.item) {
             contentLoader.item.forceActiveFocus()
         } else {
             forceActiveFocus()
         }
         Qt.callLater(function() {
-            restoringFocusFromSidebar = false
+            restoringFocusFromNavigation = false
         })
     }
 
@@ -493,7 +493,7 @@ FocusScope {
                     }
                 })
             }
-            if (!restoringFocusFromSidebar
+            if (!restoringFocusFromNavigation
                     && !restoringFocusFromSeriesDetailsReturn
                     && !restoringFocusFromMovieDetailsReturn) {
                 Qt.callLater(function() {
@@ -687,7 +687,7 @@ FocusScope {
         // Transfer focus to loaded content when it changes
         onLoaded: {
             if (item
-                    && !root.restoringFocusFromSidebar
+                    && !root.restoringFocusFromNavigation
                     && !root.restoringFocusFromSeriesDetailsReturn
                     && !root.restoringFocusFromMovieDetailsReturn) {
                 item.forceActiveFocus()
@@ -698,7 +698,7 @@ FocusScope {
         onStatusChanged: {
             if (status === Loader.Ready
                     && item
-                    && !root.restoringFocusFromSidebar
+                    && !root.restoringFocusFromNavigation
                     && !root.restoringFocusFromSeriesDetailsReturn
                     && !root.restoringFocusFromMovieDetailsReturn) {
                 item.forceActiveFocus()
@@ -2864,7 +2864,7 @@ FocusScope {
                 // Ensure focus is set to the content for series details view
                 Qt.callLater(function() {
                     if (contentLoader.item
-                            && !root.restoringFocusFromSidebar
+                            && !root.restoringFocusFromNavigation
                             && !root.restoringFocusFromSeriesDetailsReturn
                             && !root.restoringFocusFromMovieDetailsReturn
                             && !contentLoader.item.isRestoringReturnFocus) {

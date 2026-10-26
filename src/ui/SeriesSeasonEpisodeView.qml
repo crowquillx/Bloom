@@ -1089,7 +1089,6 @@ FocusScope {
     Item {
         id: backdropContainer
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
         z: 0
         clip: true
 

@@ -281,7 +281,6 @@ FocusScope {
     // under the floating rail.
     Rectangle {
         anchors.fill: parent
-        anchors.leftMargin: -Theme.navRailReservedWidth
         gradient: Gradient {
             GradientStop { position: 0.0; color: Theme.mix(Theme.backgroundPrimary, Theme.accentPrimary, 0.08) }
             GradientStop { position: 0.5; color: Theme.backgroundPrimary }
