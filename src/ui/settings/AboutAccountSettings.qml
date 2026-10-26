@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import BloomUI
 
@@ -7,6 +6,7 @@ FocusScope {
     id: root
 
     signal requestReturnToRail()
+    readonly property bool scrolled: flickable.scrolled
     signal signOutRequested()
     signal sessionsRequested()
 
@@ -47,7 +47,6 @@ FocusScope {
         var rowButtons = visibleUpdateRowButtons()
         return rowButtons.length > 0 ? rowButtons[rowButtons.length - 1] : null
     }
-
 
     function logLevelIndexForValue(value) {
         if (value === "debug") return 1
@@ -104,58 +103,29 @@ FocusScope {
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
-    GlassPanel {
-        anchors.fill: parent
-    }
-
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
-        Text {
-            text: qsTr("About & Account")
-            font.pixelSize: Theme.fontSizeHeader
-            font.family: Theme.fontPrimary
-            font.weight: Theme.fontWeightHeavy
-            color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingLarge
-            Layout.leftMargin: Theme.spacingMedium
-        }
-
-        Flickable {
+        SettingsScrollView {
             id: flickable
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: width
-            contentHeight: contentColumn.implicitHeight + 2 * Theme.spacingSmall
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-
-            function ensureFocusVisible(item) {
-                if (!item) return
-                var mapped = item.mapToItem(contentColumn, 0, 0)
-                var itemY = contentColumn.y + mapped.y
-                var itemHeight = item.height
-                var viewTop = contentY
-                var viewBottom = contentY + height
-                var padding = 50
-                var maxScroll = Math.max(0, contentHeight - height)
-                if (itemY < viewTop + padding) {
-                    contentY = Math.max(0, itemY - padding)
-                } else if (itemY + itemHeight > viewBottom - padding) {
-                    contentY = Math.min(maxScroll, itemY + itemHeight - height + padding)
-                }
-            }
+            contentHeight: contentColumn.implicitHeight + Theme.pageMarginBottom
 
             ColumnLayout {
                 id: contentColumn
                 x: Theme.spacingMedium
                 y: Theme.spacingSmall
                 width: flickable.width - 2 * Theme.spacingMedium
-                spacing: Theme.spacingMedium
+                spacing: Theme.spacingSmall
 
-                // ── Group 1: About Info ──
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("About Bloom")
+                    Layout.fillWidth: true
+                    Layout.topMargin: 0
+                }
 
                 SettingsInfoRow {
                     label: qsTr("Version")
@@ -174,11 +144,15 @@ FocusScope {
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingSmall
                 }
 
-                SettingsGroupDivider { Layout.fillWidth: true }
-
-                // ── Group 2: Updates ──
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Updates")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
                 SettingsToggleRow {
                     id: autoUpdateCheckToggle
@@ -192,31 +166,17 @@ FocusScope {
                 }
 
                 // Update Channel
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Math.round(4 * Theme.layoutScale)
-
-                    Text {
-                        text: qsTr("Update Channel")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                    }
-
-                    Text {
-                        text: qsTr("Choose which release channel to follow for updates.")
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
+                SettingsRow {
+                    label: qsTr("Update Channel")
+                    description: qsTr("Choose which release channel to follow for updates.")
+                    highlighted: updateChannelCombo.activeFocus || updateChannelCombo.popup.visible
+                    focusTarget: updateChannelCombo
+                    onActivated: updateChannelCombo.popup.open()
 
                     SettingsComboBox {
                         id: updateChannelCombo
                         focusPolicy: Qt.StrongFocus
                         model: ["Stable", "Development"]
-                        Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
 
                         property bool initialized: false
                         property bool updatingSelection: false
@@ -266,67 +226,15 @@ FocusScope {
                         }
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
-
-                        background: FieldBackground { control: updateChannelCombo; implicitHeight: Theme.buttonHeightSmall }
-
-                        contentItem: Text {
-                            text: updateChannelCombo.selectedText()
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                        }
-
-                        delegate: ItemDelegate {
-                            width: updateChannelCombo.width
-                            contentItem: Text {
-                                text: updateChannelCombo.optionTextAt(index)
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || updateChannelCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: updateChannelCombo.height + 5
-                            width: updateChannelCombo.width
-                            implicitHeight: contentItem.implicitHeight
-                            padding: 1
-
-                            onOpened: {
-                                channelPopupList.currentIndex = updateChannelCombo.highlightedIndex >= 0 ? updateChannelCombo.highlightedIndex : updateChannelCombo.currentIndex
-                                channelPopupList.forceActiveFocus()
-                            }
-                            onClosed: updateChannelCombo.forceActiveFocus()
-
-                            contentItem: ListView {
-                                id: channelPopupList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: updateChannelCombo.popup.visible ? updateChannelCombo.delegateModel : null
-                                currentIndex: updateChannelCombo.highlightedIndex >= 0 ? updateChannelCombo.highlightedIndex : updateChannelCombo.currentIndex
-                                ScrollIndicator.vertical: ScrollIndicator { }
-                                Keys.onReturnPressed: { updateChannelCombo.currentIndex = currentIndex; updateChannelCombo.popup.close() }
-                                Keys.onEnterPressed: { updateChannelCombo.currentIndex = currentIndex; updateChannelCombo.popup.close() }
-                                Keys.onEscapePressed: updateChannelCombo.popup.close()
-                            }
-
-                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
-                        }
                     }
                 }
 
                 // Button Row
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.spacingSmall
+                    Layout.topMargin: Theme.spacingSmall
+                    Layout.bottomMargin: Theme.spacingSmall
+                    spacing: Theme.controlSpacing
 
                     ActionButton {
                         id: checkUpdatesBtn
@@ -499,10 +407,10 @@ FocusScope {
                     Layout.fillWidth: true
                     visible: UpdateService.releaseNotes.length > 0
                     implicitHeight: releaseNotesText.implicitHeight + Theme.spacingMedium * 2
-                    radius: Theme.radiusSmall
-                    color: Theme.inputBackground
-                    border.color: Theme.cardBorder
-                    border.width: 1
+                    radius: Theme.radiusMedium
+                    color: Theme.surfaceInteractiveDisabled
+                    border.color: Theme.surfaceBorder
+                    border.width: Theme.borderWidth
 
                     Text {
                         id: releaseNotesText
@@ -557,33 +465,24 @@ FocusScope {
                     }
                 }
 
-
-                // Log verbosity
-                ColumnLayout {
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Diagnostics")
                     Layout.fillWidth: true
-                    spacing: Math.round(4 * Theme.layoutScale)
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
-                    Text {
-                        text: qsTr("Log Level")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                    }
-
-                    Text {
-                        text: qsTr("Controls how much detail is written to the log file. Warnings and errors are always kept.")
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
+                SettingsRow {
+                    label: qsTr("Log Level")
+                    description: qsTr("Controls how much detail is written to the log file. Warnings and errors are always kept.")
+                    highlighted: logLevelCombo.activeFocus || logLevelCombo.popup.visible
+                    focusTarget: logLevelCombo
+                    onActivated: logLevelCombo.popup.open()
 
                     SettingsComboBox {
                         id: logLevelCombo
                         focusPolicy: Qt.StrongFocus
                         model: [qsTr("Normal"), qsTr("Verbose"), qsTr("Quiet (warnings only)")]
-                        Layout.preferredWidth: Math.round(280 * Theme.layoutScale)
 
                         property bool initialized: false
                         property bool updatingSelection: false
@@ -632,67 +531,15 @@ FocusScope {
                         }
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
-
-                        background: FieldBackground { control: logLevelCombo; implicitHeight: Theme.buttonHeightSmall }
-
-                        contentItem: Text {
-                            text: logLevelCombo.selectedText()
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                        }
-
-                        delegate: ItemDelegate {
-                            width: logLevelCombo.width
-                            contentItem: Text {
-                                text: logLevelCombo.optionTextAt(index)
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || logLevelCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: logLevelCombo.height + 5
-                            width: logLevelCombo.width
-                            implicitHeight: contentItem.implicitHeight
-                            padding: 1
-
-                            onOpened: {
-                                logLevelPopupList.currentIndex = logLevelCombo.highlightedIndex >= 0 ? logLevelCombo.highlightedIndex : logLevelCombo.currentIndex
-                                logLevelPopupList.forceActiveFocus()
-                            }
-                            onClosed: logLevelCombo.forceActiveFocus()
-
-                            contentItem: ListView {
-                                id: logLevelPopupList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: logLevelCombo.popup.visible ? logLevelCombo.delegateModel : null
-                                currentIndex: logLevelCombo.highlightedIndex >= 0 ? logLevelCombo.highlightedIndex : logLevelCombo.currentIndex
-                                ScrollIndicator.vertical: ScrollIndicator { }
-                                Keys.onReturnPressed: { logLevelCombo.currentIndex = currentIndex; logLevelCombo.popup.close() }
-                                Keys.onEnterPressed: { logLevelCombo.currentIndex = currentIndex; logLevelCombo.popup.close() }
-                                Keys.onEscapePressed: logLevelCombo.popup.close()
-                            }
-
-                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
-                        }
                     }
                 }
 
-
-                SettingsGroupDivider { Layout.fillWidth: true }
-
-                // ── Group 3: Account ──
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Account")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
                 SettingsInfoRow {
                     id: serverInfoRow
@@ -706,19 +553,17 @@ FocusScope {
                 }
                 // Session management is available for both providers, but the
                 // destination labels the provider-supported session type.
-                ActionButton {
+                SettingsRow {
                     id: activeSessionsBtn
-                    variant: "secondary"
-                    text: typeof SessionService !== "undefined"
+                    label: typeof SessionService !== "undefined"
                         ? qsTr("Manage %1").arg(SessionService.sessionTypeLabel)
                         : qsTr("Manage Sessions")
-                    iconGlyph: Icons.group
-                    focusPolicy: Qt.StrongFocus
+                    description: qsTr("Review the active sessions for this account")
                     enabled: typeof SessionService !== "undefined"
                         && typeof AuthenticationService !== "undefined"
                         && AuthenticationService.authenticated
-                    Layout.fillWidth: true
-                    onClicked: root.sessionsRequested()
+                    Accessible.role: Accessible.Button
+                    onActivated: root.sessionsRequested()
                     onActiveFocusChanged: {
                         if (activeFocus) {
                             root._lastFocusedItem = this
@@ -733,10 +578,14 @@ FocusScope {
                         signOutBtn.forceActiveFocus()
                         event.accepted = true
                     }
-                    Keys.onReturnPressed: root.sessionsRequested()
-                    Keys.onEnterPressed: root.sessionsRequested()
 
-
+                    Text {
+                        text: Icons.chevronRight
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Theme.iconSizeLarge
+                        color: activeSessionsBtn.highlighted ? Theme.textPrimary : Theme.textSecondary
+                        Accessible.ignored: true
+                    }
                 }
 
                 // Sign Out button
@@ -748,6 +597,7 @@ FocusScope {
                     iconGlyph: Icons.logout
                     focusPolicy: Qt.StrongFocus
                     Layout.topMargin: Theme.spacingMedium
+                    implicitHeight: Theme.buttonHeightLarge
                     onClicked: root.signOutRequested()
                     onActiveFocusChanged: {
                         if (activeFocus) {
@@ -762,7 +612,6 @@ FocusScope {
                     }
                     Keys.onReturnPressed: root.signOutRequested()
                     Keys.onEnterPressed: root.signOutRequested()
-
 
                 }
             }

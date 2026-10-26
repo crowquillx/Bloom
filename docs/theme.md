@@ -132,6 +132,8 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `ArtworkPlaceholder` | Missing or loading artwork with an icon and title. |
 | `ArtworkLogo` | Provider title logos; adds a legibility shadow on light themes (white logos over light scrims). |
 | `settings/SettingsRowBackground` | Settings row hover and focus treatment. |
+| `settings/SettingsRow` | One settings row: strong label, optional description, control slot on the right edge, row focus (`highlighted`) and `activated()` for focusable disclosure/navigation rows. Toggle, slider, spin box and text rows build on it. |
+| `settings/SettingsScrollView` | Settings rows column: animated `ensureFocusVisible(item)`, edge fades, `scrolled` for receding the navigation bar. |
 
 ### Navigation Rail
 `Sidebar.qml` is a floating rail inset by `navRailInset` from the window edges. Pages reserve only `navRailReservedWidth` on the left. Full-bleed backdrops extend under the rail with `anchors.leftMargin: -Theme.navRailReservedWidth`.

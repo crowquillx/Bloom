@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import BloomUI
 
@@ -7,6 +6,7 @@ FocusScope {
     id: root
 
     signal requestReturnToRail()
+    readonly property bool scrolled: flickable.scrolled
 
     readonly property Item preferredEntryItem: mdbListApiKeyInput
     property Item _lastFocusedItem: null
@@ -24,63 +24,29 @@ FocusScope {
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
-    GlassPanel {
-        anchors.fill: parent
-    }
-
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
-        Text {
-            text: qsTr("Integrations")
-            font.pixelSize: Theme.fontSizeHeader
-            font.family: Theme.fontPrimary
-            font.weight: Theme.fontWeightHeavy
-            color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingLarge
-            Layout.leftMargin: Theme.spacingMedium
-        }
-
-        Flickable {
+        SettingsScrollView {
             id: flickable
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: width
-            contentHeight: contentColumn.implicitHeight + 2 * Theme.spacingSmall
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-
-            function ensureFocusVisible(item) {
-                if (!item) return
-                var mapped = item.mapToItem(contentColumn, 0, 0)
-                var itemY = contentColumn.y + mapped.y
-                var itemHeight = item.height
-                var viewTop = contentY
-                var viewBottom = contentY + height
-                var padding = 50
-                var maxScroll = Math.max(0, contentHeight - height)
-                if (itemY < viewTop + padding) {
-                    contentY = Math.max(0, itemY - padding)
-                } else if (itemY + itemHeight > viewBottom - padding) {
-                    contentY = Math.min(maxScroll, itemY + itemHeight - height + padding)
-                }
-            }
+            contentHeight: contentColumn.implicitHeight + Theme.pageMarginBottom
 
             ColumnLayout {
                 id: contentColumn
                 x: Theme.spacingMedium
                 y: Theme.spacingSmall
                 width: flickable.width - 2 * Theme.spacingMedium
-                spacing: Theme.spacingMedium
+                spacing: Theme.spacingSmall
 
                 // --- MDBList Section ---
-                Text {
+                SectionHeader {
+                    level: "group"
                     text: qsTr("MDBList")
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
+                    Layout.fillWidth: true
+                    Layout.topMargin: 0
                 }
 
                 Text {
@@ -90,6 +56,7 @@ FocusScope {
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
+                    Layout.bottomMargin: Theme.spacingSmall
                 }
 
                 SettingsTextInputRow {
@@ -105,14 +72,12 @@ FocusScope {
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
                 }
 
-                SettingsGroupDivider { Layout.fillWidth: true }
-
                 // --- Jellyseerr Section ---
-                Text {
+                SectionHeader {
+                    level: "group"
                     text: qsTr("Jellyseerr")
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
                 }
 
                 Text {
@@ -122,6 +87,7 @@ FocusScope {
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
+                    Layout.bottomMargin: Theme.spacingSmall
                 }
 
                 SettingsTextInputRow {
@@ -149,14 +115,12 @@ FocusScope {
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
                 }
 
-                SettingsGroupDivider { Layout.fillWidth: true }
-
                 // --- Media Segments Section ---
-                Text {
+                SectionHeader {
+                    level: "group"
                     text: qsTr("Media Segments")
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
                 }
 
                 Text {
@@ -166,6 +130,7 @@ FocusScope {
                     color: Theme.textSecondary
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
+                    Layout.bottomMargin: Theme.spacingSmall
                 }
 
                 SettingsToggleRow {

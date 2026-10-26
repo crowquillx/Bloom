@@ -18,6 +18,8 @@ FocusScope {
     id: root
 
     signal requestReturnToRail()
+    /// Scrolled into the rows; Settings recedes the navigation bar.
+    readonly property bool scrolled: rowList.contentY - rowList.originY > Theme.spacingMedium
 
     readonly property var spaceList: typeof Workspaces !== "undefined" ? Workspaces.profiles : []
     readonly property var connectionList: typeof Workspaces !== "undefined" ? Workspaces.connections : []
@@ -179,12 +181,38 @@ FocusScope {
         if (index < 0 || index >= rows.length)
             return
         rowList.currentIndex = index
-        rowList.positionViewAtIndex(index, ListView.Contain)
+        scrollRowIntoView(index)
         Qt.callLater(function() {
             var item = rowList.itemAtIndex(index)
             if (item)
                 item["focusIn"]()
         })
+    }
+
+    // Keep the row and some context in view, animated like the other settings
+    // pages (instant under Reduce Motion).
+    function scrollRowIntoView(index) {
+        var item = rowList.itemAtIndex(index)
+        if (!item) {
+            rowList.positionViewAtIndex(index, ListView.Contain)
+            return
+        }
+        var margin = Theme.navBarItemHeight
+        var current = rowScroll.running ? rowScroll.to : rowList.contentY
+        var target = current
+        if (item.y - margin < current)
+            target = item.y - margin
+        else if (item.y + item.height + margin > current + rowList.height)
+            target = item.y + item.height + margin - rowList.height
+        var minY = rowList.originY
+        var maxY = rowList.originY + Math.max(0, rowList.contentHeight - rowList.height)
+        target = Math.max(minY, Math.min(maxY, target))
+        if (Math.abs(target - rowList.contentY) < 1)
+            return
+        rowScroll.stop()
+        rowScroll.from = rowList.contentY
+        rowScroll.to = target
+        rowScroll.start()
     }
 
     function moveRow(delta) {
@@ -363,13 +391,16 @@ FocusScope {
 
     // ---- Layout ---------------------------------------------------------
 
-    GlassPanel {
-        anchors.fill: parent
+    NumberAnimation {
+        id: rowScroll
+        target: rowList
+        property: "contentY"
+        duration: Theme.durationNormal
+        easing.type: Theme.easingStandard
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
         // Overview header
@@ -380,16 +411,6 @@ FocusScope {
             Layout.rightMargin: Theme.spacingMedium
             Layout.bottomMargin: Theme.spacingLarge
             spacing: Theme.spacingSmall
-
-            Text {
-                text: qsTr("Spaces")
-                font.pixelSize: Theme.fontSizeHeader
-                font.family: Theme.fontPrimary
-                font.weight: Theme.fontWeightHeavy
-                color: Theme.textPrimary
-                Accessible.role: Accessible.Heading
-                Accessible.name: text
-            }
 
             Text {
                 text: qsTr("A space is what Bloom shows you: one server account, or several browsed together with each title labeled by where it comes from. Two users on the same server can be separate sources.")
@@ -420,14 +441,14 @@ FocusScope {
                 Text {
                     text: Icons.chevronLeft
                     font.family: Theme.fontIcon
-                    font.pixelSize: Theme.fontSizeBody
+                    font.pixelSize: Theme.iconSizeMedium
                     color: backLabel.color
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 Text {
                     id: backLabel
                     text: qsTr("Spaces")
-                    font.pixelSize: Theme.fontSizeSmall
+                    font.pixelSize: Theme.fontSizeBody
                     font.family: Theme.fontPrimary
                     font.weight: Theme.fontWeightStrong
                     color: backHover.hovered ? Theme.textPrimary : Theme.textSecondary
@@ -501,6 +522,7 @@ FocusScope {
             id: rowList
             Layout.fillWidth: true
             Layout.fillHeight: true
+            bottomMargin: Theme.pageMarginBottom
             clip: true
             model: root.rows
             spacing: Theme.spacingXSmall
@@ -557,7 +579,15 @@ FocusScope {
                         button.forceActiveFocus()
                 }
 
-                Keys.onUpPressed: function(event) { root.moveRow(-1); event.accepted = true }
+                Keys.onUpPressed: function(event) {
+                    // The first row leaves Up to Main, which focuses the navigation bar.
+                    if (index === 0) {
+                        event.accepted = false
+                        return
+                    }
+                    root.moveRow(-1)
+                    event.accepted = true
+                }
                 Keys.onDownPressed: function(event) { root.moveRow(1); event.accepted = true }
                 Keys.onLeftPressed: function(event) { root.requestReturnToRail(); event.accepted = true }
                 Keys.onReturnPressed: function(event) { root.activateRow(modelData); event.accepted = true }
@@ -659,8 +689,7 @@ FocusScope {
                                     elide: Text.ElideRight
                                     font.pixelSize: Theme.fontSizeBody
                                     font.family: Theme.fontPrimary
-                                    font.weight: rowItem.isSpace || rowItem.rowFocused
-                                                 ? Theme.fontWeightStrong : Theme.fontWeightRegular
+                                    font.weight: Theme.fontWeightStrong
                                     color: rowItem.isMember && !rowItem.modelData.member.enabled
                                            ? Theme.textTertiary : Theme.textPrimary
                                 }
@@ -755,7 +784,14 @@ FocusScope {
                                         buttonRepeater.itemAt(index + 1).forceActiveFocus()
                                     event.accepted = true
                                 }
-                                Keys.onUpPressed: function(event) { root.moveRow(-1); event.accepted = true }
+                                Keys.onUpPressed: function(event) {
+                                    if (rowItem.index === 0) {
+                                        event.accepted = false
+                                        return
+                                    }
+                                    root.moveRow(-1)
+                                    event.accepted = true
+                                }
                                 Keys.onDownPressed: function(event) { root.moveRow(1); event.accepted = true }
                             }
                         }

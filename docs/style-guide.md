@@ -166,7 +166,9 @@ quarter of the width) and a content column. Rows:
   inside clipped lists);
 - put their control (toggle, value, chevron) on the right edge.
 
-Group rows under a `SectionHeader` with `level: "group"`.
+Group rows under a `SectionHeader` with `level: "group"`. Settings builds its
+rows from `settings/SettingsRow` and scrolls them with
+`settings/SettingsScrollView`; reuse them for other panel pages.
 
 ## Typography
 

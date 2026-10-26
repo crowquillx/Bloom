@@ -34,7 +34,7 @@ FocusScope {
         }
     }
 
-    implicitHeight: content.implicitHeight
+    implicitHeight: frame.implicitHeight
     Layout.fillWidth: true
 
     onActiveFocusChanged: {
@@ -50,130 +50,104 @@ FocusScope {
         event.accepted = true
     }
 
-    SettingsRowBackground {
-        focused: root.activeFocus
-    }
-
-    ColumnLayout {
-        id: content
+    SettingsRow {
+        id: frame
         anchors.left: parent.left
         anchors.right: parent.right
-        spacing: Theme.spacingSmall
+        label: root.label
+        description: root.description
+        highlighted: root.activeFocus
+        focusTarget: root
 
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingMedium
+        SpinBox {
+            id: spinBox
+            from: root.from
+            to: root.to
+            stepSize: root.stepSize
+            value: root.value
+            editable: true
 
-            ColumnLayout {
-                spacing: Math.round(4 * Theme.layoutScale)
-                Layout.fillWidth: true
+            onValueModified: {
+                root.spinBoxValueChanged(value)
+            }
 
-                Text {
-                    text: root.label
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
-                }
-
-                Text {
-                    text: root.description
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                    visible: text.length > 0
+            Component.onDestruction: {
+                var currentText = spinBoxTextInput.text
+                if (currentText !== "" && currentText !== root.formatSpinBoxValue(spinBox.value)) {
+                    var parsed = spinBox.valueFromText(currentText, spinBox.locale)
+                    if (!isNaN(parsed) && parsed >= spinBox.from && parsed <= spinBox.to) {
+                        root.spinBoxValueChanged(parsed)
+                    }
                 }
             }
 
-            SpinBox {
-                id: spinBox
-                from: root.from
-                to: root.to
-                stepSize: root.stepSize
-                value: root.value
-                editable: true
-
-                onValueModified: {
-                    root.spinBoxValueChanged(value)
-                }
-
-                Component.onDestruction: {
-                    var currentText = spinBoxTextInput.text
-                    if (currentText !== "" && currentText !== root.formatSpinBoxValue(spinBox.value)) {
-                        var parsed = spinBox.valueFromText(currentText, spinBox.locale)
-                        if (!isNaN(parsed) && parsed >= spinBox.from && parsed <= spinBox.to) {
-                            root.spinBoxValueChanged(parsed)
-                        }
+            valueFromText: function(text, locale) {
+                var cleanText = text.trim()
+                if (root.unit) {
+                    if (cleanText.endsWith(root.unit)) {
+                        cleanText = cleanText.slice(0, cleanText.length - root.unit.length).trim()
                     }
                 }
+                return Number.fromLocaleString(locale, cleanText)
+            }
 
-                valueFromText: function(text, locale) {
-                    var cleanText = text.trim()
-                    if (root.unit) {
-                        if (cleanText.endsWith(root.unit)) {
-                            cleanText = cleanText.slice(0, cleanText.length - root.unit.length).trim()
-                        }
-                    }
-                    return Number.fromLocaleString(locale, cleanText)
-                }
+            contentItem: TextInput {
+                id: spinBoxTextInput
+                z: 2
+                text: root.formatSpinBoxValue(spinBox.value)
+                font.pixelSize: Theme.fontSizeBody
+                font.family: Theme.fontPrimary
+                color: Theme.textPrimary
+                selectionColor: Theme.accentPrimary
+                selectedTextColor: Theme.textPrimary
+                horizontalAlignment: Qt.AlignHCenter
+                verticalAlignment: Qt.AlignVCenter
+                readOnly: !spinBox.editable
+                validator: spinBox.validator
+                inputMethodHints: Qt.ImhDigitsOnly
+            }
 
-                contentItem: TextInput {
-                    id: spinBoxTextInput
-                    z: 2
-                    text: root.formatSpinBoxValue(spinBox.value)
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
+            up.indicator: Rectangle {
+                x: spinBox.mirrored ? 0 : parent.width - width
+                height: parent.height
+                implicitWidth: Theme.buttonHeightSmall
+                implicitHeight: Theme.buttonHeightSmall
+                color: spinBox.up.pressed ? Theme.surfaceInteractivePressed : "transparent"
+                radius: Theme.radiusSmall
+
+                Text {
+                    text: Icons.add
+                    font.pixelSize: Theme.fontSizeIcon
+                    font.family: Theme.fontIcon
                     color: Theme.textPrimary
-                    selectionColor: Theme.accentPrimary
-                    selectedTextColor: Theme.textPrimary
-                    horizontalAlignment: Qt.AlignHCenter
-                    verticalAlignment: Qt.AlignVCenter
-                    readOnly: !spinBox.editable
-                    validator: spinBox.validator
-                    inputMethodHints: Qt.ImhDigitsOnly
+                    anchors.centerIn: parent
                 }
+            }
 
-                up.indicator: Rectangle {
-                    x: spinBox.mirrored ? 0 : parent.width - width
-                    height: parent.height
-                    implicitWidth: Math.round(40 * Theme.layoutScale)
-                    implicitHeight: Math.round(40 * Theme.layoutScale)
-                    color: spinBox.up.pressed ? Theme.surfaceInteractivePressed : "transparent"
-                    radius: Theme.radiusSmall
+            down.indicator: Rectangle {
+                x: spinBox.mirrored ? parent.width - width : 0
+                height: parent.height
+                implicitWidth: Theme.buttonHeightSmall
+                implicitHeight: Theme.buttonHeightSmall
+                color: spinBox.down.pressed ? Theme.surfaceInteractivePressed : "transparent"
+                radius: Theme.radiusSmall
 
-                    Text {
-                        text: "+"
-                        font.pixelSize: Theme.fontSizeTitle
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                        anchors.centerIn: parent
-                    }
+                Text {
+                    text: Icons.remove
+                    font.pixelSize: Theme.fontSizeIcon
+                    font.family: Theme.fontIcon
+                    color: Theme.textPrimary
+                    anchors.centerIn: parent
                 }
+            }
 
-                down.indicator: Rectangle {
-                    x: spinBox.mirrored ? parent.width - width : 0
-                    height: parent.height
-                    implicitWidth: Math.round(40 * Theme.layoutScale)
-                    implicitHeight: Math.round(40 * Theme.layoutScale)
-                    color: spinBox.down.pressed ? Theme.surfaceInteractivePressed : "transparent"
-                    radius: Theme.radiusSmall
+            opacity: root.enabled ? 1.0 : Theme.disabledOpacity
 
-                    Text {
-                        text: "-"
-                        font.pixelSize: Theme.fontSizeTitle
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                        anchors.centerIn: parent
-                    }
-                }
-
-                background: Rectangle {
-                    implicitWidth: Math.round(180 * Theme.layoutScale)
-                    implicitHeight: Theme.buttonHeightSmall
-                    color: Theme.surfaceInteractive
-                    radius: Theme.radiusControl
-                }
+            background: Rectangle {
+                implicitWidth: Math.round(220 * Theme.layoutScale)
+                implicitHeight: Theme.buttonHeightSmall
+                color: Theme.surfaceInteractive
+                radius: Theme.radiusControl
             }
         }
     }

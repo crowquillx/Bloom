@@ -176,6 +176,8 @@ qt_add_qml_module(Bloom
         ui/settings/SettingsInfoRow.qml
         ui/settings/SettingsGroupDivider.qml
         ui/settings/SettingsRowBackground.qml
+        ui/settings/SettingsRow.qml
+        ui/settings/SettingsScrollView.qml
         ui/settings/PlaybackSettings.qml
         ui/settings/DisplaySettings.qml
         ui/settings/HomeSettings.qml
