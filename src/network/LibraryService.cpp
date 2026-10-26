@@ -1349,15 +1349,7 @@ void LibraryService::search(const QString &searchTerm, int limit,
             connectionId, normalizedSearchTerm, error.userMessage);
     };
 
-    // Libraries of unsupported types are searched around like hidden ones.
-    QStringList excludedIds = excludedLibraryIds;
-    for (const QString &id : m_unsupportedLibraryIds.value(connectionId)) {
-        if (!excludedIds.contains(id)) {
-            excludedIds.append(id);
-        }
-    }
-
-    if (excludedIds.isEmpty()) {
+    const auto searchEverything = [this, connectionId, query, emitResults, emitFailure]() {
         sendCatalogRequest(
             QStringLiteral("search"),
             ProviderCatalogOperation::Search,
@@ -1366,6 +1358,15 @@ void LibraryService::search(const QString &searchTerm, int limit,
                 emitResults(m_authService->mapMediaItems(response.rawItems, connectionId));
             },
             emitFailure);
+    };
+
+    // Libraries of unsupported types are searched around like hidden ones.
+    // Until this connection's libraries are known, list them first rather
+    // than assume none are unsupported.
+    if (excludedLibraryIds.isEmpty()
+        && m_unsupportedLibraryIds.contains(connectionId)
+        && m_unsupportedLibraryIds.value(connectionId).isEmpty()) {
+        searchEverything();
         return;
     }
 
@@ -1375,12 +1376,24 @@ void LibraryService::search(const QString &searchTerm, int limit,
         QStringLiteral("search"),
         ProviderCatalogOperation::Views,
         baseCatalogQuery(),
-        [this, connectionId, query, limit, excludedIds, emitResults, emitFailure](
-            const ProviderCatalogResponse &response) {
+        [this, connectionId, query, limit, excludedLibraryIds, searchEverything, emitResults,
+         emitFailure](const ProviderCatalogResponse &response) {
+            const QVariantList allViews =
+                m_authService->mapMediaItems(response.rawItems, connectionId);
+            const QStringList unsupportedIds = LibraryKinds::unsupportedLibraryIds(allViews);
+            m_unsupportedLibraryIds.insert(connectionId, unsupportedIds);
+            if (excludedLibraryIds.isEmpty() && unsupportedIds.isEmpty()) {
+                searchEverything();
+                return;
+            }
+            QStringList excludedIds = excludedLibraryIds;
+            for (const QString &id : unsupportedIds) {
+                if (!excludedIds.contains(id)) {
+                    excludedIds.append(id);
+                }
+            }
             const QStringList libraryIds = LibrarySearchScope::searchableLibraryIds(
-                LibraryKinds::supportedLibraries(
-                    m_authService->mapMediaItems(response.rawItems, connectionId)),
-                excludedIds);
+                LibraryKinds::supportedLibraries(allViews), excludedIds);
             if (libraryIds.isEmpty()) {
                 emitResults({});
                 return;

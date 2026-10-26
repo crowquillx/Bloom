@@ -207,6 +207,12 @@ FocusScope {
                 boundsBehavior: Flickable.StopAtBounds
                 highlightMoveDuration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0
                 keyNavigationEnabled: true
+                // The user moved elsewhere while rows were still showing, so a
+                // pending refresh or revoke must not pull focus back.
+                onActiveFocusChanged: {
+                    if (!activeFocus && count > 0)
+                        root.restoreListFocus = false
+                }
                 Accessible.role: Accessible.List
                 Accessible.name: root.sessionService
                     ? root.sessionService.sessionTypeLabel

@@ -322,6 +322,7 @@ private:
         const QString &requestKey);
     QString requestConnectionId() const;
     void requestCombinedPages();
+    void publishCombinedFilterOptions();
     void pumpCombined();
     LibraryItemQuery combinedQuery(const QString &libraryId, int offset, int limit) const;
     std::optional<RequestIdentity> takeCombinedRequest(const QString &connectionId,

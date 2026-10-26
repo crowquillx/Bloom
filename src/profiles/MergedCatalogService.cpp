@@ -289,7 +289,10 @@ void MergedCatalogService::search(const QString &searchTerm, int limit)
     query.limit = limit;
     query.includeItemTypes = {QStringLiteral("Movie"), QStringLiteral("Series")};
     fanOut([this, query](const Member &member, SourceCompletion completion) {
+        // Until a source's libraries are known, list them first (scoped
+        // search) rather than assume none are of an unsupported type.
         if (member.searchHiddenLibraryIds.isEmpty()
+            && m_unsupportedLibraryIds.contains(member.connectionId)
             && m_unsupportedLibraryIds.value(member.connectionId).isEmpty()) {
             requestMember(member, ProviderCatalogOperation::Search, query, false,
                           std::move(completion));
@@ -348,6 +351,13 @@ void MergedCatalogService::requestScopedSearch(const Member &member,
                   [this, member, query, completion](const MergedSourceResult &views) {
         if (!views.succeeded) {
             completion(views);
+            return;
+        }
+        const QStringList unsupportedIds = LibraryKinds::unsupportedLibraryIds(views.items);
+        m_unsupportedLibraryIds.insert(member.connectionId, unsupportedIds);
+        if (member.searchHiddenLibraryIds.isEmpty() && unsupportedIds.isEmpty()) {
+            // Nothing to search around: one search across the source.
+            requestMember(member, ProviderCatalogOperation::Search, query, false, completion);
             return;
         }
         const QStringList libraryIds = LibrarySearchScope::searchableLibraryIds(

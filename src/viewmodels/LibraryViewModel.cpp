@@ -278,7 +278,11 @@ void LibraryViewModel::pumpCombined()
         }
         appendItems(QJsonArray::fromVariantList(batch));
     }
-    setTotalRecordCount(qMax(m_combinedCursor.totalCount(), static_cast<int>(m_items.size())));
+    // Once every library is drained, the rows shown are the whole list
+    // (empty folders are dropped on insert), so stop offering more.
+    setTotalRecordCount(m_combinedCursor.finished()
+                            ? static_cast<int>(m_items.size())
+                            : qMax(m_combinedCursor.totalCount(), static_cast<int>(m_items.size())));
 
     const bool satisfied = static_cast<int>(m_items.size()) >= m_combinedTarget
                            || m_combinedCursor.finished();
@@ -298,6 +302,21 @@ void LibraryViewModel::pumpCombined()
         emit loadMoreComplete();
     }
     emit canLoadMoreChanged();
+}
+
+void LibraryViewModel::publishCombinedFilterOptions()
+{
+    const auto sorted = [](QStringList values) {
+        std::sort(values.begin(), values.end(), [](const QString &a, const QString &b) {
+            return QString::localeAwareCompare(a, b) < 0;
+        });
+        return values;
+    };
+    m_availableGenres = sorted(m_combinedGenres);
+    m_availableTags = sorted(m_combinedTags);
+    m_availableStudios = sorted(m_combinedStudios);
+    setFilterOptionsLoading(false);
+    emit filterOptionsChanged();
 }
 
 std::optional<LibraryViewModel::RequestIdentity>
@@ -744,17 +763,7 @@ void LibraryViewModel::onFilterOptionsLoaded(const QString &connectionId,
         unite(m_combinedTags, tags);
         unite(m_combinedStudios, studios);
         if (m_combinedFilterRequestKeys.isEmpty()) {
-            const auto sorted = [](QStringList values) {
-                std::sort(values.begin(), values.end(), [](const QString &a, const QString &b) {
-                    return QString::localeAwareCompare(a, b) < 0;
-                });
-                return values;
-            };
-            m_availableGenres = sorted(m_combinedGenres);
-            m_availableTags = sorted(m_combinedTags);
-            m_availableStudios = sorted(m_combinedStudios);
-            setFilterOptionsLoading(false);
-            emit filterOptionsChanged();
+            publishCombinedFilterOptions();
         }
         return;
     }
@@ -783,8 +792,9 @@ void LibraryViewModel::onFilterOptionsFailed(const QString &connectionId,
             m_combinedFilterRequestKeys.remove(requestKey);
             qCWarning(lcViewModels) << "LibraryViewModel: combined filter options failed"
                                     << parentId << error;
+            // The other libraries' options still count.
             if (m_combinedFilterRequestKeys.isEmpty()) {
-                setFilterOptionsLoading(false);
+                publishCombinedFilterOptions();
             }
         }
         return;

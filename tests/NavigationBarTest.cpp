@@ -204,6 +204,7 @@ private slots:
     void activationNavigatesAndReturnsToCurrentEntry();
     void kindTabOpensLibraryMenu();
     void shiftEnterReordersLibrariesInMenu();
+    void longMenuStaysOnScreenAndScrolls();
     void recessedBarReturnsWhenFocused();
     void barMetricsFollowLayoutScale_data();
     void barMetricsFollowLayoutScale();
@@ -571,6 +572,50 @@ void NavigationBarTest::shiftEnterReordersLibrariesInMenu()
     QCOMPARE(bar->property("reorderingLibraryId").toString(), QString());
     QCOMPARE(m_view->rootObject()->property("lastNavigation").toString(), QString());
     QCOMPARE(focusedName(), QStringLiteral("navMenu_library_lib-movies"));
+}
+
+void NavigationBarTest::longMenuStaysOnScreenAndScrolls()
+{
+    // Many movie libraries (more than fit) in a small window: the menu caps its height to
+    // the window and scrolls each focused row into view.
+    QVariantList views;
+    for (int i = 0; i < 24; ++i) {
+        views.append(QVariantMap{{QStringLiteral("itemId"), QStringLiteral("lib-%1").arg(i)},
+                                 {QStringLiteral("name"), QStringLiteral("Movies %1").arg(i)},
+                                 {QStringLiteral("collectionType"), QStringLiteral("movies")}});
+    }
+    const QVariantList original = m_libraryViewModel.views;
+    m_libraryViewModel.views = views;
+    emit m_libraryViewModel.viewsChanged();
+
+    m_view->resize(1280, 720);
+    m_view->rootObject()->setSize(QSizeF(1280, 720));
+    m_layout.apply(1280, 720);
+    QVERIFY(QQuickTest::qWaitForPolish(m_view.get()));
+
+    focusBarFromPage();
+    press(Qt::Key_Right);
+    press(Qt::Key_Return);
+    QTRY_COMPARE(focusedName(), QStringLiteral("navMenu_all_"));
+
+    QQuickItem *panel = item(QStringLiteral("navMenu"));
+    QVERIFY(panel);
+    const QRectF panelBounds = panel->mapRectToScene(QRectF(0, 0, panel->width(), panel->height()));
+    QVERIFY2(panelBounds.bottom() <= 720, qPrintable(QString::number(panelBounds.bottom())));
+    // The rows really do overflow, so the cap and scrolling are exercised.
+    QVERIFY(sceneBounds(QStringLiteral("navMenu_library_lib-23")).top() > panelBounds.bottom());
+
+    for (int i = 0; i < 24; ++i) {
+        press(Qt::Key_Down);
+        const QString name = QStringLiteral("navMenu_library_lib-%1").arg(i);
+        QCOMPARE(focusedName(), name);
+        QTRY_VERIFY2(sceneBounds(name).bottom() <= panelBounds.bottom() + 1
+                         && sceneBounds(name).top() >= panelBounds.top() - 1,
+                     qPrintable(name + QStringLiteral(" is outside the menu")));
+    }
+
+    m_libraryViewModel.views = original;
+    emit m_libraryViewModel.viewsChanged();
 }
 
 void NavigationBarTest::recessedBarReturnsWhenFocused()

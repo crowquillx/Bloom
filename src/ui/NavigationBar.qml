@@ -471,6 +471,26 @@ FocusScope {
             rows[next].forceActiveFocus()
     }
 
+    /// Scrolls a long menu so @p row (and the header above it) is in view.
+    function ensureMenuRowVisible(row) {
+        if (!row)
+            return
+        var top = row.y
+        var index = menuRows().indexOf(row)
+        // Keep a source header visible above the first row of its group.
+        var previous = row.index > 0 ? menuRepeater.itemAt(row.index - 1) : null
+        if (previous && !previous.focusable)
+            top = previous.y
+        if (index === 0)
+            top = 0
+        var bottom = row.y + row.height
+        if (top < menuFlick.contentY)
+            menuFlick.contentY = top
+        else if (bottom > menuFlick.contentY + menuFlick.height)
+            menuFlick.contentY = Math.min(menuFlick.contentHeight - menuFlick.height,
+                                          bottom - menuFlick.height)
+    }
+
     function focusMenuLibrary(libraryId) {
         var rows = menuRows()
         for (var i = 0; i < rows.length; ++i) {
@@ -867,6 +887,10 @@ FocusScope {
         }
 
         onClicked: activate(false)
+        onActiveFocusChanged: {
+            if (activeFocus)
+                root.ensureMenuRowVisible(row)
+        }
 
         Keys.onPressed: function(event) {
             root.activateKeyboardNavigation()
@@ -1227,9 +1251,12 @@ FocusScope {
                                              ? root.menuAnchor.mapToItem(root, 0, root.menuAnchor.height)
                                              : Qt.point(0, 0)
         width: Math.round(460 * Theme.layoutScale)
-        height: menuColumn.implicitHeight + padding * 2
         x: Math.max(Theme.pageMarginX, Math.min(anchorPoint.x, root.width - width - Theme.pageMarginX))
         y: anchorPoint.y + Theme.focusRingGap + Theme.focusRingWidth + Theme.spacingSmall
+        // Never taller than the window below it; long menus scroll.
+        readonly property real maxHeight: Math.max(Theme.navBarItemHeight * 2,
+                                                   root.height - y - Theme.pageMarginBottom)
+        height: Math.min(menuColumn.implicitHeight + padding * 2, maxHeight)
         opacity: root.menuOpen ? 1.0 : 0.0
         Behavior on opacity {
             enabled: Theme.uiAnimationsEnabled
@@ -1250,17 +1277,31 @@ FocusScope {
             floating: true
         }
 
-        Column {
-            id: menuColumn
-            x: menuPanel.padding
-            y: menuPanel.padding
-            width: menuPanel.width - menuPanel.padding * 2
-            spacing: Math.round(4 * Theme.layoutScale)
+        Flickable {
+            id: menuFlick
+            anchors.fill: parent
+            anchors.margins: menuPanel.padding
+            contentWidth: width
+            contentHeight: menuColumn.implicitHeight
+            interactive: contentHeight > height
+            boundsBehavior: Flickable.StopAtBounds
+            clip: true
 
-            Repeater {
-                id: menuRepeater
-                model: root.currentMenuEntries
-                delegate: MenuRow {}
+            Behavior on contentY {
+                enabled: Theme.uiAnimationsEnabled
+                NumberAnimation { duration: Theme.durationShort; easing.type: Theme.easingStandard }
+            }
+
+            Column {
+                id: menuColumn
+                width: menuFlick.width
+                spacing: Math.round(4 * Theme.layoutScale)
+
+                Repeater {
+                    id: menuRepeater
+                    model: root.currentMenuEntries
+                    delegate: MenuRow {}
+                }
             }
         }
     }

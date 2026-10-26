@@ -52,6 +52,7 @@ private slots:
     void sortsByYearDescending();
     void sortsByDateAdded();
     void failedLibraryDoesNotBlockOthers();
+    void failedLaterPageShrinksTotal();
     void randomInterleavesWithoutWaiting();
 };
 
@@ -163,6 +164,24 @@ void CombinedLibraryTest::failedLibraryDoesNotBlockOthers()
     cursor.pageFailed(QStringLiteral("b"));
     QCOMPARE(ids(cursor.take(5)), QStringList({"a1"}));
     QVERIFY(cursor.finished());
+}
+
+void CombinedLibraryTest::failedLaterPageShrinksTotal()
+{
+    CombinedLibraryCursor cursor;
+    cursor.reset({QStringLiteral("a"), QStringLiteral("b")}, QStringLiteral("title"), QString());
+    cursor.librariesNeedingPages();
+    cursor.addPage(QStringLiteral("a"), items({item("a1", "A"), item("a2", "C")}), 10);
+    cursor.addPage(QStringLiteral("b"), items({item("b1", "B")}), 1);
+    QCOMPARE(cursor.totalCount(), 11);
+    QCOMPARE(ids(cursor.take(10)), QStringList({"a1", "b1", "a2"}));
+    QCOMPARE(cursor.librariesNeedingPages(), QStringList({QStringLiteral("a")}));
+
+    // a's second page fails: the list ends with what arrived, and the total
+    // no longer promises more.
+    cursor.pageFailed(QStringLiteral("a"));
+    QVERIFY(cursor.finished());
+    QCOMPARE(cursor.totalCount(), 3);
 }
 
 void CombinedLibraryTest::randomInterleavesWithoutWaiting()

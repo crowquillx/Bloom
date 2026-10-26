@@ -38,7 +38,8 @@ public:
     /// ends that library.
     void addPage(const QString &libraryId, const QVariantList &items, int total);
 
-    /// Ends a library whose page failed so the others can still be merged.
+    /// Ends a library whose page failed so the others can still be merged;
+    /// its total becomes the items it already delivered.
     void pageFailed(const QString &libraryId);
 
     /// Up to @p count items in combined order. Returns fewer when a library

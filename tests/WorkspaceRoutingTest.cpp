@@ -1003,6 +1003,18 @@ void WorkspaceRoutingTest::unsupportedLibrariesLeaveViewsAndSearch()
     alice.itemsByLibrary.insert(QStringLiteral("lib-music"),
                                 QJsonArray{movie(QStringLiteral("x-alice"), QStringLiteral("Heist Live"))});
 
+    // Searching before the library list is known lists it first instead of
+    // assuming no library is of an unsupported type.
+    {
+        LibraryService fresh(m_auth.get());
+        m_servers->requests.clear();
+        QSignalSpy freshResults(&fresh, &LibraryService::canonicalSearchResultsLoaded);
+        fresh.search(QStringLiteral("Heist"), 50, {});
+        QTRY_COMPARE(freshResults.count(), 1);
+        QCOMPARE(itemIds(freshResults.first().at(2).toList()),
+                 QStringList({QStringLiteral("m-alice")}));
+    }
+
     LibraryService library(m_auth.get());
     QSignalSpy views(&library, &LibraryService::canonicalViewsLoadedForConnection);
     library.getViews();

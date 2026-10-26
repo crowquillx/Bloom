@@ -112,9 +112,9 @@ void CombinedLibraryCursor::pageFailed(const QString &libraryId)
     Source &source = m_sources[libraryId];
     source.requested = false;
     source.exhausted = true;
-    if (source.total < 0) {
-        source.total = source.nextOffset;
-    }
+    // Only what arrived can ever be shown, so the total shrinks to it and the
+    // combined list stops offering more.
+    source.total = source.nextOffset;
 }
 
 bool CombinedLibraryCursor::lessThan(const QVariantMap &a, const QVariantMap &b,
