@@ -23,7 +23,7 @@ Runtime behavior
 - Search requests are split:
   - Jellyfin results render first.
   - Seerr search runs independently and appears later when available.
-- Seerr cards include source/status metadata and open the Seerr request dialog.
+- On the Search screen, Seerr results form their own "Request with Seerr" poster shelf of `MediaCard`s; the card subtitle carries the year and the Seerr status (Pending, Processing, Partial, Available, Deleted). Selecting one opens the Seerr request dialog.
 - On the post-playback no-next screen, Seerr similar-title failures are ignored and the screen remains focused on Back to Series/Home actions.
 
 API endpoints used
@@ -50,9 +50,9 @@ Request payload mapping
 
 Code map
 - `src/network/SeerrService.{h,cpp}`: API integration, result mapping, request preparation/submission.
-- `src/ui/SearchScreen.qml`: independent Seerr search flow + Seerr section rendering.
+- `src/ui/SearchScreen.qml`: independent Seerr search flow + the Seerr shelf (poster `MediaCard`s, status in the subtitle).
 - `src/ui/SeerrRequestDialog.qml`: keyboard-first request dialog.
-- `src/ui/SearchResultCard.qml`: Seerr-aware card rendering (TMDB posters/source-status badge).
+- `src/ui/SearchResultCard.qml`: Seerr-aware card rendering (TMDB posters/source-status badge) for the Up Next recommendation shelf.
 - `src/ui/SeriesDetailsView.qml`: Seerr recommendations shelf for series details, reusing the request dialog.
 - `src/viewmodels/UpNextRecommendationsViewModel.{h,cpp}` and `src/ui/UpNextScreen.qml`: no-next recommendation shelf that merges Jellyfin similar series with Seerr TV results.
 

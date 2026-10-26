@@ -1,32 +1,34 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Effects
 import BloomUI
 
 /**
- * SearchScreen - Search for movies and TV shows
- * 
- * Features:
- * - Search input field with keyboard focus
- * - Random suggestions when no search term is entered
- * - Categorized results (TV Shows and Movies)
- * - Full keyboard navigation
- * - Escape returns to home screen
+ * SearchScreen - search movies and shows across the active space.
+ *
+ * Browse archetype (docs/style-guide.md): an ambient stage that picks up the
+ * focused result's backdrop, a PageHeader, a large search field, then results
+ * as poster shelves (Shows, Movies, Seerr). Before a search, a shelf of random
+ * suggestions from the active library.
+ *
+ * Keys: the field is the first focus. Down moves into the first shelf, Up and
+ * Down move between shelves, Up from the first shelf returns to the field, and
+ * Up from the field reaches the navigation bar. Return in the field searches
+ * immediately (or enters the results once they are in).
  */
 FocusScope {
     id: root
     focus: true
     property string navigationId: "search"
-    
+
     // Navigation signals
     signal navigateToMovie(var movieData)
     signal navigateToSeries(var seriesId)
-    
+
     // ========================================
     // Properties
     // ========================================
-    
+
     property string searchTerm: ""
     property var suggestions: []
     property var movieResults: []
@@ -36,10 +38,30 @@ FocusScope {
     property bool hasSearched: false
     property bool waitingForLibrarySearch: false
     property bool waitingForSeerrSearch: false
+    property bool librarySearchFailed: false
+    property string librarySearchError: ""
     property string pendingLibraryConnectionId: ""
     property string pendingLibrarySearchTerm: ""
     // Merged spaces search every enabled source at once.
     readonly property bool mergedMode: typeof MergedCatalog !== "undefined" && MergedCatalog.active
+
+    readonly property int libraryResultCount: movieResults.length + seriesResults.length
+    readonly property bool showSuggestions: !hasSearched && !waitingForLibrarySearch
+                                            && searchTerm.trim().length === 0 && suggestions.length > 0
+
+    /// The navigation bar recedes once the page scrolls past its header.
+    readonly property bool navigationRecessed: contentFlickable.contentY > Theme.spacingLarge
+
+    // Same request width as Home posters, so both pages share image-cache entries.
+    readonly property int posterRequestWidth: 640
+    readonly property real shelfScrollOffset: Math.round(56 * Theme.layoutScale)
+
+    /// Last focused field or shelf; restored after the navigation bar or a
+    /// details page hands focus back.
+    property Item lastFocusTarget: null
+    /// Backdrop of the focused result, shown softly on the stage.
+    property string stageSource: ""
+    property string pendingStageSource: ""
 
     // Details for a merged result open on the connection that owns it.
     function openSeries(item) {
@@ -50,21 +72,38 @@ FocusScope {
         sourceRouter.run(item.connectionId || "", function() { root.navigateToMovie(item) })
     }
 
-    function applyLibrarySearchResults(term, movies, series, failed) {
+    function openResult(item, list) {
+        if (!item)
+            return
+        if (item.source === "seerr") {
+            seerrRequestDialog.openForItem(item, list)
+        } else if (item.mediaType === "Series") {
+            openSeries(item)
+        } else if (item.mediaType === "Movie") {
+            openMovie(item)
+        }
+    }
+
+    function applyLibrarySearchResults(term, movies, series, failed, error) {
         waitingForLibrarySearch = false
         pendingLibraryConnectionId = ""
         pendingLibrarySearchTerm = ""
         if (term !== searchTerm.trim())
             return
         hasSearched = true
+        librarySearchFailed = !!failed
+        librarySearchError = failed ? (error || "") : ""
         movieResults = failed ? [] : (movies || [])
         seriesResults = failed ? [] : (series || [])
+        Qt.callLater(repairFocus)
     }
 
     function startLibrarySearch(term) {
         pendingLibraryConnectionId = mergedMode ? "" : LibraryService.getActiveConnectionId()
         pendingLibrarySearchTerm = term
         waitingForLibrarySearch = true
+        librarySearchFailed = false
+        librarySearchError = ""
         hasSearched = false
         if (mergedMode)
             MergedCatalog.search(term)
@@ -73,90 +112,239 @@ FocusScope {
                                   ? Workspaces.searchHiddenLibraryIds(pendingLibraryConnectionId) : [])
     }
 
+    function runSearchNow() {
+        const normalizedSearchTerm = searchTerm.trim()
+        if (normalizedSearchTerm.length > 0) {
+            root.startLibrarySearch(normalizedSearchTerm)
+
+            if (SeerrService.isConfigured()) {
+                waitingForSeerrSearch = true
+                seerrResults = []
+                SeerrService.search(normalizedSearchTerm)
+            } else {
+                waitingForSeerrSearch = false
+                seerrResults = []
+            }
+        } else {
+            hasSearched = false
+            waitingForLibrarySearch = false
+            waitingForSeerrSearch = false
+            librarySearchFailed = false
+            librarySearchError = ""
+            pendingLibraryConnectionId = ""
+            pendingLibrarySearchTerm = ""
+            movieResults = []
+            seriesResults = []
+            seerrResults = []
+            stageDebounce.stop()
+            stageSource = ""
+        }
+    }
+
     SourceRouter {
         id: sourceRouter
     }
 
-    /**
-     * Scrolls contentFlickable so that @p item is fully within the visible viewport.
-     *
-     * Maps the item's top-left into contentColumn coordinates and adjusts
-     * contentFlickable.contentY as needed.  A small spacingMedium margin is added
-     * so the item is not flush against the viewport edge.
-     *
-     * @param item  The QML Item that should be brought into view.
-     */
-    function ensureItemVisibleInResults(item) {
-        if (!item || !contentFlickable || !contentColumn) {
-            return
-        }
+    // ========================================
+    // Card text and artwork
+    // ========================================
 
-        var pointInContent = item.mapToItem(contentColumn, 0, 0)
-        var itemTop = pointInContent.y
-        var itemBottom = itemTop + item.height
-        var viewTop = contentFlickable.contentY
-        var viewBottom = viewTop + contentFlickable.height
+    function artworkUrlFromRef(artwork, width) {
+        if (!artwork || !artwork.itemId)
+            return ""
+        return LibraryService.getCachedArtworkUrlFromRef(artwork, width || 0)
+    }
 
-        if (itemTop < viewTop) {
-            contentFlickable.contentY = Math.max(0, itemTop - Theme.spacingMedium)
-        } else if (itemBottom > viewBottom) {
-            var maxY = Math.max(0, contentFlickable.contentHeight - contentFlickable.height)
-            contentFlickable.contentY = Math.min(maxY, itemBottom - contentFlickable.height + Theme.spacingMedium)
+    function extractYear(dateString) {
+        if (!dateString)
+            return ""
+        var d = new Date(dateString)
+        if (isNaN(d.getTime()))
+            return ""
+        return d.getFullYear()
+    }
+
+    function seerrStatusLabel(item) {
+        var status = item && item.seerrMediaInfo && item.seerrMediaInfo.status
+                     ? item.seerrMediaInfo.status : 0
+        switch (status) {
+        case 2: return qsTr("Pending")
+        case 3: return qsTr("Processing")
+        case 4: return qsTr("Partial")
+        case 5: return qsTr("Available")
+        case 6: return qsTr("Deleted")
+        default: return ""
         }
     }
-    
+
+    // Style-guide subtitles: movies show the year, series their run
+    // ("2019 – Present" or "2019 – 2023"). Seerr results add their status.
+    function resultSubtitle(item) {
+        if (!item)
+            return ""
+        var parts = []
+        if (item.source === "seerr") {
+            if (item.productionYear)
+                parts.push(String(item.productionYear))
+            var status = seerrStatusLabel(item)
+            if (status !== "")
+                parts.push(status)
+            return parts.join("  ·  ")
+        }
+        if (item.mediaType === "Series") {
+            var startYear = item.productionYear || extractYear(item.premiereDate)
+            if (!startYear)
+                return ""
+            if (item.status === "Continuing" || !item.endDate)
+                return qsTr("%1 – Present").arg(startYear)
+            var endYear = extractYear(item.endDate)
+            return endYear && endYear !== startYear ? startYear + " – " + endYear : String(startYear)
+        }
+        var year = item.productionYear || extractYear(item.premiereDate)
+        return year ? String(year) : ""
+    }
+
+    function showBackdropFor(item) {
+        // Seerr results carry no library backdrop; fall back to the glow.
+        pendingStageSource = item && item.source !== "seerr"
+                             ? artworkUrlFromRef(item.backdropArtwork, 1920) : ""
+        stageDebounce.restart()
+    }
+
+    // Moving quickly along a shelf shouldn't thrash the stage.
+    Timer {
+        id: stageDebounce
+        interval: 280
+        onTriggered: root.stageSource = root.pendingStageSource
+    }
+
+    // ========================================
+    // Focus and scrolling
+    // ========================================
+
+    // Shelves in focus order (visible, non-empty ones only).
+    function shelfLists() {
+        var lists = []
+        var candidates = [suggestionsList, seriesList, moviesList, seerrList]
+        for (var i = 0; i < candidates.length; i++) {
+            var list = candidates[i]
+            if (list.parent && list.parent.visible && list.count > 0)
+                lists.push(list)
+        }
+        return lists
+    }
+
+    function focusSearchField() {
+        searchInput.forceActiveFocus()
+        scrollAnimation.to = 0
+        scrollAnimation.restart()
+    }
+
+    // Down from the field: the first shelf, else the error action.
+    function focusFirstResult() {
+        var lists = shelfLists()
+        if (lists.length > 0) {
+            lists[0].forceActiveFocus()
+            return true
+        }
+        if (errorState.visible) {
+            errorState.focusAction()
+            return true
+        }
+        return false
+    }
+
+    // Moves focus to the shelf above/below. Above the first shelf is the field.
+    function moveShelfFocus(fromList, delta) {
+        var lists = shelfLists()
+        var index = lists.indexOf(fromList)
+        var target = index + delta
+        if (index >= 0 && target >= 0 && target < lists.length) {
+            lists[target].forceActiveFocus()
+        } else if (target < 0) {
+            focusSearchField()
+        }
+        return true
+    }
+
+    // The first shelf keeps the header and field in view; later shelves
+    // scroll near the top so the focused row always lands in the same place.
+    function scrollToSection(section) {
+        if (!section)
+            return
+        var lists = shelfLists()
+        var y
+        if (lists.length > 0 && lists[0].parent === section)
+            y = 0
+        else
+            y = section.mapToItem(contentFlickable.contentItem, 0, 0).y - root.shelfScrollOffset
+        var maxY = Math.max(0, contentFlickable.contentHeight - contentFlickable.height)
+        scrollAnimation.to = Math.max(0, Math.min(maxY, y))
+        scrollAnimation.restart()
+    }
+
+    function isUsableTarget(target) {
+        if (!target || !target.visible)
+            return false
+        if (target === searchInput)
+            return true
+        return target.parent && target.parent.visible && target.count > 0
+    }
+
+    function restoreLastFocus() {
+        var target = lastFocusTarget
+        if (target && target !== searchInput && isUsableTarget(target)) {
+            target.forceActiveFocus()
+            return
+        }
+        focusSearchField()
+    }
+
+    // Results replaced or hidden under a focused shelf: return to the field.
+    function repairFocus() {
+        var target = lastFocusTarget
+        if (!target || target === searchInput || isUsableTarget(target))
+            return
+        var focusItem = root.Window.activeFocusItem
+        if (root.activeFocus || focusItem === null)
+            focusSearchField()
+    }
+
+    function saveFocusForNavigation() {
+        // lastFocusTarget already tracks the field and shelves.
+    }
+
+    function restoreFocusFromNavigation() {
+        restoreLastFocus()
+    }
+
     // Debounce timer for search input
     Timer {
         id: searchDebounce
         interval: 300
         repeat: false
-        onTriggered: {
-            const normalizedSearchTerm = searchTerm.trim()
-            if (normalizedSearchTerm.length > 0) {
-                root.startLibrarySearch(normalizedSearchTerm)
-
-                if (SeerrService.isConfigured()) {
-                    waitingForSeerrSearch = true
-                    seerrResults = []
-                    SeerrService.search(normalizedSearchTerm)
-                } else {
-                    waitingForSeerrSearch = false
-                    seerrResults = []
-                }
-            } else {
-                hasSearched = false
-                waitingForLibrarySearch = false
-                waitingForSeerrSearch = false
-                pendingLibraryConnectionId = ""
-                pendingLibrarySearchTerm = ""
-                movieResults = []
-                seriesResults = []
-                seerrResults = []
-            }
-        }
+        onTriggered: root.runSearchNow()
     }
-    
+
     // ========================================
     // Initialization
     // ========================================
-    
+
     Component.onCompleted: {
         // Load random suggestions
         LibraryService.getRandomItems(20)
-        // Focus search input
         searchInput.forceActiveFocus()
     }
-    
+
     StackView.onStatusChanged: {
-        if (StackView.status === StackView.Active) {
-            searchInput.forceActiveFocus()
-        }
+        if (StackView.status === StackView.Active)
+            Qt.callLater(root.restoreLastFocus)
     }
-    
+
     // ========================================
     // API Connections
     // ========================================
-    
+
     Connections {
         target: LibraryService
 
@@ -170,6 +358,7 @@ FocusScope {
         function onCanonicalRandomItemsFailed(connectionId, error) {
             if (connectionId === LibraryService.getActiveConnectionId()) {
                 suggestions = []
+                Qt.callLater(root.repairFocus)
             }
         }
 
@@ -178,16 +367,13 @@ FocusScope {
                     || term !== pendingLibrarySearchTerm) {
                 return
             }
-            waitingForLibrarySearch = false
-            pendingLibraryConnectionId = ""
-            pendingLibrarySearchTerm = ""
-            if (connectionId !== LibraryService.getActiveConnectionId()
-                    || term !== searchTerm.trim()) {
+            if (connectionId !== LibraryService.getActiveConnectionId()) {
+                waitingForLibrarySearch = false
+                pendingLibraryConnectionId = ""
+                pendingLibrarySearchTerm = ""
                 return
             }
-            hasSearched = true
-            movieResults = movies || []
-            seriesResults = series || []
+            root.applyLibrarySearchResults(term, movies, series, false, "")
         }
 
         function onCanonicalSearchResultsFailed(connectionId, term, error) {
@@ -195,16 +381,13 @@ FocusScope {
                     || term !== pendingLibrarySearchTerm) {
                 return
             }
-            waitingForLibrarySearch = false
-            pendingLibraryConnectionId = ""
-            pendingLibrarySearchTerm = ""
-            if (connectionId !== LibraryService.getActiveConnectionId()
-                    || term !== searchTerm.trim()) {
+            if (connectionId !== LibraryService.getActiveConnectionId()) {
+                waitingForLibrarySearch = false
+                pendingLibraryConnectionId = ""
+                pendingLibrarySearchTerm = ""
                 return
             }
-            hasSearched = true
-            movieResults = []
-            seriesResults = []
+            root.applyLibrarySearchResults(term, [], [], true, error)
         }
     }
 
@@ -215,13 +398,13 @@ FocusScope {
         function onSearchResultsLoaded(term, movies, series) {
             if (!root.mergedMode || term !== root.pendingLibrarySearchTerm)
                 return
-            root.applyLibrarySearchResults(term, movies, series, false)
+            root.applyLibrarySearchResults(term, movies, series, false, "")
         }
 
         function onSearchResultsFailed(term, error) {
             if (!root.mergedMode || term !== root.pendingLibrarySearchTerm)
                 return
-            root.applyLibrarySearchResults(term, [], [], true)
+            root.applyLibrarySearchResults(term, [], [], true, error)
         }
 
         // Editing the space's sources drops in-flight member requests and
@@ -234,6 +417,7 @@ FocusScope {
             root.movieResults = []
             root.seriesResults = []
             root.startLibrarySearch(term)
+            Qt.callLater(root.repairFocus)
         }
     }
 
@@ -248,6 +432,7 @@ FocusScope {
                     || (!root.waitingForLibrarySearch && !root.hasSearched))
                 return
             root.startLibrarySearch(term)
+            Qt.callLater(root.repairFocus)
         }
     }
 
@@ -255,80 +440,143 @@ FocusScope {
         target: SeerrService
 
         function onSearchResultsLoaded(term, results) {
-            if (term === searchTerm.trim()) {
-                waitingForSeerrSearch = false
+            if (term === root.searchTerm.trim()) {
+                root.waitingForSeerrSearch = false
 
-                seerrResults = []
-                for (var i = 0; i < results.length; i++) {
-                    seerrResults.push(results[i])
-                }
-                seerrResultsChanged()
+                var copy = []
+                for (var i = 0; i < results.length; i++)
+                    copy.push(results[i])
+                root.seerrResults = copy
             }
         }
 
         function onErrorOccurred(endpoint, error) {
             if (endpoint === "search") {
-                waitingForSeerrSearch = false
+                root.waitingForSeerrSearch = false
             }
         }
     }
-    
+
     // ========================================
-    // Background
+    // Stage
     // ========================================
-    
-    // Quiet theme backdrop (search has no artwork of its own), full-bleed
-    // under the floating rail.
-    Rectangle {
+
+    StageBackdrop {
+        id: stage
         anchors.fill: parent
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Theme.mix(Theme.backgroundPrimary, Theme.accentPrimary, 0.08) }
-            GradientStop { position: 0.5; color: Theme.backgroundPrimary }
-            GradientStop { position: 1.0; color: Theme.backgroundSecondary }
+        mode: "ambient"
+        source: root.stageSource
+    }
+
+    // ========================================
+    // Cards
+    // ========================================
+
+    Component {
+        id: resultCardDelegate
+
+        MediaCard {
+            id: resultCard
+            required property var modelData
+            required property int index
+            readonly property bool isSeerr: modelData.source === "seerr"
+            variant: "poster"
+            artworkSources: [
+                resultCard.isSeerr ? (modelData.imageUrl || "")
+                                   : root.artworkUrlFromRef(modelData.primaryArtwork, root.posterRequestWidth)
+            ]
+            title: modelData.name || ""
+            subtitle: root.resultSubtitle(modelData)
+            placeholderIcon: modelData.mediaType === "Series" ? Icons.tvShows : Icons.movie
+            item: resultCard.isSeerr ? null : modelData
+            showWatchState: !resultCard.isSeerr
+                            && (modelData.mediaType === "Series"
+                                || (modelData.mediaType === "Movie" && !!modelData.watched))
+            unplayedCount: modelData.mediaType === "Series" ? (modelData.unplayedItemCount || 0) : 0
+            watched: !!modelData.watched
+            sourceLabel: resultCard.isSeerr ? "" : (modelData.sourceLabel || "")
+            focused: ListView.isCurrentItem && ListView.view.activeFocus
+            onFocusedChanged: if (focused) root.showBackdropFor(modelData)
+            onClicked: {
+                var list = resultCard.ListView.view
+                list.currentIndex = index
+                list.forceActiveFocus()
+                root.openResult(modelData, list)
+            }
+            Accessible.description: resultCard.isSeerr
+                                    ? qsTr("Request %1 with Seerr").arg(modelData.name || "")
+                                    : qsTr("Details for %1").arg(modelData.name || "")
         }
     }
-    
+
     // ========================================
     // Main Content
     // ========================================
-    
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.topMargin: Theme.pageMarginTop
-        spacing: Theme.spacingXLarge
-        
-        // Search Input Container
-        Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: Theme.buttonHeightLarge + Theme.spacingMedium
-            Layout.leftMargin: Theme.pageMarginX
-            Layout.rightMargin: Theme.pageMarginX
-            
-            RowLayout {
-                anchors.left: parent.left
-                width: Math.min(parent.width, Math.round(1100 * Theme.layoutScale))
-                height: parent.height
-                spacing: Theme.spacingMedium
-                
-                // Search input field
-                Rectangle {
-                    id: searchFieldSurface
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.buttonHeightLarge
-                    radius: Theme.radiusControl
-                    color: searchInput.activeFocus ? Theme.surfaceGlassStrong : Theme.surfaceGlass
-                    border.width: Theme.borderWidth
-                    border.color: Theme.surfaceBorder
 
-                    FocusRing {
-                        active: searchInput.activeFocus
-                        radius: searchFieldSurface.radius
+    NumberAnimation {
+        id: scrollAnimation
+        target: contentFlickable
+        property: "contentY"
+        duration: Theme.durationLong
+        easing.type: Theme.easingStandard
+    }
+
+    Flickable {
+        id: contentFlickable
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: contentColumn.height
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+
+        ColumnLayout {
+            id: contentColumn
+            width: parent.width
+            spacing: 0
+
+            // Clear the navigation bar.
+            Item { Layout.preferredHeight: Theme.pageMarginTop }
+
+            PageHeader {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.pageMarginX
+                Layout.rightMargin: Theme.pageMarginX
+                title: qsTr("Search")
+                detail: {
+                    if (root.hasSearched && !root.librarySearchFailed && root.libraryResultCount > 0)
+                        return root.libraryResultCount === 1 ? qsTr("1 result in your libraries")
+                                                               : qsTr("%1 results in your libraries").arg(root.libraryResultCount)
+                    return root.mergedMode ? qsTr("Movies and shows from every source in this space")
+                                           : qsTr("Movies and shows in your libraries")
+                }
+            }
+
+            // Search field: a large pill, the page's first focus.
+            Item {
+                id: searchFieldRow
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacingLarge
+                Layout.leftMargin: Theme.pageMarginX
+                Layout.rightMargin: Theme.pageMarginX
+                Layout.preferredHeight: Theme.buttonHeightHero
+
+                FieldBackground {
+                    id: searchFieldSurface
+                    width: Math.min(parent.width, Math.round(1240 * Theme.layoutScale))
+                    height: parent.height
+                    radius: height / 2
+                    control: searchInput
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.IBeamCursor
+                        onClicked: searchInput.forceActiveFocus()
                     }
-                    
+
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: Theme.spacingLarge
-                        anchors.rightMargin: Theme.spacingLarge
+                        anchors.leftMargin: Math.round(34 * Theme.layoutScale)
+                        anchors.rightMargin: Theme.spacingMedium
                         spacing: Theme.spacingMedium
 
                         Text {
@@ -337,8 +585,9 @@ FocusScope {
                             font.family: Theme.fontIcon
                             color: searchInput.activeFocus ? Theme.textPrimary : Theme.textSecondary
                             Layout.alignment: Qt.AlignVCenter
+                            Accessible.ignored: true
                         }
-                        
+
                         TextField {
                             id: searchInput
                             Layout.fillWidth: true
@@ -346,604 +595,363 @@ FocusScope {
                             placeholderText: qsTr("Search movies and shows")
                             placeholderTextColor: Theme.textTertiary
                             font.pixelSize: Theme.fontSizeMedium
-                            verticalAlignment: TextInput.AlignVCenter
                             font.family: Theme.fontPrimary
+                            verticalAlignment: TextInput.AlignVCenter
                             color: Theme.textPrimary
                             background: null
+                            leftPadding: 0
+                            rightPadding: 0
                             focus: true
-                            
+                            Accessible.name: qsTr("Search movies and shows")
+
                             onTextChanged: {
-                                searchTerm = text
+                                root.searchTerm = text
                                 searchDebounce.restart()
                             }
-                            
-                            Keys.onDownPressed: {
-                                // Navigate to results or suggestions
-                                if (hasSearched && seriesResults.length > 0) {
-                                    seriesGrid.forceActiveFocus()
-                                    seriesGrid.currentIndex = 0
-                                } else if (hasSearched && movieResults.length > 0) {
-                                    moviesGrid.forceActiveFocus()
-                                    moviesGrid.currentIndex = 0
-                                } else if (hasSearched && seerrResults.length > 0) {
-                                    seerrGrid.forceActiveFocus()
-                                    seerrGrid.currentIndex = 0
-                                } else if (!hasSearched && suggestions.length > 0) {
-                                    suggestionsColumn.children[0].forceActiveFocus()
+
+                            onActiveFocusChanged: if (activeFocus) root.lastFocusTarget = searchInput
+
+                            Keys.onDownPressed: function(event) {
+                                event.accepted = root.focusFirstResult()
+                            }
+
+                            // Return searches now, or enters the results once they are in.
+                            Keys.onReturnPressed: function(event) {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
                                 }
+                                if (searchDebounce.running) {
+                                    searchDebounce.stop()
+                                    root.runSearchNow()
+                                } else {
+                                    root.focusFirstResult()
+                                }
+                                event.accepted = true
+                            }
+                            Keys.onEnterPressed: function(event) {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
+                                }
+                                if (searchDebounce.running) {
+                                    searchDebounce.stop()
+                                    root.runSearchNow()
+                                } else {
+                                    root.focusFirstResult()
+                                }
+                                event.accepted = true
+                            }
+                        }
+
+                        BusyIndicator {
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: Math.round(40 * Theme.layoutScale)
+                            Layout.preferredHeight: Layout.preferredWidth
+                            visible: root.isSearching
+                            running: visible
+                        }
+
+                        // Pointer convenience; keyboard users edit the text directly.
+                        ActionButton {
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: Theme.buttonHeightMedium
+                            Layout.preferredHeight: Theme.buttonHeightMedium
+                            variant: "ghost"
+                            iconGlyph: Icons.close
+                            accessibleLabel: qsTr("Clear search")
+                            cornerRadius: height / 2
+                            focusPolicy: Qt.NoFocus
+                            visible: searchInput.text.length > 0
+                            onClicked: {
+                                searchInput.clear()
+                                root.focusSearchField()
                             }
                         }
                     }
                 }
             }
-        }
-        
-        // Content Area (scrollable)
-        Flickable {
-            id: contentFlickable
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            contentWidth: width
-            contentHeight: contentColumn.height
-            clip: true
-            
+
+            // ========================================
+            // States
+            // ========================================
+
+            StateMessage {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.sectionSpacing * 2
+                Layout.leftMargin: Theme.pageMarginX
+                Layout.rightMargin: Theme.pageMarginX
+                visible: root.waitingForLibrarySearch
+                kind: "loading"
+                message: qsTr("Searching…")
+            }
+
+            StateMessage {
+                id: errorState
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.sectionSpacing * 2
+                Layout.leftMargin: Theme.pageMarginX
+                Layout.rightMargin: Theme.pageMarginX
+                visible: root.hasSearched && !root.waitingForLibrarySearch && root.librarySearchFailed
+                kind: "error"
+                title: qsTr("Search failed")
+                message: root.librarySearchError !== ""
+                         ? root.librarySearchError
+                         : qsTr("Bloom couldn't reach your server. Check the connection and try again.")
+                actionText: qsTr("Try again")
+                onActionTriggered: {
+                    searchDebounce.stop()
+                    root.runSearchNow()
+                    root.focusSearchField()
+                }
+                Keys.onUpPressed: function(event) {
+                    root.focusSearchField()
+                    event.accepted = true
+                }
+            }
+
+            StateMessage {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.sectionSpacing * 2
+                Layout.leftMargin: Theme.pageMarginX
+                Layout.rightMargin: Theme.pageMarginX
+                kind: "empty"
+                iconGlyph: Icons.search
+                title: qsTr("No results")
+                message: qsTr("Nothing in your libraries matches “%1”.").arg(root.searchTerm.trim())
+                visible: root.hasSearched && !root.waitingForLibrarySearch && !root.librarySearchFailed
+                         && root.libraryResultCount === 0
+                         && root.seerrResults.length === 0 && !root.waitingForSeerrSearch
+            }
+
+            StateMessage {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.sectionSpacing * 2
+                Layout.leftMargin: Theme.pageMarginX
+                Layout.rightMargin: Theme.pageMarginX
+                kind: "empty"
+                iconGlyph: Icons.search
+                title: qsTr("Find something to watch")
+                message: qsTr("Type a title to search your movies and shows.")
+                visible: !root.hasSearched && !root.waitingForLibrarySearch
+                         && root.searchTerm.trim().length === 0 && root.suggestions.length === 0
+            }
+
+            // ========================================
+            // Shelves
+            // ========================================
+
             ColumnLayout {
-                id: contentColumn
-                width: parent.width
-                spacing: Theme.spacingLarge
-                
-                // ========================================
-                // Suggestions (shown when no search)
-                // ========================================
-                
-                Item {
-                    id: suggestionsSection
+                id: suggestionsSection
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.sectionSpacing
+                spacing: Theme.sectionTitleSpacing
+                visible: root.showSuggestions
+
+                SectionHeader {
+                    text: qsTr("Suggestions")
+                    detail: qsTr("Picked at random from your library")
+                    Layout.leftMargin: Theme.pageMarginX
+                    Layout.rightMargin: Theme.pageMarginX
                     Layout.fillWidth: true
-                    Layout.preferredHeight: suggestionsInner.height
-                    visible: !hasSearched && suggestions.length > 0
-                    
-                    ColumnLayout {
-                        id: suggestionsInner
-                        anchors.left: parent.left
-                        anchors.leftMargin: Theme.pageMarginX
-                        spacing: Theme.sectionTitleSpacing
-                        
-                        // Title
-                        SectionHeader {
-                            text: qsTr("Try searching for")
-                            level: "group"
-                        }
-                        
-                        // Suggestions list (centered, vertical list of titles)
-                        ColumnLayout {
-                            id: suggestionsColumn
-                            Layout.alignment: Qt.AlignLeft
-                            spacing: Theme.spacingXSmall
-                            
-                            Repeater {
-                                model: suggestions
-                                
-                                ItemDelegate {
-                                    id: suggestionDelegate
-                                    required property var modelData
-                                    required property int index
-                                    
-                                    Layout.alignment: Qt.AlignLeft
-                                    Layout.preferredWidth: suggestionText.implicitWidth + Theme.spacingLarge * 2 + Theme.fontSizeIcon
-                                    implicitHeight: Theme.buttonHeightSmall
-                                
-                                background: Rectangle {
-                                    id: suggestionBackground
-                                    radius: Theme.radiusControl
-                                    color: suggestionDelegate.activeFocus || suggestionDelegate.hovered
-                                           ? Theme.surfaceInteractiveHover : "transparent"
-                                    FocusRing {
-                                        active: suggestionDelegate.activeFocus
-                                        radius: suggestionBackground.radius
-                                    }
-                                }
-                                
-                                contentItem: Item {
-                                    implicitWidth: suggestionText.implicitWidth
-                                    implicitHeight: suggestionText.implicitHeight
-                                    
-                                    Text {
-                                        id: suggestionText
-                                        anchors.left: parent.left
-                                        anchors.leftMargin: Theme.spacingMedium
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: suggestionDelegate.modelData.name || ""
-                                        font.pixelSize: Theme.fontSizeBody
-                                        font.family: Theme.fontPrimary
-                                        font.weight: suggestionDelegate.activeFocus ? Theme.fontWeightStrong : Theme.fontWeightRegular
-                                        color: suggestionDelegate.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                                        horizontalAlignment: Text.AlignLeft
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                }
-                                
-                                onClicked: {
-                                    const item = modelData
-                                    if (item.mediaType === "Series") {
-                                        root.openSeries(item)
-                                    } else if (item.mediaType === "Movie") {
-                                        root.openMovie(item)
-                                    }
-                                }
-                                
-                                Keys.onReturnPressed: (event) => {
-                                    if (event.isAutoRepeat) {
-                                        event.accepted = true
-                                        return
-                                    }
-                                    clicked()
-                                    event.accepted = true
-                                }
-                                Keys.onEnterPressed: (event) => {
-                                    if (event.isAutoRepeat) {
-                                        event.accepted = true
-                                        return
-                                    }
-                                    clicked()
-                                    event.accepted = true
-                                }
-                                
-                                Keys.onUpPressed: {
-                                    if (index > 0) {
-                                        suggestionsColumn.children[index - 1].forceActiveFocus()
-                                    } else {
-                                        searchInput.forceActiveFocus()
-                                    }
-                                }
-                                
-                                Keys.onDownPressed: {
-                                    if (index < suggestions.length - 1) {
-                                        suggestionsColumn.children[index + 1].forceActiveFocus()
-                                    }
-                                }
-                            }
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
+                }
+
+                ShelfList {
+                    id: suggestionsList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    model: root.suggestions
+                    delegate: resultCardDelegate
+                    Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(suggestionsList, -1) }
+                    Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(suggestionsList, 1) }
+                    Keys.onReturnPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.suggestions.length)
+                            root.openResult(root.suggestions[currentIndex], suggestionsList)
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.suggestions.length)
+                            root.openResult(root.suggestions[currentIndex], suggestionsList)
+                        event.accepted = true
+                    }
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            root.lastFocusTarget = suggestionsList
+                            root.scrollToSection(suggestionsSection)
                         }
                     }
+                }
+            }
+
+            ColumnLayout {
+                id: seriesSection
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.sectionSpacing
+                spacing: Theme.sectionTitleSpacing
+                visible: root.hasSearched && root.seriesResults.length > 0
+
+                SectionHeader {
+                    text: qsTr("Shows")
+                    detail: String(root.seriesResults.length)
+                    Layout.leftMargin: Theme.pageMarginX
+                    Layout.rightMargin: Theme.pageMarginX
+                    Layout.fillWidth: true
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
+                }
+
+                ShelfList {
+                    id: seriesList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    model: root.seriesResults
+                    delegate: resultCardDelegate
+                    Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(seriesList, -1) }
+                    Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(seriesList, 1) }
+                    Keys.onReturnPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.seriesResults.length)
+                            root.openResult(root.seriesResults[currentIndex], seriesList)
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.seriesResults.length)
+                            root.openResult(root.seriesResults[currentIndex], seriesList)
+                        event.accepted = true
+                    }
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            root.lastFocusTarget = seriesList
+                            root.scrollToSection(seriesSection)
+                        }
                     }
                 }
-                
-                // ========================================
-                // Search Results
-                // ========================================
-                
-                // Loading indicator
-                StateMessage {
+            }
+
+            ColumnLayout {
+                id: moviesSection
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.sectionSpacing
+                spacing: Theme.sectionTitleSpacing
+                visible: root.hasSearched && root.movieResults.length > 0
+
+                SectionHeader {
+                    text: qsTr("Movies")
+                    detail: String(root.movieResults.length)
+                    Layout.leftMargin: Theme.pageMarginX
+                    Layout.rightMargin: Theme.pageMarginX
                     Layout.fillWidth: true
-                    Layout.topMargin: Theme.sectionSpacing
-                    visible: isSearching
-                    kind: "loading"
-                    compact: true
-                    message: qsTr("Searching\u2026")
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
                 }
-                
-                // No results message
-                StateMessage {
+
+                ShelfList {
+                    id: moviesList
                     Layout.fillWidth: true
-                    Layout.topMargin: Theme.sectionSpacing
-                    kind: "empty"
-                    iconGlyph: Icons.search
-                    title: qsTr("No results")
-                    message: qsTr("Nothing in your libraries matches \u201c%1\u201d.").arg(searchTerm)
-                    visible: hasSearched && !isSearching && seriesResults.length === 0 && movieResults.length === 0
-                             && seerrResults.length === 0 && !waitingForSeerrSearch
+                    Layout.preferredHeight: implicitHeight
+                    model: root.movieResults
+                    delegate: resultCardDelegate
+                    Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(moviesList, -1) }
+                    Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(moviesList, 1) }
+                    Keys.onReturnPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.movieResults.length)
+                            root.openResult(root.movieResults[currentIndex], moviesList)
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.movieResults.length)
+                            root.openResult(root.movieResults[currentIndex], moviesList)
+                        event.accepted = true
+                    }
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            root.lastFocusTarget = moviesList
+                            root.scrollToSection(moviesSection)
+                        }
+                    }
+                }
+            }
+
+            ColumnLayout {
+                id: seerrSection
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.sectionSpacing
+                spacing: Theme.sectionTitleSpacing
+                visible: root.hasSearched && root.seerrResults.length > 0
+                opacity: visible ? 1 : 0
+
+                Behavior on opacity {
+                    enabled: Theme.uiAnimationsEnabled
+                    NumberAnimation { duration: Theme.durationMedium }
+                }
+
+                SectionHeader {
+                    text: qsTr("Request with Seerr")
+                    detail: String(root.seerrResults.length)
+                    Layout.leftMargin: Theme.pageMarginX
+                    Layout.rightMargin: Theme.pageMarginX
+                    Layout.fillWidth: true
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
+                }
+
+                ShelfList {
+                    id: seerrList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    model: root.seerrResults
+                    delegate: resultCardDelegate
+                    Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(seerrList, -1) }
+                    Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(seerrList, 1) }
+                    Keys.onReturnPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.seerrResults.length)
+                            root.openResult(root.seerrResults[currentIndex], seerrList)
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.seerrResults.length)
+                            root.openResult(root.seerrResults[currentIndex], seerrList)
+                        event.accepted = true
+                    }
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            root.lastFocusTarget = seerrList
+                            root.scrollToSection(seerrSection)
+                        }
+                    }
+                }
+            }
+
+            // Seerr answers after the library; say so while it is pending.
+            RowLayout {
+                Layout.leftMargin: Theme.pageMarginX
+                Layout.rightMargin: Theme.pageMarginX
+                Layout.topMargin: Theme.sectionSpacing
+                spacing: Theme.spacingMedium
+                visible: root.hasSearched && root.waitingForSeerrSearch
+
+                BusyIndicator {
+                    Layout.preferredWidth: Math.round(40 * Theme.layoutScale)
+                    Layout.preferredHeight: Layout.preferredWidth
+                    running: parent.visible
                 }
 
                 Text {
-                    text: "Searching Seerr..."
+                    text: qsTr("Searching Seerr…")
                     font.pixelSize: Theme.fontSizeBody
                     font.family: Theme.fontPrimary
                     color: Theme.textSecondary
-                    Layout.alignment: Qt.AlignHCenter
-                    visible: hasSearched
-                    opacity: hasSearched ? (waitingForSeerrSearch ? 1 : 0) : 0
-
-                    Behavior on opacity {
-                        NumberAnimation { duration: Theme.durationMedium }
-                    }
-                }
-                
-                // TV Shows section
-                ColumnLayout {
-                    id: seriesSection
-                    Layout.fillWidth: true
-                    Layout.leftMargin: Theme.pageMarginX - Theme.spacingSmall
-                    Layout.rightMargin: Theme.pageMarginX - Theme.spacingSmall
-                    spacing: Theme.spacingMedium
-                    visible: hasSearched && seriesResults.length > 0
-                    
-                    Text {
-                        text: "TV Shows"
-                        font.pixelSize: Theme.fontSizeHeader
-                        font.family: Theme.fontPrimary
-                        font.weight: Theme.fontWeightHeavy
-                        color: Theme.textPrimary
-                    }
-                    
-                    GridView {
-                        id: seriesGrid
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Math.ceil(count / Math.max(1, Math.floor(width / cellWidth))) * cellHeight
-                        
-                        cellWidth: Math.round(220 * Theme.layoutScale)
-                        cellHeight: Math.round(380 * Theme.layoutScale)
-                        
-                        interactive: false
-                        
-                        model: seriesResults
-                        
-                        delegate: FocusScope {
-                            id: seriesDelegateScope
-                            width: seriesGrid.cellWidth
-                            height: seriesGrid.cellHeight
-                            
-                            required property var modelData
-                            required property int index
-
-                            onActiveFocusChanged: {
-                                if (activeFocus) {
-                                    root.ensureItemVisibleInResults(seriesDelegateScope)
-                                }
-                            }
-                            
-                            SearchResultCard {
-                                id: seriesCard
-                                anchors.fill: parent
-                                anchors.margins: Theme.spacingSmall
-                                
-                                itemData: seriesDelegateScope.modelData
-                                isFocused: seriesDelegateScope.activeFocus
-                                
-                                onClicked: {
-                                    root.openSeries(seriesDelegateScope.modelData)
-                                }
-                            }
-                            
-                            Keys.onReturnPressed: (event) => {
-                                if (event.isAutoRepeat) {
-                                    event.accepted = true
-                                    return
-                                }
-                                seriesCard.clicked()
-                                event.accepted = true
-                            }
-                            Keys.onEnterPressed: (event) => {
-                                if (event.isAutoRepeat) {
-                                    event.accepted = true
-                                    return
-                                }
-                                seriesCard.clicked()
-                                event.accepted = true
-                            }
-                            
-                            Keys.onUpPressed: {
-                                var columns = Math.floor(seriesGrid.width / seriesGrid.cellWidth)
-                                if (index < columns) {
-                                    searchInput.forceActiveFocus()
-                                } else {
-                                    seriesGrid.currentIndex = index - columns
-                                }
-                            }
-                            
-                            Keys.onDownPressed: {
-                                var columns = Math.floor(seriesGrid.width / seriesGrid.cellWidth)
-                                if (index + columns < seriesResults.length) {
-                                    seriesGrid.currentIndex = index + columns
-                                } else if (movieResults.length > 0) {
-                                    moviesGrid.forceActiveFocus()
-                                    moviesGrid.currentIndex = 0
-                                } else if (seerrResults.length > 0) {
-                                    seerrGrid.forceActiveFocus()
-                                    seerrGrid.currentIndex = 0
-                                }
-                            }
-                            
-                            Keys.onLeftPressed: {
-                                if (index % Math.floor(seriesGrid.width / seriesGrid.cellWidth) > 0) {
-                                    seriesGrid.currentIndex = index - 1
-                                }
-                            }
-                            
-                            Keys.onRightPressed: {
-                                var columns = Math.floor(seriesGrid.width / seriesGrid.cellWidth)
-                                if ((index + 1) % columns !== 0 && index + 1 < seriesResults.length) {
-                                    seriesGrid.currentIndex = index + 1
-                                }
-                            }
-                        }
-                        
-                        onCurrentIndexChanged: {
-                            // currentIndex also changes when results load; only move focus
-                            // if the user is already navigating this grid, never out of the search field.
-                            if (currentItem && seriesGrid.activeFocus) {
-                                const item = currentItem
-                                Qt.callLater(() => {
-                                    if (item) {
-                                        item.forceActiveFocus()
-                                        root.ensureItemVisibleInResults(item)
-                                    }
-                                })
-                            }
-                        }
-                    }
-                }
-                
-                // Movies section
-                ColumnLayout {
-                    id: moviesSection
-                    Layout.fillWidth: true
-                    Layout.leftMargin: Theme.pageMarginX - Theme.spacingSmall
-                    Layout.rightMargin: Theme.pageMarginX - Theme.spacingSmall
-                    spacing: Theme.spacingMedium
-                    visible: hasSearched && movieResults.length > 0
-                    
-                    Text {
-                        text: "Movies"
-                        font.pixelSize: Theme.fontSizeHeader
-                        font.family: Theme.fontPrimary
-                        font.weight: Theme.fontWeightHeavy
-                        color: Theme.textPrimary
-                    }
-                    
-                    GridView {
-                        id: moviesGrid
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Math.ceil(count / Math.max(1, Math.floor(width / cellWidth))) * cellHeight
-                        
-                        cellWidth: Math.round(220 * Theme.layoutScale)
-                        cellHeight: Math.round(380 * Theme.layoutScale)
-                        
-                        interactive: false
-                        
-                        model: movieResults
-                        
-                        delegate: FocusScope {
-                            id: movieDelegateScope
-                            width: moviesGrid.cellWidth
-                            height: moviesGrid.cellHeight
-                            
-                            required property var modelData
-                            required property int index
-
-                            onActiveFocusChanged: {
-                                if (activeFocus) {
-                                    root.ensureItemVisibleInResults(movieDelegateScope)
-                                }
-                            }
-                            
-                            SearchResultCard {
-                                id: movieCard
-                                anchors.fill: parent
-                                anchors.margins: Theme.spacingSmall
-                                
-                                itemData: movieDelegateScope.modelData
-                                isFocused: movieDelegateScope.activeFocus
-                                
-                                onClicked: {
-                                    root.openMovie(movieDelegateScope.modelData)
-                                }
-                            }
-                            
-                            Keys.onReturnPressed: (event) => {
-                                if (event.isAutoRepeat) {
-                                    event.accepted = true
-                                    return
-                                }
-                                movieCard.clicked()
-                                event.accepted = true
-                            }
-                            Keys.onEnterPressed: (event) => {
-                                if (event.isAutoRepeat) {
-                                    event.accepted = true
-                                    return
-                                }
-                                movieCard.clicked()
-                                event.accepted = true
-                            }
-                            
-                            Keys.onUpPressed: {
-                                var columns = Math.floor(moviesGrid.width / moviesGrid.cellWidth)
-                                if (index < columns) {
-                                    if (seriesResults.length > 0) {
-                                        seriesGrid.forceActiveFocus()
-                                        seriesGrid.currentIndex = Math.min(seriesResults.length - 1, 
-                                            seriesResults.length - (seriesResults.length % columns) + index)
-                                    } else {
-                                        searchInput.forceActiveFocus()
-                                    }
-                                } else {
-                                    moviesGrid.currentIndex = index - columns
-                                }
-                            }
-                            
-                            Keys.onDownPressed: {
-                                var columns = Math.floor(moviesGrid.width / moviesGrid.cellWidth)
-                                if (index + columns < movieResults.length) {
-                                    moviesGrid.currentIndex = index + columns
-                                } else if (seerrResults.length > 0) {
-                                    seerrGrid.forceActiveFocus()
-                                    seerrGrid.currentIndex = 0
-                                }
-                            }
-                            
-                            Keys.onLeftPressed: {
-                                if (index % Math.floor(moviesGrid.width / moviesGrid.cellWidth) > 0) {
-                                    moviesGrid.currentIndex = index - 1
-                                }
-                            }
-                            
-                            Keys.onRightPressed: {
-                                var columns = Math.floor(moviesGrid.width / moviesGrid.cellWidth)
-                                if ((index + 1) % columns !== 0 && index + 1 < movieResults.length) {
-                                    moviesGrid.currentIndex = index + 1
-                                }
-                            }
-                        }
-                        
-                        onCurrentIndexChanged: {
-                            // currentIndex also changes when results load; only move focus
-                            // if the user is already navigating this grid, never out of the search field.
-                            if (currentItem && moviesGrid.activeFocus) {
-                                const item = currentItem
-                                Qt.callLater(() => {
-                                    if (item) {
-                                        item.forceActiveFocus()
-                                        root.ensureItemVisibleInResults(item)
-                                    }
-                                })
-                            }
-                        }
-                    }
-                }
-
-                // Seerr section
-                ColumnLayout {
-                    id: seerrSection
-                    Layout.fillWidth: true
-                    Layout.leftMargin: Theme.pageMarginX - Theme.spacingSmall
-                    Layout.rightMargin: Theme.pageMarginX - Theme.spacingSmall
-                    spacing: Theme.spacingMedium
-                    visible: hasSearched && seerrResults.length > 0
-                    opacity: visible ? 1 : 0
-
-                    Behavior on opacity {
-                        NumberAnimation { duration: Theme.durationMedium }
-                    }
-
-                    Text {
-                        text: "Seerr"
-                        font.pixelSize: Theme.fontSizeHeader
-                        font.family: Theme.fontPrimary
-                        font.weight: Theme.fontWeightHeavy
-                        color: Theme.textPrimary
-                    }
-
-                    GridView {
-                        id: seerrGrid
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Math.ceil(count / Math.max(1, Math.floor(width / cellWidth))) * cellHeight
-
-                        cellWidth: Math.round(220 * Theme.layoutScale)
-                        cellHeight: Math.round(380 * Theme.layoutScale)
-                        interactive: false
-
-                        model: seerrResults
-
-                        delegate: FocusScope {
-                            id: seerrDelegateScope
-                            width: seerrGrid.cellWidth
-                            height: seerrGrid.cellHeight
-
-                            required property var modelData
-                            required property int index
-
-                            onActiveFocusChanged: {
-                                if (activeFocus) {
-                                    root.ensureItemVisibleInResults(seerrDelegateScope)
-                                }
-                            }
-
-                            SearchResultCard {
-                                id: seerrCard
-                                anchors.fill: parent
-                                anchors.margins: Theme.spacingSmall
-
-                                itemData: seerrDelegateScope.modelData
-                                isFocused: seerrDelegateScope.activeFocus
-
-                                onClicked: {
-                                    seerrRequestDialog.openForItem(seerrDelegateScope.modelData, seerrDelegateScope)
-                                }
-                            }
-
-                            Keys.onReturnPressed: (event) => {
-                                if (event.isAutoRepeat) {
-                                    event.accepted = true
-                                    return
-                                }
-                                seerrCard.clicked()
-                                event.accepted = true
-                            }
-                            Keys.onEnterPressed: (event) => {
-                                if (event.isAutoRepeat) {
-                                    event.accepted = true
-                                    return
-                                }
-                                seerrCard.clicked()
-                                event.accepted = true
-                            }
-
-                            Keys.onUpPressed: {
-                                var columns = Math.floor(seerrGrid.width / seerrGrid.cellWidth)
-                                if (index < columns) {
-                                    if (movieResults.length > 0) {
-                                        moviesGrid.forceActiveFocus()
-                                        moviesGrid.currentIndex = Math.min(movieResults.length - 1, index)
-                                    } else if (seriesResults.length > 0) {
-                                        seriesGrid.forceActiveFocus()
-                                        seriesGrid.currentIndex = Math.min(seriesResults.length - 1, index)
-                                    } else {
-                                        searchInput.forceActiveFocus()
-                                    }
-                                } else {
-                                    seerrGrid.currentIndex = index - columns
-                                }
-                            }
-
-                            Keys.onDownPressed: {
-                                var columns = Math.floor(seerrGrid.width / seerrGrid.cellWidth)
-                                if (index + columns < seerrResults.length) {
-                                    seerrGrid.currentIndex = index + columns
-                                }
-                            }
-
-                            Keys.onLeftPressed: {
-                                if (index % Math.floor(seerrGrid.width / seerrGrid.cellWidth) > 0) {
-                                    seerrGrid.currentIndex = index - 1
-                                }
-                            }
-
-                            Keys.onRightPressed: {
-                                var columns = Math.floor(seerrGrid.width / seerrGrid.cellWidth)
-                                if ((index + 1) % columns !== 0 && index + 1 < seerrResults.length) {
-                                    seerrGrid.currentIndex = index + 1
-                                }
-                            }
-                        }
-
-                        onCurrentIndexChanged: {
-                            // currentIndex also changes when results load; only move focus
-                            // if the user is already navigating this grid, never out of the search field.
-                            if (currentItem && seerrGrid.activeFocus) {
-                                const capturedItem = currentItem
-                                Qt.callLater(() => {
-                                    if (capturedItem) {
-                                        capturedItem.forceActiveFocus()
-                                        root.ensureItemVisibleInResults(capturedItem)
-                                    }
-                                })
-                            }
-                        }
-                    }
-                }
-                
-                // Bottom padding
-                Item {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.spacingXLarge
+                    Layout.alignment: Qt.AlignVCenter
                 }
             }
+
+            Item { Layout.preferredHeight: Theme.pageMarginBottom }
         }
     }
 
     WheelStepScroller {
-        // contentFlickable lives inside the layout, so attach directly to it.
-        parent: contentFlickable
-        anchors.fill: parent
+        anchors.fill: contentFlickable
         target: contentFlickable
         stepPx: Math.round(120 * Theme.layoutScale)
     }
