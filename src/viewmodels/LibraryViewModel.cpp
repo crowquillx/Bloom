@@ -1737,6 +1737,9 @@ void LibraryViewModel::reopenCacheStore()
 
     setItems(QJsonArray());
     setTotalRecordCount(0);
+    // Combined pages belong to the previous connection's libraries.
+    m_combinedMode = false;
+    m_combinedLibraryIds.clear();
     m_views.clear();
     emit viewsChanged();
     if (!m_currentParentId.isEmpty()) {

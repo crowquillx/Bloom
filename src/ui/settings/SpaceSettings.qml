@@ -194,6 +194,8 @@ FocusScope {
     function scrollRowIntoView(index) {
         var item = rowList.itemAtIndex(index)
         if (!item) {
+            // An earlier scroll must not keep writing its old target.
+            rowScroll.stop()
             rowList.positionViewAtIndex(index, ListView.Contain)
             return
         }
