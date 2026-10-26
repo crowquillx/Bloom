@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BaseViewModel.h"
+#include "models/CombinedLibraryCursor.h"
 #include <QAbstractListModel>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -13,6 +14,7 @@
 #include <QStringList>
 #include <QList>
 #include <memory>
+#include <QSet>
 #include <optional>
 #include "../utils/LibraryCacheStore.h"
 #include "../network/LibraryService.h"
@@ -98,7 +100,8 @@ public:
         Initial,
         LoadMore,
         BackgroundRefresh,
-        FilterOptions
+        FilterOptions,
+        CombinedPage
     };
     Q_ENUM(LoadKind)
 
@@ -155,6 +158,17 @@ public:
      */
     Q_INVOKABLE void loadLibrary(const QString &parentId, int startIndex = 0, int limit = 0);
     Q_INVOKABLE void loadLibrary(const QString &parentId, const QString &collectionType, int startIndex = 0, int limit = 0);
+    /**
+     * @brief Load several libraries of one kind as one list ("All Movies").
+     *
+     * Each library is paged with the current sort and filters and the pages
+     * are merged by CombinedLibraryCursor. The current parent becomes
+     * `combined:movies` or `combined:series`; loadMore, reload and filter
+     * options keep working on the combined list.
+     */
+    Q_INVOKABLE void loadCombinedLibraries(const QStringList &libraryIds,
+                                           const QString &collectionType,
+                                           int limit = 0);
     Q_INVOKABLE void reloadWithCurrentQuery();
     Q_INVOKABLE void loadFilterOptions(const QString &parentId, const QString &collectionType);
     Q_INVOKABLE void setSearchTerm(const QString &term);
@@ -307,6 +321,12 @@ private:
         const QString &parentId,
         const QString &requestKey);
     QString requestConnectionId() const;
+    void requestCombinedPages();
+    void pumpCombined();
+    LibraryItemQuery combinedQuery(const QString &libraryId, int offset, int limit) const;
+    std::optional<RequestIdentity> takeCombinedRequest(const QString &connectionId,
+                                                       const QString &parentId,
+                                                       const QString &requestKey);
     void rejectStaleRequest(const QString &requestKey,
                             const QString &reason) const;
     QJsonArray mergePage(const LibraryCacheEntry &cached,
@@ -324,6 +344,17 @@ private:
     QString m_currentParentId;
     int m_pageLimit = 0;
     QString m_currentCollectionType;
+    // Combined libraries ("All Movies"): the merge cursor, how many merged
+    // items the view wants so far, and the filter-option requests to union.
+    bool m_combinedMode = false;
+    QStringList m_combinedLibraryIds;
+    CombinedLibraryCursor m_combinedCursor;
+    int m_combinedTarget = 0;
+    bool m_combinedInitialLoad = false;
+    QSet<QString> m_combinedFilterRequestKeys;
+    QStringList m_combinedGenres;
+    QStringList m_combinedTags;
+    QStringList m_combinedStudios;
     QString m_activeDatasetKey;
     QString m_activeConnectionId;
     bool m_isLoadingMore = false;

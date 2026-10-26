@@ -1,6 +1,7 @@
 #include "LibraryService.h"
 #include "AuthenticationService.h"
 #include "HttpTransport.h"
+#include "models/LibraryKinds.h"
 #include "LibrarySearchScope.h"
 #include "NextEpisodeResolver.h"
 #include "models/MediaModels.h"
@@ -498,8 +499,12 @@ void LibraryService::getViewsForRequest(const QString &requestKey)
         ProviderCatalogOperation::Views,
         query,
         [this, connectionId, requestKey](const ProviderCatalogResponse &response) {
-            const QVariantList items =
+            // Only movie and series libraries exist in the app.
+            const QVariantList allViews =
                 m_authService->mapMediaItems(response.rawItems, connectionId);
+            m_unsupportedLibraryIds.insert(
+                connectionId, LibraryKinds::unsupportedLibraryIds(allViews));
+            const QVariantList items = LibraryKinds::supportedLibraries(allViews);
             emit canonicalViewsLoadedForConnection(connectionId, items);
             emit canonicalViewsLoadedForRequest(connectionId, requestKey, items);
         },
@@ -1344,7 +1349,15 @@ void LibraryService::search(const QString &searchTerm, int limit,
             connectionId, normalizedSearchTerm, error.userMessage);
     };
 
-    if (excludedLibraryIds.isEmpty()) {
+    // Libraries of unsupported types are searched around like hidden ones.
+    QStringList excludedIds = excludedLibraryIds;
+    for (const QString &id : m_unsupportedLibraryIds.value(connectionId)) {
+        if (!excludedIds.contains(id)) {
+            excludedIds.append(id);
+        }
+    }
+
+    if (excludedIds.isEmpty()) {
         sendCatalogRequest(
             QStringLiteral("search"),
             ProviderCatalogOperation::Search,
@@ -1362,11 +1375,12 @@ void LibraryService::search(const QString &searchTerm, int limit,
         QStringLiteral("search"),
         ProviderCatalogOperation::Views,
         baseCatalogQuery(),
-        [this, connectionId, query, limit, excludedLibraryIds, emitResults, emitFailure](
+        [this, connectionId, query, limit, excludedIds, emitResults, emitFailure](
             const ProviderCatalogResponse &response) {
             const QStringList libraryIds = LibrarySearchScope::searchableLibraryIds(
-                m_authService->mapMediaItems(response.rawItems, connectionId),
-                excludedLibraryIds);
+                LibraryKinds::supportedLibraries(
+                    m_authService->mapMediaItems(response.rawItems, connectionId)),
+                excludedIds);
             if (libraryIds.isEmpty()) {
                 emitResults({});
                 return;

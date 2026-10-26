@@ -13,6 +13,9 @@ FocusScope {
     property string currentLibraryId: ""   // The root library ID (for profile resolution)
     property string currentLibraryName: ""  // Name of the current library for display
     property string currentLibraryType: ""
+    /// Libraries shown together on a combined page ("All Movies"), whose
+    /// parent ID is `combined:movies` or `combined:series`.
+    property var combinedLibraryIds: []
     property string currentBackdropUrl: ""
     property string currentSeriesId: ""
     property var navigationStack: []
@@ -1406,7 +1409,7 @@ FocusScope {
 	                        TabButton {
                                 width: implicitContentWidth + Theme.spacingXLarge * 2
                                 implicitHeight: Theme.buttonHeightMedium
-                                text: currentLibraryType === "tvshows" ? "Networks" : "Studios"
+                                text: currentLibraryType === "tvshows" || currentLibraryType === "series" ? "Networks" : "Studios"
                                 contentItem: Text {
                                     text: parent.text
                                     color: parent.checked ? Theme.textPrimary : Theme.textSecondary
@@ -2579,7 +2582,10 @@ FocusScope {
                         "limit:", limit)
             
             // Use LibraryViewModel instead of direct service call
-            LibraryViewModel.loadLibrary(currentParentId, currentLibraryType, startIndex, limit)
+            if (currentParentId.indexOf("combined:") === 0)
+                LibraryViewModel.loadCombinedLibraries(combinedLibraryIds, currentLibraryType, limit)
+            else
+                LibraryViewModel.loadLibrary(currentParentId, currentLibraryType, startIndex, limit)
             if (shouldPaginate) {
                 LibraryViewModel.loadFilterOptions(currentParentId, currentLibraryType)
             }

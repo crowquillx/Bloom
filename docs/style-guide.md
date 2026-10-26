@@ -72,8 +72,16 @@ get their warmth from the stage.
 ## Navigation bar
 
 `NavigationBar.qml` is owned by `Main.qml`. Left to right: brand, page tabs
-(Home, each library in the saved order, Search), and a utility cluster (update
-when available, Settings, space avatar, power).
+(Home, Movies, Series, Search), and a utility cluster (update when available,
+Settings, space avatar, power). Keep the tab row short: a new destination
+earns a tab only if it is a top-level way to browse, and libraries never get
+their own tabs.
+
+- **Movies and Series** stand for every library of that kind (Bloom supports
+  only movie and series libraries). With one library the tab opens it. With
+  several, a small menu drops down: "All Movies" (the libraries combined on
+  one page), then each library. Merged spaces group the menu by source, with
+  one "All …" per source. A tab with a menu shows a chevron.
 
 - **Selection** (the current page) uses `selectionBackground` with an accent
   hairline. **Focus** uses `FocusRing`. A tab can show both.
@@ -82,7 +90,8 @@ when available, Settings, space avatar, power).
   first row or the hero. It returns when focus or the pointer comes back.
 - Keys: Up from the top of any page enters the bar on the current tab.
   Left/Right walk the entries, Enter activates, Down or Escape return to the
-  page. Shift+Enter on a library starts reordering; Left/Right move it.
+  page. In the library menu Up/Down move, Enter opens, Escape/Left/Right
+  close it; Shift+Enter on a library starts reordering and Up/Down move it.
 
 ## Stage
 

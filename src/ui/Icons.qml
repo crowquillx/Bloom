@@ -37,6 +37,7 @@ QtObject {
     readonly property string tvShows: "\ue333"
     readonly property string videocam: "\ue04b"
     readonly property string videoLibrary: "\ue04a"
+    readonly property string swapVert: "\ue8d5"
     readonly property string playArrow: "\ue037"
     readonly property string pause: "\ue034"
     readonly property string stop: "\ue047"

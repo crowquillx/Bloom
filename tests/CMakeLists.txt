@@ -1364,6 +1364,10 @@ file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/diffs")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/captures")
 endif()
 
+add_executable(CombinedLibraryTest CombinedLibraryTest.cpp)
+target_link_libraries(CombinedLibraryTest PRIVATE Bloom::Models Qt6::Test)
+add_test(NAME CombinedLibraryTest COMMAND CombinedLibraryTest)
+
 add_executable(PosterBadgesTest PosterBadgesTest.cpp)
 target_link_libraries(PosterBadgesTest PRIVATE Bloom::Providers Qt6::Test)
 add_test(NAME PosterBadgesTest COMMAND PosterBadgesTest)

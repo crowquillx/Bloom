@@ -3,6 +3,7 @@
 #include "network/AuthenticationService.h"
 #include "network/ConnectionSessionPool.h"
 #include "network/HttpTransport.h"
+#include "models/LibraryKinds.h"
 #include "network/LibrarySearchScope.h"
 #include "profiles/BloomProfileRepository.h"
 #include "providers/IProviderAdapter.h"
@@ -209,8 +210,14 @@ void MergedCatalogService::refreshViews()
     emit viewsChanged();
     fanOut(ProviderCatalogOperation::Views, ProviderCatalogQuery{},
            [this](QList<MergedSourceResult> results) {
-        // Each source drops the libraries it hides from browsing.
+        // Only movie and series libraries exist in the app, and each source
+        // drops the libraries it hides from browsing.
         for (MergedSourceResult &result : results) {
+            if (result.succeeded) {
+                m_unsupportedLibraryIds.insert(
+                    result.connectionId, LibraryKinds::unsupportedLibraryIds(result.items));
+            }
+            result.items = LibraryKinds::supportedLibraries(result.items);
             for (const Member &member : std::as_const(m_members)) {
                 if (member.connectionId != result.connectionId
                     || member.hiddenLibraryIds.isEmpty()) {
@@ -282,7 +289,8 @@ void MergedCatalogService::search(const QString &searchTerm, int limit)
     query.limit = limit;
     query.includeItemTypes = {QStringLiteral("Movie"), QStringLiteral("Series")};
     fanOut([this, query](const Member &member, SourceCompletion completion) {
-        if (member.searchHiddenLibraryIds.isEmpty()) {
+        if (member.searchHiddenLibraryIds.isEmpty()
+            && m_unsupportedLibraryIds.value(member.connectionId).isEmpty()) {
             requestMember(member, ProviderCatalogOperation::Search, query, false,
                           std::move(completion));
         } else {
@@ -324,7 +332,8 @@ void MergedCatalogService::loadSourceLibraries(const QString &connectionId)
     requestMember(*target, ProviderCatalogOperation::Views, ProviderCatalogQuery{}, false,
                   [this, connectionId](const MergedSourceResult &result) {
         if (result.succeeded) {
-            emit sourceLibrariesLoaded(connectionId, result.items);
+            emit sourceLibrariesLoaded(connectionId,
+                                       LibraryKinds::supportedLibraries(result.items));
         } else {
             emit sourceLibrariesFailed(connectionId, result.error);
         }
@@ -342,7 +351,7 @@ void MergedCatalogService::requestScopedSearch(const Member &member,
             return;
         }
         const QStringList libraryIds = LibrarySearchScope::searchableLibraryIds(
-            views.items, member.searchHiddenLibraryIds);
+            LibraryKinds::supportedLibraries(views.items), member.searchHiddenLibraryIds);
         struct Aggregate {
             MergedSourceResult result;
             QList<QVariantList> perLibrary;

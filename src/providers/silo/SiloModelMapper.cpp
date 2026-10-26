@@ -1212,6 +1212,7 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
          wireItem.value(QStringLiteral("release_date")).toString(
              wireItem.value(QStringLiteral("air_date")).toString())},
         {QStringLiteral("endDate"), wireItem.value(QStringLiteral("last_air_date")).toString()},
+        {QStringLiteral("dateAdded"), wireItem.value(QStringLiteral("added_at")).toString()},
         {QStringLiteral("officialRating"), wireItem.value(QStringLiteral("content_rating")).toString()},
         {QStringLiteral("communityRating"), communityRating},
         {QStringLiteral("durationMs"), durationMs},

@@ -84,6 +84,7 @@ stdenv.mkDerivation {
       NavigationBarTest \
       ModalFocusGuardTest \
       PosterBadgesTest \
+      CombinedLibraryTest \
       AudioPolicyTest \
       AudioOutputServiceTest \
       LocalSeekPreviewTest \

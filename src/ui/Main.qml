@@ -1510,7 +1510,7 @@ Window {
                 }
             }
 
-            onLibraryRequested: function(libraryId, libraryName) {
+            onLibraryRequested: function(libraryId, libraryName, collectionType) {
                 playPointerSelectSound()
                 if (!libraryId)
                     return
@@ -1518,7 +1518,23 @@ Window {
                 stackView.push("LibraryScreen.qml", {
                     currentParentId: libraryId,
                     currentLibraryId: libraryId,
-                    currentLibraryName: libraryName
+                    currentLibraryName: libraryName,
+                    currentLibraryType: collectionType
+                })
+            }
+
+            // "All Movies" / "All Series": every library of a kind on one page.
+            onCombinedLibraryRequested: function(kind, libraryIds, title) {
+                playPointerSelectSound()
+                if (!libraryIds || libraryIds.length === 0)
+                    return
+                saveHomeFocusState()
+                stackView.push("LibraryScreen.qml", {
+                    currentParentId: "combined:" + kind,
+                    currentLibraryId: "combined:" + kind,
+                    currentLibraryName: title,
+                    currentLibraryType: kind === "series" ? "tvshows" : "movies",
+                    combinedLibraryIds: libraryIds
                 })
             }
 

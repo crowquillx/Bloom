@@ -83,7 +83,9 @@ Each area has one owner. Read its doc before changing it.
   connection-scoped canonical projections only, with camelCase keys. Providers
   own playback lifecycle and report serialization. Jellyfin requests use only
   non-obsolete operations and parameters from the pinned OpenAPI contract
-  (`docs/provider-compatibility.md`).
+  (`docs/provider-compatibility.md`). Only movie and series libraries exist in
+  the app: `LibraryKinds` drops every other type where views enter, and search
+  goes around them.
 - **Image cache**: `Bloom::ImageCache`. SQLite and disk files
   belong to its dedicated worker; its `QSqlDatabase` stays on that thread.
   Provider image jobs coalesce identical identity-and-size requests; QML

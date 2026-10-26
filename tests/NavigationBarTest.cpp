@@ -145,6 +145,7 @@ Item {
     readonly property int pageMarginTop: Theme.pageMarginTop
     readonly property real layoutScale: Theme.layoutScale
     property string lastNavigation: ""
+    property var lastCombinedLibraries: []
     property int spacePickerRequests: 0
 
     FocusScope {
@@ -174,7 +175,11 @@ Item {
         anchors.fill: parent
         mainContent: content
         onNavigationRequested: function(navigationId) { scene.lastNavigation = navigationId }
-        onLibraryRequested: function(libraryId, libraryName) { scene.lastNavigation = "library:" + libraryId }
+        onLibraryRequested: function(libraryId, libraryName, collectionType) { scene.lastNavigation = "library:" + libraryId }
+        onCombinedLibraryRequested: function(kind, libraryIds, title) {
+            scene.lastNavigation = "combined:" + kind
+            scene.lastCombinedLibraries = libraryIds
+        }
         onSpacePickerRequested: scene.spacePickerRequests++
     }
 }
@@ -197,7 +202,8 @@ private slots:
     void currentPageStaysDistinctFromFocus();
     void downAndEscapeRestorePageFocus();
     void activationNavigatesAndReturnsToCurrentEntry();
-    void shiftEnterReordersLibraries();
+    void kindTabOpensLibraryMenu();
+    void shiftEnterReordersLibrariesInMenu();
     void recessedBarReturnsWhenFocused();
     void barMetricsFollowLayoutScale_data();
     void barMetricsFollowLayoutScale();
@@ -231,7 +237,7 @@ void NavigationBarTest::initTestCase()
     const QDir sourceDir(QStringLiteral(BLOOM_UI_SOURCE_DIR));
     for (const auto &file : {QStringLiteral("Theme.qml"), QStringLiteral("Icons.qml"),
                              QStringLiteral("FocusRing.qml"), QStringLiteral("NavigationBar.qml"),
-                             QStringLiteral("SourceRouter.qml")}) {
+                             QStringLiteral("SourceRouter.qml"), QStringLiteral("DialogSurface.qml")}) {
         QVERIFY2(QFile::copy(sourceDir.filePath(file), module.filePath(file)), qPrintable(file));
     }
     QFile qmldir(module.filePath(QStringLiteral("qmldir")));
@@ -241,7 +247,8 @@ void NavigationBarTest::initTestCase()
                  "singleton Icons 1.0 Icons.qml\n"
                  "FocusRing 1.0 FocusRing.qml\n"
                  "NavigationBar 1.0 NavigationBar.qml\n"
-                 "SourceRouter 1.0 SourceRouter.qml\n");
+                 "SourceRouter 1.0 SourceRouter.qml\n"
+                 "DialogSurface 1.0 DialogSurface.qml\n");
     qmldir.close();
 
     QFile scene(root.filePath(QStringLiteral("Scene.qml")));
@@ -256,6 +263,9 @@ void NavigationBarTest::initTestCase()
         QVariantMap{{QStringLiteral("itemId"), QStringLiteral("lib-shows")},
                     {QStringLiteral("name"), QStringLiteral("Shows")},
                     {QStringLiteral("collectionType"), QStringLiteral("tvshows")}},
+        QVariantMap{{QStringLiteral("itemId"), QStringLiteral("lib-anime-movies")},
+                    {QStringLiteral("name"), QStringLiteral("Anime Movies")},
+                    {QStringLiteral("collectionType"), QStringLiteral("movies")}},
     };
 }
 
@@ -359,8 +369,8 @@ void NavigationBarTest::leftRightVisitEveryDestinationInOrder()
     QCOMPARE(focusedName(), QStringLiteral("navEntry_home"));
 
     const QStringList expected{
-        QStringLiteral("navLibrary_0"),
-        QStringLiteral("navLibrary_1"),
+        QStringLiteral("navKind_movies"),
+        QStringLiteral("navKind_series"),
         QStringLiteral("navEntry_search"),
         QStringLiteral("navEntry_settings"),
         QStringLiteral("navEntry_account"),
@@ -398,7 +408,7 @@ void NavigationBarTest::currentPageStaysDistinctFromFocus()
     press(Qt::Key_Right);
 
     QQuickItem *home = item(QStringLiteral("navEntry_home"));
-    QQuickItem *movies = item(QStringLiteral("navLibrary_0"));
+    QQuickItem *movies = item(QStringLiteral("navKind_movies"));
     QCOMPARE(home->property("selected").toBool(), true);
     QCOMPARE(home->hasActiveFocus(), false);
     QCOMPARE(movies->property("selected").toBool(), false);
@@ -443,13 +453,16 @@ void NavigationBarTest::activationNavigatesAndReturnsToCurrentEntry()
     focusBarFromPage();
     QCOMPARE(focusedName(), QStringLiteral("navEntry_search"));
 
+    // Series has one library, so its tab opens it directly.
     press(Qt::Key_Left);
+    QCOMPARE(focusedName(), QStringLiteral("navKind_series"));
     press(Qt::Key_Return);
     QCOMPARE(scene->property("lastNavigation").toString(), QStringLiteral("library:lib-shows"));
+    QCOMPARE(bar->property("menuOpen").toBool(), false);
     QTRY_COMPARE(focusedName(), QStringLiteral("contentTarget"));
     focusBarFromPage();
-    QCOMPARE(focusedName(), QStringLiteral("navLibrary_1"));
-    QCOMPARE(item(QStringLiteral("navLibrary_1"))->property("selected").toBool(), true);
+    QCOMPARE(focusedName(), QStringLiteral("navKind_series"));
+    QCOMPARE(item(QStringLiteral("navKind_series"))->property("selected").toBool(), true);
     QCOMPARE(item(QStringLiteral("navEntry_search"))->property("selected").toBool(), false);
 
     // Account access stays in the bar: the avatar opens the space picker,
@@ -468,28 +481,96 @@ void NavigationBarTest::activationNavigatesAndReturnsToCurrentEntry()
     QCOMPARE(focusedName(), QStringLiteral("navEntry_account"));
 }
 
-void NavigationBarTest::shiftEnterReordersLibraries()
+void NavigationBarTest::kindTabOpensLibraryMenu()
+{
+    QQuickItem *scene = m_view->rootObject();
+    QQuickItem *bar = item(QStringLiteral("bar"));
+
+    // Movies has two libraries, so its tab drops down a menu: All Movies,
+    // then each library in order.
+    focusBarFromPage();
+    press(Qt::Key_Right);
+    QCOMPARE(focusedName(), QStringLiteral("navKind_movies"));
+    press(Qt::Key_Return);
+    QCOMPARE(bar->property("menuOpen").toBool(), true);
+    QTRY_COMPARE(focusedName(), QStringLiteral("navMenu_all_"));
+    press(Qt::Key_Down);
+    QCOMPARE(focusedName(), QStringLiteral("navMenu_library_lib-movies"));
+    press(Qt::Key_Down);
+    QCOMPARE(focusedName(), QStringLiteral("navMenu_library_lib-anime-movies"));
+    press(Qt::Key_Down);
+    QCOMPARE(focusedName(), QStringLiteral("navMenu_library_lib-anime-movies"));
+
+    // Escape closes the menu back onto its tab; the bar stays focused.
+    press(Qt::Key_Escape);
+    QCOMPARE(bar->property("menuOpen").toBool(), false);
+    QCOMPARE(focusedName(), QStringLiteral("navKind_movies"));
+
+    // Left/Right close the menu and move along the bar.
+    press(Qt::Key_Return);
+    QTRY_COMPARE(focusedName(), QStringLiteral("navMenu_all_"));
+    press(Qt::Key_Right);
+    QCOMPARE(bar->property("menuOpen").toBool(), false);
+    QCOMPARE(focusedName(), QStringLiteral("navKind_series"));
+
+    // A library opens on its own; All Movies opens both together.
+    press(Qt::Key_Left);
+    press(Qt::Key_Return);
+    QTRY_COMPARE(focusedName(), QStringLiteral("navMenu_all_"));
+    press(Qt::Key_Down);
+    press(Qt::Key_Down);
+    press(Qt::Key_Return);
+    QCOMPARE(scene->property("lastNavigation").toString(), QStringLiteral("library:lib-anime-movies"));
+    QTRY_COMPARE(focusedName(), QStringLiteral("contentTarget"));
+    QCOMPARE(item(QStringLiteral("navKind_movies"))->property("selected").toBool(), true);
+
+    focusBarFromPage();
+    QCOMPARE(focusedName(), QStringLiteral("navKind_movies"));
+    press(Qt::Key_Return);
+    // The menu opens on the current page's row.
+    QTRY_COMPARE(focusedName(), QStringLiteral("navMenu_library_lib-anime-movies"));
+    press(Qt::Key_Up);
+    press(Qt::Key_Up);
+    QCOMPARE(focusedName(), QStringLiteral("navMenu_all_"));
+    press(Qt::Key_Return);
+    QCOMPARE(scene->property("lastNavigation").toString(), QStringLiteral("combined:movies"));
+    QCOMPARE(scene->property("lastCombinedLibraries").toStringList(),
+             QStringList({QStringLiteral("lib-movies"), QStringLiteral("lib-anime-movies")}));
+    QCOMPARE(bar->property("currentNavigation").toString(), QStringLiteral("library:combined:movies"));
+    QCOMPARE(bar->property("menuOpen").toBool(), false);
+    QTRY_COMPARE(focusedName(), QStringLiteral("contentTarget"));
+    QCOMPARE(item(QStringLiteral("navKind_movies"))->property("selected").toBool(), true);
+    QCOMPARE(item(QStringLiteral("navKind_series"))->property("selected").toBool(), false);
+}
+
+void NavigationBarTest::shiftEnterReordersLibrariesInMenu()
 {
     QQuickItem *bar = item(QStringLiteral("bar"));
 
     focusBarFromPage();
     press(Qt::Key_Right);
-    QCOMPARE(focusedName(), QStringLiteral("navLibrary_0"));
+    press(Qt::Key_Return);
+    QTRY_COMPARE(focusedName(), QStringLiteral("navMenu_all_"));
+    press(Qt::Key_Down);
+    QCOMPARE(focusedName(), QStringLiteral("navMenu_library_lib-movies"));
 
     press(Qt::Key_Return, Qt::ShiftModifier);
-    QCOMPARE(bar->property("reorderingIndex").toInt(), 0);
+    QCOMPARE(bar->property("reorderingLibraryId").toString(), QStringLiteral("lib-movies"));
 
-    press(Qt::Key_Right);
+    // Down moves the library past the next library of the same kind; the
+    // series library in between keeps its slot.
+    press(Qt::Key_Down);
     QCOMPARE(m_sidebarSettings.libraryOrder,
-             QStringList({QStringLiteral("lib-shows"), QStringLiteral("lib-movies")}));
-    QTRY_COMPARE(focusedName(), QStringLiteral("navLibrary_1"));
-    QCOMPARE(bar->property("reorderingIndex").toInt(), 1);
+             QStringList({QStringLiteral("lib-shows"), QStringLiteral("lib-anime-movies"),
+                          QStringLiteral("lib-movies")}));
+    QTRY_COMPARE(focusedName(), QStringLiteral("navMenu_library_lib-movies"));
+    QCOMPARE(bar->property("reorderingLibraryId").toString(), QStringLiteral("lib-movies"));
 
     // Enter finishes reordering without navigating.
     press(Qt::Key_Return);
-    QCOMPARE(bar->property("reorderingIndex").toInt(), -1);
+    QCOMPARE(bar->property("reorderingLibraryId").toString(), QString());
     QCOMPARE(m_view->rootObject()->property("lastNavigation").toString(), QString());
-    QCOMPARE(focusedName(), QStringLiteral("navLibrary_1"));
+    QCOMPARE(focusedName(), QStringLiteral("navMenu_library_lib-movies"));
 }
 
 void NavigationBarTest::recessedBarReturnsWhenFocused()
