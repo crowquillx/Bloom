@@ -6,6 +6,7 @@ FocusScope {
     id: root
 
     signal requestReturnToRail()
+    readonly property bool scrolled: flickable.scrolled
 
     readonly property Item preferredEntryItem: contextCombo
     property Item _lastFocusedItem: null
@@ -226,57 +227,22 @@ FocusScope {
         }
     }
 
-    GlassPanel {
-        anchors.fill: parent
-    }
-
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
-        Text {
-            text: qsTr("Input")
-            font.pixelSize: Theme.fontSizeHeader
-            font.family: Theme.fontPrimary
-            font.weight: Theme.fontWeightHeavy
-            color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingLarge
-            Layout.leftMargin: Theme.spacingMedium
-        }
-
-        Flickable {
+        SettingsScrollView {
             id: flickable
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: width
-            contentHeight: contentColumn.implicitHeight + 2 * Theme.spacingSmall
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-
-            function ensureFocusVisible(item) {
-                if (!item) return
-                var mapped = item.mapToItem(contentColumn, 0, 0)
-                var itemY = contentColumn.y + mapped.y
-                var itemHeight = item.height
-                var viewTop = contentY
-                var viewBottom = contentY + height
-                var padding = 50
-                var maxScroll = Math.max(0, contentHeight - height)
-
-                if (itemY < viewTop + padding) {
-                    contentY = Math.max(0, itemY - padding)
-                } else if (itemY + itemHeight > viewBottom - padding) {
-                    contentY = Math.min(maxScroll, itemY + itemHeight - height + padding)
-                }
-            }
+            contentHeight: contentColumn.implicitHeight + Theme.pageMarginBottom
 
             ColumnLayout {
                 id: contentColumn
                 x: Theme.spacingMedium
                 y: Theme.spacingSmall
                 width: flickable.width - 2 * Theme.spacingMedium
-                spacing: Theme.spacingMedium
+                spacing: Theme.spacingSmall
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -288,9 +254,10 @@ FocusScope {
 
                         Text {
                             text: qsTr("Context")
-                            font.pixelSize: Theme.fontSizeBody
+                            font.pixelSize: Theme.fontSizeSmall
                             font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
+                            font.weight: Theme.fontWeightMedium
+                            color: Theme.textSecondary
                         }
 
                         SettingsComboBox {
@@ -298,7 +265,6 @@ FocusScope {
                             model: root.contexts
                             textRole: "label"
                             valueRole: "value"
-                            Layout.preferredWidth: Math.round(280 * Theme.layoutScale)
                             currentIndex: root.optionIndexForValue(root.contexts, root.selectedContext)
 
                             onActiveFocusChanged: {
@@ -314,6 +280,8 @@ FocusScope {
                             }
                             KeyNavigation.down: deviceCombo
                             KeyNavigation.right: deviceCombo
+                            // Top of the page: Up goes to the navigation bar.
+                            Keys.onUpPressed: function(event) { event.accepted = false }
                         }
                     }
 
@@ -323,9 +291,10 @@ FocusScope {
 
                         Text {
                             text: qsTr("Device")
-                            font.pixelSize: Theme.fontSizeBody
+                            font.pixelSize: Theme.fontSizeSmall
                             font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
+                            font.weight: Theme.fontWeightMedium
+                            color: Theme.textSecondary
                         }
 
                         SettingsComboBox {
@@ -333,7 +302,6 @@ FocusScope {
                             model: root.devices
                             textRole: "label"
                             valueRole: "value"
-                            Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
                             currentIndex: root.optionIndexForValue(root.devices, root.selectedDevice)
 
                             onActiveFocusChanged: {
@@ -407,7 +375,15 @@ FocusScope {
                     wrapMode: Text.WordWrap
                 }
 
-                SettingsGroupDivider { Layout.fillWidth: true }
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Bindings")
+                    detail: root.selectedDevice === "keyboard"
+                            ? qsTr("Select a binding, then press the new key")
+                            : qsTr("Select a binding, then press the new controller input")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
                 Repeater {
                     id: bindingRepeater
@@ -422,8 +398,8 @@ FocusScope {
                         readonly property alias captureControl: captureButton
 
                         Layout.fillWidth: true
-                        implicitHeight: Math.max(rowContent.implicitHeight + 2 * Theme.spacingMedium,
-                                                 Math.round(92 * Theme.layoutScale))
+                        implicitHeight: Math.max(rowContent.implicitHeight + 2 * Theme.spacingSmall,
+                                                 Theme.navBarItemHeight + Theme.spacingMedium)
 
                         function focusControl(controlName) {
                             if (controlName === "clear") {
@@ -455,33 +431,23 @@ FocusScope {
                             if (next) next.focusControl("capture")
                         }
 
+                        // The focused button inside the row draws the ring; the row
+                        // lifts its surface so the active binding is easy to find.
                         Rectangle {
                             anchors.fill: parent
+                            anchors.leftMargin: -Theme.spacingMedium
+                            anchors.rightMargin: -Theme.spacingMedium
                             radius: Theme.radiusMedium
-                            // The focused control inside the row draws the ring; the row
-                            // only lifts its surface so the active binding is easy to find.
-                            color: row.activeFocus ? Theme.surfaceInteractive : Theme.surfaceSunken
+                            color: row.activeFocus ? Theme.surfaceInteractiveHover : "transparent"
 
                             Behavior on color { enabled: Theme.uiAnimationsEnabled; ColorAnimation { duration: Theme.durationShort } }
                         }
 
-                        Rectangle {
-                            width: Math.round(4 * Theme.layoutScale)
-                            anchors.left: parent.left
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            anchors.margins: Theme.spacingSmall
-                            radius: Math.round(2 * Theme.layoutScale)
-                            color: Theme.accentPrimary
-                            opacity: row.activeFocus ? 1.0 : 0.0
-
-                            Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
-                        }
-
                         RowLayout {
                             id: rowContent
-                            anchors.fill: parent
-                            anchors.margins: Theme.spacingMedium
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
                             spacing: Theme.spacingMedium
 
                             ColumnLayout {
@@ -493,7 +459,7 @@ FocusScope {
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fontSizeBody
                                     font.family: Theme.fontPrimary
-                                    font.weight: Font.DemiBold
+                                    font.weight: Theme.fontWeightStrong
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
                                 }

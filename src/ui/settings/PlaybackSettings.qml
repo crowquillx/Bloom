@@ -7,6 +7,7 @@ FocusScope {
     id: root
 
     signal requestReturnToRail()
+    readonly property bool scrolled: flickable.scrolled
     readonly property Item preferredEntryItem: autoplaySwitch
 
     function enterFromRail() {
@@ -93,11 +94,9 @@ FocusScope {
         { label: qsTr("Remote Mount"), value: "remote-mount" }
     ]
 
-    component ChoiceComboRow: RowLayout {
+    component ChoiceComboRow: SettingsRow {
         id: choiceRow
 
-        property string label: ""
-        property string description: ""
         property var options: []
         property string selectedValue: "normal"
         property Item upTarget: null
@@ -107,8 +106,9 @@ FocusScope {
         property alias focusItem: combo
         signal selected(string value)
 
-        Layout.fillWidth: true
-        spacing: Theme.spacingMedium
+        highlighted: combo.activeFocus || combo.popup.visible
+        focusTarget: combo
+        onActivated: combo.popup.open()
 
         function refreshSelection() {
             var idx = root.optionIndexForValue(options, selectedValue)
@@ -118,34 +118,12 @@ FocusScope {
             updatingSelection = false
         }
 
-        ColumnLayout {
-            spacing: Math.round(4 * Theme.layoutScale)
-            Layout.fillWidth: true
-
-            Text {
-                text: choiceRow.label
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-            }
-
-            Text {
-                text: choiceRow.description
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.fontPrimary
-                color: Theme.textSecondary
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-        }
-
         SettingsComboBox {
             id: combo
             model: choiceRow.options
             textRole: "label"
             valueRole: "value"
             currentIndex: root.optionIndexForValue(choiceRow.options, choiceRow.selectedValue)
-            Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
             focusPolicy: Qt.StrongFocus
 
             Component.onCompleted: {
@@ -197,58 +175,29 @@ FocusScope {
         event.accepted = true
     }
 
-    GlassPanel {
-        anchors.fill: parent
-    }
-
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
-        Text {
-            text: qsTr("Playback")
-            font.pixelSize: Theme.fontSizeHeader
-            font.family: Theme.fontPrimary
-            font.weight: Theme.fontWeightHeavy
-            color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingLarge
-            Layout.leftMargin: Theme.spacingMedium
-        }
-
-        Flickable {
+        SettingsScrollView {
             id: flickable
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentHeight: contentColumn.implicitHeight + 2 * Theme.spacingSmall
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-
-            function ensureFocusVisible(item) {
-                if (!item) return
-                var mapped = item.mapToItem(contentColumn, 0, 0)
-                var itemY = contentColumn.y + mapped.y
-                var itemHeight = item.height
-                var viewTop = contentY
-                var viewBottom = contentY + height
-                var padding = 50
-                var maxScroll = Math.max(0, contentHeight - height)
-
-                if (itemY < viewTop + padding) {
-                    contentY = Math.max(0, itemY - padding)
-                } else if (itemY + itemHeight > viewBottom - padding) {
-                    contentY = Math.min(maxScroll, itemY + itemHeight - height + padding)
-                }
-            }
+            contentHeight: contentColumn.implicitHeight + Theme.pageMarginBottom
 
             ColumnLayout {
                 id: contentColumn
                 x: Theme.spacingMedium
                 y: Theme.spacingSmall
                 width: flickable.width - 2 * Theme.spacingMedium
-                spacing: Theme.spacingMedium
+                spacing: Theme.spacingSmall
 
-                // ── Group 1: Autoplay ──
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Autoplay")
+                    Layout.fillWidth: true
+                    Layout.topMargin: 0
+                }
 
                 SettingsToggleRow {
                     id: autoplaySwitch
@@ -284,37 +233,19 @@ FocusScope {
                     }
                 }
 
-                RowLayout {
+                SettingsRow {
                     id: autoplayCountdownRow
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
-                    ColumnLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: qsTr("Autoplay Countdown")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: autoplayCountdownCombo.enabled ? Theme.textPrimary : Theme.textDisabled
-                        }
-
-                        Text {
-                            text: qsTr("Seconds before next episode auto-plays")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: autoplayCountdownCombo.enabled ? Theme.textSecondary : Theme.textDisabled
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                    label: qsTr("Autoplay Countdown")
+                    description: qsTr("Seconds before next episode auto-plays")
+                    dimmed: !autoplayCountdownCombo.enabled
+                    highlighted: autoplayCountdownCombo.activeFocus || autoplayCountdownCombo.popup.visible
+                    focusTarget: autoplayCountdownCombo
+                    onActivated: if (autoplayCountdownCombo.enabled) autoplayCountdownCombo.popup.open()
 
                     SettingsComboBox {
                         id: autoplayCountdownCombo
                         model: ["5s", "10s", "15s", "20s", "25s", "30s"]
                         currentIndex: 0
-                        Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
                         enabled: ConfigManager.autoplayNextEpisode
                         property bool initialized: false
@@ -382,92 +313,15 @@ FocusScope {
 
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
-
-                        background: FieldBackground { control: autoplayCountdownCombo; implicitHeight: Theme.buttonHeightSmall }
-
-                        contentItem: Text {
-                            text: autoplayCountdownCombo.selectedText()
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: autoplayCountdownCombo.enabled ? Theme.textPrimary : Theme.textDisabled
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                        }
-
-                        delegate: ItemDelegate {
-                            width: autoplayCountdownCombo.width
-                            enabled: autoplayCountdownCombo.enabled
-                            contentItem: Text {
-                                text: autoplayCountdownCombo.optionTextAt(index)
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || autoplayCountdownCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: autoplayCountdownCombo.height + 5
-                            width: autoplayCountdownCombo.width
-                            implicitHeight: contentItem.implicitHeight
-                            padding: 1
-
-                            onOpened: {
-                                InputModeManager.setNavigationMode("keyboard")
-                                InputModeManager.hideCursor(true)
-                                autoplayCountdownList.currentIndex = autoplayCountdownCombo.highlightedIndex >= 0
-                                    ? autoplayCountdownCombo.highlightedIndex
-                                    : autoplayCountdownCombo.currentIndex
-                                autoplayCountdownList.forceActiveFocus()
-                            }
-                            onClosed: {
-                                autoplayCountdownCombo.forceActiveFocus()
-                                InputModeManager.setNavigationMode("pointer")
-                                InputModeManager.hideCursor(false)
-                            }
-
-                            contentItem: ListView {
-                                id: autoplayCountdownList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: autoplayCountdownCombo.popup.visible ? autoplayCountdownCombo.delegateModel : null
-                                currentIndex: autoplayCountdownCombo.highlightedIndex >= 0
-                                    ? autoplayCountdownCombo.highlightedIndex
-                                    : autoplayCountdownCombo.currentIndex
-
-                                ScrollIndicator.vertical: ScrollIndicator { }
-
-                                onActiveFocusChanged: {
-                                    if (activeFocus) {
-                                        InputModeManager.setNavigationMode("keyboard")
-                                        InputModeManager.hideCursor(true)
-                                    }
-                                }
-
-                                Keys.onReturnPressed: {
-                                    autoplayCountdownCombo.currentIndex = currentIndex
-                                    autoplayCountdownCombo.popup.close()
-                                }
-                                Keys.onEnterPressed: {
-                                    autoplayCountdownCombo.currentIndex = currentIndex
-                                    autoplayCountdownCombo.popup.close()
-                                }
-                                Keys.onEscapePressed: autoplayCountdownCombo.popup.close()
-                            }
-
-                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
-                        }
                     }
                 }
 
-                // ── Group 2: Completion threshold ──
-
-                SettingsGroupDivider { Layout.fillWidth: true }
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Progress")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
                 SettingsSliderRow {
                     id: thresholdSlider
@@ -489,10 +343,6 @@ FocusScope {
                         ConfigManager.playbackCompletionThreshold = newValue
                     }
                 }
-
-                // ── Group 2b: Version preference ──
-
-                SettingsGroupDivider { Layout.fillWidth: true }
 
                 ChoiceComboRow {
                     id: versionPreferenceRow
@@ -516,9 +366,12 @@ FocusScope {
                     }
                 }
 
-                // ── Group 3: Audio delay ──
-
-                SettingsGroupDivider { Layout.fillWidth: true }
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Audio")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
                 SettingsSpinBoxRow {
                     id: audioDelaySpinBox
@@ -541,35 +394,14 @@ FocusScope {
                     }
                 }
 
-                // ── Group 3b: Audio output ──
-
-                SettingsGroupDivider { Layout.fillWidth: true }
-
-                RowLayout {
+                SettingsRow {
                     id: audioOutputDeviceRow
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
-                    ColumnLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: qsTr("Audio Output Device")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                        }
-
-                        Text {
-                            text: qsTr("Choose where audio plays. \"System Default\" follows the system. A saved device that is disconnected is kept, and playback uses the system default until it returns.")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                    label: qsTr("Audio Output Device")
+                    description: qsTr("Choose where audio plays. \"System Default\" follows the system. A saved device that is disconnected is kept, and playback uses the system default until it returns.")
+                    dimmed: !audioOutputDeviceCombo.enabled
+                    highlighted: audioOutputDeviceCombo.activeFocus || audioOutputDeviceCombo.popup.visible
+                    focusTarget: audioOutputDeviceCombo
+                    onActivated: if (audioOutputDeviceCombo.enabled) audioOutputDeviceCombo.popup.open()
 
                     SettingsComboBox {
                         id: audioOutputDeviceCombo
@@ -578,7 +410,6 @@ FocusScope {
                         textRole: "label"
                         valueRole: "value"
                         currentIndex: root.selectedOptionIndex(options)
-                        Layout.preferredWidth: Math.round(340 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
 
                         function refreshOptions() {
@@ -662,31 +493,14 @@ FocusScope {
                     onToggled: function(value) { ConfigManager.audioExclusiveMode = value }
                 }
 
-                RowLayout {
+                SettingsRow {
                     id: audioPassthroughRow
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
-                    ColumnLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: qsTr("Audio Passthrough")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                        }
-
-                        Text {
-                            text: qsTr("Choose which surround sound formats Bloom can send directly to your audio device.")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                    label: qsTr("Audio Passthrough")
+                    description: qsTr("Choose which surround sound formats Bloom can send directly to your audio device.")
+                    dimmed: !audioPassthroughModeCombo.enabled
+                    highlighted: audioPassthroughModeCombo.activeFocus || audioPassthroughModeCombo.popup.visible
+                    focusTarget: audioPassthroughModeCombo
+                    onActivated: if (audioPassthroughModeCombo.enabled) audioPassthroughModeCombo.popup.open()
 
                     SettingsComboBox {
                         id: audioPassthroughModeCombo
@@ -699,7 +513,6 @@ FocusScope {
                         textRole: "label"
                         valueRole: "value"
                         currentIndex: root.optionIndexForValue(options, ConfigManager.audioPassthroughMode)
-                        Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
                         property bool initialized: false
                         property bool updatingSelection: false
@@ -818,35 +631,21 @@ FocusScope {
                     onToggled: function(value) { root.setAudioPassthroughCodec("dts-hd", value) }
                 }
 
-                // ── Group 4: Default audio/subtitle fallback tracks ──
-
-                SettingsGroupDivider { Layout.fillWidth: true }
-
-                RowLayout {
-                    id: defaultAudioTrackRow
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Languages")
                     Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
-                    ColumnLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: qsTr("Audio Language")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                        }
-
-                        Text {
-                            text: qsTr("Fallback used when no season or movie audio preference is saved")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                SettingsRow {
+                    id: defaultAudioTrackRow
+                    label: qsTr("Audio Language")
+                    description: qsTr("Fallback used when no season or movie audio preference is saved")
+                    dimmed: !defaultAudioTrackCombo.enabled
+                    highlighted: defaultAudioTrackCombo.activeFocus || defaultAudioTrackCombo.popup.visible
+                    focusTarget: defaultAudioTrackCombo
+                    onActivated: if (defaultAudioTrackCombo.enabled) defaultAudioTrackCombo.popup.open()
 
                     SettingsComboBox {
                         id: defaultAudioTrackCombo
@@ -855,7 +654,6 @@ FocusScope {
                         textRole: "label"
                         valueRole: "value"
                         currentIndex: root.optionIndexForValue(options, ConfigManager.defaultAudioTrackSelection)
-                        Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
                         property bool initialized: false
                         property bool updatingSelection: false
@@ -924,122 +722,17 @@ FocusScope {
                             popup.open()
                             event.accepted = true
                         }
-
-                        background: FieldBackground { control: defaultAudioTrackCombo; implicitHeight: Theme.buttonHeightSmall }
-
-                        contentItem: Text {
-                            text: defaultAudioTrackCombo.selectedText()
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                            elide: Text.ElideRight
-                        }
-
-                        delegate: ItemDelegate {
-                            width: defaultAudioTrackCombo.width
-                            contentItem: Text {
-                                text: defaultAudioTrackCombo.optionTextAt(index)
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                                elide: Text.ElideRight
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || defaultAudioTrackCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: defaultAudioTrackCombo.height + 5
-                            width: defaultAudioTrackCombo.width
-                            implicitHeight: Math.min(contentItem.implicitHeight, Math.round(360 * Theme.layoutScale))
-                            padding: 1
-
-                            onOpened: {
-                                InputModeManager.setNavigationMode("keyboard")
-                                InputModeManager.hideCursor(true)
-                                defaultAudioTrackList.currentIndex = defaultAudioTrackCombo.highlightedIndex >= 0
-                                    ? defaultAudioTrackCombo.highlightedIndex
-                                    : defaultAudioTrackCombo.currentIndex
-                                defaultAudioTrackList.forceActiveFocus()
-                            }
-                            onClosed: {
-                                Qt.callLater(function() {
-                                    defaultAudioTrackCombo.forceActiveFocus()
-                                })
-                                InputModeManager.setNavigationMode("pointer")
-                                InputModeManager.hideCursor(false)
-                            }
-
-                            contentItem: ListView {
-                                id: defaultAudioTrackList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: defaultAudioTrackCombo.popup.visible ? defaultAudioTrackCombo.delegateModel : null
-                                currentIndex: defaultAudioTrackCombo.highlightedIndex >= 0
-                                    ? defaultAudioTrackCombo.highlightedIndex
-                                    : defaultAudioTrackCombo.currentIndex
-
-                                ScrollIndicator.vertical: ScrollIndicator { }
-
-                                onActiveFocusChanged: {
-                                    if (activeFocus) {
-                                        InputModeManager.setNavigationMode("keyboard")
-                                        InputModeManager.hideCursor(true)
-                                    }
-                                }
-
-                                Keys.onReturnPressed: function(event) {
-                                    defaultAudioTrackCombo.currentIndex = currentIndex
-                                    defaultAudioTrackCombo.popup.close()
-                                    event.accepted = true
-                                }
-                                Keys.onEnterPressed: function(event) {
-                                    defaultAudioTrackCombo.currentIndex = currentIndex
-                                    defaultAudioTrackCombo.popup.close()
-                                    event.accepted = true
-                                }
-                                Keys.onEscapePressed: function(event) {
-                                    defaultAudioTrackCombo.popup.close()
-                                    event.accepted = true
-                                }
-                            }
-
-                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
-                        }
                     }
                 }
 
-                RowLayout {
+                SettingsRow {
                     id: defaultSubtitleTrackRow
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
-                    ColumnLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: qsTr("Subtitle Language")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                        }
-
-                        Text {
-                            text: qsTr("Fallback used when no season or movie subtitle preference is saved")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                    label: qsTr("Subtitle Language")
+                    description: qsTr("Fallback used when no season or movie subtitle preference is saved")
+                    dimmed: !defaultSubtitleTrackCombo.enabled
+                    highlighted: defaultSubtitleTrackCombo.activeFocus || defaultSubtitleTrackCombo.popup.visible
+                    focusTarget: defaultSubtitleTrackCombo
+                    onActivated: if (defaultSubtitleTrackCombo.enabled) defaultSubtitleTrackCombo.popup.open()
 
                     SettingsComboBox {
                         id: defaultSubtitleTrackCombo
@@ -1048,7 +741,6 @@ FocusScope {
                         textRole: "label"
                         valueRole: "value"
                         currentIndex: root.optionIndexForValue(options, ConfigManager.defaultSubtitleTrackSelection)
-                        Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
                         property bool initialized: false
                         property bool updatingSelection: false
@@ -1113,100 +805,15 @@ FocusScope {
                             popup.open()
                             event.accepted = true
                         }
-
-                        background: FieldBackground { control: defaultSubtitleTrackCombo; implicitHeight: Theme.buttonHeightSmall }
-
-                        contentItem: Text {
-                            text: defaultSubtitleTrackCombo.selectedText()
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                            elide: Text.ElideRight
-                        }
-
-                        delegate: ItemDelegate {
-                            width: defaultSubtitleTrackCombo.width
-                            contentItem: Text {
-                                text: defaultSubtitleTrackCombo.optionTextAt(index)
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                                elide: Text.ElideRight
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || defaultSubtitleTrackCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: defaultSubtitleTrackCombo.height + 5
-                            width: defaultSubtitleTrackCombo.width
-                            implicitHeight: Math.min(contentItem.implicitHeight, Math.round(360 * Theme.layoutScale))
-                            padding: 1
-
-                            onOpened: {
-                                InputModeManager.setNavigationMode("keyboard")
-                                InputModeManager.hideCursor(true)
-                                defaultSubtitleTrackList.currentIndex = defaultSubtitleTrackCombo.highlightedIndex >= 0
-                                    ? defaultSubtitleTrackCombo.highlightedIndex
-                                    : defaultSubtitleTrackCombo.currentIndex
-                                defaultSubtitleTrackList.forceActiveFocus()
-                            }
-                            onClosed: {
-                                Qt.callLater(function() {
-                                    defaultSubtitleTrackCombo.forceActiveFocus()
-                                })
-                                InputModeManager.setNavigationMode("pointer")
-                                InputModeManager.hideCursor(false)
-                            }
-
-                            contentItem: ListView {
-                                id: defaultSubtitleTrackList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: defaultSubtitleTrackCombo.popup.visible ? defaultSubtitleTrackCombo.delegateModel : null
-                                currentIndex: defaultSubtitleTrackCombo.highlightedIndex >= 0
-                                    ? defaultSubtitleTrackCombo.highlightedIndex
-                                    : defaultSubtitleTrackCombo.currentIndex
-
-                                ScrollIndicator.vertical: ScrollIndicator { }
-
-                                onActiveFocusChanged: {
-                                    if (activeFocus) {
-                                        InputModeManager.setNavigationMode("keyboard")
-                                        InputModeManager.hideCursor(true)
-                                    }
-                                }
-
-                                Keys.onReturnPressed: function(event) {
-                                    defaultSubtitleTrackCombo.currentIndex = currentIndex
-                                    defaultSubtitleTrackCombo.popup.close()
-                                    event.accepted = true
-                                }
-                                Keys.onEnterPressed: function(event) {
-                                    defaultSubtitleTrackCombo.currentIndex = currentIndex
-                                    defaultSubtitleTrackCombo.popup.close()
-                                    event.accepted = true
-                                }
-                                Keys.onEscapePressed: function(event) {
-                                    defaultSubtitleTrackCombo.popup.close()
-                                    event.accepted = true
-                                }
-                            }
-
-                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
-                        }
                     }
                 }
 
-                // ── Group 5: Skip popup + auto-skip toggles ──
-
-                SettingsGroupDivider { Layout.fillWidth: true }
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Intros and Credits")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
                 SettingsSliderRow {
                     id: skipPopupDurationSlider
@@ -1263,9 +870,12 @@ FocusScope {
                     }
                 }
 
-                // ── Group 5: Seek previews ──
-
-                SettingsGroupDivider { Layout.fillWidth: true }
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Seek Previews")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
                 SettingsToggleRow {
                     id: serverTrickplayToggle
@@ -1301,9 +911,12 @@ FocusScope {
                     }
                 }
 
-                // ── Group 5: UI sounds toggle + volume ──
-
-                SettingsGroupDivider { Layout.fillWidth: true }
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Sounds")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
                 SettingsToggleRow {
                     id: uiSoundsToggle
@@ -1322,37 +935,19 @@ FocusScope {
                     }
                 }
 
-                RowLayout {
+                SettingsRow {
                     id: uiSoundsVolumeRow
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
-                    ColumnLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: qsTr("UI Sound Volume")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: uiSoundsVolumeCombo.enabled ? Theme.textPrimary : Theme.textDisabled
-                        }
-
-                        Text {
-                            text: qsTr("Click feedback for navigation and selection")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: uiSoundsVolumeCombo.enabled ? Theme.textSecondary : Theme.textDisabled
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                    label: qsTr("UI Sound Volume")
+                    description: qsTr("Click feedback for navigation and selection")
+                    dimmed: !uiSoundsVolumeCombo.enabled
+                    highlighted: uiSoundsVolumeCombo.activeFocus || uiSoundsVolumeCombo.popup.visible
+                    focusTarget: uiSoundsVolumeCombo
+                    onActivated: if (uiSoundsVolumeCombo.enabled) uiSoundsVolumeCombo.popup.open()
 
                     SettingsComboBox {
                         id: uiSoundsVolumeCombo
                         model: [qsTr("Off"), qsTr("Very Low"), qsTr("Low"), qsTr("Medium"), qsTr("High")]
                         currentIndex: 0
-                        Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
                         enabled: ConfigManager.uiSoundsEnabled
                         property bool initialized: false
@@ -1411,128 +1006,22 @@ FocusScope {
 
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
-
-                        background: FieldBackground { control: uiSoundsVolumeCombo; implicitHeight: Theme.buttonHeightSmall }
-
-                        contentItem: Text {
-                            text: uiSoundsVolumeCombo.selectedText()
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: uiSoundsVolumeCombo.enabled ? Theme.textPrimary : Theme.textDisabled
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                        }
-
-                        delegate: ItemDelegate {
-                            width: uiSoundsVolumeCombo.width
-                            enabled: uiSoundsVolumeCombo.enabled
-                            contentItem: Text {
-                                text: uiSoundsVolumeCombo.optionTextAt(index)
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || uiSoundsVolumeCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: uiSoundsVolumeCombo.height + 5
-                            width: uiSoundsVolumeCombo.width
-                            implicitHeight: contentItem.implicitHeight
-                            padding: 1
-
-                            onOpened: {
-                                InputModeManager.setNavigationMode("keyboard")
-                                InputModeManager.hideCursor(true)
-                                uiSoundsVolumeList.currentIndex = uiSoundsVolumeCombo.highlightedIndex >= 0
-                                    ? uiSoundsVolumeCombo.highlightedIndex
-                                    : uiSoundsVolumeCombo.currentIndex
-                                uiSoundsVolumeList.forceActiveFocus()
-                            }
-                            onClosed: {
-                                uiSoundsVolumeCombo.forceActiveFocus()
-                                InputModeManager.setNavigationMode("pointer")
-                                InputModeManager.hideCursor(false)
-                            }
-
-                            contentItem: ListView {
-                                id: uiSoundsVolumeList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: uiSoundsVolumeCombo.popup.visible ? uiSoundsVolumeCombo.delegateModel : null
-                                currentIndex: uiSoundsVolumeCombo.highlightedIndex >= 0
-                                    ? uiSoundsVolumeCombo.highlightedIndex
-                                    : uiSoundsVolumeCombo.currentIndex
-
-                                ScrollIndicator.vertical: ScrollIndicator { }
-
-                                onActiveFocusChanged: {
-                                    if (activeFocus) {
-                                        InputModeManager.setNavigationMode("keyboard")
-                                        InputModeManager.hideCursor(true)
-                                    }
-                                }
-
-                                Keys.onReturnPressed: {
-                                    if (currentIndex !== ConfigManager.uiSoundsVolume) {
-                                        ConfigManager.uiSoundsVolume = currentIndex
-                                    }
-                                    uiSoundsVolumeCombo.popup.close()
-                                }
-                                Keys.onEnterPressed: {
-                                    if (currentIndex !== ConfigManager.uiSoundsVolume) {
-                                        ConfigManager.uiSoundsVolume = currentIndex
-                                    }
-                                    uiSoundsVolumeCombo.popup.close()
-                                }
-                                Keys.onEscapePressed: uiSoundsVolumeCombo.popup.close()
-                            }
-
-                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
-                        }
                     }
                 }
 
-                // ── Group 6: Theme song volume + loop ──
-
-                SettingsGroupDivider { Layout.fillWidth: true }
-
-                RowLayout {
+                SettingsRow {
                     id: themeSongVolumeRow
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
-                    ColumnLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: qsTr("Theme Song Volume")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                        }
-
-                        Text {
-                            text: qsTr("Play series theme music when browsing")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                    label: qsTr("Theme Song Volume")
+                    description: qsTr("Play series theme music when browsing")
+                    dimmed: !themeSongVolumeCombo.enabled
+                    highlighted: themeSongVolumeCombo.activeFocus || themeSongVolumeCombo.popup.visible
+                    focusTarget: themeSongVolumeCombo
+                    onActivated: if (themeSongVolumeCombo.enabled) themeSongVolumeCombo.popup.open()
 
                     SettingsComboBox {
                         id: themeSongVolumeCombo
                         model: [qsTr("Off"), qsTr("Very Low"), qsTr("Low"), qsTr("Medium"), qsTr("High")]
                         currentIndex: 0
-                        Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
                         property bool initialized: false
                         property bool updatingSelection: false
@@ -1591,89 +1080,6 @@ FocusScope {
 
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
-
-                        background: FieldBackground { control: themeSongVolumeCombo; implicitHeight: Theme.buttonHeightSmall }
-
-                        contentItem: Text {
-                            text: themeSongVolumeCombo.selectedText()
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                        }
-
-                        delegate: ItemDelegate {
-                            width: themeSongVolumeCombo.width
-                            contentItem: Text {
-                                text: themeSongVolumeCombo.optionTextAt(index)
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.surfaceInteractiveHover : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || themeSongVolumeCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: themeSongVolumeCombo.height + 5
-                            width: themeSongVolumeCombo.width
-                            implicitHeight: contentItem.implicitHeight
-                            padding: 1
-
-                            onOpened: {
-                                InputModeManager.setNavigationMode("keyboard")
-                                InputModeManager.hideCursor(true)
-                                themeSongVolumeList.currentIndex = themeSongVolumeCombo.highlightedIndex >= 0
-                                    ? themeSongVolumeCombo.highlightedIndex
-                                    : themeSongVolumeCombo.currentIndex
-                                themeSongVolumeList.forceActiveFocus()
-                            }
-                            onClosed: {
-                                themeSongVolumeCombo.forceActiveFocus()
-                                InputModeManager.setNavigationMode("pointer")
-                                InputModeManager.hideCursor(false)
-                            }
-
-                            contentItem: ListView {
-                                id: themeSongVolumeList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: themeSongVolumeCombo.popup.visible ? themeSongVolumeCombo.delegateModel : null
-                                currentIndex: themeSongVolumeCombo.highlightedIndex >= 0
-                                    ? themeSongVolumeCombo.highlightedIndex
-                                    : themeSongVolumeCombo.currentIndex
-
-                                ScrollIndicator.vertical: ScrollIndicator { }
-
-                                onActiveFocusChanged: {
-                                    if (activeFocus) {
-                                        InputModeManager.setNavigationMode("keyboard")
-                                        InputModeManager.hideCursor(true)
-                                    }
-                                }
-
-                                Keys.onReturnPressed: {
-                                    if (currentIndex !== ConfigManager.themeSongVolume) {
-                                        ConfigManager.themeSongVolume = currentIndex
-                                    }
-                                    themeSongVolumeCombo.popup.close()
-                                }
-                                Keys.onEnterPressed: {
-                                    if (currentIndex !== ConfigManager.themeSongVolume) {
-                                        ConfigManager.themeSongVolume = currentIndex
-                                    }
-                                    themeSongVolumeCombo.popup.close()
-                                }
-                                Keys.onEscapePressed: themeSongVolumeCombo.popup.close()
-                            }
-
-                            background: DialogSurface { floating: true; radius: Theme.radiusMedium }
-                        }
                     }
                 }
 
@@ -1694,9 +1100,12 @@ FocusScope {
                     }
                 }
 
-                // ── Group 7: Playback cache size ──
-
-                SettingsGroupDivider { Layout.fillWidth: true }
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Buffering")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
                 SettingsSpinBoxRow {
                     id: cacheSizeSpinBox
@@ -1718,10 +1127,6 @@ FocusScope {
                         ConfigManager.playbackCacheSizeMB = newValue
                     }
                 }
-
-                // ── Group 8: Startup buffering ──
-
-                SettingsGroupDivider { Layout.fillWidth: true }
 
                 ChoiceComboRow {
                     id: globalStartupBufferingRow
@@ -1747,14 +1152,13 @@ FocusScope {
                     }
                 }
 
-                Text {
+                SectionHeader {
+                    level: "group"
                     text: qsTr("Library Overrides")
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.family: Theme.fontPrimary
-                    font.weight: Font.DemiBold
-                    color: Theme.textSecondary
+                    detail: qsTr("Startup buffering per library")
                     visible: libraryStartupBufferingRepeater.count > 0
                     Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
                 }
 
                 Repeater {
@@ -1794,11 +1198,15 @@ FocusScope {
                 }
             }
         }
+    }
 
-        WheelStepScroller {
-            anchors.fill: flickable
-            target: flickable
-            stepPx: Math.round(88 * Theme.layoutScale)
-        }
+    // Outside the layout so it can overlay the scroll view.
+    WheelStepScroller {
+        x: flickable.x
+        y: flickable.y
+        width: flickable.width
+        height: flickable.height
+        target: flickable.view
+        stepPx: Math.round(88 * Theme.layoutScale)
     }
 }

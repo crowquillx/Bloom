@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import BloomUI
 
@@ -7,6 +6,7 @@ FocusScope {
     id: root
 
     signal requestReturnToRail()
+    readonly property bool scrolled: flickable.scrolled
 
     readonly property Item preferredEntryItem: screensaverEnabledRow
     property Item _lastFocusedItem: null
@@ -81,74 +81,28 @@ FocusScope {
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
-    GlassPanel {
-        anchors.fill: parent
-    }
-
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
-        Text {
-            text: qsTr("Display")
-            font.pixelSize: Theme.fontSizeHeader
-            font.family: Theme.fontPrimary
-            font.weight: Theme.fontWeightHeavy
-            color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingLarge
-            Layout.leftMargin: Theme.spacingMedium
-        }
-
-        Flickable {
+        SettingsScrollView {
             id: flickable
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: width
-            contentHeight: contentColumn.implicitHeight + 2 * Theme.spacingSmall
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-
-            function ensureFocusVisible(item) {
-                if (!item) return
-                var mapped = item.mapToItem(contentColumn, 0, 0)
-                var itemY = contentColumn.y + mapped.y
-                var itemHeight = item.height
-                var viewTop = contentY
-                var viewBottom = contentY + height
-                var padding = 50
-                var maxScroll = Math.max(0, contentHeight - height)
-                if (itemY < viewTop + padding) {
-                    contentY = Math.max(0, itemY - padding)
-                } else if (itemY + itemHeight > viewBottom - padding) {
-                    contentY = Math.min(maxScroll, itemY + itemHeight - height + padding)
-                }
-            }
+            contentHeight: contentColumn.implicitHeight + Theme.pageMarginBottom
 
             ColumnLayout {
                 id: contentColumn
                 x: Theme.spacingMedium
                 y: Theme.spacingSmall
                 width: flickable.width - 2 * Theme.spacingMedium
-                spacing: Theme.spacingMedium
+                spacing: Theme.spacingSmall
 
-                // --- Screensaver ---
-                Text {
+                SectionHeader {
+                    level: "group"
                     text: qsTr("Screensaver")
-
-                    font.pixelSize: Theme.fontSizeSmall
-
-                    font.family: Theme.fontPrimary
-
-                    font.weight: Theme.fontWeightHeavy
-
-                    font.capitalization: Font.AllUppercase
-
-                    font.letterSpacing: Math.round(1.5 * Theme.layoutScale)
-
-                    color: Theme.accentPrimary
-
-                    Layout.topMargin: Theme.spacingMedium
+                    Layout.fillWidth: true
+                    Layout.topMargin: 0
                 }
 
                 SettingsToggleRow {
@@ -162,43 +116,51 @@ FocusScope {
                     KeyNavigation.down: screensaverModeCombo
                 }
 
-                SettingsComboBox {
-                    id: screensaverModeCombo
-                    Layout.preferredWidth: Math.round(300 * Theme.layoutScale)
-                    enabled: ConfigManager.screensaverEnabled
-                    model: [qsTr("Library Backdrops"), qsTr("Bouncing Logo"), qsTr("Black Screen")]
+                SettingsRow {
+                    label: qsTr("Screensaver Style")
+                    description: qsTr("What the screensaver shows.")
+                    dimmed: !screensaverModeCombo.enabled
+                    highlighted: screensaverModeCombo.activeFocus || screensaverModeCombo.popup.visible
+                    focusTarget: screensaverModeCombo
+                    onActivated: if (screensaverModeCombo.enabled) screensaverModeCombo.popup.open()
 
-                    property bool _syncingFromConfig: false
-                    function modeValues() {
-                        return ["libraryBackdrops", "bouncingLogo", "black"]
-                    }
-                    function applyModeAt(index) {
-                        if (_syncingFromConfig || index < 0) return
-                        var values = modeValues()
-                        if (index >= values.length) return
-                        ConfigManager.screensaverMode = values[index]
-                    }
-                    function syncFromConfig() {
-                        _syncingFromConfig = true
-                        currentIndex = root.screensaverModeIndex()
-                        _syncingFromConfig = false
-                    }
+                    SettingsComboBox {
+                        id: screensaverModeCombo
+                        enabled: ConfigManager.screensaverEnabled
+                        model: [qsTr("Library Backdrops"), qsTr("Bouncing Logo"), qsTr("Black Screen")]
 
-                    Component.onCompleted: syncFromConfig()
-                    Connections {
-                        target: ConfigManager
-                        function onScreensaverModeChanged() { screensaverModeCombo.syncFromConfig() }
-                    }
-                    onSelectionAccepted: function(index) { applyModeAt(index) }
-                    onActivated: function(index) { applyModeAt(index) }
-                    onActiveFocusChanged: {
-                        if (activeFocus) {
-                            root._lastFocusedItem = this
-                            flickable.ensureFocusVisible(this)
+                        property bool _syncingFromConfig: false
+                        function modeValues() {
+                            return ["libraryBackdrops", "bouncingLogo", "black"]
                         }
+                        function applyModeAt(index) {
+                            if (_syncingFromConfig || index < 0) return
+                            var values = modeValues()
+                            if (index >= values.length) return
+                            ConfigManager.screensaverMode = values[index]
+                        }
+                        function syncFromConfig() {
+                            _syncingFromConfig = true
+                            currentIndex = root.screensaverModeIndex()
+                            _syncingFromConfig = false
+                        }
+
+                        Component.onCompleted: syncFromConfig()
+                        Connections {
+                            target: ConfigManager
+                            function onScreensaverModeChanged() { screensaverModeCombo.syncFromConfig() }
+                        }
+                        onSelectionAccepted: function(index) { applyModeAt(index) }
+                        onActivated: function(index) { applyModeAt(index) }
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                            }
+                        }
+                        KeyNavigation.up: screensaverEnabledRow
+                        KeyNavigation.down: screensaverTimeoutRow
                     }
-                    KeyNavigation.up: screensaverEnabledRow
-                    KeyNavigation.down: screensaverTimeoutRow
                 }
 
                 SettingsSpinBoxRow {
@@ -218,40 +180,25 @@ FocusScope {
                     KeyNavigation.down: themeCombo
                 }
 
-                SettingsGroupDivider { Layout.fillWidth: true }
-
-                // --- Theme ---
-                RowLayout {
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Theme")
                     Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
-                    ColumnLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: qsTr("Theme")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                        }
-
-                        Text {
-                            text: qsTr("Application color scheme")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                    Layout.topMargin: Theme.spacingLarge
+                }
+                SettingsRow {
+                    label: qsTr("Theme")
+                    description: qsTr("Application color scheme")
+                    dimmed: !themeCombo.enabled
+                    highlighted: themeCombo.activeFocus || themeCombo.popup.visible
+                    focusTarget: themeCombo
+                    onActivated: if (themeCombo.enabled) themeCombo.popup.open()
 
                     SettingsComboBox {
                         id: themeCombo
                         focusPolicy: Qt.StrongFocus
                         model: Theme.themeNames
                         currentIndex: Math.max(0, model.indexOf(ConfigManager.theme || "Jellyfin"))
-                        Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
@@ -285,36 +232,18 @@ FocusScope {
                         }
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
-
                     }
                 }
 
-                RowLayout {
+                SettingsRow {
                     id: flavorRow
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
                     visible: Theme.flavorNames.length > 0
-
-                    ColumnLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: qsTr("Flavor")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                        }
-
-                        Text {
-                            text: qsTr("Theme palette variant")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                    label: qsTr("Flavor")
+                    description: qsTr("Theme palette variant")
+                    dimmed: !flavorCombo.enabled
+                    highlighted: flavorCombo.activeFocus || flavorCombo.popup.visible
+                    focusTarget: flavorCombo
+                    onActivated: if (flavorCombo.enabled) flavorCombo.popup.open()
 
                     SettingsComboBox {
                         id: flavorCombo
@@ -324,7 +253,6 @@ FocusScope {
                         onModelChanged: Qt.callLater(root.restoreFlavorIndex)
                         onActivated: root.applyCurrentFlavor()
                         onSelectionAccepted: root.applyCurrentFlavor()
-                        Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
 
                         Connections {
                             target: Theme
@@ -354,36 +282,18 @@ FocusScope {
                         }
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
-
                     }
                 }
 
-                RowLayout {
+                SettingsRow {
                     id: colorSchemeRow
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
                     visible: Theme.colorSchemeNames.length > 0
-
-                    ColumnLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        Layout.fillWidth: true
-
-                        Text {
-                            text: qsTr("Color Scheme")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                        }
-
-                        Text {
-                            text: qsTr("Theme accent color")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                    label: qsTr("Color Scheme")
+                    description: qsTr("Theme accent color")
+                    dimmed: !colorSchemeCombo.enabled
+                    highlighted: colorSchemeCombo.activeFocus || colorSchemeCombo.popup.visible
+                    focusTarget: colorSchemeCombo
+                    onActivated: if (colorSchemeCombo.enabled) colorSchemeCombo.popup.open()
 
                     SettingsComboBox {
                         id: colorSchemeCombo
@@ -393,7 +303,6 @@ FocusScope {
                         onModelChanged: Qt.callLater(root.restoreColorSchemeIndex)
                         onActivated: root.applyCurrentColorScheme()
                         onSelectionAccepted: root.applyCurrentColorScheme()
-                        Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
 
                         Connections {
                             target: Theme
@@ -419,13 +328,15 @@ FocusScope {
                         }
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
-
                     }
                 }
 
-                SettingsGroupDivider { Layout.fillWidth: true }
-
-                // --- Launch in Fullscreen ---
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Interface")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
                 SettingsToggleRow {
                     id: fullscreenToggle
                     label: qsTr("Launch in Fullscreen")
@@ -438,9 +349,6 @@ FocusScope {
                     KeyNavigation.down: backdropSlider
                 }
 
-                SettingsGroupDivider { Layout.fillWidth: true }
-
-                // --- Backdrop Rotation ---
                 SettingsSliderRow {
                     id: backdropSlider
                     label: qsTr("Backdrop Rotation")
@@ -457,12 +365,7 @@ FocusScope {
                     KeyNavigation.down: posterBadgesToggle.visible ? posterBadgesToggle : dpiScaleSlider
                 }
 
-                // --- Silo Poster Badges (only with a Silo connection) ---
-                SettingsGroupDivider {
-                    Layout.fillWidth: true
-                    visible: posterBadgesToggle.visible
-                }
-
+                // Silo Poster Badges (only with a Silo connection)
                 SettingsToggleRow {
                     id: posterBadgesToggle
                     visible: PosterBadges.hasBadgeConnections
@@ -477,9 +380,6 @@ FocusScope {
                     KeyNavigation.down: dpiScaleSlider
                 }
 
-                SettingsGroupDivider { Layout.fillWidth: true }
-
-                // --- Content Scale Override ---
                 SettingsSliderRow {
                     id: dpiScaleSlider
 

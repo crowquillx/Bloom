@@ -6,6 +6,7 @@ FocusScope {
     id: root
 
     signal requestReturnToRail()
+    readonly property bool scrolled: flickable.scrolled
 
     readonly property Item preferredEntryItem: framerateToggle
     property Item _lastFocusedItem: null
@@ -34,58 +35,30 @@ FocusScope {
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
-    GlassPanel {
-        anchors.fill: parent
-    }
-
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
 
-        Text {
-            text: qsTr("Video")
-            font.pixelSize: Theme.fontSizeHeader
-            font.family: Theme.fontPrimary
-            font.weight: Theme.fontWeightHeavy
-            color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingLarge
-            Layout.leftMargin: Theme.spacingMedium
-        }
-
-        Flickable {
+        SettingsScrollView {
             id: flickable
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: width
-            contentHeight: contentColumn.implicitHeight + 2 * Theme.spacingSmall
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-
-            function ensureFocusVisible(item) {
-                if (!item) return
-                var mapped = item.mapToItem(contentColumn, 0, 0)
-                var itemY = contentColumn.y + mapped.y
-                var itemHeight = item.height
-                var viewTop = contentY
-                var viewBottom = contentY + height
-                var padding = 50
-                var maxScroll = Math.max(0, contentHeight - height)
-                if (itemY < viewTop + padding) {
-                    contentY = Math.max(0, itemY - padding)
-                } else if (itemY + itemHeight > viewBottom - padding) {
-                    contentY = Math.min(maxScroll, itemY + itemHeight - height + padding)
-                }
-            }
+            contentHeight: contentColumn.implicitHeight + Theme.pageMarginBottom
 
             ColumnLayout {
                 id: contentColumn
                 x: Theme.spacingMedium
                 y: Theme.spacingSmall
                 width: flickable.width - 2 * Theme.spacingMedium
-                spacing: Theme.spacingMedium
+                spacing: Theme.spacingSmall
 
-                // --- Enable Framerate Matching ---
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Refresh Rate")
+                    Layout.fillWidth: true
+                    Layout.topMargin: 0
+                }
+
                 SettingsToggleRow {
                     id: framerateToggle
                     label: qsTr("Enable Framerate Matching")
@@ -97,7 +70,6 @@ FocusScope {
                     KeyNavigation.down: skipCompatibleToggle.enabled ? skipCompatibleToggle : refreshDelaySlider.enabled ? refreshDelaySlider : hdrToggle
                 }
 
-                // --- Skip Compatible Multiple ---
                 SettingsToggleRow {
                     id: skipCompatibleToggle
                     label: qsTr("Skip switch when refresh rate is already a multiple")
@@ -111,7 +83,6 @@ FocusScope {
                     KeyNavigation.down: refreshDelaySlider.enabled ? refreshDelaySlider : hdrToggle
                 }
 
-                // --- Refresh Rate Switch Delay ---
                 SettingsSliderRow {
                     id: refreshDelaySlider
                     label: qsTr("Refresh Rate Switch Delay")
@@ -129,9 +100,13 @@ FocusScope {
                     KeyNavigation.down: hdrToggle
                 }
 
-                SettingsGroupDivider { Layout.fillWidth: true }
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("HDR")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
 
-                // --- Enable HDR ---
                 SettingsToggleRow {
                     id: hdrToggle
                     label: qsTr("Enable HDR")
@@ -144,18 +119,14 @@ FocusScope {
                     KeyNavigation.down: advancedToggle
                 }
 
-                SettingsGroupDivider { Layout.fillWidth: true }
-
-                // --- Advanced Section ---
-                ActionButton {
+                SettingsRow {
                     id: advancedToggle
-                    variant: "ghost"
-                    text: qsTr("Advanced")
-                    iconGlyph: advancedToggle.advancedExpanded ? Icons.expandLess : Icons.expandMore
                     property bool advancedExpanded: false
-                    Layout.alignment: Qt.AlignLeft
-                    Layout.topMargin: Theme.spacingSmall
-                    focusPolicy: Qt.StrongFocus
+                    Layout.topMargin: Theme.spacingLarge
+                    label: qsTr("Advanced")
+                    description: qsTr("HDR output, Dolby Vision fallback and display commands")
+                    Accessible.role: Accessible.Button
+                    Accessible.name: advancedExpanded ? qsTr("Collapse Advanced") : qsTr("Expand Advanced")
 
                     onActiveFocusChanged: {
                         if (activeFocus) {
@@ -167,11 +138,15 @@ FocusScope {
                     KeyNavigation.up: hdrToggle
                     KeyNavigation.down: advancedExpanded ? hdrOutputModeCombo : null
 
+                    onActivated: advancedExpanded = !advancedExpanded
 
-
-                    onClicked: advancedExpanded = !advancedExpanded
-                    Keys.onReturnPressed: advancedExpanded = !advancedExpanded
-                    Keys.onEnterPressed: advancedExpanded = !advancedExpanded
+                    Text {
+                        text: advancedToggle.advancedExpanded ? Icons.expandLess : Icons.expandMore
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Theme.iconSizeLarge
+                        color: advancedToggle.highlighted ? Theme.textPrimary : Theme.textSecondary
+                        Accessible.ignored: true
+                    }
                 }
 
                 // --- Advanced Controls (collapsible) ---
@@ -179,40 +154,21 @@ FocusScope {
                     id: advancedContent
                     visible: advancedToggle.advancedExpanded
                     Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-                    Layout.leftMargin: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
 
-                    RowLayout {
+                    SettingsRow {
                         id: hdrOutputModeRow
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingMedium
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingXSmall
-
-                            Text {
-                                text: qsTr("HDR Output Mode")
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                color: Theme.textPrimary
-                            }
-
-                            Text {
-                                text: qsTr("Match content keeps SDR in SDR and HDR in HDR when supported")
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.family: Theme.fontPrimary
-                                color: Theme.textSecondary
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                            }
-                        }
+                        label: qsTr("HDR Output Mode")
+                        description: qsTr("Match content keeps SDR in SDR and HDR in HDR when supported")
+                        dimmed: !hdrOutputModeCombo.enabled
+                        highlighted: hdrOutputModeCombo.activeFocus || hdrOutputModeCombo.popup.visible
+                        focusTarget: hdrOutputModeCombo
+                        onActivated: if (hdrOutputModeCombo.enabled) hdrOutputModeCombo.popup.open()
 
                         SettingsComboBox {
                             id: hdrOutputModeCombo
                             model: root.hdrOutputModeLabels
                             currentIndex: root.indexForValue(root.hdrOutputModeValues, ConfigManager.hdrOutputMode)
-                            Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
 
                             onActiveFocusChanged: {
                                 if (activeFocus) {
@@ -222,6 +178,10 @@ FocusScope {
                             }
 
                             onActivated: function(index) {
+                                ConfigManager.hdrOutputMode = root.hdrOutputModeValues[index]
+                            }
+                            // The shared popup reports keyboard and pointer picks here.
+                            onSelectionAccepted: function(index) {
                                 ConfigManager.hdrOutputMode = root.hdrOutputModeValues[index]
                             }
 
@@ -242,37 +202,19 @@ FocusScope {
                         }
                     }
 
-                    RowLayout {
+                    SettingsRow {
                         id: dolbyVisionFallbackRow
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingMedium
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingXSmall
-
-                            Text {
-                                text: qsTr("Dolby Vision Fallback")
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                color: Theme.textPrimary
-                            }
-
-                            Text {
-                                text: qsTr("Unsupported Dolby Vision is locally tone-mapped instead of transcoded")
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.family: Theme.fontPrimary
-                                color: Theme.textSecondary
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                            }
-                        }
+                        label: qsTr("Dolby Vision Fallback")
+                        description: qsTr("Unsupported Dolby Vision is locally tone-mapped instead of transcoded")
+                        dimmed: !dolbyVisionFallbackCombo.enabled
+                        highlighted: dolbyVisionFallbackCombo.activeFocus || dolbyVisionFallbackCombo.popup.visible
+                        focusTarget: dolbyVisionFallbackCombo
+                        onActivated: if (dolbyVisionFallbackCombo.enabled) dolbyVisionFallbackCombo.popup.open()
 
                         SettingsComboBox {
                             id: dolbyVisionFallbackCombo
                             model: root.dolbyVisionFallbackModeLabels
                             currentIndex: root.indexForValue(root.dolbyVisionFallbackModeValues, ConfigManager.dolbyVisionFallbackMode)
-                            Layout.preferredWidth: Math.round(280 * Theme.layoutScale)
 
                             onActiveFocusChanged: {
                                 if (activeFocus) {
@@ -282,6 +224,9 @@ FocusScope {
                             }
 
                             onActivated: function(index) {
+                                ConfigManager.dolbyVisionFallbackMode = root.dolbyVisionFallbackModeValues[index]
+                            }
+                            onSelectionAccepted: function(index) {
                                 ConfigManager.dolbyVisionFallbackMode = root.dolbyVisionFallbackModeValues[index]
                             }
 

@@ -1,7 +1,8 @@
 import QtQuick
 import BloomUI
 
+// Hairline between groups of settings rows that share a group header.
 Rectangle {
-    height: 1
-    color: Theme.borderLight
+    implicitHeight: Theme.borderWidth
+    color: Theme.surfaceBorder
 }

@@ -21,7 +21,7 @@ FocusScope {
 
     signal sliderValueChanged(real newValue)
 
-    implicitHeight: content.implicitHeight
+    implicitHeight: frame.implicitHeight
     Layout.fillWidth: true
 
     onActiveFocusChanged: {
@@ -61,66 +61,25 @@ FocusScope {
         return Number(root.value).toFixed(displayDecimals()) + root.unit
     }
 
-    SettingsRowBackground {
-        focused: root.activeFocus
-    }
-
-    ColumnLayout {
-        id: content
+    SettingsRow {
+        id: frame
         anchors.left: parent.left
         anchors.right: parent.right
-        spacing: Theme.spacingSmall
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingMedium
-
-            ColumnLayout {
-                spacing: Math.round(4 * Theme.layoutScale)
-                Layout.fillWidth: true
-
-                Text {
-                    text: root.label
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
-                }
-
-                Text {
-                    text: root.description
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                    visible: text.length > 0
-                }
-            }
-
-            Rectangle {
-                width: Math.max(Math.round(84 * Theme.layoutScale), valueLabel.implicitWidth + Theme.spacingMedium * 2)
-                height: Theme.buttonHeightSmall - Theme.spacingSmall
-                radius: Theme.radiusSmall
-                color: Theme.surfaceInteractive
-
-                Text {
-                    id: valueLabel
-                    anchors.centerIn: parent
-                    text: root.formattedValueText()
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
-                }
-            }
-        }
+        label: root.label
+        description: root.description
+        highlighted: root.activeFocus
+        focusTarget: root
 
         Slider {
             id: slider
-            Layout.fillWidth: true
+            Layout.preferredWidth: Math.round(340 * Theme.layoutScale)
+            Layout.alignment: Qt.AlignVCenter
             from: root.from
             to: root.to
             stepSize: root.stepSize
             value: root.value
+            focusPolicy: Qt.NoFocus
+            opacity: root.enabled ? 1.0 : Theme.disabledOpacity
 
             onMoved: {
                 root.value = value
@@ -149,9 +108,28 @@ FocusScope {
                 width: Math.round(28 * Theme.layoutScale)
                 height: width
                 radius: width / 2
-                color: slider.pressed ? Theme.accentPrimary : Theme.textPrimary
+                color: slider.pressed || root.activeFocus ? Theme.accentPrimary : Theme.textPrimary
 
-                Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                Behavior on color { enabled: Theme.uiAnimationsEnabled; ColorAnimation { duration: Theme.durationShort } }
+            }
+        }
+
+        Rectangle {
+            Layout.alignment: Qt.AlignVCenter
+            implicitWidth: Math.max(Math.round(100 * Theme.layoutScale), valueLabel.implicitWidth + Theme.spacingMedium * 2)
+            implicitHeight: Theme.buttonHeightSmall
+            radius: Theme.radiusSmall
+            color: Theme.surfaceInteractive
+            opacity: root.enabled ? 1.0 : Theme.disabledOpacity
+
+            Text {
+                id: valueLabel
+                anchors.centerIn: parent
+                text: root.formattedValueText()
+                font.pixelSize: Theme.fontSizeBody
+                font.family: Theme.fontPrimary
+                font.weight: Theme.fontWeightStrong
+                color: Theme.textPrimary
             }
         }
     }

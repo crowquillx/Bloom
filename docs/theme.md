@@ -144,6 +144,8 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `ArtworkPlaceholder` | Missing or loading artwork with an icon and title. |
 | `ArtworkLogo` | Provider title logos; adds a legibility shadow on light themes (white logos over light scrims). |
 | `settings/SettingsRowBackground` | Settings row hover and focus treatment. |
+| `settings/SettingsRow` | One settings row: strong label, optional description, control slot on the right edge, row focus (`highlighted`) and `activated()` for focusable disclosure/navigation rows. Toggle, slider, spin box and text rows build on it. |
+| `settings/SettingsScrollView` | Settings rows column: animated `ensureFocusVisible(item)`, edge fades, `scrolled` for receding the navigation bar. |
 
 ### Navigation Bar
 `NavigationBar.qml` floats over the top of every signed-in page on its own soft scrim, inset `navBarInsetTop` from the top and aligned to the page gutters. Pages fill the window and reserve no width; non-hero pages start at `pageMarginTop`, hero pages draw under the bar.

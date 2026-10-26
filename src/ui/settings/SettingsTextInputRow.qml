@@ -8,6 +8,7 @@ FocusScope {
 
     property alias input: textField
     property string label: ""
+    property string description: ""
     property alias text: textField.text
     property alias placeholderText: textField.placeholderText
     property alias echoMode: textField.echoMode
@@ -19,29 +20,28 @@ FocusScope {
 
     Accessible.role: Accessible.EditableText
     Accessible.name: label
+    Accessible.description: description
 
     signal textEdited(string newText)
     signal editingFinished()
 
     Layout.fillWidth: true
-    implicitHeight: col.implicitHeight
+    implicitHeight: frame.implicitHeight
 
-    ColumnLayout {
-        id: col
-        width: parent.width
-        spacing: Theme.spacingSmall
-
-        Text {
-            text: root.label
-            font.pixelSize: Theme.fontSizeBody
-            font.family: Theme.fontPrimary
-            color: Theme.textPrimary
-            Layout.fillWidth: true
-        }
+    SettingsRow {
+        id: frame
+        anchors.left: parent.left
+        anchors.right: parent.right
+        label: root.label
+        description: root.description
+        highlighted: textField.activeFocus
+        focusTarget: textField
 
         TextField {
             id: textField
-            Layout.fillWidth: true
+            Layout.preferredWidth: Math.round(640 * Theme.layoutScale)
+            Layout.maximumWidth: Math.round(frame.width * 0.55)
+            Layout.alignment: Qt.AlignVCenter
             focus: true
             font.pixelSize: Theme.fontSizeBody
             font.family: Theme.fontPrimary
@@ -64,7 +64,15 @@ FocusScope {
 
             leftPadding: Theme.spacingMedium
             rightPadding: Theme.spacingMedium
-            background: FieldBackground { control: textField }
+            // The row draws focus; the field only marks where typing goes.
+            background: Rectangle {
+                implicitHeight: Theme.buttonHeightSmall
+                radius: Theme.radiusControl
+                color: textField.activeFocus ? Theme.surfaceInteractivePressed : Theme.surfaceInteractive
+                border.width: Theme.borderWidth
+                border.color: textField.activeFocus ? Theme.surfaceBorderStrong : Theme.surfaceBorder
+                opacity: textField.enabled ? 1.0 : Theme.disabledOpacity
+            }
 
             Keys.onUpPressed: function(event) {
                 if (typeof InputModeManager !== "undefined") {
@@ -78,6 +86,9 @@ FocusScope {
                 if (root.keyUpTarget) {
                     root.keyUpTarget.forceActiveFocus()
                     event.accepted = true
+                } else {
+                    // Top of the page: let Up reach the navigation bar.
+                    event.accepted = false
                 }
             }
 

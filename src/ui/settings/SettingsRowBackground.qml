@@ -2,9 +2,10 @@ import QtQuick
 
 import BloomUI
 
-// Hover/focus surface behind a settings row. Extends slightly past the row
-// so content keeps its alignment, and draws the focus ring inset so it is
-// never clipped by the settings scroll area.
+// Hover/focus surface behind a settings row. Extends past the row's sides so
+// labels and controls keep their alignment with the page, and draws the focus
+// ring inset so it is never clipped by the settings scroll area. Rows carry
+// their own vertical padding, so the surface matches their height.
 Rectangle {
     property bool focused: false
     property bool hovered: false
@@ -12,8 +13,6 @@ Rectangle {
     anchors.fill: parent
     anchors.leftMargin: -Theme.spacingMedium
     anchors.rightMargin: -Theme.spacingMedium
-    anchors.topMargin: -Theme.spacingSmall
-    anchors.bottomMargin: -Theme.spacingSmall
     radius: Theme.radiusMedium
     color: focused ? Theme.surfaceInteractiveHover
          : (hovered ? Theme.surfaceInteractive : "transparent")

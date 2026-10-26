@@ -5,23 +5,23 @@ import BloomUI
 
 /**
  * MpvProfileEditor - Component for editing MPV profile settings
- * 
+ *
  * Provides a UI for editing structured MPV options (hardware decoding,
  * video output, etc.) plus an advanced section for raw arguments.
  */
 FocusScope {
     id: root
     activeFocusOnTab: true
-    
+
     property string profileName: ""
     property var profileData: ({})
     property var extraArgsList: []
     property bool skipNextAutoFocus: false
     property bool isBuiltIn: isBuiltInProfileName(profileName)
-    
+
     // Reference to parent flickable for scroll-into-view
-    property Flickable parentFlickable: null
-    
+    property SettingsScrollView parentFlickable: null
+
     signal profileChanged(var newData)
     signal deleteRequested()
     // Signal to navigate out of this component
@@ -35,9 +35,9 @@ FocusScope {
             advancedToggleBtn.forceActiveFocus()
         }
     }
-    
+
     implicitHeight: contentColumn.implicitHeight
-    
+
     // When this FocusScope receives focus, give it to the first control
     onActiveFocusChanged: {
         if (skipNextAutoFocus) {
@@ -48,21 +48,21 @@ FocusScope {
             videoOutputCombo.forceActiveFocus()
         }
     }
-    
+
     // Helper to scroll item into view
     function ensureVisible(item) {
         if (parentFlickable && item) {
             parentFlickable.ensureFocusVisible(item)
         }
     }
-    
+
     // Load profile data when profileName changes
     onProfileNameChanged: {
         if (profileName !== "") {
             loadProfile()
         }
     }
-    
+
     function loadProfile() {
         profileData = ConfigManager.getMpvProfile(profileName)
         hwdecSwitch.checked = profileData.hwdecEnabled || false
@@ -85,7 +85,7 @@ FocusScope {
             .filter(function(arg) { return typeof arg === "string" && arg.trim() !== "" })
             .map(function(arg) { return arg.trim() })
     }
-    
+
     function saveProfile() {
         var data = {
             "hwdecEnabled": hwdecSwitch.checked,
@@ -180,7 +180,8 @@ FocusScope {
         Qt.callLater(root.saveProfile)
     }
 
-    // Group label inside the profile editor (same style as settings groups).
+    // Label for a group of rows nested inside the profile (eyebrow style, so
+    // it sits below the page's group headers in the hierarchy).
     component SubsectionHeader: Item {
         property string text: ""
         Layout.fillWidth: true
@@ -190,36 +191,42 @@ FocusScope {
         Text {
             anchors.left: parent.left
             anchors.bottom: parent.bottom
+            anchors.bottomMargin: Theme.spacingXSmall
             text: parent.text
-            font.pixelSize: Theme.fontSizeSmall
+            font.pixelSize: Theme.fontSizeCaption
             font.family: Theme.fontPrimary
             font.weight: Theme.fontWeightHeavy
             font.capitalization: Font.AllUppercase
-            font.letterSpacing: Math.round(1.5 * Theme.layoutScale)
+            font.letterSpacing: Theme.eyebrowLetterSpacing
             color: Theme.accentPrimary
+            Accessible.role: Accessible.Heading
+            Accessible.name: text
         }
     }
-    
+
     ColumnLayout {
         id: contentColumn
         anchors.left: parent.left
         anchors.right: parent.right
-        spacing: Theme.spacingMedium
-        
+        spacing: Theme.spacingSmall
+
         // Profile Header
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingMedium
-            
+
             Text {
                 text: root.profileName
                 font.pixelSize: Theme.fontSizeTitle
                 font.family: Theme.fontPrimary
-                font.weight: Font.DemiBold
+                font.weight: Theme.fontWeightStrong
                 color: Theme.textPrimary
+                elide: Text.ElideRight
                 Layout.fillWidth: true
+                Accessible.role: Accessible.Heading
+                Accessible.name: text
             }
-            
+
             // Delete button (only for custom profiles)
             ActionButton {
                 id: deleteBtn
@@ -229,54 +236,44 @@ FocusScope {
                 Accessible.role: Accessible.Button
                 Accessible.name: "Delete profile " + root.profileName
                 focusPolicy: Qt.StrongFocus
-                
-                
-                
+
                 onClicked: root.deleteRequested()
                 Keys.onReturnPressed: root.deleteRequested()
                 Keys.onEnterPressed: root.deleteRequested()
             }
         }
-        
+
         // Divider
-        Rectangle {
+        SettingsGroupDivider {
             Layout.fillWidth: true
-            height: 1
-            color: Theme.borderLight
         }
-        
+
         // ========================================
         // Common Options
         // ========================================
-        
+
         SubsectionHeader {
             text: "Video Output"
             Layout.topMargin: Theme.spacingSmall
         }
-        
+
         // Video Output
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingMedium
-            
-            Text {
-                text: "Renderer"
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                Layout.preferredWidth: Math.round(150 * Theme.layoutScale)
-            }
-            
+        SettingsRow {
+            label: "Renderer"
+            dimmed: !videoOutputCombo.enabled
+            highlighted: videoOutputCombo.activeFocus || videoOutputCombo.popup.visible
+            focusTarget: videoOutputCombo
+            onActivated: if (videoOutputCombo.enabled) videoOutputCombo.popup.open()
+
             SettingsComboBox {
                 id: videoOutputCombo
-                Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                 model: ["gpu-next", "gpu", "dmabuf-wayland", "x11", "drm"]
                 focusPolicy: Qt.StrongFocus
                 Accessible.role: Accessible.ComboBox
                 Accessible.name: "Video Output Renderer"
-                
+
                 onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
-                
+
                 Keys.onUpPressed: function(event) {
                     if (!popup.visible) {
                         root.navigateOut("up")
@@ -293,7 +290,7 @@ FocusScope {
                 // Keyboard handling for opening popup
                 Keys.onReturnPressed: popup.open()
                 Keys.onEnterPressed: popup.open()
-                
+
                 onCurrentTextChanged: {
                     if (root.profileName !== "") {
                         Qt.callLater(root.saveProfile)
@@ -301,16 +298,16 @@ FocusScope {
                 }
             }
         }
-        
+
         // ========================================
         // Hardware Decoding
         // ========================================
-        
+
         SubsectionHeader {
             text: "Hardware Decoding"
             Layout.topMargin: Theme.spacingMedium
         }
-        
+
         SettingsToggleRow {
             id: hwdecSwitch
             label: "Enable Hardware Decoding"
@@ -333,31 +330,25 @@ FocusScope {
                 }
             }
         }
-        
+
         // Hardware Decoding Method
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingMedium
+        SettingsRow {
             visible: hwdecSwitch.checked
-            
-            Text {
-                text: "Method"
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                Layout.preferredWidth: Math.round(150 * Theme.layoutScale)
-            }
-            
+            label: "Method"
+            dimmed: !hwdecMethodCombo.enabled
+            highlighted: hwdecMethodCombo.activeFocus || hwdecMethodCombo.popup.visible
+            focusTarget: hwdecMethodCombo
+            onActivated: if (hwdecMethodCombo.enabled) hwdecMethodCombo.popup.open()
+
             SettingsComboBox {
                 id: hwdecMethodCombo
-                Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                 model: ["auto", "auto-safe", "auto-copy", "vaapi", "nvdec", "nvdec-copy", "cuda", "cuda-copy", "videotoolbox", "videotoolbox-copy", "d3d11va", "d3d11va-copy", "dxva2", "dxva2-copy"]
                 focusPolicy: Qt.StrongFocus
                 Accessible.role: Accessible.ComboBox
                 Accessible.name: "Hardware Decoding Method"
-                
+
                 onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
-                
+
                 Keys.onUpPressed: function(event) {
                     if (!popup.visible) {
                         hwdecSwitch.forceActiveFocus()
@@ -374,7 +365,7 @@ FocusScope {
                 // Keyboard handling for opening popup
                 Keys.onReturnPressed: popup.open()
                 Keys.onEnterPressed: popup.open()
-                
+
                 onCurrentTextChanged: {
                     if (root.profileName !== "" && hwdecSwitch.checked) {
                         Qt.callLater(root.saveProfile)
@@ -382,16 +373,16 @@ FocusScope {
                 }
             }
         }
-        
+
         // ========================================
         // Deinterlacing
         // ========================================
-        
+
         SubsectionHeader {
             text: "Deinterlacing"
             Layout.topMargin: Theme.spacingMedium
         }
-        
+
         SettingsToggleRow {
             id: deinterlaceSwitch
             label: "Enable Deinterlacing"
@@ -420,24 +411,17 @@ FocusScope {
                 }
             }
         }
-        
+
         // Deinterlace Method
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingMedium
+        SettingsRow {
             visible: deinterlaceSwitch.checked
-            
-            Text {
-                text: "Method"
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                Layout.preferredWidth: Math.round(150 * Theme.layoutScale)
-            }
-            
+            label: "Method"
+            highlighted: deinterlaceMethodField.activeFocus
+            focusTarget: deinterlaceMethodField
+
             TextField {
                 id: deinterlaceMethodField
-                Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
+                Layout.preferredWidth: Math.round(380 * Theme.layoutScale)
                 placeholderText: "yadif, bwdif, etc."
                 font.pixelSize: Theme.fontSizeBody
                 font.family: Theme.fontPrimary
@@ -445,14 +429,24 @@ FocusScope {
                 focusPolicy: Qt.StrongFocus
                 Accessible.role: Accessible.EditableText
                 Accessible.name: "Deinterlacing Method"
-                
+
                 onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
-                
+
                 Keys.onUpPressed: deinterlaceSwitch.forceActiveFocus()
                 Keys.onDownPressed: interpolationSwitch.forceActiveFocus()
-                
-                background: FieldBackground { control: deinterlaceMethodField; implicitHeight: Theme.buttonHeightSmall }
-                
+
+                leftPadding: Theme.spacingMedium
+                rightPadding: Theme.spacingMedium
+                placeholderTextColor: Theme.textTertiary
+                // The row draws focus; the field only marks where typing goes.
+                background: Rectangle {
+                    implicitHeight: Theme.buttonHeightSmall
+                    radius: Theme.radiusControl
+                    color: deinterlaceMethodField.activeFocus ? Theme.surfaceInteractivePressed : Theme.surfaceInteractive
+                    border.width: Theme.borderWidth
+                    border.color: deinterlaceMethodField.activeFocus ? Theme.surfaceBorderStrong : Theme.surfaceBorder
+                }
+
                 onTextEdited: {
                     if (root.profileName !== "") {
                         Qt.callLater(root.saveProfile)
@@ -460,16 +454,16 @@ FocusScope {
                 }
             }
         }
-        
+
         // ========================================
         // Interpolation
         // ========================================
-        
+
         SubsectionHeader {
             text: "Motion Interpolation"
             Layout.topMargin: Theme.spacingMedium
         }
-        
+
         SettingsToggleRow {
             id: interpolationSwitch
             label: "Enable Interpolation"
@@ -493,7 +487,7 @@ FocusScope {
                 }
             }
         }
-        
+
         // ========================================
         // Advanced Section
         // ========================================
@@ -504,21 +498,18 @@ FocusScope {
             color: Theme.borderLight
             Layout.topMargin: Theme.spacingSmall
         }
-        
-        ActionButton {
+
+        SettingsRow {
             id: advancedToggleBtn
-            variant: "ghost"
             property bool expanded: false
-            text: qsTr("Advanced Options")
-            iconGlyph: advancedToggleBtn.expanded ? Icons.expandLess : Icons.expandMore
+            label: qsTr("Advanced Options")
+            description: qsTr("Windows render API, HDR metadata and extra mpv arguments")
             Layout.topMargin: Theme.spacingSmall
-            Layout.fillWidth: true
-            focusPolicy: Qt.StrongFocus
             Accessible.role: Accessible.Button
             Accessible.name: (expanded ? "Collapse" : "Expand") + " Advanced Options"
-            
+
             onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
-            
+
             Keys.onUpPressed: interpolationSwitch.forceActiveFocus()
             Keys.onDownPressed: {
                 if (expanded) {
@@ -527,63 +518,43 @@ FocusScope {
                     root.navigateOut("down")
                 }
             }
-            
-            
-            
-            onClicked: expanded = !expanded
-            Keys.onReturnPressed: expanded = !expanded
-            Keys.onEnterPressed: expanded = !expanded
+
+            onActivated: expanded = !expanded
+
+            Text {
+                text: advancedToggleBtn.expanded ? Icons.expandLess : Icons.expandMore
+                font.family: Theme.fontIcon
+                font.pixelSize: Theme.iconSizeLarge
+                color: advancedToggleBtn.highlighted ? Theme.textPrimary : Theme.textSecondary
+                Accessible.ignored: true
+            }
         }
-        
+
         // Advanced Content
-        Rectangle {
+        Item {
             Layout.fillWidth: true
-            implicitHeight: advancedContentColumn.implicitHeight + (Theme.spacingMedium * 2)
-            radius: Theme.radiusMedium
-            color: Theme.surfaceSunken
+            implicitHeight: advancedContentColumn.implicitHeight
             visible: advancedToggleBtn.expanded
             ColumnLayout {
                 id: advancedContentColumn
-                anchors.fill: parent
-                anchors.margins: Theme.spacingMedium
-                Layout.fillWidth: true
+                anchors.left: parent.left
+                anchors.right: parent.right
                 spacing: Theme.spacingSmall
 
-                Text {
+                SubsectionHeader {
                     text: "Windows Render API"
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Math.round(2 * Theme.layoutScale)
-
-                        Text {
-                            text: "Windows embedded playback"
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                        }
-
-                        Text {
-                            text: "Auto keeps the current mpv default. Vulkan/winvk is opt-in for shader-heavy profiles."
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                SettingsRow {
+                    label: "Windows embedded playback"
+                    description: "Auto keeps the current mpv default. Vulkan/winvk is opt-in for shader-heavy profiles."
+                    dimmed: !windowsRenderApiCombo.enabled
+                    highlighted: windowsRenderApiCombo.activeFocus || windowsRenderApiCombo.popup.visible
+                    focusTarget: windowsRenderApiCombo
+                    onActivated: if (windowsRenderApiCombo.enabled) windowsRenderApiCombo.popup.open()
 
                     SettingsComboBox {
                         id: windowsRenderApiCombo
-                        Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
                         model: ["Auto", "D3D11", "Vulkan/winvk"]
                         focusPolicy: Qt.StrongFocus
                         Accessible.role: Accessible.ComboBox
@@ -604,34 +575,16 @@ FocusScope {
                     }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Math.round(2 * Theme.layoutScale)
-
-                        Text {
-                            text: "HDR Metadata Mode"
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                        }
-
-                        Text {
-                            text: "Target is the stable default. Source Dynamic is experimental and only affects HDR output."
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
+                SettingsRow {
+                    label: "HDR Metadata Mode"
+                    description: "Target is the stable default. Source Dynamic is experimental and only affects HDR output."
+                    dimmed: !hdrMetadataModeCombo.enabled
+                    highlighted: hdrMetadataModeCombo.activeFocus || hdrMetadataModeCombo.popup.visible
+                    focusTarget: hdrMetadataModeCombo
+                    onActivated: if (hdrMetadataModeCombo.enabled) hdrMetadataModeCombo.popup.open()
 
                     SettingsComboBox {
                         id: hdrMetadataModeCombo
-                        Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
                         model: ["Target", "Source Dynamic (Experimental)"]
                         focusPolicy: Qt.StrongFocus
                         Accessible.role: Accessible.ComboBox
@@ -693,19 +646,14 @@ FocusScope {
                     }
                 }
 
-                Rectangle {
+                SettingsGroupDivider {
                     Layout.fillWidth: true
-                    height: 1
-                    color: Theme.borderLight
                     Layout.topMargin: Theme.spacingSmall
                     Layout.bottomMargin: Theme.spacingSmall
                 }
 
-                Text {
+                SubsectionHeader {
                     text: "Extra MPV Arguments"
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
                 }
 
                 Text {
@@ -740,21 +688,23 @@ FocusScope {
                         Layout.fillWidth: true
                         implicitHeight: argRow.implicitHeight
 
+                        // Row surface while the argument or its Remove button has focus
+                        // (the focused control draws the ring).
+                        Rectangle {
+                            anchors.fill: argRow
+                            anchors.leftMargin: -Theme.spacingMedium
+                            anchors.rightMargin: -Theme.spacingMedium
+                            anchors.topMargin: -Theme.spacingXSmall
+                            anchors.bottomMargin: -Theme.spacingXSmall
+                            radius: Theme.radiusMedium
+                            color: argField.activeFocus || removeArgButton.activeFocus ? Theme.surfaceInteractiveHover : "transparent"
+                        }
+
                         RowLayout {
                             id: argRow
                             anchors.left: parent.left
                             anchors.right: parent.right
                             spacing: Theme.spacingSmall
-
-                            Rectangle {
-                                anchors.fill: parent
-                                anchors.margins: -Theme.spacingSmall / 2
-                                radius: Theme.radiusSmall
-                                color: argField.activeFocus || removeArgButton.activeFocus ? Theme.surfaceInteractive : "transparent"
-                                border.color: "transparent"
-                                border.width: argField.activeFocus || removeArgButton.activeFocus ? 1 : 0
-                                z: -1
-                            }
 
                             Text {
                                 text: (index + 1) + "."
@@ -845,7 +795,6 @@ FocusScope {
                                 Keys.onReturnPressed: root.removeExtraArg(index)
                                 Keys.onEnterPressed: root.removeExtraArg(index)
 
-
                             }
                         }
                     }
@@ -877,7 +826,6 @@ FocusScope {
                     onClicked: root.addExtraArg()
                     Keys.onReturnPressed: root.addExtraArg()
                     Keys.onEnterPressed: root.addExtraArg()
-
 
                 }
             }

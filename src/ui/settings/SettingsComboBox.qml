@@ -8,11 +8,14 @@ ComboBox {
     id: control
 
     property string placeholderText: ""
+    /// Inside a SettingsRow the row draws focus, so the combo only keeps its fill.
+    property bool showFocusRing: !(parent && parent.objectName === "settingsRowTrailing")
     property bool _closedFromSelection: false
 
     signal selectionAccepted(int index)
 
     focusPolicy: Qt.StrongFocus
+    implicitWidth: Math.round(380 * Theme.layoutScale)
     font.pixelSize: Theme.fontSizeBody
     font.family: Theme.fontPrimary
 
@@ -51,15 +54,15 @@ ComboBox {
 
     background: Rectangle {
         id: comboBackground
-        implicitHeight: Theme.buttonHeightMedium
+        implicitHeight: Theme.buttonHeightSmall
         radius: Theme.radiusControl
         color: control.hovered || control.activeFocus ? Theme.surfaceInteractiveHover : Theme.surfaceInteractive
         border.width: Theme.borderWidth
-        border.color: Theme.surfaceBorder
+        border.color: control.activeFocus ? Theme.surfaceBorderStrong : Theme.surfaceBorder
         opacity: control.enabled ? 1.0 : Theme.disabledOpacity
 
         FocusRing {
-            active: control.activeFocus || control.popup.visible
+            active: control.showFocusRing && (control.activeFocus || control.popup.visible)
             radius: comboBackground.radius
         }
     }
@@ -112,7 +115,7 @@ ComboBox {
     popup: Popup {
         y: control.height + Theme.spacingSmall
         width: control.width
-        implicitHeight: Math.min(contentItem.implicitHeight + padding * 2, Math.round(460 * Theme.layoutScale))
+        implicitHeight: Math.min(contentItem.implicitHeight + padding * 2, Math.round(560 * Theme.layoutScale))
         padding: Theme.spacingSmall
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
@@ -149,7 +152,7 @@ ComboBox {
                 required property var modelData
 
                 width: control.width - Theme.spacingSmall * 2
-                implicitHeight: Theme.buttonHeightSmall
+                implicitHeight: Theme.navBarItemHeight
                 highlighted: ListView.isCurrentItem
 
                 contentItem: Row {

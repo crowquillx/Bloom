@@ -1,11 +1,11 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import BloomUI
 
 FocusScope {
     id: root
     signal requestReturnToRail()
+    readonly property bool scrolled: flickable.scrolled
     readonly property Item preferredEntryItem: enabledRow
     property Item _lastFocusedItem: null
 
@@ -28,35 +28,27 @@ FocusScope {
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
-    GlassPanel {
-        anchors.fill: parent
-    }
-
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.panelPadding - Theme.spacingMedium
         spacing: 0
-        Text { text: qsTr("Home"); font.pixelSize: Theme.fontSizeHeader; font.family: Theme.fontPrimary; font.weight: Theme.fontWeightHeavy; color: Theme.textPrimary; Layout.bottomMargin: Theme.spacingLarge; Layout.leftMargin: Theme.spacingMedium }
-        Flickable {
+        SettingsScrollView {
             id: flickable
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: width
-            contentHeight: contentColumn.implicitHeight + 2 * Theme.spacingSmall
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            function ensureFocusVisible(item) {
-                var p = item.mapToItem(contentColumn, 0, 0)
-                if (p.y < contentY + 40) contentY = Math.max(0, p.y - 40)
-                else if (p.y + item.height > contentY + height - 40)
-                    contentY = Math.min(Math.max(0, contentHeight - height), p.y + item.height - height + 40)
-            }
+            contentHeight: contentColumn.implicitHeight + Theme.pageMarginBottom
             ColumnLayout {
                 id: contentColumn
                 x: Theme.spacingMedium
                 y: Theme.spacingSmall
                 width: flickable.width - 2 * Theme.spacingMedium
-                spacing: Theme.spacingLarge
+                spacing: Theme.spacingSmall
+
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Hero Banner")
+                    Layout.fillWidth: true
+                    Layout.topMargin: 0
+                }
 
                 SettingsToggleRow {
                     id: enabledRow; label: qsTr("Enable Hero Banner"); description: qsTr("Show featured media at the top of Home.")
@@ -64,41 +56,49 @@ FocusScope {
                     onToggled: function(value) { ConfigManager.heroBannerEnabled = value }
                     KeyNavigation.down: sourceCombo
                 }
-                SettingsComboBox {
-                    id: sourceCombo
-                    Layout.preferredWidth: Math.round(300 * Theme.layoutScale)
-                    model: [qsTr("Recently Added"), qsTr("Continue Watching"), qsTr("Up Next"), qsTr("Library"), qsTr("Mixed")]
+                SettingsRow {
+                    label: qsTr("Hero source")
+                    description: qsTr("Which items the hero banner features.")
+                    dimmed: !sourceCombo.enabled
+                    highlighted: sourceCombo.activeFocus || sourceCombo.popup.visible
+                    focusTarget: sourceCombo
+                    onActivated: if (sourceCombo.enabled) sourceCombo.popup.open()
 
-                    property bool _syncingFromConfig: false
+                    SettingsComboBox {
+                        id: sourceCombo
+                        model: [qsTr("Recently Added"), qsTr("Continue Watching"), qsTr("Up Next"), qsTr("Library"), qsTr("Mixed")]
 
-                    function sourceValues() {
-                        return ["recentlyAdded", "continueWatching", "upNext", "library", "mixed"]
+                        property bool _syncingFromConfig: false
+
+                        function sourceValues() {
+                            return ["recentlyAdded", "continueWatching", "upNext", "library", "mixed"]
+                        }
+                        function applySourceAt(index) {
+                            if (_syncingFromConfig || index < 0)
+                                return
+                            var values = sourceValues()
+                            if (index >= values.length)
+                                return
+                            ConfigManager.heroBannerSource = values[index]
+                        }
+                        function syncFromConfig() {
+                            _syncingFromConfig = true
+                            currentIndex = root.sourceIndex()
+                            _syncingFromConfig = false
+                        }
+
+                        Component.onCompleted: syncFromConfig()
+
+                        Connections {
+                            target: ConfigManager
+                            function onHeroBannerSourceChanged() { sourceCombo.syncFromConfig() }
+                        }
+
+                        onSelectionAccepted: function(index) { applySourceAt(index) }
+                        onActivated: function(index) { applySourceAt(index) }
+                        onActiveFocusChanged: if (activeFocus) root.ensure(this)
+                        KeyNavigation.up: enabledRow; KeyNavigation.down: maxItemsRow
                     }
-                    function applySourceAt(index) {
-                        if (_syncingFromConfig || index < 0)
-                            return
-                        var values = sourceValues()
-                        if (index >= values.length)
-                            return
-                        ConfigManager.heroBannerSource = values[index]
-                    }
-                    function syncFromConfig() {
-                        _syncingFromConfig = true
-                        currentIndex = root.sourceIndex()
-                        _syncingFromConfig = false
-                    }
-
-                    Component.onCompleted: syncFromConfig()
-
-                    Connections {
-                        target: ConfigManager
-                        function onHeroBannerSourceChanged() { sourceCombo.syncFromConfig() }
-                    }
-
-                    onSelectionAccepted: function(index) { applySourceAt(index) }
-                    onActivated: function(index) { applySourceAt(index) }
-                    onActiveFocusChanged: if (activeFocus) root.ensure(this)
-                    KeyNavigation.up: enabledRow; KeyNavigation.down: maxItemsRow
                 }
                 SettingsSpinBoxRow {
                     id: maxItemsRow; label: qsTr("Maximum hero items"); from: 1; to: 25; value: ConfigManager.heroBannerMaxItems
@@ -116,118 +116,121 @@ FocusScope {
                     KeyNavigation.down: logoPlacementCombo
                 }
 
-                Text {
+                SectionHeader {
+                    level: "group"
                     text: qsTr("Layout")
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.family: Theme.fontPrimary
-                    font.weight: Theme.fontWeightHeavy
-                    font.capitalization: Font.AllUppercase
-                    font.letterSpacing: Math.round(1.5 * Theme.layoutScale)
-                    color: Theme.accentPrimary
-                    Layout.topMargin: Theme.spacingMedium
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
                 }
 
-                Text {
-                    text: qsTr("Logo position")
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
+                SettingsRow {
+                    label: qsTr("Logo position")
+                    dimmed: !logoPlacementCombo.enabled
+                    highlighted: logoPlacementCombo.activeFocus || logoPlacementCombo.popup.visible
+                    focusTarget: logoPlacementCombo
+                    onActivated: if (logoPlacementCombo.enabled) logoPlacementCombo.popup.open()
+
+                    SettingsComboBox {
+                        id: logoPlacementCombo
+                        model: [
+                            qsTr("Bottom left"),
+                            qsTr("Bottom right"),
+                            qsTr("Bottom center"),
+                            qsTr("Top left"),
+                            qsTr("Top right"),
+                            qsTr("Top center"),
+                            qsTr("Center"),
+                            qsTr("Center (large)")
+                        ]
+
+                        property bool _syncingFromConfig: false
+                        function placementValues() {
+                            return ["bottomLeft", "bottomRight", "bottomCenter", "topLeft", "topRight", "topCenter", "center", "centerLarge"]
+                        }
+                        function placementIndex() {
+                            return Math.max(0, placementValues().indexOf(ConfigManager.heroBannerLogoPlacement))
+                        }
+                        function applyPlacementAt(index) {
+                            if (_syncingFromConfig || index < 0) return
+                            var values = placementValues()
+                            if (index >= values.length) return
+                            ConfigManager.heroBannerLogoPlacement = values[index]
+                        }
+                        function syncFromConfig() {
+                            _syncingFromConfig = true
+                            currentIndex = placementIndex()
+                            _syncingFromConfig = false
+                        }
+
+                        Component.onCompleted: syncFromConfig()
+                        Connections {
+                            target: ConfigManager
+                            function onHeroBannerLogoPlacementChanged() { logoPlacementCombo.syncFromConfig() }
+                        }
+                        onSelectionAccepted: function(index) { applyPlacementAt(index) }
+                        onActivated: function(index) { applyPlacementAt(index) }
+                        onActiveFocusChanged: if (activeFocus) root.ensure(this)
+                        KeyNavigation.up: episodeSynopsisRow
+                        KeyNavigation.down: infoPlacementCombo
+                    }
                 }
 
-                SettingsComboBox {
-                    id: logoPlacementCombo
-                    Layout.preferredWidth: Math.round(300 * Theme.layoutScale)
-                    model: [
-                        qsTr("Bottom left"),
-                        qsTr("Bottom right"),
-                        qsTr("Bottom center"),
-                        qsTr("Top left"),
-                        qsTr("Top right"),
-                        qsTr("Top center"),
-                        qsTr("Center"),
-                        qsTr("Center (large)")
-                    ]
+                SettingsRow {
+                    label: qsTr("Info position")
+                    dimmed: !infoPlacementCombo.enabled
+                    highlighted: infoPlacementCombo.activeFocus || infoPlacementCombo.popup.visible
+                    focusTarget: infoPlacementCombo
+                    onActivated: if (infoPlacementCombo.enabled) infoPlacementCombo.popup.open()
 
-                    property bool _syncingFromConfig: false
-                    function placementValues() {
-                        return ["bottomLeft", "bottomRight", "bottomCenter", "topLeft", "topRight", "topCenter", "center", "centerLarge"]
-                    }
-                    function placementIndex() {
-                        return Math.max(0, placementValues().indexOf(ConfigManager.heroBannerLogoPlacement))
-                    }
-                    function applyPlacementAt(index) {
-                        if (_syncingFromConfig || index < 0) return
-                        var values = placementValues()
-                        if (index >= values.length) return
-                        ConfigManager.heroBannerLogoPlacement = values[index]
-                    }
-                    function syncFromConfig() {
-                        _syncingFromConfig = true
-                        currentIndex = placementIndex()
-                        _syncingFromConfig = false
-                    }
+                    SettingsComboBox {
+                        id: infoPlacementCombo
+                        model: [
+                            qsTr("Bottom left"),
+                            qsTr("Bottom right"),
+                            qsTr("Bottom center"),
+                            qsTr("Top left"),
+                            qsTr("Top right"),
+                            qsTr("Top center"),
+                            qsTr("Center")
+                        ]
 
-                    Component.onCompleted: syncFromConfig()
-                    Connections {
-                        target: ConfigManager
-                        function onHeroBannerLogoPlacementChanged() { logoPlacementCombo.syncFromConfig() }
+                        property bool _syncingFromConfig: false
+                        function placementValues() {
+                            return ["bottomLeft", "bottomRight", "bottomCenter", "topLeft", "topRight", "topCenter", "center"]
+                        }
+                        function placementIndex() {
+                            return Math.max(0, placementValues().indexOf(ConfigManager.heroBannerInfoPlacement))
+                        }
+                        function applyPlacementAt(index) {
+                            if (_syncingFromConfig || index < 0) return
+                            var values = placementValues()
+                            if (index >= values.length) return
+                            ConfigManager.heroBannerInfoPlacement = values[index]
+                        }
+                        function syncFromConfig() {
+                            _syncingFromConfig = true
+                            currentIndex = placementIndex()
+                            _syncingFromConfig = false
+                        }
+
+                        Component.onCompleted: syncFromConfig()
+                        Connections {
+                            target: ConfigManager
+                            function onHeroBannerInfoPlacementChanged() { infoPlacementCombo.syncFromConfig() }
+                        }
+                        onSelectionAccepted: function(index) { applyPlacementAt(index) }
+                        onActivated: function(index) { applyPlacementAt(index) }
+                        onActiveFocusChanged: if (activeFocus) root.ensure(this)
+                        KeyNavigation.up: logoPlacementCombo
+                        KeyNavigation.down: autoCycleRow
                     }
-                    onSelectionAccepted: function(index) { applyPlacementAt(index) }
-                    onActivated: function(index) { applyPlacementAt(index) }
-                    onActiveFocusChanged: if (activeFocus) root.ensure(this)
-                    KeyNavigation.up: episodeSynopsisRow
-                    KeyNavigation.down: infoPlacementCombo
                 }
 
-                Text {
-                    text: qsTr("Info position")
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
-                }
-
-                SettingsComboBox {
-                    id: infoPlacementCombo
-                    Layout.preferredWidth: Math.round(300 * Theme.layoutScale)
-                    model: [
-                        qsTr("Bottom left"),
-                        qsTr("Bottom right"),
-                        qsTr("Bottom center"),
-                        qsTr("Top left"),
-                        qsTr("Top right"),
-                        qsTr("Top center"),
-                        qsTr("Center")
-                    ]
-
-                    property bool _syncingFromConfig: false
-                    function placementValues() {
-                        return ["bottomLeft", "bottomRight", "bottomCenter", "topLeft", "topRight", "topCenter", "center"]
-                    }
-                    function placementIndex() {
-                        return Math.max(0, placementValues().indexOf(ConfigManager.heroBannerInfoPlacement))
-                    }
-                    function applyPlacementAt(index) {
-                        if (_syncingFromConfig || index < 0) return
-                        var values = placementValues()
-                        if (index >= values.length) return
-                        ConfigManager.heroBannerInfoPlacement = values[index]
-                    }
-                    function syncFromConfig() {
-                        _syncingFromConfig = true
-                        currentIndex = placementIndex()
-                        _syncingFromConfig = false
-                    }
-
-                    Component.onCompleted: syncFromConfig()
-                    Connections {
-                        target: ConfigManager
-                        function onHeroBannerInfoPlacementChanged() { infoPlacementCombo.syncFromConfig() }
-                    }
-                    onSelectionAccepted: function(index) { applyPlacementAt(index) }
-                    onActivated: function(index) { applyPlacementAt(index) }
-                    onActiveFocusChanged: if (activeFocus) root.ensure(this)
-                    KeyNavigation.up: logoPlacementCombo
-                    KeyNavigation.down: autoCycleRow
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Rotation")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
                 }
 
                 SettingsToggleRow {
@@ -246,6 +249,13 @@ FocusScope {
                     onToggled: ConfigManager.heroBannerBackdropSyncEnabled = value
                     KeyNavigation.up: intervalRow; KeyNavigation.down: hideMoviesRow
                 }
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Content")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
+
                 SettingsToggleRow {
                     id: hideMoviesRow; label: qsTr("Hide movies"); checked: (ConfigManager.heroBannerHiddenItemTypes || []).indexOf("Movie") >= 0; ensureVisible: root.ensure
                     onToggled: root.setHidden("Movie", value)
@@ -263,7 +273,8 @@ FocusScope {
                 }
                 Text {
                     text: qsTr("Library source uses all visible libraries unless specific library IDs are configured.")
-                    color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall; font.family: Theme.fontPrimary
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.topMargin: Theme.spacingSmall
                 }
             }
         }
