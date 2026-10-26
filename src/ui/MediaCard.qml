@@ -70,8 +70,11 @@ Item {
                                                      && ConfigManager.roundedImagePreprocessEnabled
     property string preRoundedSource: ""
 
-    function refreshPreRounded() {
-        preRoundedSource = ""
+    // `keepCurrent` keeps an existing variant while asking again, so a
+    // completion for another card's variant never blanks this one.
+    function refreshPreRounded(keepCurrent) {
+        if (!keepCurrent)
+            preRoundedSource = ""
         if (roundedImageMode === "shader" || !roundedPreprocessEnabled)
             return
         if (typeof ImageCacheProvider === "undefined" || !ImageCacheProvider
@@ -82,7 +85,9 @@ Item {
             return
         // The radius is in decoded pixels, so scale it to match the on-screen radius.
         var radius = Math.round(Theme.radiusArtwork * decodeWidth / Math.max(1, artworkWidth))
-        preRoundedSource = ImageCacheProvider.requestRoundedImage(base, radius, decodeWidth, decodeHeight) || ""
+        var fileUrl = ImageCacheProvider.requestRoundedImage(base, radius, decodeWidth, decodeHeight) || ""
+        if (fileUrl !== "" || !keepCurrent)
+            preRoundedSource = fileUrl
     }
 
     onRoundedImageModeChanged: refreshPreRounded()
@@ -91,9 +96,12 @@ Item {
     Connections {
         target: typeof ImageCacheProvider !== "undefined" ? ImageCacheProvider : null
         ignoreUnknownSignals: true
+        // Variants are keyed by radius and size, and cards of different
+        // sizes share artwork URLs. Ask again for this card's own variant
+        // rather than taking whichever one finished.
         function onRoundedImageReady(url, fileUrl) {
             if (url && fileUrl && url === artwork.currentSource)
-                root.preRoundedSource = fileUrl
+                root.refreshPreRounded(true)
         }
     }
 

@@ -46,7 +46,7 @@ merged space member owns keep their own overview.
 
 ## Focus
 
-The hero receives initial Home focus when enabled and populated. Hero items arrive after the shelves load, so on first activation the first shelf (Continue Watching, Up Next or Recently Added) holds provisional focus until the hero has content, and the hero then takes over. If the user moves off that shelf first (another card, another row, or the navigation bar), the hand-off is cancelled and late hero data never steals focus. Returning to Home restores the last focused section instead. Home has no library tiles; libraries live in the navigation bar.
+The hero receives initial Home focus when enabled and populated. Hero items arrive after the shelves load, so on first activation the first shelf (Continue Watching, Up Next or Recently Added) holds provisional focus until the hero has content, and the hero then takes over. If the user moves within or off that shelf first (another card, another row, or the navigation bar), the hand-off is cancelled and late hero data never steals focus. Returning to Home restores the last focused section instead. Home has no library tiles; libraries live in the navigation bar.
 
 In cinema mode the hero fills about the top 60% of Home, keeps its copy below `Theme.navBarReservedHeight`, and the first shelf sits fully in view below it. Up from carousel mode is not accepted, so it reaches the navigation bar.
 

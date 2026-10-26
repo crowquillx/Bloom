@@ -224,6 +224,9 @@ FocusScope {
     // steals focus.
     property bool initialFocusPending: true
     property bool initialFocusProvisional: false
+    // Set while applyInitialFocus() itself moves the provisional focus, so
+    // that move is not mistaken for the user leaving the shelf.
+    property bool applyingInitialFocus: false
 
     function applyInitialFocus() {
         if (!initialFocusPending || root.StackView.status !== StackView.Active)
@@ -237,7 +240,9 @@ FocusScope {
         }
         var first = firstShelfList()
         if (first && !first.activeFocus) {
+            applyingInitialFocus = true
             first.forceActiveFocus()
+            applyingInitialFocus = false
             initialFocusProvisional = true
         }
         if (!ConfigManager.heroBannerEnabled && first && first.activeFocus) {
@@ -247,7 +252,7 @@ FocusScope {
     }
 
     function cancelInitialFocus() {
-        if (!initialFocusProvisional)
+        if (!initialFocusProvisional || applyingInitialFocus)
             return
         initialFocusPending = false
         initialFocusProvisional = false
@@ -767,11 +772,12 @@ FocusScope {
                         if (currentIndex >= 0 && currentIndex < continueWatchingModel.length)
                             handleNextUpSelection(continueWatchingModel[currentIndex])
                     }
+                    onCurrentIndexChanged: if (activeFocus) root.cancelInitialFocus()
                     onActiveFocusChanged: {
-                        if (activeFocus) {
+                        if (activeFocus)
                             root.scrollToSection(continueWatchingSection)
+                        else
                             root.cancelInitialFocus()
-                        }
                     }
                 }
             }
@@ -808,11 +814,12 @@ FocusScope {
                         if (currentIndex >= 0 && currentIndex < displayedNextUpModel.length)
                             handleNextUpSelection(displayedNextUpModel[currentIndex])
                     }
+                    onCurrentIndexChanged: if (activeFocus) root.cancelInitialFocus()
                     onActiveFocusChanged: {
-                        if (activeFocus) {
+                        if (activeFocus)
                             root.scrollToSection(nextUpSection)
+                        else
                             root.cancelInitialFocus()
-                        }
                     }
                 }
             }
@@ -867,11 +874,12 @@ FocusScope {
                             }
                             Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(recentlyAddedList, -1) }
                             Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(recentlyAddedList, 1) }
+                            onCurrentIndexChanged: if (activeFocus) root.cancelInitialFocus()
                             onActiveFocusChanged: {
-                                if (activeFocus) {
+                                if (activeFocus)
                                     root.scrollToSection(recentlyAddedShelf)
+                                else
                                     root.cancelInitialFocus()
-                                }
                             }
                         }
                     }
