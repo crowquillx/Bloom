@@ -43,10 +43,22 @@ struct PlaybackStartParseResult
     QString error;
 };
 
-struct PlaybackAudioSwitchRequest
+struct PlaybackReplan
+{
+    // TrackChange asks for the selected tracks at positionMs; SeekReanchor asks
+    // for a stream anchored at positionMs and keeps the current tracks.
+    enum class Operation { TrackChange, SeekReanchor };
+    Operation operation = Operation::TrackChange;
+    int audioTrackIndex = -1;       // source audio index; -1 keeps the current one
+    int subtitleTrackIndex = -1;    // source subtitle index; -1 with no id is off
+    QString subtitleTrackId;        // provider track id when the source lacks the track
+    qint64 positionMs = 0;          // source position
+};
+
+struct PlaybackReplanRequest
 {
     QString endpoint;
-    QString method = QStringLiteral("PATCH");
+    QString method = QStringLiteral("POST");
     QJsonObject body;
 
     bool replaySafe = false;
@@ -54,9 +66,9 @@ struct PlaybackAudioSwitchRequest
     [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
 };
 
-struct PlaybackAudioSwitchParseResult
+struct PlaybackReplanParseResult
 {
-    QUrl reloadUrl;
+    Bloom::PlaybackDescriptor descriptor;
     bool valid = false;
     QString error;
 };
@@ -107,6 +119,13 @@ struct PlaybackReportRequest
     bool replaySafe = false;
 
     [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
+};
+
+// How a failed progress report reflects the server-side playback session.
+enum class PlaybackSessionLoss {
+    None,    // Transient or unrelated failure; keep playing.
+    Expired, // The session is gone; a fresh session at the same position recovers.
+    Ended,   // The server ended playback; the player must leave and not restart.
 };
 
 struct PlaybackProviderContext
@@ -214,20 +233,21 @@ public:
         return {};
     }
 
-    virtual PlaybackAudioSwitchRequest createAudioSwitchRequest(
+    /// A new stream for an active session: a track change on a stream that
+    /// carries only the selected tracks, or a seek outside what a server
+    /// stream has produced. Empty when the provider has no such request.
+    virtual PlaybackReplanRequest createReplanRequest(
         const PlaybackProviderContext &context,
         const QString &playbackSessionId,
-        int audioTrackIndex,
-        qint64 positionMs) const
+        const PlaybackReplan &replan) const
     {
         Q_UNUSED(context)
         Q_UNUSED(playbackSessionId)
-        Q_UNUSED(audioTrackIndex)
-        Q_UNUSED(positionMs)
+        Q_UNUSED(replan)
         return {};
     }
 
-    virtual PlaybackAudioSwitchParseResult parseAudioSwitchResponse(
+    virtual PlaybackReplanParseResult parseReplanResponse(
         const PlaybackProviderContext &context,
         const QJsonObject &wireResponse) const
     {
@@ -260,4 +280,14 @@ public:
         return parsePlaybackStartResponse(context, media, wireResponse, providerSource);
     }
     virtual PlaybackReportRequest createReportRequest(const PlaybackReport &report) const = 0;
+    /// True when a started session expires if its stream is not read soon,
+    /// so later multipart segments must start their session when needed.
+    virtual bool queuedSessionsExpire() const { return false; }
+    virtual PlaybackSessionLoss classifyReportFailure(
+        const PlaybackReport &report, int httpStatus) const
+    {
+        Q_UNUSED(report)
+        Q_UNUSED(httpStatus)
+        return PlaybackSessionLoss::None;
+    }
 };

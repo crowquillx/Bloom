@@ -1252,6 +1252,7 @@ void WindowsMpvBackend::processMpvEvents()
             }
             setDirectRunning(true);
             scheduleDiagnosticSnapshots();
+            emit fileLoaded();
             break;
         case MPV_EVENT_GET_PROPERTY_REPLY:
             m_propertySnapshots.handleEvent(event, [this](const QString &stage,

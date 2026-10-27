@@ -140,6 +140,10 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
                 this, &MovieDetailsViewModel::onMovieChaptersFailed);
         connect(m_libraryService, &LibraryService::errorOccurred,
                 this, &MovieDetailsViewModel::onErrorOccurred);
+        connect(m_libraryService, &LibraryService::watchlistStatusChanged,
+                this, &MovieDetailsViewModel::onWatchlistStatusChanged);
+        connect(m_libraryService, &LibraryService::watchlistStatusFailed,
+                this, &MovieDetailsViewModel::onWatchlistStatusFailed);
         connect(m_libraryService, &LibraryService::itemPlayedStatusChanged,
                 this, [this](const QString &itemId, bool played) {
                     if (itemId != m_movieId) {
@@ -275,6 +279,7 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
     
     m_movieId = movieId;
     emit movieIdChanged();
+    emit watchlistSupportedChanged();
     
     // Try cache first
     QJsonObject cachedMovie;
@@ -333,6 +338,58 @@ void MovieDetailsViewModel::markAsUnwatched()
     m_libraryService->markItemUnplayed(m_movieId);
 }
 
+bool MovieDetailsViewModel::watchlistSupported() const
+{
+    return m_libraryService && m_libraryService->supportsWatchlist();
+}
+
+void MovieDetailsViewModel::toggleWatchlist()
+{
+    if (!m_libraryService || m_movieId.isEmpty() || m_watchlistPending
+        || !watchlistSupported()) {
+        return;
+    }
+    // Optimistic: the button follows the press; a refusal restores it.
+    m_watchlistPending = true;
+    m_inWatchlist = !m_inWatchlist;
+    emit inWatchlistChanged();
+    m_libraryService->setItemWatchlisted(m_movieId, m_inWatchlist);
+}
+
+void MovieDetailsViewModel::onWatchlistStatusChanged(const QString &itemId, bool inWatchlist)
+{
+    if (itemId != m_movieId) {
+        return;
+    }
+    m_watchlistPending = false;
+    if (m_inWatchlist != inWatchlist) {
+        m_inWatchlist = inWatchlist;
+        emit inWatchlistChanged();
+    }
+    if (!m_movieData.isEmpty()) {
+        m_movieData.insert(QStringLiteral("inWatchlist"), inWatchlist);
+        QJsonObject userState = m_movieData.value(QStringLiteral("userState")).toObject();
+        userState.insert(QStringLiteral("inWatchlist"), inWatchlist);
+        m_movieData.insert(QStringLiteral("userState"), userState);
+        storeMovieCache(m_movieId, m_movieData);
+    }
+}
+
+void MovieDetailsViewModel::onWatchlistStatusFailed(const QString &itemId,
+                                                    bool inWatchlist,
+                                                    const QString &error)
+{
+    if (itemId != m_movieId || !m_watchlistPending) {
+        return;
+    }
+    qCWarning(lcViewModels) << "MovieDetailsViewModel: watchlist change failed:" << error;
+    m_watchlistPending = false;
+    m_inWatchlist = !inWatchlist;
+    emit inWatchlistChanged();
+    emit watchlistUpdateFailed(inWatchlist ? tr("Couldn't add this to your watchlist.")
+                                           : tr("Couldn't remove this from your watchlist."));
+}
+
 void MovieDetailsViewModel::clear(bool preserveArtwork)
 {
     m_movieId.clear();
@@ -345,6 +402,8 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     }
     m_productionYear = 0;
     m_isWatched = false;
+    m_inWatchlist = false;
+    m_watchlistPending = false;
     m_officialRating.clear();
     m_durationMs = 0;
     m_positionMs = 0;
@@ -387,6 +446,7 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     emit productionYearChanged();
     emit isWatchedChanged();
     emit officialRatingChanged();
+    emit inWatchlistChanged();
     emit durationMsChanged();
     emit positionMsChanged();
     emit communityRatingChanged();
@@ -668,6 +728,10 @@ void MovieDetailsViewModel::updateMovieMetadata(const QVariantMap &data)
     m_communityRating = data.value(QStringLiteral("communityRating")).toDouble();
     m_positionMs = data.value(QStringLiteral("positionMs")).toLongLong();
     m_isWatched = data.value(QStringLiteral("watched")).toBool();
+    // A change in flight wins over details that may predate it.
+    if (!m_watchlistPending) {
+        m_inWatchlist = data.value(QStringLiteral("inWatchlist")).toBool();
+    }
     m_genres = genresFromCanonical(data.value(QStringLiteral("genres")));
     m_people = mapCanonicalPeople(data.value(QStringLiteral("people")).toList());
 
@@ -696,6 +760,7 @@ void MovieDetailsViewModel::updateMovieMetadata(const QVariantMap &data)
     emit premiereDateChanged();
     emit isWatchedChanged();
     emit positionMsChanged();
+    emit inWatchlistChanged();
     emit logoUrlChanged();
     emit posterUrlChanged();
     emit backdropUrlChanged();

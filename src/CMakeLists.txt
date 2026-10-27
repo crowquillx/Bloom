@@ -69,6 +69,8 @@ qt_add_executable(Bloom
     viewmodels/MovieDetailsViewModel.cpp
     viewmodels/UpNextRecommendationsViewModel.h
     viewmodels/UpNextRecommendationsViewModel.cpp
+    viewmodels/HomeSectionsViewModel.h
+    viewmodels/HomeSectionsViewModel.cpp
     ui/UiSoundController.h
     ui/UiSoundController.cpp
     ui/ScreensaverController.h

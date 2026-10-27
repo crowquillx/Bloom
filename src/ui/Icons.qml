@@ -110,6 +110,7 @@ QtObject {
     readonly property string power: "\ue8ac"
     readonly property string logout: "\ue9ba"
     readonly property string login: "\uea77"
+    readonly property string smartphone: "\ue32c"
     readonly property string language: "\ue894"
     readonly property string palette: "\ue40a"
     readonly property string brightness: "\ue3a9"

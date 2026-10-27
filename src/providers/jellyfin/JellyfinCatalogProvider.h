@@ -66,6 +66,11 @@ public:
         case ProviderCatalogOperation::PosterBadgeSettings:
         case ProviderCatalogOperation::PosterBadgeDefaults:
             return unsupported(QStringLiteral("Jellyfin has no server-side poster badge preferences"));
+        case ProviderCatalogOperation::HomeSections:
+            return unsupported(QStringLiteral("Jellyfin has no profile-curated Home rows"));
+        case ProviderCatalogOperation::Watchlist:
+        case ProviderCatalogOperation::SetWatchlist:
+            return unsupported(QStringLiteral("Jellyfin has no watchlist distinct from favorites"));
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -855,6 +860,9 @@ private:
         case ProviderCatalogOperation::ThemeSongPlayback: return QStringLiteral("theme playback");
         case ProviderCatalogOperation::PosterBadgeSettings: return QStringLiteral("poster badge settings");
         case ProviderCatalogOperation::PosterBadgeDefaults: return QStringLiteral("poster badge defaults");
+        case ProviderCatalogOperation::HomeSections: return QStringLiteral("home sections");
+        case ProviderCatalogOperation::Watchlist: return QStringLiteral("watchlist");
+        case ProviderCatalogOperation::SetWatchlist: return QStringLiteral("watchlist state");
         }
         return QStringLiteral("catalog");
     }

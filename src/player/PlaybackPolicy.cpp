@@ -27,6 +27,19 @@ QVariantList mediaStreamsForType(const QVariantMap &mediaSource,
     return result;
 }
 
+// Embedded tracks play from the source the player already has open. Listing them
+// first lets every ordinal tie-break below prefer them over external sidecars.
+QVariantList embeddedFirst(const QVariantList &streams)
+{
+    QVariantList embedded;
+    QVariantList external;
+    for (const QVariant &streamVariant : streams) {
+        (streamVariant.toMap().value(QStringLiteral("isExternal")).toBool()
+             ? external : embedded).append(streamVariant);
+    }
+    return embedded + external;
+}
+
 bool hasStreamIndex(const QVariantList &streams, int streamIndex)
 {
     for (const QVariant &streamVariant : streams) {
@@ -263,8 +276,8 @@ ResolvedTrackSelection resolveTrackSelection(
 {
     const QVariantList audioStreams = mediaStreamsForType(
         mediaSource, QStringLiteral("Audio"));
-    const QVariantList subtitleStreams = mediaStreamsForType(
-        mediaSource, QStringLiteral("Subtitle"));
+    const QVariantList subtitleStreams = embeddedFirst(mediaStreamsForType(
+        mediaSource, QStringLiteral("Subtitle")));
     const auto providerAudio = [&]() -> std::pair<int, QString> {
         const int index = mediaSource.value(
             QStringLiteral("defaultAudioStreamIndex"), -1).toInt();

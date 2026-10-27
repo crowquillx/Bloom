@@ -26,6 +26,12 @@ namespace {
 // selection; the Silo catalog caps GET pages Bloom sends at 100.
 constexpr int kRandomSampleWindow = 100;
 
+// Cards in the Watchlist row Home adds when the profile's layout has none;
+// Silo's own rows default to 20.
+constexpr int kHomeWatchlistRowLimit = 20;
+// Bloom names that row; it is not a server section.
+const QString kHomeWatchlistRowId = QStringLiteral("bloom:watchlist");
+
 QString activeConnectionId(const AuthenticationService *authService)
 {
     ConfigManager *config = authService ? authService->configManager() : nullptr;
@@ -1232,6 +1238,115 @@ void LibraryService::toggleFavorite(const QString &itemId, bool isFavorite)
     } else {
         markItemUnfavorite(itemId);
     }
+}
+
+bool LibraryService::supportsWatchlist() const
+{
+    return m_authService && m_authService->isAuthenticated()
+        && m_authService->supportsCapability(ProviderCapability::Watchlist);
+}
+
+void LibraryService::setItemWatchlisted(const QString &itemId, bool inWatchlist)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.stateValue = inWatchlist;
+    sendCatalogRequest(
+        QStringLiteral("setItemWatchlisted"),
+        ProviderCatalogOperation::SetWatchlist,
+        query,
+        [this, itemId, inWatchlist](const ProviderCatalogResponse &) {
+            emit watchlistStatusChanged(itemId, inWatchlist);
+        },
+        [this, itemId, inWatchlist](const NetworkError &error) {
+            emit watchlistStatusFailed(itemId, inWatchlist, error.userMessage);
+        });
+}
+
+// ============================================================================
+// Profile-curated Home rows
+// ============================================================================
+
+void LibraryService::getHomeSections()
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    const quint64 generation = ++m_homeSectionsGeneration;
+    if (!m_authService || !m_authService->isAuthenticated()
+        || !m_authService->supportsCapability(ProviderCapability::HomeSections)) {
+        // Providers without a curated layout (Jellyfin) add no rows.
+        emit canonicalHomeSectionsLoaded(connectionId, {});
+        return;
+    }
+
+    const auto mapRows = [this, connectionId](const QJsonArray &wireRows) {
+        QVariantList rows;
+        for (const QJsonValue &value : wireRows) {
+            const QJsonObject row = value.toObject();
+            const QVariantList items = m_authService->mapMediaItems(
+                row.value(QStringLiteral("items")).toArray(), connectionId);
+            if (items.isEmpty()) {
+                continue;
+            }
+            rows.append(QVariantMap{
+                {QStringLiteral("sectionId"), row.value(QStringLiteral("id")).toString()},
+                {QStringLiteral("title"), row.value(QStringLiteral("title")).toString()},
+                {QStringLiteral("items"), items}});
+        }
+        return rows;
+    };
+
+    sendCatalogRequest(
+        QStringLiteral("getHomeSections"),
+        ProviderCatalogOperation::HomeSections,
+        baseCatalogQuery(),
+        [this, connectionId, generation, mapRows](const ProviderCatalogResponse &response) {
+            if (generation != m_homeSectionsGeneration) {
+                return;
+            }
+            const QVariantList rows = mapRows(response.rawItems);
+            const bool layoutHasWatchlist = response.capabilityMetadata
+                .value(QStringLiteral("layoutHasWatchlist")).toBool();
+            if (layoutHasWatchlist
+                || !m_authService->supportsCapability(ProviderCapability::Watchlist)) {
+                emit canonicalHomeSectionsLoaded(connectionId, rows);
+                return;
+            }
+
+            // The layout has no Watchlist row: Home adds one ahead of the
+            // profile's rows.
+            ProviderCatalogQuery watchlistQuery = baseCatalogQuery();
+            watchlistQuery.limit = kHomeWatchlistRowLimit;
+            sendCatalogRequest(
+                QStringLiteral("getWatchlist"),
+                ProviderCatalogOperation::Watchlist,
+                watchlistQuery,
+                [this, connectionId, generation, rows](const ProviderCatalogResponse &watchlist) {
+                    if (generation != m_homeSectionsGeneration) {
+                        return;
+                    }
+                    QVariantList withWatchlist = rows;
+                    const QVariantList items
+                        = m_authService->mapMediaItems(watchlist.rawItems, connectionId);
+                    if (!items.isEmpty()) {
+                        withWatchlist.prepend(QVariantMap{
+                            {QStringLiteral("sectionId"), kHomeWatchlistRowId},
+                            {QStringLiteral("title"), tr("Watchlist")},
+                            {QStringLiteral("items"), items}});
+                    }
+                    emit canonicalHomeSectionsLoaded(connectionId, withWatchlist);
+                },
+                [this, connectionId, generation, rows](const NetworkError &) {
+                    // The profile's rows still show without the watchlist.
+                    if (generation == m_homeSectionsGeneration) {
+                        emit canonicalHomeSectionsLoaded(connectionId, rows);
+                    }
+                });
+        },
+        [this, connectionId, generation](const NetworkError &error) {
+            if (generation == m_homeSectionsGeneration) {
+                emit canonicalHomeSectionsFailed(connectionId, error.userMessage);
+            }
+        });
 }
 
 void LibraryService::getThemeSongs(const QString &seriesId)

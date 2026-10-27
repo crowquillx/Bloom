@@ -2,6 +2,44 @@
 
 A live gate passes only when the required behavior is observed. Source inspection, a unit test, and a successful HTTP status do not establish a platform runtime pass. `UNAVAILABLE` and `NOT RUN` are not automated passes. The native release label remains **experimental native Silo support**.
 
+## Silo curated Home rows and watchlist, 2026-10-27 UTC
+
+A single Silo space's Home adds the profile's own rows below Bloom's, and movie and series pages get a watchlist toggle (see [provider compatibility](provider-compatibility.md#catalog-and-conditional-requests)). No Silo server was available.
+
+| Gate | Result | Evidence or procedure |
+| --- | --- | --- |
+| Automated checks | PASS | `./scripts/dev-build.sh --tests` passed; local CTest passed 48/48, including the new `HomeRowsAndWatchlistTest` (9 cases) and six new `SiloCatalogServiceTest` cases: skipped section types, non-video and empty rows, the added Watchlist row, superseded and failed reads, `PUT`/`DELETE` membership requests, and no requests or action on Jellyfin. Contract validation and the provider-contract Python suites passed with the regenerated manifest. The flake QML lint flags pass on `HomeScreen.qml`, `MovieDetailsView.qml` and `SeriesDetailsView.qml`. `nix flake check` was not run. |
+| Live curated rows | NOT RUN | On a Silo profile whose Home layout has recommendation, collection, seasonal and genre rows, Home must show them below Recently Added, in the order and with the titles Silo's web app shows. Continue Watching, Next Up and Recently Added must not appear twice. A row of audiobooks or ebooks must not appear. Reorder or hide a row in Silo, return to Home after 30 seconds, and check Bloom follows. |
+| Live watchlist toggle | NOT RUN | On a movie and a series page, Add to Watchlist must turn into On Watchlist at once and match Silo's web app after a reload. Remove it again. Stop the server and press it: the button must return to its previous state with a message. On a Jellyfin server the button must not appear. |
+| Live Watchlist row | NOT RUN | With no Watchlist row in the Silo layout, Home must show a "Watchlist" row first among the added rows, and it must update after a toggle on a detail page. With the layout's own Watchlist row, that row must show in its place and no second one. An empty watchlist shows no row. |
+| Merged space | NOT RUN | In a space with a Jellyfin and a Silo source, Home must show no curated rows. Switching to the single Silo space must bring them back, and switching profiles must never show the previous profile's rows. |
+| Keyboard and gamepad | NOT RUN | With only arrows or the D-pad, A/Enter and B/Escape: move from the last Recently Added row into the curated rows and back up, open a card (movie, series and episode), press Back, and check focus returns to the same row. Reach the watchlist button from Play with Right, and leave it with Right to More options and Down to the shelves. |
+
+## Sign in with a code (Silo device sign-in), 2026-10-27 UTC
+
+On a Silo server that offers device sign-in, the login screen offers "Sign in with a code" (see [provider compatibility](provider-compatibility.md#sign-in-with-a-code)). No Silo server was available.
+
+| Gate | Result | Evidence or procedure |
+| --- | --- | --- |
+| Automated checks | PASS | `./scripts/dev-build.sh --tests` passed. `SiloAuthenticationTest` passed 37/37, including the eight device sign-in cases: wire contracts, discovery, start, pending/opened, 429 slow-down, server and local expiry, denial, cancel/withdraw, and approval matching a password login's session and refresh token. Contract validation and the provider-contract Python suites passed with the regenerated manifest. The flake QML lint flags pass on `LoginScreen.qml`. `nix flake check` was not run. |
+| Live code sign-in | NOT RUN | Enter a Silo address and press Enter. "Sign in with a code" must appear below Sign in, and it must not appear for a Jellyfin address. Choose it and check the code is readable from the couch at 1080p and 4K. Open the link on a phone, approve, and confirm Bloom continues to profile selection and the PIN prompt like a password login. Restart Bloom: the session must restore, and it must refresh after the access token expires. |
+| Live states | NOT RUN | Open the link without approving: the screen must say "Finish on your phone". Decline on the phone: "Sign-in was declined", with focus on Get a new code. Let a code run out (or stop the server): "This code expired" or the error. Get a new code must show a different code. |
+| Live withdrawal | NOT RUN | Choose Use a password instead (or press Back) while a code is shown. The code must then be refused on the server's `/activate` page. |
+| SSO-only server | NOT RUN | With local password sign-in off on the server (`password_login: false`), the password form must hide and the code option must be the primary action. |
+| Keyboard and gamepad | NOT RUN | Using only arrows or the D-pad, A/Enter, and B/Escape, move through the server field, Sign in, Reset, Sign in with a code, and Open a saved space. On the code screen, B must return to the code button, and focus must never land on a hidden password field. |
+
+## Silo HLS remux and transcode fallback, 2026-10-27 UTC
+
+Silo plans that cannot play the original file now play through `server_remux_hls` or `server_transcode_hls` (see [provider compatibility](provider-compatibility.md#playback-themes-and-seek-previews)). No Silo server was available.
+
+| Gate | Result | Evidence or procedure |
+| --- | --- | --- |
+| Automated checks | PASS | `./scripts/dev-build.sh --tests` passed; local CTest passed 47/47, including `SiloPlaybackProviderTest` (protocol fixtures vendored under `tests/contracts/silo-playback-v3/`) and `PlayerControllerAutoplayContextTest::serverStreamReplansKeepTheSourceTimeline`. Contract validation and the provider-contract Python suite (34/34) passed with the regenerated manifest. `nix flake check` was not run. |
+| mpv/FFmpeg HLS behaviour | PASS, local files | With the pinned mpv 0.41 (FFmpeg 9.0.2) against a local HTTP server: a WebVTT `SUBTITLES` rendition appears as `sid=1` and shows cues after a seek; `EXT-X-DEFINE` is not expanded (segments were requested with a literal `{$silo_query}`); `http-header-fields` reaches every segment; an EVENT playlist opens three segments from its end unless `live_start_index=0`; `loadfile <url> replace -1 start=N`, `change-list demuxer-lavf-o append` and runtime `http-header-fields` work, and the replaced file ends with reason `stop` before the new one loads. |
+| Live transcode and remux | NOT RUN | On a Silo server with transcoding enabled, play a file that cannot direct-play (an unsupported audio codec for a remux, a bitrate cap for a transcode, a PGS/DVD subtitle for burn-in) from a resume point. Check the stream starts at the resume point, the scrubber shows the full runtime, progress resumes correctly on another client, intro skip and chapters land on the right scene, and a two-hour title (whose playlist uses `EXT-X-DEFINE`) plays past its first segments. |
+| Live seeking on a copy remux | NOT RUN | On a `server_remux_hls` stream, seek back, far forward, and by ±10 s repeatedly. Each far seek must re-anchor once (no stall, no jump back), short forward seeks must stay local, and playback must not end when the stream is replaced. |
+| Live track changes | NOT RUN | During HLS playback switch audio, pick an embedded text subtitle (expect the HLS rendition when the server offers `hls_subtitle_renditions_v1`), an external subtitle (timed correctly on a remux resumed mid-file), a burned-in subtitle and then Off. Repeat on Windows `win-libmpv` (the backend now emits `fileLoaded`): controls above video and stable video geometry through show/hide, resize, minimize/restore, maximize and fullscreen. |
+
 ## Silo poster badges, 2026-10-25 UTC
 
 [Poster badges](poster-badges.md) follow each Silo profile's card overlay choices. Silo series cards no longer draw an empty unwatched pill.
@@ -16,6 +54,8 @@ A live gate passes only when the required behavior is observed. Source inspectio
 | Physical keyboard, gamepad, and 4K | NOT RUN | On a TV at 4K, check badge legibility and that focus scaling keeps badges inside the poster. |
 
 ## Native Silo v2 migration, 2026-10-18 UTC
+
+This run predates the pin bump to `62b1a6e8` (2026-10-27). Live gates against the new pin are NOT RUN.
 
 The server at `http://silo` reported source revision `35ef973b`. The full source pin is `35ef973bc64af293aff76bcd49fa2dcab82a7f74`. Its served OpenAPI bytes equal SHA-256 `be30c2f6d2a4dc7fbfef2a9b1438d843b4c25239eb2d637ec09dfef12f1220be`, the pinned artifact with 707 paths. No container-image identity was verified. Checks used the operator-supplied disposable `tester` account. No password, token, signed URL, or PIN is retained here.
 

@@ -425,6 +425,15 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
                 return;
             }
 
+            // Silo stream URLs carry the access token for the whole movie, so
+            // start with one that outlives a long feature.
+            m_authService->ensureAccessTokenValidFor(kPlaybackTokenLifetimeSeconds, [=, this]()
+            {
+            if (!isCurrentRequest(QStringLiteral("descriptor"), itemId, requestContext, generation))
+            {
+                endRequest(QStringLiteral("descriptor"), itemId, requestContext, generation);
+                return;
+            }
             sendRequestWithRetry(
                 startRequest.endpoint,
                 [this, startRequest, itemId, requestContext, generation]() -> QNetworkReply *
@@ -440,15 +449,36 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
                 [this, provider, itemId, providerSource, requestContext, generation, context,
                     media](QNetworkReply *reply)
                 {
+                    PlaybackProviderContext responseContext = providerContext();
+                    responseContext.playbackAttemptId = context.playbackAttemptId;
                     if (!isCurrentRequest(
                             QStringLiteral("descriptor"), itemId, requestContext, generation))
                     {
                         endRequest(
                             QStringLiteral("descriptor"), itemId, requestContext, generation);
+                        // A superseded start still opened a server session; stop
+                        // it unless the account or profile changed meanwhile.
+                        if (provider == m_authService->playbackProvider()
+                            && responseContext.serverUrl == context.serverUrl
+                            && responseContext.accountId == context.accountId
+                            && responseContext.profileId == context.profileId)
+                        {
+                            const QString abandoned = provider
+                                ->parsePlaybackStartResponse(responseContext, media,
+                                    QJsonDocument::fromJson(reply->readAll()).object(),
+                                    providerSource)
+                                .descriptor.playbackSessionId;
+                            if (!abandoned.isEmpty())
+                            {
+                                PlaybackReport cleanup;
+                                cleanup.event = PlaybackReportEvent::Stop;
+                                cleanup.media = media;
+                                cleanup.playbackSessionId = abandoned;
+                                sendPlaybackReport(cleanup, {}, provider);
+                            }
+                        }
                         return;
                     }
-                    PlaybackProviderContext responseContext = providerContext();
-                    responseContext.playbackAttemptId = context.playbackAttemptId;
                     const PlaybackStartParseResult parsed
                         = provider->parsePlaybackStartResponse(responseContext, media,
                             QJsonDocument::fromJson(reply->readAll()).object(), providerSource);
@@ -511,122 +541,86 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
                     }
                 },
                 0, true, startRequest.replaySafe ? RetrySafety::Idempotent : RetrySafety::Never);
+            });
         });
     });
 }
 
-bool PlaybackService::switchPlaybackAudio(const QString &playbackSessionId,
-                                           int audioTrackIndex,
-                                           qint64 positionMs,
-                                           const QString &requestContext)
+bool PlaybackService::replanPlayback(const QString &playbackSessionId,
+                                     const PlaybackReplan &replan,
+                                     const QString &requestContext)
 {
-    const quint64 generation =
-        beginRequest(QStringLiteral("audio"), playbackSessionId, requestContext);
+    const QString operation = QStringLiteral("replan");
+    const quint64 generation = beginRequest(operation, playbackSessionId, requestContext);
     const IPlaybackProvider *provider =
         m_authService ? m_authService->playbackProvider() : nullptr;
+    const auto fail = [this, operation, playbackSessionId, requestContext, generation](
+                          const QString &error)
+    {
+        endRequest(operation, playbackSessionId, requestContext, generation);
+        if (!requestContext.isEmpty())
+            emit playbackReplanFailedForRequest(playbackSessionId, error, requestContext);
+    };
     if (!m_authService || !provider || !m_authService->isAuthenticated() || !m_transport) {
-        endRequest(QStringLiteral("audio"), playbackSessionId, requestContext, generation);
-        if (!requestContext.isEmpty()) {
-            emit playbackAudioSwitchFailedForRequest(playbackSessionId,
-                                                      tr("Not authenticated"),
-                                                      requestContext);
-        }
+        fail(tr("Not authenticated"));
         return false;
     }
     const PlaybackProviderContext context = providerContext();
-    const PlaybackAudioSwitchRequest switchRequest =
-        provider->createAudioSwitchRequest(context, playbackSessionId,
-                                           audioTrackIndex, positionMs);
-    if (!switchRequest.isValid()) {
-        endRequest(QStringLiteral("audio"), playbackSessionId, requestContext, generation);
-        if (!requestContext.isEmpty()) {
-            emit playbackAudioSwitchFailedForRequest(playbackSessionId,
-                                                      tr("Audio switching is unavailable."),
-                                                      requestContext);
-        }
+    const PlaybackReplanRequest replanRequest =
+        provider->createReplanRequest(context, playbackSessionId, replan);
+    if (!replanRequest.isValid()) {
+        fail(tr("The server cannot change this stream."));
         return false;
     }
     sendRequestWithRetry(
-        switchRequest.endpoint,
-        [this, switchRequest, playbackSessionId, requestContext, generation]() -> QNetworkReply *
+        replanRequest.endpoint,
+        [this, operation, replanRequest, playbackSessionId, requestContext,
+         generation]() -> QNetworkReply *
         {
-            if (!isCurrentRequest(QStringLiteral("audio"), playbackSessionId,
-                                  requestContext, generation))
-            {
+            if (!isCurrentRequest(operation, playbackSessionId, requestContext, generation))
                 return nullptr;
-            }
-            return sendProviderRequest(switchRequest.endpoint, switchRequest.method,
-                                       switchRequest.body);
+            return sendProviderRequest(replanRequest.endpoint, replanRequest.method,
+                                       replanRequest.body);
         },
-        [this, provider, playbackSessionId, requestContext, generation, context](
+        [this, operation, provider, playbackSessionId, requestContext, generation, context](
             QNetworkReply *reply)
         {
-            if (!isCurrentRequest(QStringLiteral("audio"), playbackSessionId,
-                                  requestContext, generation))
+            if (!isCurrentRequest(operation, playbackSessionId, requestContext, generation))
             {
-                endRequest(QStringLiteral("audio"), playbackSessionId, requestContext, generation);
+                endRequest(operation, playbackSessionId, requestContext, generation);
                 return;
             }
-            const PlaybackAudioSwitchParseResult parsed = provider->parseAudioSwitchResponse(
+            endRequest(operation, playbackSessionId, requestContext, generation);
+            const PlaybackReplanParseResult parsed = provider->parseReplanResponse(
                 providerContext(), QJsonDocument::fromJson(reply->readAll()).object());
-            if (!parsed.valid || !parsed.reloadUrl.isValid())
+            if (!parsed.valid)
             {
-                if (isCurrentRequest(QStringLiteral("audio"), playbackSessionId,
-                                     requestContext, generation))
-                {
-                    endRequest(QStringLiteral("audio"), playbackSessionId,
-                               requestContext, generation);
-                    if (!requestContext.isEmpty())
-                    {
-                        emit playbackAudioSwitchFailedForRequest(
-                            playbackSessionId,
-                            parsed.error.isEmpty() ? tr("Audio switching failed.") : parsed.error,
-                            requestContext);
-                    }
-                }
-                else
-                {
-                    endRequest(QStringLiteral("audio"), playbackSessionId,
-                               requestContext, generation);
-                }
+                if (!requestContext.isEmpty())
+                    emit playbackReplanFailedForRequest(
+                        playbackSessionId,
+                        parsed.error.isEmpty() ? tr("The server could not change this stream.")
+                                               : parsed.error,
+                        requestContext);
                 return;
             }
-            const QUrl reloadUrl = resolvePlaybackUrl(context.serverUrl, parsed.reloadUrl);
-            if (isCurrentRequest(QStringLiteral("audio"), playbackSessionId,
-                                 requestContext, generation))
-            {
-                endRequest(QStringLiteral("audio"), playbackSessionId,
-                           requestContext, generation);
-                emit playbackAudioSwitchedForRequest(playbackSessionId,
-                                                     reloadUrl, requestContext);
-            }
-            else
-            {
-                endRequest(QStringLiteral("audio"), playbackSessionId,
-                           requestContext, generation);
-            }
+            Bloom::PlaybackDescriptor descriptor = parsed.descriptor;
+            descriptor.stream.url = resolvePlaybackUrl(context.serverUrl, descriptor.stream.url);
+            emit playbackReplannedForRequest(playbackSessionId, withAudioPlan(descriptor),
+                                             requestContext);
         },
-        [this, playbackSessionId, requestContext, generation](const NetworkError &error)
+        [this, operation, playbackSessionId, requestContext, generation](const NetworkError &error)
         {
-            if (isCurrentRequest(QStringLiteral("audio"), playbackSessionId,
-                                 requestContext, generation))
+            if (!isCurrentRequest(operation, playbackSessionId, requestContext, generation))
             {
-                endRequest(QStringLiteral("audio"), playbackSessionId,
-                           requestContext, generation);
-                if (!requestContext.isEmpty())
-                {
-                    emit playbackAudioSwitchFailedForRequest(playbackSessionId,
-                                                             error.userMessage,
-                                                             requestContext);
-                }
+                endRequest(operation, playbackSessionId, requestContext, generation);
+                return;
             }
-            else
-            {
-                endRequest(QStringLiteral("audio"), playbackSessionId,
-                           requestContext, generation);
-            }
+            endRequest(operation, playbackSessionId, requestContext, generation);
+            if (!requestContext.isEmpty())
+                emit playbackReplanFailedForRequest(playbackSessionId, error.userMessage,
+                                                    requestContext);
         },
-        0, true, switchRequest.replaySafe ? RetrySafety::Idempotent : RetrySafety::Never);
+        0, true, replanRequest.replaySafe ? RetrySafety::Idempotent : RetrySafety::Never);
     return true;
 }
 
@@ -1599,20 +1593,23 @@ void PlaybackService::sendPlaybackReport(const PlaybackReport &report,
                                        providerRequest.method,
                                        providerRequest.body);
         },
-        [this, itemId = report.media.itemId, completion](QNetworkReply *reply) mutable
+        [this, provider, report, completion](QNetworkReply *reply) mutable
         {
             if (reply->error() != QNetworkReply::NoError)
             {
-                qCWarning(lcPlayback) << "Failed to report playback event for" << itemId
-                                      << ":" << reply->errorString();
+                qCWarning(lcPlayback) << "Failed to report playback event for"
+                                      << report.media.itemId << ":" << reply->errorString();
+                handleReportFailure(provider, report,
+                    reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt());
             }
             if (completion)
             {
                 completion();
             }
         },
-        [completion](const NetworkError &) mutable
+        [this, provider, report, completion](const NetworkError &error) mutable
         {
+            handleReportFailure(provider, report, error.httpStatus);
             if (completion)
             {
                 completion();
@@ -1620,6 +1617,32 @@ void PlaybackService::sendPlaybackReport(const PlaybackReport &report,
         },
         0, providerRequest.deferSessionExpiry,
         providerRequest.replaySafe ? RetrySafety::Idempotent : RetrySafety::Never);
+}
+
+bool PlaybackService::queuedPlaybackSessionsExpire() const
+{
+    const IPlaybackProvider *provider =
+        m_authService ? m_authService->playbackProvider() : nullptr;
+    return provider && provider->queuedSessionsExpire();
+}
+
+void PlaybackService::handleReportFailure(const IPlaybackProvider *provider,
+                                          const PlaybackReport &report,
+                                          int httpStatus)
+{
+    if (!provider || report.playbackSessionId.isEmpty()
+        || provider != (m_authService ? m_authService->playbackProvider() : nullptr)) {
+        return;
+    }
+    const PlaybackSessionLoss loss = provider->classifyReportFailure(report, httpStatus);
+    if (loss == PlaybackSessionLoss::None) {
+        return;
+    }
+    qCWarning(lcPlayback) << "Playback session lost"
+                          << "sessionId=" << report.playbackSessionId
+                          << "httpStatus=" << httpStatus
+                          << "endedByServer=" << (loss == PlaybackSessionLoss::Ended);
+    emit playbackSessionLost(report.playbackSessionId, loss == PlaybackSessionLoss::Ended);
 }
 
 void PlaybackService::markItemPlayed(const QString &itemId)

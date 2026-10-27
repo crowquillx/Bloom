@@ -243,6 +243,7 @@ FocusScope {
         }
         if (itemIsDescendant(activeItem, playButton)
                 || itemIsDescendant(activeItem, favoriteButton)
+                || itemIsDescendant(activeItem, watchlistButton)
                 || itemIsDescendant(activeItem, contextMenuButton)) {
             return "hero"
         }
@@ -268,6 +269,7 @@ FocusScope {
         if (area === "hero") {
             if (itemIsDescendant(activeItem, favoriteButton)) return 1
             if (itemIsDescendant(activeItem, contextMenuButton)) return 2
+            if (itemIsDescendant(activeItem, watchlistButton)) return 3
             return 0
         }
         if (area === "seasons") return Math.max(0, seasonsList.currentIndex)
@@ -297,6 +299,8 @@ FocusScope {
                 favoriteButton.forceActiveFocus()
             } else if (targetIndex === 2 && contextMenuButton.visible) {
                 contextMenuButton.forceActiveFocus()
+            } else if (targetIndex === 3 && watchlistButton.visible) {
+                watchlistButton.forceActiveFocus()
             } else {
                 playButton.forceActiveFocus()
             }
@@ -662,7 +666,7 @@ FocusScope {
                         sidePadding: Math.round(36 * Theme.layoutScale)
 
                         KeyNavigation.left: playButton
-                        KeyNavigation.right: contextMenuButton
+                        KeyNavigation.right: watchlistButton.visible ? watchlistButton : contextMenuButton
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
@@ -694,6 +698,50 @@ FocusScope {
                         onClicked: SeriesDetailsViewModel.toggleFavorite()
                     }
 
+                    // Only providers with a watchlist (Silo) show this.
+                    SecondaryActionButton {
+                        id: watchlistButton
+                        visible: SeriesDetailsViewModel.watchlistSupported
+                        text: SeriesDetailsViewModel.inWatchlist ? qsTr("On Watchlist") : qsTr("Add to Watchlist")
+                        iconGlyph: SeriesDetailsViewModel.inWatchlist ? Icons.bookmark : Icons.bookmarkBorder
+                        implicitHeight: Theme.buttonHeightHero
+                        labelPixelSize: Theme.fontSizeMedium
+                        iconPixelSize: Theme.iconSizeLarge
+                        sidePadding: Math.round(36 * Theme.layoutScale)
+
+                        KeyNavigation.left: favoriteButton
+                        KeyNavigation.right: contextMenuButton
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root.ensureTopVisible()
+                            }
+                        }
+
+                        Keys.onUpPressed: (event) => root.heroUp(event)
+
+                        Keys.onDownPressed: (event) => {
+                            root.focusFirstLowerSection()
+                            event.accepted = true
+                        }
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: SeriesDetailsViewModel.toggleWatchlist()
+                    }
+
                     SecondaryActionButton {
                         id: contextMenuButton
                         text: ""
@@ -702,7 +750,7 @@ FocusScope {
                         implicitHeight: Theme.buttonHeightHero
                         iconPixelSize: Theme.iconSizeLarge
 
-                        KeyNavigation.left: favoriteButton
+                        KeyNavigation.left: watchlistButton.visible ? watchlistButton : favoriteButton
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
@@ -964,6 +1012,11 @@ FocusScope {
         parent: Overlay.overlay
     }
 
+    ToastNotification {
+        id: watchlistToast
+        z: 300
+    }
+
     Connections {
         target: SeriesDetailsViewModel
 
@@ -973,6 +1026,9 @@ FocusScope {
             }
             Qt.callLater(root.requestSeerrRecommendations)
             Qt.callLater(root.tryRestorePendingReturnState)
+        }
+        function onWatchlistUpdateFailed(message) {
+            watchlistToast.show(message)
         }
     }
 

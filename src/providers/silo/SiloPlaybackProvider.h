@@ -34,6 +34,10 @@ public:
         int tileIndex) const override;
 
     PlaybackReportRequest createReportRequest(const PlaybackReport &report) const override;
+    // Silo expires a session after about 45 s without stream reads or progress.
+    bool queuedSessionsExpire() const override { return true; }
+    PlaybackSessionLoss classifyReportFailure(
+        const PlaybackReport &report, int httpStatus) const override;
 
     PlaybackInfoRequest createPlaybackInfoRequest(
         const PlaybackProviderContext &context,
@@ -60,13 +64,12 @@ public:
         const QJsonObject &wireResponse,
         const QVariantMap &providerSource = {}) const override;
 
-    PlaybackAudioSwitchRequest createAudioSwitchRequest(
+    PlaybackReplanRequest createReplanRequest(
         const PlaybackProviderContext &context,
         const QString &playbackSessionId,
-        int audioTrackIndex,
-        qint64 positionMs) const override;
+        const PlaybackReplan &replan) const override;
 
-    PlaybackAudioSwitchParseResult parseAudioSwitchResponse(
+    PlaybackReplanParseResult parseReplanResponse(
         const PlaybackProviderContext &context,
         const QJsonObject &wireResponse) const override;
 
@@ -88,7 +91,9 @@ private:
         PlaybackProviderContext context;
         QString installationId;
         QJsonObject plan;
+        QVariantMap source;
         qint64 sequence = 0;
+        quint64 order = 0;
     };
     struct Previews {
         int width = 0;
@@ -99,5 +104,7 @@ private:
     mutable QHash<QString, QSet<QString>> m_previewFiles;
     mutable QHash<QString, Previews> m_previews;
     mutable QHash<QString, QString> m_installations;
+    mutable QHash<QString, QSet<QString>> m_serverFeatures;
     mutable QHash<QString, Session> m_sessions;
+    mutable quint64 m_sessionOrder = 0;
 };

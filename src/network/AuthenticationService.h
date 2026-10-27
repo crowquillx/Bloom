@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDateTime>
 #include <QFutureWatcher>
 #include <QHash>
 #include <QJsonArray>
@@ -17,6 +18,7 @@
 #include <QVariantMap>
 #include <QtConcurrent>
 #include <functional>
+#include <utility>
 #include <memory>
 
 #include <optional>
@@ -29,6 +31,7 @@
 #include "providers/ServerConnection.h"
 #include "security/CredentialStore.h"
 
+class DeviceSignInSession;
 class ICatalogProvider;
 class ISecretStore;
 class ConfigManager;
@@ -52,6 +55,11 @@ class AuthenticationService : public QObject
     Q_PROPERTY(QVariantList profiles READ profiles NOTIFY profilesChanged)
     Q_PROPERTY(QVariantList authSessions READ authSessions NOTIFY authSessionsChanged)
     Q_PROPERTY(QString authenticationStep READ authenticationStep NOTIFY authenticationStepChanged)
+    // Sign-in methods the typed server offers: server, state (idle, checking,
+    // ready, unreachable), silo, passwordSignIn, deviceSignIn.
+    Q_PROPERTY(QVariantMap signInOptions READ signInOptions NOTIFY signInOptionsChanged)
+    // "Sign in with a code": see DeviceSignInSession::toVariantMap.
+    Q_PROPERTY(QVariantMap deviceSignIn READ deviceSignIn NOTIFY deviceSignInChanged)
 
 public:
     explicit AuthenticationService(std::shared_ptr<ISecretStore> secretStore = nullptr,
@@ -92,6 +100,17 @@ public:
     Q_INVOKABLE void setProviderSelection(const QString &selection);
     Q_INVOKABLE void selectProfile(const QString &profileId);
     Q_INVOKABLE void verifyProfilePin(const QString &profileId, const QString &pin);
+    /// Reads which sign-in methods a server offers, before anyone signs in.
+    /// Repeating the same address while a check is current does nothing.
+    Q_INVOKABLE void checkSignInOptions(const QString &serverAddress);
+    /// Starts device sign-in on a server whose options offer it. Approved
+    /// tokens continue exactly like a password login (profiles, PIN, storage).
+    Q_INVOKABLE void startDeviceSignIn(const QString &serverAddress);
+    /// Abandons device sign-in and withdraws its code on the server.
+    Q_INVOKABLE void cancelDeviceSignIn();
+    QVariantMap signInOptions() const;
+    QVariantMap deviceSignIn() const;
+    DeviceSignInSession *deviceSignInSession() const { return m_deviceSignIn; }
     Q_INVOKABLE void loadAuthSessions();
     Q_INVOKABLE void revokeAuthSession(const QString &sessionId);
 
@@ -168,6 +187,11 @@ public:
     /// refused the refresh token) is the only outcome that needs a sign-in.
     void renewConnection(const QString &connectionId,
                          std::function<void(TokenRenewal)> completion);
+    /// Renews the live access token first when it expires within the given
+    /// time (capped at half the token's issued lifetime, so short-lived tokens
+    /// are not renewed on every call), or when its lifetime is unknown. Sessions without a refresh token
+    /// (Jellyfin) continue immediately. done runs whatever the outcome.
+    void ensureAccessTokenValidFor(qint64 seconds, std::function<void()> done);
 
 signals:
     void loginSuccess(const QString &userId, const QString &accessToken, const QString &username);
@@ -189,6 +213,8 @@ signals:
     void profilesChanged();
     void authSessionsChanged();
     void authenticationStepChanged();
+    void signInOptionsChanged();
+    void deviceSignInChanged();
 
 protected:
     void seedSession(const QString &serverUrl,
@@ -209,6 +235,10 @@ private:
     QString m_schemeFallbackUrl;
     QString m_accessToken;
     QString m_refreshToken;
+    // Invalid when the provider sent no lifetime or the token was restored.
+    QDateTime m_accessTokenExpiresAt;
+    qint64 m_accessTokenLifetimeSeconds = 0;
+    void setAccessTokenLifetime(qint64 expiresInSeconds);
     QString m_profileToken;
     QString m_userId;
     QString m_username;
@@ -291,11 +321,36 @@ private:
         bool legacyMigrationComplete = false;
     };
 
+    // Sign-in discovery for the address typed on the login screen. It has its
+    // own transport: a session change on m_transport must not drop it.
+    struct SignInDiscovery {
+        QString address;
+        QString baseUrl;
+        QString state = QStringLiteral("idle");
+        bool silo = false;
+        bool passwordSignIn = true;
+        bool deviceSignIn = false;
+        bool deviceCanWithdraw = false;
+        ProviderDetectionResult detection;
+    };
+    SignInDiscovery m_signInDiscovery;
+    quint64 m_signInDiscoveryGeneration = 0;
+    std::unique_ptr<HttpTransport> m_discoveryTransport;
+    DeviceSignInSession *m_deviceSignIn = nullptr;
+
     QFutureWatcher<RestorationResult> m_restorationWatcher;
     std::shared_ptr<CredentialTaskState> m_credentialTasks =
         std::make_shared<CredentialTaskState>();
 
     QString normalizeUrl(const QString &url) const;
+    // Typed address -> {URL to try, HTTP fallback when no scheme was typed}.
+    std::pair<QString, QString> resolveServerAddress(const QString &address) const;
+    void initializeDeviceSignIn();
+    void discoverSilo(const QString &baseUrl, const QString &fallbackUrl, quint64 generation);
+    void discoverDeviceSignIn(quint64 generation);
+    void discoverSignInMethods(quint64 generation);
+    void finishSignInDiscovery(const QString &state, quint64 generation);
+    HttpRequestOptions discoveryRequestOptions(int maxAttempts) const;
     void startRestoration();
     // keepCredentials: the server could not be reached, so the saved sign-in
     // may still be good.

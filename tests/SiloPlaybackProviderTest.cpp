@@ -56,6 +56,60 @@ QJsonObject decision()
                 { "future_field", 1 } } },
         { "future_field", 2 } };
 }
+QVariantMap stream(const QString &type, int index, const QString &language, bool external = false)
+{
+    return { { "type", type }, { "index", index }, { "language", language },
+        { "isExternal", external } };
+}
+// /watch order: embedded subtitles by ffmpeg index, then external files.
+QVariantMap sourceWithSubtitles()
+{
+    QVariantMap result = source();
+    result["mediaStreams"] = QVariantList { stream("Video", 0, {}), stream("Audio", 0, "eng"),
+        stream("Subtitle", 2, "eng"), stream("Subtitle", 3, "spa"), stream("Subtitle", 4, "fre"),
+        stream("Subtitle", 5, "eng", true), stream("Subtitle", 6, "ger", true) };
+    return result;
+}
+QJsonObject inventoryEntry(int combinedIndex, const QString &source, const QString &language)
+{
+    return { { "track_id", QStringLiteral("file:opaque/file-42:subtitle:%1").arg(combinedIndex) },
+        { "combined_index", combinedIndex }, { "source", source }, { "language", language },
+        { "codec", "subrip" }, { "forced", false }, { "default", false },
+        { "hearing_impaired", false }, { "delivery", "sidecar" },
+        { "url", QStringLiteral("/api/v2/stream/session-42/subtitles/%1.vtt").arg(combinedIndex) } };
+}
+PlaybackReplan audioReplan(int audio, qint64 positionMs)
+{
+    PlaybackReplan replan;
+    replan.audioTrackIndex = audio;
+    replan.positionMs = positionMs;
+    return replan;
+}
+QJsonObject fixture(const QString &name)
+{
+    QFile file(QFINDTESTDATA(QStringLiteral("contracts/silo-playback-v3/") + name));
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    return QJsonDocument::fromJson(file.readAll()).object();
+}
+// The protocol fixture's features with the /api/v2 capability envelope.
+QJsonObject fixtureCapability()
+{
+    auto result = capability();
+    result["features"] = fixture(QStringLiteral("capability_response.json")).value("features");
+    return result;
+}
+// /watch for the fixture's file 42: embedded subtitles at ffmpeg indexes 3-5
+// (combined ordinals 1-3) after one external file (index 6, ordinal 0).
+QVariantMap fixtureSource()
+{
+    QVariantMap result = source();
+    result["fileId"] = "42";
+    result["mediaStreams"] = QVariantList { stream("Video", 0, {}), stream("Audio", 0, "eng"),
+        stream("Subtitle", 3, "eng"), stream("Subtitle", 4, "jpn"), stream("Subtitle", 5, "fre"),
+        stream("Subtitle", 6, "eng", true) };
+    return result;
+}
 void prime(SiloPlaybackProvider &provider)
 {
     QVERIFY(provider.acceptCapabilities(context(), capability()));
@@ -78,6 +132,15 @@ private slots:
     void mapsTrickplayWithVersionAndExpiryGuards();
     void startBodyMatchesPinnedV2Schema();
     void mediaAuthorizationStaysOnItsOriginAndRejectedPlansStop();
+    void sendsSubtitleSelectionAsCombinedOrdinal();
+    void claimsNativeEmbeddedSubtitles();
+    void keepsEmbeddedSubtitlesInTheOriginalStream();
+    void evictsOldestSessionInsteadOfRefusingStarts();
+    void classifiesLostSessionsAndSurfacesTerminals();
+    void negotiatesHlsAfterTheOriginal();
+    void acceptsTranscodeWithSubtitleRendition();
+    void anchorsRemuxTimelineAndRoutesSubtitles();
+    void replansSeeksAndTrackChanges();
 };
 
 void SiloPlaybackProviderTest::gatesStartOnCapabilitiesAndProfile()
@@ -205,7 +268,7 @@ void SiloPlaybackProviderTest::replansAudioWithDurableRequestIdentity()
     SiloPlaybackProvider provider;
     prime(provider);
     const auto request
-        = provider.createAudioSwitchRequest(context(), QStringLiteral("session-42"), 2, 23456);
+        = provider.createReplanRequest(context(), QStringLiteral("session-42"), audioReplan(2, 23456));
     QCOMPARE(request.endpoint, QStringLiteral("/api/v2/playback/session-42/replan"));
     QCOMPARE(request.method, QStringLiteral("POST"));
     QCOMPARE(request.body.value("operation").toString(), QStringLiteral("track_change"));
@@ -219,8 +282,8 @@ void SiloPlaybackProviderTest::replansAudioWithDurableRequestIdentity()
                  .value("index")
                  .toInt(),
         2);
-    QVERIFY(provider.parseAudioSwitchResponse(context(), decision()).valid);
-    QVERIFY(!provider.createAudioSwitchRequest(context(), QStringLiteral("unknown-session"), 2, 0)
+    QVERIFY(provider.parseReplanResponse(context(), decision()).valid);
+    QVERIFY(!provider.createReplanRequest(context(), QStringLiteral("unknown-session"), audioReplan(2, 0))
             .isValid());
 }
 
@@ -255,7 +318,7 @@ void SiloPlaybackProviderTest::isolatesAccountsAndConnections()
     prime(provider);
     auto ctx = context();
     ctx.accountId = QStringLiteral("another-account");
-    QVERIFY(!provider.createAudioSwitchRequest(ctx, QStringLiteral("session-42"), 0, 0).isValid());
+    QVERIFY(!provider.createReplanRequest(ctx, QStringLiteral("session-42"), audioReplan(0, 0)).isValid());
     PlaybackReport report;
     report.media = media();
     report.media.connectionId = QStringLiteral("another-connection");
@@ -343,8 +406,23 @@ void SiloPlaybackProviderTest::startBodyMatchesPinnedV2Schema()
         schemas.value("ClientCodecCapabilitiesV3").toObject());
     const auto playback = body.value("client_playback_context").toObject();
     verify(playback, schemas.value("ClientPlaybackContextV3").toObject());
-    verify(playback.value("deliveries").toObject().value("original_http").toObject(),
-        schemas.value("DeliveryCapabilityV3").toObject());
+    const auto direct = playback.value("deliveries").toObject().value("original_http").toObject();
+    verify(direct, schemas.value("DeliveryCapabilityV3").toObject());
+    const auto subtitles = direct.value("subtitles").toObject();
+    verify(subtitles, schemas.value("DeliverySubtitleCapabilitiesV3").toObject());
+    for (const auto &native : subtitles.value("native_embedded").toArray())
+        verify(native.toObject(), schemas.value("NativeEmbeddedSubtitleCapabilityV3").toObject());
+    const auto hls = playback.value("deliveries").toObject().value("hls").toObject();
+    verify(hls, schemas.value("DeliveryCapabilityV3").toObject());
+    verify(hls.value("subtitles").toObject(),
+        schemas.value("DeliverySubtitleCapabilitiesV3").toObject());
+    verify(hls.value("hdr_details").toObject(), schemas.value("HDRCapabilitiesV3").toObject());
+    // Replans carry the same capability bodies plus their own envelope.
+    QVERIFY(provider.parsePlaybackStartResponse(context(), media(), decision(), source()).valid);
+    PlaybackReplan replan;
+    replan.operation = PlaybackReplan::Operation::SeekReanchor;
+    verify(provider.createReplanRequest(context(), QStringLiteral("session-42"), replan).body,
+        schemas.value("PlaybackReplanBody").toObject());
     QCOMPARE(schemas.value("PlaybackStartBody")
                  .toObject()
                  .value("properties")
@@ -388,6 +466,363 @@ void SiloPlaybackProviderTest::mediaAuthorizationStaysOnItsOriginAndRejectedPlan
     QVERIFY(cleanup.replaySafe);
     QVERIFY(!cleanup.body.contains("position"));
     QVERIFY(!cleanup.body.contains("sequence"));
+}
+
+void SiloPlaybackProviderTest::sendsSubtitleSelectionAsCombinedOrdinal()
+{
+    SiloPlaybackProvider provider;
+    QVERIFY(provider.acceptCapabilities(context(), capability()));
+    const auto ordinalFor = [&](int streamIndex)
+    {
+        return provider
+            .createPlaybackStartRequest(context(), media(), sourceWithSubtitles(), 0, streamIndex, 0)
+            .body.value("subtitle_track_index");
+    };
+    // Silo counts external files first: 5 -> 0, 6 -> 1, then embedded 2 -> 2.
+    QCOMPARE(ordinalFor(5).toInt(), 0);
+    QCOMPARE(ordinalFor(6).toInt(), 1);
+    QCOMPARE(ordinalFor(2).toInt(), 2);
+    QCOMPARE(ordinalFor(4).toInt(), 4);
+    QVERIFY(ordinalFor(9).isUndefined());
+    QVERIFY(ordinalFor(-1).isUndefined());
+}
+
+void SiloPlaybackProviderTest::claimsNativeEmbeddedSubtitles()
+{
+    SiloPlaybackProvider provider;
+    QVERIFY(provider.acceptCapabilities(context(), capability()));
+    const auto body = provider.createPlaybackStartRequest(context(), media(), source(), 0, -1, 0).body;
+    QVERIFY(body.value("client_features").toArray().contains(QStringLiteral("embedded_subtitles_v1")));
+    const auto native = body.value("client_playback_context")
+                            .toObject()
+                            .value("deliveries")
+                            .toObject()
+                            .value("original_http")
+                            .toObject()
+                            .value("subtitles")
+                            .toObject()
+                            .value("native_embedded")
+                            .toArray();
+    QVERIFY(!native.isEmpty());
+    QVERIFY(native.size() <= 16);
+    QStringList containers;
+    for (const auto &entry : native)
+    {
+        const auto capability = entry.toObject();
+        QCOMPARE(capability.value("track_identity").toString(),
+            QStringLiteral("ffmpeg_stream_index"));
+        QVERIFY(capability.value("codecs").toArray().contains(QStringLiteral("hdmv_pgs_subtitle")));
+        QVERIFY(capability.value("codecs").toArray().contains(QStringLiteral("ass")));
+        containers.append(capability.value("container").toString());
+    }
+    QVERIFY(containers.contains(QStringLiteral("mkv")));
+    QVERIFY(containers.contains(QStringLiteral("mp4")));
+    const auto direct = body.value("client_capabilities").toObject().value("containers").toArray();
+    QVERIFY(direct.contains(QStringLiteral("m2ts")));
+}
+
+void SiloPlaybackProviderTest::keepsEmbeddedSubtitlesInTheOriginalStream()
+{
+    SiloPlaybackProvider provider;
+    QVERIFY(provider.acceptCapabilities(context(), capability()));
+    auto wire = decision();
+    auto plan = wire.value("playback_plan").toObject();
+    plan["selected_tracks"] = QJsonObject { { "subtitle",
+        QJsonObject { { "id", "file:opaque/file-42:subtitle:1" }, { "index", 1 } } } };
+    plan["subtitle"] = QJsonObject { { "mode", "render" },
+        { "track_id", "file:opaque/file-42:subtitle:1" },
+        { "inventory",
+            QJsonArray { inventoryEntry(0, "external", "eng"), inventoryEntry(1, "external", "ger"),
+                inventoryEntry(2, "embedded", "eng"), inventoryEntry(3, "embedded", "spa"),
+                inventoryEntry(4, "embedded", "fre"), inventoryEntry(5, "downloaded", "ita") } } };
+    wire["playback_plan"] = plan;
+    const auto parsed
+        = provider.parsePlaybackStartResponse(context(), media(), wire, sourceWithSubtitles());
+    QVERIFY(parsed.valid);
+    const auto tracks = parsed.descriptor.subtitleTracks;
+    QCOMPARE(tracks.size(), 3);
+    for (const auto &track : tracks)
+        QVERIFY(track.isExternal);
+    QCOMPARE(tracks.at(0).sourceIndex, 5);
+    QCOMPARE(tracks.at(1).sourceIndex, 6);
+    QCOMPARE(tracks.at(2).sourceIndex, -1);
+    QCOMPARE(tracks.at(2).language, QStringLiteral("ita"));
+    QCOMPARE(parsed.descriptor.selectedSubtitleTrackId, QStringLiteral("1"));
+}
+
+void SiloPlaybackProviderTest::evictsOldestSessionInsteadOfRefusingStarts()
+{
+    SiloPlaybackProvider provider;
+    QVERIFY(provider.acceptCapabilities(context(), capability()));
+    for (int i = 0; i < 70; ++i)
+    {
+        auto wire = decision();
+        const QString id = QStringLiteral("session-%1").arg(i);
+        auto plan = wire.value("playback_plan").toObject();
+        plan["session_id"] = id;
+        wire["session_id"] = id;
+        wire["playback_plan"] = plan;
+        QVERIFY(provider.parsePlaybackStartResponse(context(), media(), wire, source()).valid);
+    }
+    QVERIFY(provider.createPlaybackStartRequest(context(), media(), source(), 0, -1, 0).isValid());
+    PlaybackReport report;
+    report.media = media();
+    report.positionMs = 1000;
+    report.playbackSessionId = QStringLiteral("session-0");
+    QVERIFY(!provider.createReportRequest(report).isValid());
+    report.playbackSessionId = QStringLiteral("session-69");
+    QVERIFY(provider.createReportRequest(report).isValid());
+}
+
+void SiloPlaybackProviderTest::classifiesLostSessionsAndSurfacesTerminals()
+{
+    SiloPlaybackProvider provider;
+    QVERIFY(provider.queuedSessionsExpire());
+    PlaybackReport report;
+    report.event = PlaybackReportEvent::Progress;
+    QCOMPARE(provider.classifyReportFailure(report, 404), PlaybackSessionLoss::Expired);
+    QCOMPARE(provider.classifyReportFailure(report, 410), PlaybackSessionLoss::Ended);
+    QCOMPARE(provider.classifyReportFailure(report, 500), PlaybackSessionLoss::None);
+    report.event = PlaybackReportEvent::Pause;
+    QCOMPARE(provider.classifyReportFailure(report, 410), PlaybackSessionLoss::Ended);
+    report.event = PlaybackReportEvent::Stop;
+    QCOMPARE(provider.classifyReportFailure(report, 404), PlaybackSessionLoss::None);
+
+    QVERIFY(provider.acceptCapabilities(context(), capability()));
+    const QJsonObject terminal { { "protocol_version", 3 }, { "outcome", "terminal" },
+        { "terminal",
+            QJsonObject { { "reason", "subtitle_codec_unsupported" },
+                { "message", "Subtitle format arib_caption has no route." },
+                { "retryable", false } } } };
+    const auto refused = provider.parsePlaybackStartResponse(context(), media(), terminal, source());
+    QVERIFY(!refused.valid);
+    QCOMPARE(refused.error, QStringLiteral("Subtitle format arib_caption has no route."));
+}
+
+void SiloPlaybackProviderTest::negotiatesHlsAfterTheOriginal()
+{
+    SiloPlaybackProvider provider;
+    QVERIFY(provider.acceptCapabilities(context(), capability()));
+    auto body = provider.createPlaybackStartRequest(context(), media(), source(), 0, -1, 0).body;
+    const auto deliveries
+        = body.value("client_playback_context").toObject().value("deliveries").toObject();
+    QCOMPARE(deliveries.keys(), QStringList({ "hls", "original_http" }));
+    const auto hls = deliveries.value("hls").toObject();
+    QVERIFY(hls.value("enabled").toBool());
+    QVERIFY(hls.value("supported_on_device").toBool());
+    QVERIFY(hls.value("hdr_details").toObject().value("hdr10").toBool());
+    QVERIFY(!hls.value("subtitles").toObject().value("font_attachments").toBool(true));
+    QVERIFY(!deliveries.contains("progressive"));
+    QVERIFY(!body.value("client_features").toArray().contains(QStringLiteral("hls_subtitle_renditions_v1")));
+
+    // Renditions are requested only from a server that offers them.
+    auto caps = capability();
+    caps["features"] = QJsonArray { "playback_plan_v3", "hls_subtitle_renditions_v1",
+        "hls_remux_subtitle_renditions_v1" };
+    QVERIFY(provider.acceptCapabilities(context(), caps));
+    body = provider.createPlaybackStartRequest(context(), media(), source(), 0, -1, 0).body;
+    const auto features = body.value("client_features").toArray();
+    QVERIFY(features.contains(QStringLiteral("hls_subtitle_renditions_v1")));
+    QVERIFY(features.contains(QStringLiteral("hls_remux_subtitle_renditions_v1")));
+}
+
+void SiloPlaybackProviderTest::acceptsTranscodeWithSubtitleRendition()
+{
+    SiloPlaybackProvider provider;
+    QVERIFY(provider.acceptCapabilities(context(), fixtureCapability()));
+    QVariantMap watch = source();
+    watch["mediaStreams"] = QVariantList { stream("Video", 0, {}), stream("Audio", 0, "eng"),
+        stream("Subtitle", 3, "eng") };
+    const auto parsed = provider.parsePlaybackStartResponse(
+        context(), media(), fixture("hls-subtitle-rendition-decision_response.json"), watch);
+    QVERIFY2(parsed.valid, qPrintable(parsed.error));
+    const auto &descriptor = parsed.descriptor;
+    QCOMPARE(descriptor.stream.method, Bloom::PlaybackMethod::Transcode);
+    QCOMPARE(descriptor.stream.url.toEncoded(),
+        QByteArrayLiteral("https://silo.example.test/playback/transcode/"
+                          "11111111-1111-4111-8111-111111111111/master.m3u8?token=account-token"));
+    // Long playlists carry their query through EXT-X-DEFINE, which FFmpeg
+    // does not expand; mpv sends the bearer with every playlist and segment.
+    QCOMPARE(descriptor.stream.headers.value("Authorization").toString(),
+        QStringLiteral("Bearer account-token"));
+    QCOMPARE(descriptor.mediaVersionId, QStringLiteral("42"));
+    QCOMPARE(descriptor.startPositionMs, 12500);
+    QCOMPARE(descriptor.stream.timelineOffsetMs, 0);
+    QVERIFY(!descriptor.stream.seekRequiresReanchor);
+    QVERIFY(!descriptor.stream.carriesSourceTracks);
+    QCOMPARE(descriptor.stream.deliveredAudioTracks, QList<int>({ 0 }));
+    QVERIFY(descriptor.stream.pinsAudioTrack);
+    QCOMPARE(descriptor.stream.pinnedAudioTrackId, QStringLiteral("0"));
+    // The embedded track rides in the HLS stream as its only subtitle.
+    QCOMPARE(descriptor.stream.deliveredSubtitleTracks, QList<int>({ 3 }));
+    QCOMPARE(descriptor.subtitleTracks.size(), 1);
+    QVERIFY(!descriptor.subtitleTracks.first().isExternal);
+    QVERIFY(!descriptor.subtitleTracks.first().requiresReplan);
+    QCOMPARE(descriptor.subtitleTracks.first().sourceIndex, 3);
+    QCOMPARE(descriptor.selectedSubtitleTrackId, QStringLiteral("0"));
+
+    const auto plain = provider.parsePlaybackStartResponse(
+        context(), media(), fixture("learned-limit-decision_response.json"), watch);
+    QVERIFY2(plain.valid, qPrintable(plain.error));
+    QVERIFY(plain.descriptor.stream.deliveredSubtitleTracks.isEmpty());
+    QVERIFY(plain.descriptor.selectedSubtitleTrackId.isEmpty());
+}
+
+void SiloPlaybackProviderTest::anchorsRemuxTimelineAndRoutesSubtitles()
+{
+    SiloPlaybackProvider provider;
+    auto wire = fixture("decision_response.json");
+    auto plan = wire.value("playback_plan").toObject();
+    plan["delivery"] = "server_remux_hls";
+    auto stream = plan.value("stream").toObject();
+    stream["url"] = "/playback/transcode/11111111-1111-4111-8111-111111111111/master.m3u8";
+    stream["protocol"] = "hls";
+    plan["stream"] = stream;
+    // A copy remux resumed at 312.5 s starts at the preceding keyframe, 300 s.
+    plan["timeline"] = QJsonObject { { "source_start_seconds", 312.5 },
+        { "stream_origin_seconds", 300 }, { "player_start_seconds", 12.5 },
+        { "timeline_offset_seconds", 300 }, { "seek_window_start_seconds", 300 },
+        { "can_seek_anywhere", false }, { "seek_restoration", "source_position" } };
+    wire["playback_plan"] = plan;
+
+    auto caps = capability();
+    caps["features"] = QJsonArray { "playback_plan_v3" };
+    QVERIFY(provider.acceptCapabilities(context(), caps));
+    const auto unanchored
+        = provider.parsePlaybackStartResponse(context(), media(), wire, fixtureSource());
+    QVERIFY(!unanchored.valid);
+    QVERIFY(unanchored.error.contains(QStringLiteral("server_remux_hls")));
+
+    QVERIFY(provider.acceptCapabilities(context(), fixtureCapability()));
+    const auto parsed
+        = provider.parsePlaybackStartResponse(context(), media(), wire, fixtureSource());
+    QVERIFY2(parsed.valid, qPrintable(parsed.error));
+    const auto &descriptor = parsed.descriptor;
+    QCOMPARE(descriptor.stream.method, Bloom::PlaybackMethod::DirectStream);
+    QCOMPARE(descriptor.stream.timelineOffsetMs, 300000);
+    QVERIFY(descriptor.stream.seekRequiresReanchor);
+    QCOMPARE(descriptor.startPositionMs, 312500);
+    QCOMPARE(descriptor.durationMs, 7200000);
+    // External and downloaded sidecars play locally; embedded tracks, which
+    // the stream lacks, are asked for; nothing is selected under "off".
+    QStringList tracks;
+    for (const auto &track : descriptor.subtitleTracks)
+        tracks.append(QStringLiteral("%1:%2:%3:%4")
+                          .arg(track.trackId)
+                          .arg(track.sourceIndex)
+                          .arg(int(track.isExternal))
+                          .arg(int(track.requiresReplan)));
+    QCOMPARE(tracks,
+        QStringList({ "0:6:1:0", "1:3:0:1", "2:4:0:1", "3:5:0:1", "4:-1:1:0" }));
+    QVERIFY(descriptor.selectedSubtitleTrackId.isEmpty());
+
+    // Burn-in pins the track; any other subtitle needs a new stream.
+    auto subtitle = plan.value("subtitle").toObject();
+    subtitle["mode"] = "burn_in";
+    subtitle["track_id"] = "file:42:subtitle:3";
+    plan["subtitle"] = subtitle;
+    plan["selected_tracks"] = QJsonObject { { "audio", QJsonObject { { "id", "file:42:audio:0" },
+                                                        { "index", 0 } } },
+        { "subtitle", QJsonObject { { "id", "file:42:subtitle:3" }, { "index", 3 } } } };
+    wire["playback_plan"] = plan;
+    const auto burned
+        = provider.parsePlaybackStartResponse(context(), media(), wire, fixtureSource());
+    QVERIFY2(burned.valid, qPrintable(burned.error));
+    QVERIFY(burned.descriptor.stream.subtitleBurnedIn);
+    QVERIFY(burned.descriptor.stream.pinsSubtitleTrack);
+    QCOMPARE(burned.descriptor.stream.pinnedSubtitleTrackId, QStringLiteral("5"));
+    QCOMPARE(burned.descriptor.selectedSubtitleTrackId, QStringLiteral("3"));
+
+    // An extracted embedded track arrives as the plan's sidecar artifact.
+    subtitle["mode"] = "render";
+    subtitle["track_id"] = "file:42:subtitle:1";
+    subtitle["artifact"] = QJsonObject { { "url", "/stream/session/subtitles/1.ass?file_id=42" },
+        { "mime_type", "text/x-ssa" }, { "format", "ass" }, { "timing_origin_seconds", 0 } };
+    plan["subtitle"] = subtitle;
+    wire["playback_plan"] = plan;
+    const auto extracted
+        = provider.parsePlaybackStartResponse(context(), media(), wire, fixtureSource());
+    QVERIFY2(extracted.valid, qPrintable(extracted.error));
+    const auto selected = extracted.descriptor.subtitleTracks.at(1);
+    QVERIFY(selected.isExternal);
+    QVERIFY(!selected.requiresReplan);
+    QCOMPARE(selected.sourceIndex, 3);
+    QVERIFY(selected.externalUrl.toString().contains(QStringLiteral("/subtitles/1.ass")));
+    QVERIFY(!extracted.descriptor.stream.subtitleBurnedIn);
+
+    // Bloom never asks for progressive remux, so it never plays one.
+    plan["delivery"] = "server_remux_progressive";
+    stream["protocol"] = "http_progressive";
+    plan["stream"] = stream;
+    wire["playback_plan"] = plan;
+    const auto progressive
+        = provider.parsePlaybackStartResponse(context(), media(), wire, fixtureSource());
+    QVERIFY(!progressive.valid);
+    QVERIFY(progressive.error.contains(QStringLiteral("server_remux_progressive")));
+}
+
+void SiloPlaybackProviderTest::replansSeeksAndTrackChanges()
+{
+    SiloPlaybackProvider provider;
+    QVERIFY(provider.acceptCapabilities(context(), fixtureCapability()));
+    auto wire = fixture("decision_response.json");
+    auto plan = wire.value("playback_plan").toObject();
+    plan["selected_tracks"] = QJsonObject {
+        { "audio", QJsonObject { { "id", "file:42:audio:0" }, { "index", 0 } } },
+        { "subtitle", QJsonObject { { "id", "file:42:subtitle:0" }, { "index", 0 } } } };
+    wire["playback_plan"] = plan;
+    QVERIFY(provider.parsePlaybackStartResponse(context(), media(), wire, fixtureSource()).valid);
+    const QString session = QStringLiteral("11111111-1111-4111-8111-111111111111");
+
+    PlaybackReplan seek;
+    seek.operation = PlaybackReplan::Operation::SeekReanchor;
+    seek.positionMs = 1234500;
+    auto request = provider.createReplanRequest(context(), session, seek);
+    QVERIFY(request.isValid());
+    QCOMPARE(request.body.value("operation").toString(), QStringLiteral("seek_reanchor"));
+    QCOMPARE(request.body.value("position_seconds").toDouble(), 1234.5);
+    QCOMPARE(request.body.value("failed_plan_id"), plan.value("plan_id"));
+    // A reanchor keeps the server's tracks.
+    QCOMPARE(request.body.value("selected_tracks").toObject(),
+        plan.value("selected_tracks").toObject());
+
+    PlaybackReplan change;
+    change.subtitleTrackIndex = 4; // embedded PGS, combined ordinal 2
+    change.positionMs = 60000;
+    request = provider.createReplanRequest(context(), session, change);
+    QCOMPARE(request.body.value("operation").toString(), QStringLiteral("track_change"));
+    const auto selected = request.body.value("selected_tracks").toObject();
+    QCOMPARE(selected.value("audio").toObject().value("index").toInt(), 0);
+    QCOMPARE(selected.value("subtitle").toObject(),
+        QJsonObject({ { "id", "file:42:subtitle:2" }, { "index", 2 } }));
+    change.subtitleTrackIndex = -1000;
+    change.subtitleTrackId = QStringLiteral("4"); // downloaded, absent from the source
+    request = provider.createReplanRequest(context(), session, change);
+    QCOMPARE(request.body.value("selected_tracks").toObject().value("subtitle").toObject(),
+        QJsonObject({ { "id", "file:42:subtitle:4" }, { "index", 4 } }));
+    change.subtitleTrackId.clear();
+    change.subtitleTrackIndex = -1;
+    request = provider.createReplanRequest(context(), session, change);
+    QVERIFY(!request.body.value("selected_tracks").toObject().contains("subtitle"));
+
+    // The replacement plan becomes the one the next replan replaces.
+    auto replacement = fixture("hls-subtitle-rendition-decision_response.json");
+    auto next = replacement.value("playback_plan").toObject();
+    next["plan_id"] = "plan:replacement";
+    replacement["playback_plan"] = next;
+    const auto parsed = provider.parseReplanResponse(context(), replacement);
+    QVERIFY2(parsed.valid, qPrintable(parsed.error));
+    QCOMPARE(parsed.descriptor.stream.method, Bloom::PlaybackMethod::Transcode);
+    request = provider.createReplanRequest(context(), session, seek);
+    QCOMPARE(request.body.value("failed_plan_id").toString(), QStringLiteral("plan:replacement"));
+
+    const QJsonObject terminal { { "protocol_version", 3 }, { "outcome", "adaptation_unavailable" },
+        { "session_id", session },
+        { "terminal", QJsonObject { { "reason", "adaptation_exhausted" },
+                          { "message", "No route remains." }, { "retryable", false } } } };
+    const auto refused = provider.parseReplanResponse(context(), terminal);
+    QVERIFY(!refused.valid);
+    QCOMPARE(refused.error, QStringLiteral("No route remains."));
 }
 
 QTEST_GUILESS_MAIN(SiloPlaybackProviderTest)

@@ -127,6 +127,40 @@ public:
             // the profile shows Next Up separately. Read the layout and pick
             // both section types in parseResponse.
             return get(QStringLiteral("/api/v2/home/sections"));
+        case ProviderCatalogOperation::HomeSections:
+            if (hasCatalogModifiers(query)
+                || !query.parentId.trimmed().isEmpty()
+                || !query.itemId.trimmed().isEmpty()) {
+                return unsupported(QStringLiteral(
+                    "Silo's home layout does not accept catalog modifiers"));
+            }
+            // The aggregate read answers every row with its cards and applies
+            // the server's cross-row de-duplication and hide-watched rules.
+            return get(QStringLiteral("/api/v2/home/sections"));
+        case ProviderCatalogOperation::Watchlist: {
+            if (query.limit < 0 || query.startIndex != 0) {
+                return unsupported(QStringLiteral(
+                    "Silo's watchlist pages by cursor and a positive limit only"));
+            }
+            QUrlQuery parameters;
+            appendLimit(parameters, query.limit);
+            if (!query.cursor.isEmpty()) {
+                parameters.addQueryItem(QStringLiteral("cursor"), query.cursor);
+            }
+            return get(endpointWithQuery(QStringLiteral("/api/v2/watchlist"), parameters));
+        }
+        case ProviderCatalogOperation::SetWatchlist: {
+            ProviderCatalogRequest request = mutationWithContentId(
+                query.stateValue ? ProviderHttpMethod::Put : ProviderHttpMethod::Delete,
+                QStringLiteral("/api/v2/watchlist/%1"), query.itemId);
+            // addToWatchlist and deleteWatchlistEntry are declared
+            // natural_idempotent: membership is a set, so a replay after a
+            // lost response leaves the same state.
+            if (request.supported) {
+                request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
+            }
+            return request;
+        }
         case ProviderCatalogOperation::HomeBackdrops:
         case ProviderCatalogOperation::ScreensaverItems:
         case ProviderCatalogOperation::RandomItems:
@@ -159,6 +193,36 @@ public:
                     || response.rawItem.value(QStringLiteral("items")).isArray());
             if (!response.valid) {
                 response.error = QStringLiteral("Invalid Silo poster badge settings response");
+            }
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::SetWatchlist) {
+            // 204 No Content on success.
+            ProviderCatalogResponse response;
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::HomeSections) {
+            ProviderCatalogResponse response;
+            const QJsonDocument document = QJsonDocument::fromJson(body);
+            const QJsonValue sections = document.object().value(QStringLiteral("sections"));
+            if (!sections.isArray()) {
+                response.error = QStringLiteral("Invalid Silo home sections response");
+                return response;
+            }
+            bool layoutHasWatchlist = false;
+            response.rawItems = curatedHomeRows(sections.toArray(), &layoutHasWatchlist);
+            response.capabilityMetadata.insert(
+                QStringLiteral("layoutHasWatchlist"), layoutHasWatchlist);
+            response.total = static_cast<int>(response.rawItems.size());
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::Watchlist) {
+            ProviderCatalogResponse response
+                = SiloModelMapper::catalogResponse(operation, body, responseHeaders);
+            if (response.valid) {
+                response.rawItems = videoCards(response.rawItems);
             }
             return response;
         }
@@ -285,6 +349,75 @@ private:
             }
         }
         return items;
+    }
+
+    static bool isVideoCard(const QJsonObject &item)
+    {
+        const QString type = item.value(QStringLiteral("type")).toString().toLower();
+        return type == QStringLiteral("movie") || type == QStringLiteral("series")
+            || type == QStringLiteral("episode");
+    }
+
+    // Movie, series and episode cards only, once each, in their order. Bloom
+    // shows no music, audiobook, ebook, manga, podcast or season cards.
+    static QJsonArray videoCards(const QJsonArray &items)
+    {
+        QJsonArray cards;
+        QSet<QString> seen;
+        for (const QJsonValue &value : items) {
+            const QJsonObject item = value.toObject();
+            const QString contentId = item.value(QStringLiteral("content_id")).toString();
+            if (!isVideoCard(item) || contentId.isEmpty() || seen.contains(contentId)) {
+                continue;
+            }
+            seen.insert(contentId);
+            cards.append(item);
+        }
+        return cards;
+    }
+
+    // Section types whose cards Bloom's own Home already shows: Continue
+    // Watching and Up Next (Next Up reads both types), and the per-library
+    // Recently Added rows (new_to_library is the same newest-first list).
+    static bool homeShowsSectionType(const QString &sectionType)
+    {
+        return sectionType == QStringLiteral("continue_watching")
+            || sectionType == QStringLiteral("next_up")
+            || sectionType == QStringLiteral("recently_added")
+            || sectionType == QStringLiteral("new_to_library");
+    }
+
+    // The profile's rows that Bloom adds below its own, in layout order:
+    // every section type Bloom does not already show, reduced to video cards,
+    // without rows that end up empty. Featured rows (Silo's page hero) are
+    // ordinary rows here; Bloom keeps its own hero.
+    static QJsonArray curatedHomeRows(const QJsonArray &sections, bool *layoutHasWatchlist)
+    {
+        QJsonArray rows;
+        QSet<QString> seenIds;
+        for (const QJsonValue &sectionValue : sections) {
+            const QJsonObject section = sectionValue.toObject();
+            const QString id = section.value(QStringLiteral("id")).toString();
+            const QString sectionType
+                = section.value(QStringLiteral("section_type")).toString();
+            if (sectionType == QStringLiteral("watchlist") && layoutHasWatchlist) {
+                *layoutHasWatchlist = true;
+            }
+            if (id.isEmpty() || seenIds.contains(id) || homeShowsSectionType(sectionType)) {
+                continue;
+            }
+            const QJsonArray cards = videoCards(section.value(QStringLiteral("items")).toArray());
+            if (cards.isEmpty()) {
+                continue;
+            }
+            seenIds.insert(id);
+            rows.append(QJsonObject{
+                {QStringLiteral("id"), id},
+                {QStringLiteral("section_type"), sectionType},
+                {QStringLiteral("title"), section.value(QStringLiteral("title")).toString()},
+                {QStringLiteral("items"), cards}});
+        }
+        return rows;
     }
 
     static ProviderCatalogRequest get(const QString &endpoint)

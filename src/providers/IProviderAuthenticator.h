@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QString>
 #include <optional>
 
@@ -52,6 +53,61 @@ struct ProviderProfileAuthenticationResult {
     {
         return responseParsed && !valid;
     }
+};
+
+/** Which sign-in methods a server offers before anyone signs in. */
+struct ProviderSignInMethods {
+    // Absent when the server does not say; callers then keep the password form.
+    std::optional<bool> passwordSignIn;
+};
+
+/** Whether a server serves device authorization ("sign in with a code"). */
+struct ProviderDeviceAuthorizationCapability {
+    bool available = false;
+    // The device may withdraw its own pending request.
+    bool cancel = false;
+};
+
+/** A started device authorization: the code a person approves elsewhere. */
+struct ProviderDeviceAuthorization {
+    // Secret the device polls with. Never shown, logged, or persisted.
+    QString deviceCode;
+    QString userCode;
+    QString verificationUri;
+    // verificationUri with the user code prefilled, when the provider has one.
+    QString verificationUriComplete;
+    qint64 expiresInSeconds = -1;
+    qint64 intervalSeconds = -1;
+    // Server clock; only used with expiresInSeconds to correct for skew.
+    QDateTime expiresAt;
+
+    [[nodiscard]] bool isValid() const
+    {
+        return !deviceCode.isEmpty() && !userCode.isEmpty() && !verificationUri.isEmpty()
+            && expiresInSeconds > 0 && intervalSeconds > 0;
+    }
+};
+
+struct ProviderDeviceAuthorizationPoll {
+    enum class Status {
+        Invalid,
+        Pending,
+        Approved,
+        Denied,
+        Expired,
+        Canceled,
+        // The tokens were already collected (for example a lost response).
+        Consumed
+    };
+
+    Status status = Status::Invalid;
+    // An approver has looked the request up and is deciding.
+    bool opened = false;
+    qint64 pollAfterSeconds = -1;
+    // Server clock; a pending request's current expiry when the provider moves it.
+    QDateTime expiresAt;
+    // Present only with Approved; validated like a password login response.
+    ProviderAuthenticationResult authentication;
 };
 
 /**
@@ -110,5 +166,60 @@ public:
     {
         Q_UNUSED(response)
         return {};
+    }
+
+    // Public sign-in discovery, read before anyone signs in (GET, no bearer).
+    virtual std::optional<QString> signInMethodsEndpoint() const { return std::nullopt; }
+    virtual std::optional<ProviderSignInMethods> parseSignInMethods(
+        const QByteArray &response) const
+    {
+        Q_UNUSED(response)
+        return std::nullopt;
+    }
+
+    // Optional device authorization ("sign in with a code"). Requests are
+    // unauthenticated POSTs; a provider whose poll is a different shape (for
+    // example Jellyfin Quick Connect's separate token exchange) extends this
+    // capability rather than reusing the login flow.
+    virtual std::optional<QString> deviceAuthorizationCapabilityEndpoint() const
+    {
+        return std::nullopt;
+    }
+    virtual std::optional<ProviderDeviceAuthorizationCapability>
+    parseDeviceAuthorizationCapability(const QByteArray &response) const
+    {
+        Q_UNUSED(response)
+        return std::nullopt;
+    }
+    virtual std::optional<ProviderAuthenticationRequest> createDeviceAuthorizationRequest(
+        const QString &deviceName, const QString &devicePlatform) const
+    {
+        Q_UNUSED(deviceName)
+        Q_UNUSED(devicePlatform)
+        return std::nullopt;
+    }
+    virtual std::optional<ProviderDeviceAuthorization> parseDeviceAuthorizationResponse(
+        const QByteArray &response) const
+    {
+        Q_UNUSED(response)
+        return std::nullopt;
+    }
+    virtual std::optional<ProviderAuthenticationRequest> createDeviceAuthorizationPollRequest(
+        const QString &deviceCode) const
+    {
+        Q_UNUSED(deviceCode)
+        return std::nullopt;
+    }
+    virtual ProviderDeviceAuthorizationPoll parseDeviceAuthorizationPollResponse(
+        const QByteArray &response) const
+    {
+        Q_UNUSED(response)
+        return {};
+    }
+    virtual std::optional<ProviderAuthenticationRequest> createDeviceAuthorizationCancelRequest(
+        const QString &deviceCode) const
+    {
+        Q_UNUSED(deviceCode)
+        return std::nullopt;
     }
 };

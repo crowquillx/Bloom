@@ -20,7 +20,7 @@ Bloom-owned canonical models separate UI/player code from provider wire formats.
 
 - `MediaRef`
 - `ArtworkRef`
-- `UserMediaState`
+- `UserMediaState` (`watched`, `favorite`, `inWatchlist` where the provider has a watchlist, `positionMs`, `unplayedItemCount`, `lastPlayedAt`)
 - `Person`
 - `Chapter`
 - `StreamRequest`
@@ -71,6 +71,8 @@ Providers that know a file's technical summary put it in the item's `mediaSummar
 ## Playback boundary
 
 A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `StreamRequest`. `PlaybackService` parses the response and delegates `PlaybackInfo` mapping through `AuthenticationService::mapPlaybackInfo`; `AuthenticationService` forwards it to the selected `IProviderAdapter`. `PlaybackService` then obtains the adapter's `IPlaybackProvider` to finalize the stream. `JellyfinPlaybackProvider` resolves relative stream and trickplay-tile URLs, adds current request authentication and track hints, and identifies the canonical playback method. Additional-part item DTOs are mapped before `PlayerController` receives them, so multipart identity uses canonical `itemId`. Autoplay and compatibility fallbacks also request a provider-finalized descriptor instead of constructing or selecting authenticated Jellyfin URLs. Playback positions and multipart durations remain milliseconds through the controller and service façade. The provider serializes report endpoints and payloads, including Jellyfin's final millisecond-to-tick conversion. Provider endpoints, query authentication, provider time units, and reporting DTOs stay outside the controller.
+
+Positions in a descriptor are source positions. A server-packaged stream may start its clock later: `StreamRequest::timelineOffsetMs` is added to a player position to get the source position, `seekRequiresReanchor` marks a stream that can seek only inside what the server has produced, and `carriesSourceTracks` is false when the stream holds only `deliveredAudioTracks` and `deliveredSubtitleTracks` (source indexes in mpv order). `subtitleBurnedIn` marks a pinned subtitle rendered into the video. A `PlaybackTrack` with `requiresReplan` cannot be selected on the current stream; choosing it asks the provider for a new one (`IPlaybackProvider::createReplanRequest`).
 
 ## Tests
 

@@ -8,6 +8,7 @@
 #include <QStringList>
 #include <QUrl>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -92,29 +93,7 @@ public:
         if (!object) {
             return {};
         }
-
-        const QJsonValue accessToken = object->value(QStringLiteral("access_token"));
-        const QJsonValue refreshToken = object->value(QStringLiteral("refresh_token"));
-        const qint64 expiresIn = positiveInteger(object->value(QStringLiteral("expires_in")));
-        const QJsonValue user = object->value(QStringLiteral("user"));
-        if (!accessToken.isString() || accessToken.toString().isEmpty()
-            || !refreshToken.isString() || refreshToken.toString().isEmpty()
-            || expiresIn <= 0 || !user.isObject()) {
-            return {};
-        }
-
-        const SiloAccountIdentity identity = accountIdentity(user.toObject(), false);
-        if (!identity.isValid()) {
-            return {};
-        }
-
-        ProviderAuthenticationResult result;
-        result.accessToken = accessToken.toString();
-        result.refreshToken = refreshToken.toString();
-        result.accountId = identity.accountId;
-        result.username = identity.username;
-        result.expiresInSeconds = expiresIn;
-        return result;
+        return tokenPair(*object);
     }
 
     std::optional<ProviderAuthenticationRequest> createRefreshRequest(
@@ -225,6 +204,163 @@ public:
         return result;
     }
 
+    std::optional<QString> signInMethodsEndpoint() const override
+    {
+        return QStringLiteral("/api/v2/auth/providers");
+    }
+
+    std::optional<ProviderSignInMethods> parseSignInMethods(
+        const QByteArray &response) const override
+    {
+        const auto object = parseObject(response);
+        if (!object || !object->value(QStringLiteral("items")).isArray()) {
+            return std::nullopt;
+        }
+        ProviderSignInMethods result;
+        const QJsonValue passwordLogin = object->value(QStringLiteral("password_login"));
+        if (passwordLogin.isBool()) {
+            result.passwordSignIn = passwordLogin.toBool();
+        }
+        return result;
+    }
+
+    std::optional<QString> deviceAuthorizationCapabilityEndpoint() const override
+    {
+        return QStringLiteral("/api/v2/auth/device/capability");
+    }
+
+    std::optional<ProviderDeviceAuthorizationCapability> parseDeviceAuthorizationCapability(
+        const QByteArray &response) const override
+    {
+        const auto object = parseObject(response);
+        if (!object) {
+            return std::nullopt;
+        }
+        const QJsonValue state = object->value(QStringLiteral("state"));
+        const QJsonValue versions = object->value(QStringLiteral("protocol_versions"));
+        if (!state.isString() || !versions.isArray()) {
+            return std::nullopt;
+        }
+        const QJsonArray versionList = versions.toArray();
+        const bool speaksVersion2 = std::any_of(
+            versionList.begin(), versionList.end(),
+            [](const QJsonValue &version) { return positiveInteger(version) == 2; });
+        ProviderDeviceAuthorizationCapability result;
+        // "allowed" is optional; only an explicit false withholds the flow.
+        const QJsonValue allowed = object->value(QStringLiteral("allowed"));
+        result.available = state.toString() == QStringLiteral("available")
+            && speaksVersion2
+            && !(allowed.isBool() && !allowed.toBool());
+        result.cancel = object->value(QStringLiteral("cancel")).toBool(false);
+        return result;
+    }
+
+    std::optional<ProviderAuthenticationRequest> createDeviceAuthorizationRequest(
+        const QString &deviceName, const QString &devicePlatform) const override
+    {
+        QJsonObject body;
+        // Shown to the approver; the schema bounds both fields.
+        const QString name = deviceName.trimmed().left(128);
+        const QString platform = devicePlatform.trimmed().left(64);
+        if (!name.isEmpty()) {
+            body[QStringLiteral("device_name")] = name;
+        }
+        if (!platform.isEmpty()) {
+            body[QStringLiteral("device_platform")] = platform;
+        }
+        return ProviderAuthenticationRequest{
+            QStringLiteral("/api/v2/auth/device/start"),
+            QJsonDocument(body).toJson(QJsonDocument::Compact)
+        };
+    }
+
+    std::optional<ProviderDeviceAuthorization> parseDeviceAuthorizationResponse(
+        const QByteArray &response) const override
+    {
+        const auto object = parseObject(response);
+        if (!object) {
+            return std::nullopt;
+        }
+        ProviderDeviceAuthorization result;
+        result.deviceCode = object->value(QStringLiteral("device_code")).toString();
+        result.userCode = object->value(QStringLiteral("user_code")).toString().trimmed();
+        result.verificationUri =
+            webUrl(object->value(QStringLiteral("verification_uri")).toString());
+        result.verificationUriComplete =
+            webUrl(object->value(QStringLiteral("verification_uri_complete")).toString());
+        result.expiresInSeconds = positiveInteger(object->value(QStringLiteral("expires_in")));
+        result.intervalSeconds = positiveInteger(object->value(QStringLiteral("interval")));
+        result.expiresAt = instant(object->value(QStringLiteral("expires_at")));
+        if (!result.isValid()) {
+            return std::nullopt;
+        }
+        return result;
+    }
+
+    std::optional<ProviderAuthenticationRequest> createDeviceAuthorizationPollRequest(
+        const QString &deviceCode) const override
+    {
+        return deviceCodeRequest(QStringLiteral("/api/v2/auth/device/poll"), deviceCode);
+    }
+
+    ProviderDeviceAuthorizationPoll parseDeviceAuthorizationPollResponse(
+        const QByteArray &response) const override
+    {
+        const auto object = parseObject(response);
+        if (!object) {
+            return {};
+        }
+        using Status = ProviderDeviceAuthorizationPoll::Status;
+        const QString status = object->value(QStringLiteral("status")).toString();
+        ProviderDeviceAuthorizationPoll result;
+        if (status == QStringLiteral("pending")) {
+            result.status = Status::Pending;
+        } else if (status == QStringLiteral("approved")) {
+            result.status = Status::Approved;
+        } else if (status == QStringLiteral("denied")) {
+            result.status = Status::Denied;
+        } else if (status == QStringLiteral("expired")) {
+            result.status = Status::Expired;
+        } else if (status == QStringLiteral("canceled")) {
+            result.status = Status::Canceled;
+        } else if (status == QStringLiteral("consumed")) {
+            result.status = Status::Consumed;
+        } else {
+            return {};
+        }
+        result.opened = object->value(QStringLiteral("opened")).toBool(false);
+        result.pollAfterSeconds = positiveInteger(object->value(QStringLiteral("poll_after")));
+        result.expiresAt = instant(object->value(QStringLiteral("expires_at")));
+        if (result.status != Status::Approved) {
+            return result;
+        }
+
+        // Tokens arrive exactly once, on the poll that collects the approval.
+        const QJsonValue tokens = object->value(QStringLiteral("tokens"));
+        if (!tokens.isObject()) {
+            return {};
+        }
+        result.authentication = tokenPair(tokens.toObject());
+        if (!result.authentication.isValid()) {
+            return {};
+        }
+        // A temporary (profile-bound) session names its profile; a full
+        // sign-in leaves both empty and continues to profile selection.
+        if (object->value(QStringLiteral("temporary")).toBool(false)) {
+            result.authentication.profileId =
+                object->value(QStringLiteral("profile_id")).toString();
+            result.authentication.profileToken =
+                object->value(QStringLiteral("profile_token")).toString();
+        }
+        return result;
+    }
+
+    std::optional<ProviderAuthenticationRequest> createDeviceAuthorizationCancelRequest(
+        const QString &deviceCode) const override
+    {
+        return deviceCodeRequest(QStringLiteral("/api/v2/auth/device/cancel"), deviceCode);
+    }
+
     SiloAuthenticationError parseErrorResponse(const QByteArray &response) const
     {
         const auto object = parseObject(response);
@@ -269,6 +405,67 @@ public:
     }
 
 private:
+    static ProviderAuthenticationResult tokenPair(const QJsonObject &object)
+    {
+        const QJsonValue accessToken = object.value(QStringLiteral("access_token"));
+        const QJsonValue refreshToken = object.value(QStringLiteral("refresh_token"));
+        const qint64 expiresIn = positiveInteger(object.value(QStringLiteral("expires_in")));
+        const QJsonValue user = object.value(QStringLiteral("user"));
+        if (!accessToken.isString() || accessToken.toString().isEmpty()
+            || !refreshToken.isString() || refreshToken.toString().isEmpty()
+            || expiresIn <= 0 || !user.isObject()) {
+            return {};
+        }
+
+        const SiloAccountIdentity identity = accountIdentity(user.toObject(), false);
+        if (!identity.isValid()) {
+            return {};
+        }
+
+        ProviderAuthenticationResult result;
+        result.accessToken = accessToken.toString();
+        result.refreshToken = refreshToken.toString();
+        result.accountId = identity.accountId;
+        result.username = identity.username;
+        result.expiresInSeconds = expiresIn;
+        return result;
+    }
+
+    static std::optional<ProviderAuthenticationRequest> deviceCodeRequest(
+        const QString &endpoint, const QString &deviceCode)
+    {
+        if (deviceCode.isEmpty()) {
+            return std::nullopt;
+        }
+        return ProviderAuthenticationRequest{
+            endpoint,
+            QJsonDocument(QJsonObject{
+                {QStringLiteral("device_code"), deviceCode}
+            }).toJson(QJsonDocument::Compact)
+        };
+    }
+
+    // Only absolute web links are shown to a person.
+    static QString webUrl(const QString &value)
+    {
+        const QUrl url(value.trimmed(), QUrl::StrictMode);
+        if (!url.isValid() || url.host().isEmpty()
+            || (url.scheme() != QStringLiteral("https")
+                && url.scheme() != QStringLiteral("http"))) {
+            return {};
+        }
+        return url.toString();
+    }
+
+    static QDateTime instant(const QJsonValue &value)
+    {
+        if (!value.isString()) {
+            return {};
+        }
+        const QDateTime parsed = QDateTime::fromString(value.toString(), Qt::ISODateWithMs);
+        return parsed.isValid() ? parsed.toUTC() : QDateTime();
+    }
+
     static std::optional<QJsonObject> parseObject(const QByteArray &response)
     {
         QJsonParseError error;

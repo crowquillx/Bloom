@@ -17,6 +17,7 @@
 #include "viewmodels/SeriesDetailsViewModel.h"
 #include "viewmodels/MovieDetailsViewModel.h"
 #include "viewmodels/UpNextRecommendationsViewModel.h"
+#include "viewmodels/HomeSectionsViewModel.h"
 #include "network/AuthenticationService.h"
 #include "network/SessionService.h"
 #include "network/SeerrService.h"
@@ -159,6 +160,7 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("SeriesDetailsViewModel", ServiceLocator::get<SeriesDetailsViewModel>());
     context->setContextProperty("MovieDetailsViewModel", ServiceLocator::get<MovieDetailsViewModel>());
     context->setContextProperty("UpNextRecommendationsViewModel", ServiceLocator::get<UpNextRecommendationsViewModel>());
+    context->setContextProperty("HomeSectionsViewModel", ServiceLocator::get<HomeSectionsViewModel>());
     context->setContextProperty("ThemeSongManager", ServiceLocator::get<ThemeSongManager>());
     context->setContextProperty("InputModeManager", ServiceLocator::get<InputModeManager>());
     context->setContextProperty("InputBindingManager", ServiceLocator::get<InputBindingManager>());

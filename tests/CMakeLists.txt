@@ -980,6 +980,37 @@ target_link_libraries(SimilarItemsRetryTest
 
 add_test(NAME SimilarItemsRetryTest COMMAND SimilarItemsRetryTest)
 
+add_executable(HomeRowsAndWatchlistTest
+    HomeRowsAndWatchlistTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/HomeSectionsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/MovieDetailsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(HomeRowsAndWatchlistTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(HomeRowsAndWatchlistTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME HomeRowsAndWatchlistTest COMMAND HomeRowsAndWatchlistTest)
+
 add_executable(UpNextRecommendationsViewModelTest
     UpNextRecommendationsViewModelTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/UpNextRecommendationsViewModel.cpp
@@ -1067,6 +1098,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     EpisodeSelectionScriptTest
     TrackPreferencesManagerTest
     SimilarItemsRetryTest
+    HomeRowsAndWatchlistTest
     UpNextRecommendationsViewModelTest
     UpdateServiceTest
 )
@@ -1174,6 +1206,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/MovieDetailsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/UpNextRecommendationsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/HomeSectionsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
     # Test mode sources
     ${CMAKE_SOURCE_DIR}/src/test/TestModeController.cpp

@@ -202,6 +202,8 @@ private:
         capabilities |= ProviderCapability::MediaSegments;
         capabilities |= ProviderCapability::ThemeSongs;
         capabilities |= ProviderCapability::Trickplay;
+        capabilities |= ProviderCapability::Watchlist;
+        capabilities |= ProviderCapability::HomeSections;
         return capabilities;
     }
 

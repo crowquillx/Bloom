@@ -26,6 +26,78 @@ FocusScope {
                                             && (addingConnection || hasSavedSpaces)
     property bool statusIsError: false
 
+    // Sign-in methods the typed server offers (AuthenticationService checks
+    // them when the address is entered) and the running code sign-in.
+    readonly property var signInOptions: AuthenticationService.signInOptions || ({})
+    readonly property var deviceSignIn: AuthenticationService.deviceSignIn || ({})
+    readonly property bool signInOptionsCurrent: signInOptions.state === "ready"
+                                                 && signInOptions.server === serverField.text.trim()
+    readonly property bool offerDeviceSignIn: authenticationStep === "credentials"
+                                              && signInOptionsCurrent && signInOptions.deviceSignIn === true
+    readonly property bool passwordSignInAvailable: !signInOptionsCurrent
+                                                    || signInOptions.passwordSignIn !== false
+    readonly property string deviceState: deviceSignIn.state || "idle"
+    readonly property bool showDeviceSignIn: authenticationStep === "credentials" && deviceState !== "idle"
+    readonly property bool deviceCodeLive: deviceState === "waiting"
+    readonly property bool deviceCodeEnded: deviceState === "expired" || deviceState === "denied"
+                                            || deviceState === "failed"
+    property string lastDeviceState: "idle"
+    property bool returnFocusToDeviceButton: false
+
+    function startDeviceSignIn() {
+        clearStatus()
+        AuthenticationService.startDeviceSignIn(serverField.text.trim())
+    }
+
+    function leaveDeviceSignIn() {
+        // After approval the session is already being set up; drop it.
+        if (deviceState === "signingIn")
+            AuthenticationService.clearAccountState()
+        else
+            AuthenticationService.cancelDeviceSignIn()
+        returnFocusToDeviceButton = true
+        restoreStepFocus()
+    }
+
+    function formatCountdown(seconds) {
+        const total = Math.max(0, seconds || 0)
+        const minutes = Math.floor(total / 60)
+        const rest = total % 60
+        return minutes + ":" + (rest < 10 ? "0" : "") + rest
+    }
+
+    function deviceHeading() {
+        switch (deviceState) {
+        case "starting": return qsTr("Getting a code…")
+        case "waiting": return deviceSignIn.opened ? qsTr("Finish on your phone")
+                                                   : qsTr("Enter this code on your phone")
+        case "signingIn": return qsTr("Signing in…")
+        case "expired": return qsTr("This code expired")
+        case "denied": return qsTr("Sign-in was declined")
+        default: return qsTr("Couldn’t sign in with a code")
+        }
+    }
+
+    function deviceDescription() {
+        switch (deviceState) {
+        case "waiting":
+            return deviceSignIn.opened
+                    ? qsTr("Someone opened this code. Approve this device there to continue.")
+                    : qsTr("On a phone or computer where you’re signed in to Silo, open the link below and approve this device.")
+        case "expired": return qsTr("Each code works for a limited time. Get a new code to try again.")
+        case "denied": return qsTr("The request was declined on the other device. Get a new code to try again.")
+        case "failed": return qsTr("Get a new code to try again.")
+        default: return qsTr("No password needed on this screen.")
+        }
+    }
+
+    // Digits read one by one, groups separated by a pause.
+    function spokenCode(code) {
+        return (code || "").split(" ").map(function(group) {
+            return group.split("").join(" ")
+        }).join(", ")
+    }
+
     function setStatus(message, isError) {
         statusMessage = message
         statusIsError = isError
@@ -116,6 +188,10 @@ FocusScope {
     }
 
     function cancelAuthentication() {
+        if (showDeviceSignIn) {
+            leaveDeviceSignIn()
+            return
+        }
         passField.clear()
         pinField.clear()
         selectedProfileName = ""
@@ -153,7 +229,16 @@ FocusScope {
             } else if (authenticationStep === "pin") {
                 syncSelectedProfile()
                 pinField.forceActiveFocus()
+            } else if (showDeviceSignIn) {
+                if (newCodeButton.visible)
+                    newCodeButton.forceActiveFocus()
+                else
+                    deviceBackButton.forceActiveFocus()
+            } else if (returnFocusToDeviceButton && deviceSignInButton.visible) {
+                returnFocusToDeviceButton = false
+                deviceSignInButton.forceActiveFocus()
             } else {
+                returnFocusToDeviceButton = false
                 serverField.forceActiveFocus()
             }
         })
@@ -179,6 +264,8 @@ FocusScope {
                 } else {
                     profilesBackButton.forceActiveFocus()
                 }
+            } else if (showDeviceSignIn || !passwordSignInAvailable) {
+                restoreStepFocus()
             } else {
                 passField.selectAll()
                 passField.forceActiveFocus()
@@ -199,6 +286,11 @@ FocusScope {
     }
 
     Keys.onEscapePressed: function(event) {
+        if (showDeviceSignIn) {
+            leaveDeviceSignIn()
+            event.accepted = true
+            return
+        }
         if (addingConnection && authenticationStep === "credentials") {
             clearStatus()
             Workspaces.cancelAddConnection()
@@ -212,6 +304,11 @@ FocusScope {
     }
 
     Keys.onBackPressed: function(event) {
+        if (showDeviceSignIn) {
+            leaveDeviceSignIn()
+            event.accepted = true
+            return
+        }
         if (addingConnection && authenticationStep === "credentials") {
             clearStatus()
             Workspaces.cancelAddConnection()
@@ -288,6 +385,7 @@ FocusScope {
             Layout.fillWidth: true
             text: authenticationStep === "profiles" ? qsTr("Silo profiles")
                   : authenticationStep === "pin" ? qsTr("Profile locked")
+                  : root.showDeviceSignIn ? qsTr("Sign in with a code")
                   : root.addingConnection ? qsTr("Add a server")
                   : qsTr("Welcome to Bloom")
             font.family: Theme.fontPrimary
@@ -304,6 +402,7 @@ FocusScope {
             Layout.topMargin: Theme.spacingSmall
             text: authenticationStep === "profiles" ? qsTr("Who’s watching?")
                   : authenticationStep === "pin" ? qsTr("Enter profile PIN")
+                  : root.showDeviceSignIn ? root.deviceHeading()
                   : qsTr("Connect your media server")
             color: Theme.textPrimary
             font.family: Theme.fontDisplay
@@ -325,6 +424,9 @@ FocusScope {
                     ? (selectedProfileName.length > 0
                        ? qsTr("Unlock %1 to continue.").arg(selectedProfileName)
                        : qsTr("Unlock this profile to continue."))
+                    : root.showDeviceSignIn ? root.deviceDescription()
+                    : !root.passwordSignInAvailable
+                      ? qsTr("This server signs in through your browser or phone. Sign in with a code to continue.")
                     : qsTr("Bloom will detect whether this server uses Jellyfin or Silo. Native Silo support is experimental.")
             color: Theme.textSecondary
             font.family: Theme.fontPrimary
@@ -340,6 +442,7 @@ FocusScope {
             Layout.topMargin: Theme.spacingXLarge
             spacing: Theme.spacingSmall
             visible: authenticationStep !== "profiles" && authenticationStep !== "pin"
+                     && !root.showDeviceSignIn
 
             Text {
                 text: qsTr("Server")
@@ -362,11 +465,21 @@ FocusScope {
                 verticalAlignment: TextInput.AlignVCenter
                 inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
                 Accessible.name: qsTr("Server address")
-                KeyNavigation.up: root.showSpaceAction ? spaceActionButton : connectButton
-                KeyNavigation.down: userField
-                KeyNavigation.tab: userField
-                KeyNavigation.backtab: root.showSpaceAction ? spaceActionButton : credentialCancelButton
-                onAccepted: userField.forceActiveFocus()
+                KeyNavigation.up: root.showSpaceAction ? spaceActionButton
+                                  : root.offerDeviceSignIn ? deviceSignInButton : connectButton
+                KeyNavigation.down: root.passwordSignInAvailable ? userField : deviceSignInButton
+                KeyNavigation.tab: root.passwordSignInAvailable ? userField : deviceSignInButton
+                KeyNavigation.backtab: root.showSpaceAction ? spaceActionButton
+                                       : root.offerDeviceSignIn ? deviceSignInButton : credentialCancelButton
+                // Entering an address checks what the server offers, so a
+                // code option appears before anyone reaches the password.
+                onEditingFinished: AuthenticationService.checkSignInOptions(text)
+                onAccepted: {
+                    if (root.passwordSignInAvailable)
+                        userField.forceActiveFocus()
+                    else
+                        deviceSignInButton.forceActiveFocus()
+                }
                 leftPadding: Theme.spacingLarge
                 rightPadding: Theme.spacingLarge
                 background: FieldBackground { control: serverField }
@@ -382,6 +495,7 @@ FocusScope {
             }
 
             Text {
+                visible: root.passwordSignInAvailable
                 Layout.topMargin: Theme.spacingMedium
                 text: qsTr("Username")
                 color: Theme.textSecondary
@@ -393,6 +507,7 @@ FocusScope {
 
             TextField {
                 id: userField
+                visible: root.passwordSignInAvailable
                 placeholderText: qsTr("Username")
                 placeholderTextColor: Theme.textTertiary
                 Layout.fillWidth: true
@@ -414,6 +529,7 @@ FocusScope {
             }
 
             Text {
+                visible: root.passwordSignInAvailable
                 Layout.topMargin: Theme.spacingMedium
                 text: qsTr("Password")
                 color: Theme.textSecondary
@@ -425,6 +541,7 @@ FocusScope {
 
             TextField {
                 id: passField
+                visible: root.passwordSignInAvailable
                 placeholderText: qsTr("Password")
                 placeholderTextColor: Theme.textTertiary
                 echoMode: TextInput.Password
@@ -446,6 +563,7 @@ FocusScope {
             }
 
             RowLayout {
+                visible: root.passwordSignInAvailable
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.spacingLarge
                 spacing: Theme.controlSpacing
@@ -460,7 +578,8 @@ FocusScope {
                     Layout.preferredHeight: Theme.buttonHeightLarge
                     focusPolicy: Qt.StrongFocus
                     KeyNavigation.up: passField
-                    KeyNavigation.down: root.showSpaceAction ? spaceActionButton : serverField
+                    KeyNavigation.down: root.offerDeviceSignIn ? deviceSignInButton
+                                        : root.showSpaceAction ? spaceActionButton : serverField
                     KeyNavigation.left: credentialCancelButton
                     KeyNavigation.right: credentialCancelButton
                     KeyNavigation.tab: credentialCancelButton
@@ -478,10 +597,12 @@ FocusScope {
                     Layout.preferredHeight: Theme.buttonHeightLarge
                     focusPolicy: Qt.StrongFocus
                     KeyNavigation.up: passField
-                    KeyNavigation.down: root.showSpaceAction ? spaceActionButton : serverField
+                    KeyNavigation.down: root.offerDeviceSignIn ? deviceSignInButton
+                                        : root.showSpaceAction ? spaceActionButton : serverField
                     KeyNavigation.left: connectButton
                     KeyNavigation.right: connectButton
-                    KeyNavigation.tab: root.showSpaceAction ? spaceActionButton : serverField
+                    KeyNavigation.tab: root.offerDeviceSignIn ? deviceSignInButton
+                                       : root.showSpaceAction ? spaceActionButton : serverField
                     KeyNavigation.backtab: connectButton
                     Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
                     Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
@@ -494,6 +615,28 @@ FocusScope {
                 }
             }
 
+            // Offered once the typed server is known to be Silo with device
+            // sign-in; on a server without passwords it is the only way in.
+            ActionButton {
+                id: deviceSignInButton
+                visible: root.offerDeviceSignIn
+                variant: root.passwordSignInAvailable ? "secondary" : "primary"
+                iconGlyph: Icons.smartphone
+                text: qsTr("Sign in with a code")
+                accessibleLabel: qsTr("Sign in with a code from your phone")
+                Layout.fillWidth: !root.passwordSignInAvailable
+                Layout.topMargin: root.passwordSignInAvailable ? Theme.spacingSmall : Theme.spacingLarge
+                Layout.preferredHeight: Theme.buttonHeightLarge
+                focusPolicy: Qt.StrongFocus
+                KeyNavigation.up: root.passwordSignInAvailable ? connectButton : serverField
+                KeyNavigation.down: root.showSpaceAction ? spaceActionButton : serverField
+                KeyNavigation.tab: root.showSpaceAction ? spaceActionButton : serverField
+                KeyNavigation.backtab: root.passwordSignInAvailable ? credentialCancelButton : serverField
+                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                onClicked: root.startDeviceSignIn()
+            }
+
             ActionButton {
                 id: spaceActionButton
                 visible: root.showSpaceAction
@@ -503,10 +646,10 @@ FocusScope {
                 Layout.topMargin: Theme.spacingSmall
                 Layout.preferredHeight: Theme.buttonHeightMedium
                 focusPolicy: Qt.StrongFocus
-                KeyNavigation.up: connectButton
+                KeyNavigation.up: root.offerDeviceSignIn ? deviceSignInButton : connectButton
                 KeyNavigation.down: serverField
                 KeyNavigation.tab: serverField
-                KeyNavigation.backtab: credentialCancelButton
+                KeyNavigation.backtab: root.offerDeviceSignIn ? deviceSignInButton : credentialCancelButton
                 Keys.onReturnPressed: clicked()
                 Keys.onEnterPressed: clicked()
                 onClicked: {
@@ -516,6 +659,168 @@ FocusScope {
                     } else {
                         loginSpacePicker.open()
                     }
+                }
+            }
+        }
+
+        // ---------- Sign in with a code (Silo device sign-in) ----------
+        ColumnLayout {
+            id: deviceStep
+            Layout.fillWidth: true
+            Layout.topMargin: Theme.spacingXLarge
+            spacing: Theme.spacingLarge
+            visible: root.showDeviceSignIn
+
+            StateMessage {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.buttonHeightHero
+                visible: root.deviceState === "starting" || root.deviceState === "signingIn"
+                kind: "loading"
+                compact: true
+                message: root.deviceState === "starting" ? qsTr("Getting a code…") : qsTr("Signing in…")
+            }
+
+            // The code, large enough to read across a room.
+            Rectangle {
+                id: codePanel
+                visible: root.deviceCodeLive
+                Layout.preferredWidth: codeColumn.implicitWidth + Theme.spacingXLarge * 2
+                Layout.preferredHeight: codeColumn.implicitHeight + Theme.spacingLarge * 2
+                radius: Theme.radiusLarge
+                color: Theme.surfaceInteractive
+                border.width: Theme.borderWidth
+                border.color: Theme.surfaceBorderStrong
+                Accessible.role: Accessible.StaticText
+                Accessible.name: qsTr("Code %1").arg(root.spokenCode(root.deviceSignIn.userCode))
+
+                ColumnLayout {
+                    id: codeColumn
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingSmall
+
+                    Text {
+                        text: qsTr("Your code")
+                        color: Theme.textSecondary
+                        font.family: Theme.fontPrimary
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Theme.fontWeightStrong
+                        Accessible.ignored: true
+                    }
+
+                    Text {
+                        text: root.deviceSignIn.userCode || ""
+                        color: Theme.textPrimary
+                        font.family: Theme.fontDisplay
+                        font.pixelSize: Theme.fontSizeHero
+                        font.weight: Theme.fontWeightHeavy
+                        font.letterSpacing: Math.round(6 * Theme.layoutScale)
+                        Accessible.ignored: true
+                    }
+                }
+            }
+
+            ColumnLayout {
+                visible: root.deviceCodeLive
+                Layout.fillWidth: true
+                spacing: Math.round(4 * Theme.layoutScale)
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Open this link")
+                    color: Theme.textSecondary
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.weight: Theme.fontWeightStrong
+                    Accessible.ignored: true
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.deviceSignIn.verificationUrl || ""
+                    color: Theme.accentPrimary
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeMedium
+                    font.weight: Theme.fontWeightStrong
+                    wrapMode: Text.WrapAnywhere
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: qsTr("Open %1").arg(text)
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: (root.deviceSignIn.verificationPage || "").length > 0
+                             && root.deviceSignIn.verificationPage !== root.deviceSignIn.verificationUrl
+                    text: qsTr("Or go to %1 and type the code.").arg(root.deviceSignIn.verificationPage || "")
+                    color: Theme.textTertiary
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeSmall
+                    wrapMode: Text.WrapAnywhere
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: root.deviceCodeLive
+                text: root.deviceSignIn.opened
+                      ? qsTr("Waiting for approval · code expires in %1")
+                            .arg(root.formatCountdown(root.deviceSignIn.secondsRemaining))
+                      : qsTr("Code expires in %1").arg(root.formatCountdown(root.deviceSignIn.secondsRemaining))
+                color: Theme.textSecondary
+                font.family: Theme.fontPrimary
+                font.pixelSize: Theme.fontSizeSmall
+                font.features: ({ "tnum": 1 })
+                // Announcing every second would drown out everything else.
+                Accessible.ignored: true
+            }
+
+            StateMessage {
+                Layout.fillWidth: true
+                visible: root.deviceCodeEnded
+                kind: root.deviceState === "expired" ? "empty" : "error"
+                iconGlyph: root.deviceState === "expired" ? Icons.schedule : Icons.error
+                compact: true
+                message: root.deviceState === "expired"
+                         ? qsTr("The code is no longer valid.")
+                         : root.deviceState === "denied"
+                           ? qsTr("This device wasn’t approved.")
+                           : (root.deviceSignIn.errorMessage || qsTr("Sign-in with a code failed."))
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.controlSpacing
+
+                ActionButton {
+                    id: newCodeButton
+                    visible: root.deviceCodeEnded
+                    variant: "primary"
+                    iconGlyph: Icons.refresh
+                    text: qsTr("Get a new code")
+                    Layout.preferredHeight: Theme.buttonHeightLarge
+                    focusPolicy: Qt.StrongFocus
+                    KeyNavigation.right: deviceBackButton
+                    KeyNavigation.down: deviceBackButton
+                    KeyNavigation.tab: deviceBackButton
+                    KeyNavigation.backtab: deviceBackButton
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                    onClicked: root.startDeviceSignIn()
+                }
+
+                ActionButton {
+                    id: deviceBackButton
+                    variant: "secondary"
+                    iconGlyph: Icons.arrowBack
+                    text: root.passwordSignInAvailable ? qsTr("Use a password instead") : qsTr("Back")
+                    Layout.preferredHeight: Theme.buttonHeightLarge
+                    focusPolicy: Qt.StrongFocus
+                    KeyNavigation.left: newCodeButton.visible ? newCodeButton : null
+                    KeyNavigation.up: newCodeButton.visible ? newCodeButton : null
+                    KeyNavigation.tab: newCodeButton.visible ? newCodeButton : null
+                    KeyNavigation.backtab: newCodeButton.visible ? newCodeButton : null
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                    onClicked: root.leaveDeviceSignIn()
                 }
             }
         }
@@ -851,7 +1156,7 @@ FocusScope {
             Layout.topMargin: Theme.spacingLarge
             Layout.preferredHeight: Math.max(Theme.buttonHeightMedium,
                                              statusRow.implicitHeight + Theme.spacingMedium * 2)
-            visible: statusMessage.length > 0
+            visible: statusMessage.length > 0 && !root.showDeviceSignIn
             radius: Theme.radiusControl
             color: statusIsError ? Theme.actionDestructiveBackground : Theme.surfaceInteractive
             border.color: statusIsError ? Theme.errorColor : Theme.surfaceBorder
@@ -948,8 +1253,31 @@ FocusScope {
         }
 
         function onLoginError(error) {
-            root.setStatus(error, true)
+            // The code screen shows its own failure.
+            if (!root.showDeviceSignIn)
+                root.setStatus(error, true)
             root.restoreRetryFocus()
+        }
+
+        function onDeviceSignInChanged() {
+            // The countdown ticks every second; move focus only when the
+            // screen's state changes (code shown, expired, declined...).
+            if (root.deviceState === root.lastDeviceState)
+                return
+            root.lastDeviceState = root.deviceState
+            if (root.showDeviceSignIn)
+                root.restoreStepFocus()
+        }
+
+        function onSignInOptionsChanged() {
+            // Focus can sit on a password field the server turns out not to have.
+            Qt.callLater(function() {
+                if (!root.visible || loginSpacePicker.visible || root.passwordSignInAvailable
+                        || !root.offerDeviceSignIn || serverField.activeFocus
+                        || spaceActionButton.activeFocus)
+                    return
+                deviceSignInButton.forceActiveFocus()
+            })
         }
 
         function onLoggedOut() {

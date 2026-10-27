@@ -29,6 +29,8 @@ ExternalMpvBackend::ExternalMpvBackend(QObject *parent)
             this, &ExternalMpvBackend::runtimeInfoChanged);
     connect(m_processManager, &PlayerProcessManager::fileLoaded,
             this, &ExternalMpvBackend::scheduleDiagnosticSnapshots);
+    connect(m_processManager, &PlayerProcessManager::fileLoaded,
+            this, &ExternalMpvBackend::fileLoaded);
     connect(m_processManager, &PlayerProcessManager::propertySnapshotReady,
             this, &ExternalMpvBackend::playbackDiagnosticsAvailable);
     connect(m_processManager, &PlayerProcessManager::stateChanged, this, [this](bool running) {

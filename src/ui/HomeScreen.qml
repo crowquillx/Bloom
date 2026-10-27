@@ -42,6 +42,7 @@ FocusScope {
 
     function resetSpaceContent() {
         librariesModel = []
+        HomeSectionsViewModel.clear()
         recentlyAddedMap = ({})
         nextUpModel = []
         updateDisplayedNextUpModel()
@@ -110,6 +111,9 @@ FocusScope {
         // Badge choices made in the Silo web app apply on the next refresh.
         PosterBadges.refresh()
         if (mergedMode) {
+            // Merged spaces keep Bloom's rows only; curated rows belong to
+            // one Silo profile.
+            HomeSectionsViewModel.clear()
             MergedCatalog.getNextUp()
             for (var j = 0; j < librariesModel.length; j++) {
                 MergedCatalog.getLatestMedia(librariesModel[j].connectionId || "",
@@ -121,6 +125,8 @@ FocusScope {
         for (var i = 0; i < librariesModel.length; i++) {
             LibraryService.getLatestMedia(librariesModel[i].itemId)
         }
+        // The profile's own Silo rows (none for Jellyfin).
+        HomeSectionsViewModel.refresh()
     }
 
     function artworkUrlFromRef(artwork, width) {
@@ -258,6 +264,15 @@ FocusScope {
         initialFocusProvisional = false
     }
 
+    // A curated row delegate (Repeater.itemAt answers a plain Item).
+    function serverRowMeta(row) {
+        return {
+            item: row || null,
+            list: row ? (row.serverRowListRef || null) : null,
+            sectionId: row ? (row.sectionId || "") : ""
+        }
+    }
+
     function getRecentlyAddedDelegateMeta(index) {
         var item = recentlyAddedRepeater.itemAt(index)
         return {
@@ -327,6 +342,13 @@ FocusScope {
                     break
                 }
             }
+            for (var j = 0; section === "" && j < serverRowsRepeater.count; j++) {
+                var focusRow = serverRowMeta(serverRowsRepeater.itemAt(j))
+                if (focusRow.list && focusRow.list.activeFocus) {
+                    section = "serverRow:" + focusRow.sectionId
+                    index = focusRow.list.currentIndex
+                }
+            }
         }
         
         // Only update if we found a focused section
@@ -366,6 +388,16 @@ FocusScope {
                 if (restoreMeta.item && restoreMeta.libraryId === libraryId && restoreMeta.recentlyAddedListRef) {
                     targetList = restoreMeta.recentlyAddedListRef
                     targetSection = restoreMeta.item
+                    break
+                }
+            }
+        } else if (lastFocusedSection.indexOf("serverRow:") === 0) {
+            var sectionId = lastFocusedSection.substring("serverRow:".length)
+            for (var j = 0; j < serverRowsRepeater.count; j++) {
+                var restoreRow = serverRowMeta(serverRowsRepeater.itemAt(j))
+                if (restoreRow.list && restoreRow.sectionId === sectionId) {
+                    targetList = restoreRow.list
+                    targetSection = restoreRow.item
                     break
                 }
             }
@@ -624,10 +656,19 @@ FocusScope {
                 var list = posterCard.ListView.view
                 list.currentIndex = index
                 list.forceActiveFocus()
-                handleRecentlyAddedSelection(modelData, list.parentLibraryId)
+                root.openPosterCard(list, modelData)
             }
             Accessible.description: qsTr("Details for %1").arg(modelData.name || "")
         }
+    }
+
+    // Poster cards serve the Recently Added rows and the profile's curated
+    // rows; each list says which it is.
+    function openPosterCard(list, item) {
+        if (list.serverRow)
+            handleServerRowSelection(item)
+        else
+            handleRecentlyAddedSelection(item, list.parentLibraryId)
     }
 
     // Shelves in focus order (visible ones only).
@@ -641,6 +682,11 @@ FocusScope {
             var meta = getRecentlyAddedDelegateMeta(i)
             if (meta.item && meta.item.visible && meta.recentlyAddedListRef)
                 lists.push(meta.recentlyAddedListRef)
+        }
+        for (var j = 0; j < serverRowsRepeater.count; j++) {
+            var row = serverRowMeta(serverRowsRepeater.itemAt(j))
+            if (row.list && row.item.visible)
+                lists.push(row.list)
         }
         return lists
     }
@@ -886,6 +932,68 @@ FocusScope {
                 }
             }
 
+            // Rows the Silo profile curates (recommendations, collections,
+            // its watchlist...) that Bloom does not already show, in the
+            // server's layout order. HomeSectionsViewModel picks them.
+            ColumnLayout {
+                id: serverRowsSection
+                Layout.fillWidth: true
+                spacing: Theme.sectionSpacing
+                visible: !root.mergedMode && serverRowsRepeater.count > 0
+
+                Repeater {
+                    id: serverRowsRepeater
+                    model: HomeSectionsViewModel
+
+                    delegate: ColumnLayout {
+                        id: serverRowShelf
+                        required property string sectionId
+                        required property string title
+                        required property var items
+                        property var serverRowListRef: serverRowList
+                        Layout.fillWidth: true
+                        spacing: Theme.sectionTitleSpacing
+                        visible: (items || []).length > 0
+
+                        SectionHeader {
+                            text: serverRowShelf.title
+                            Layout.leftMargin: Theme.pageMarginX
+                            Layout.rightMargin: Theme.pageMarginX
+                            Layout.fillWidth: true
+                            Accessible.role: Accessible.Heading
+                            Accessible.name: text
+                        }
+
+                        ShelfList {
+                            id: serverRowList
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: implicitHeight
+                            model: serverRowShelf.items
+                            delegate: posterCardDelegate
+                            readonly property bool serverRow: true
+
+                            Keys.onReturnPressed: {
+                                if (currentIndex >= 0 && currentIndex < count)
+                                    root.handleServerRowSelection(serverRowShelf.items[currentIndex])
+                            }
+                            Keys.onEnterPressed: {
+                                if (currentIndex >= 0 && currentIndex < count)
+                                    root.handleServerRowSelection(serverRowShelf.items[currentIndex])
+                            }
+                            Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(serverRowList, -1) }
+                            Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(serverRowList, 1) }
+                            onCurrentIndexChanged: if (activeFocus) root.cancelInitialFocus()
+                            onActiveFocusChanged: {
+                                if (activeFocus)
+                                    root.scrollToSection(serverRowShelf)
+                                else
+                                    root.cancelInitialFocus()
+                            }
+                        }
+                    }
+                }
+            }
+
             Item { Layout.preferredHeight: Theme.pageMarginBottom }
         }
     }
@@ -979,6 +1087,14 @@ FocusScope {
             else if (mediaType === "Series") navigateToSeries(itemId, parentId, "")
             else if (mediaType === "Episode") navigateToEpisode(item, seriesId, parentId, "")
         })
+    }
+
+    // A curated row's card opens its own page on its connection, as the hero
+    // does; its server row carries no library context.
+    function handleServerRowSelection(item) {
+        if (root.StackView.status !== StackView.Active)
+            return
+        handleHeroSelection(item)
     }
 
     function playHeroItem(item) {
@@ -1206,6 +1322,34 @@ FocusScope {
         }
     }
 
+    // New, removed or reordered curated rows rebuild their shelves; keep
+    // focus on the same row (or the nearest shelf) when it was on one.
+    property bool serverRowFocusLost: false
+
+    function serverRowHasFocus() {
+        for (var i = 0; i < serverRowsRepeater.count; i++) {
+            var row = serverRowMeta(serverRowsRepeater.itemAt(i))
+            if (row.list && row.list.activeFocus)
+                return true
+        }
+        return false
+    }
+
+    Connections {
+        target: HomeSectionsViewModel
+        function onModelAboutToBeReset() {
+            root.serverRowFocusLost = root.StackView.status === StackView.Active
+                    && root.serverRowHasFocus()
+            if (root.serverRowFocusLost)
+                root.saveFocusState()
+        }
+        function onModelReset() {
+            if (root.serverRowFocusLost)
+                Qt.callLater(root.restoreFocusState)
+            root.serverRowFocusLost = false
+        }
+    }
+
     // A single space changed which libraries it shows. Merged spaces reload
     // through MergedCatalog.activeChanged instead.
     Connections {
@@ -1353,6 +1497,9 @@ FocusScope {
             currentBackdropUrl = homeBackdropSettings.lastBackdropUrl
         }
         console.log("[FocusDebug] HomeScreen completed, requesting initial views")
+        // A new Home (sign-in, profile or space switch) never shows the
+        // previous session's rows.
+        HomeSectionsViewModel.clear()
         loadViews()
         heroProvider.rebuild()
     }

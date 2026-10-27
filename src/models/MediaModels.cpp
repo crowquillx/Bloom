@@ -27,6 +27,15 @@ QString transientArtworkSource(const QString &cacheKey)
     return transientArtworkSources.value(cacheKey);
 }
 
+QVariantList intList(const QList<int> &values)
+{
+    QVariantList result;
+    result.reserve(values.size());
+    for (int value : values)
+        result.append(value);
+    return result;
+}
+
 } // namespace
 
 namespace Bloom {
@@ -195,6 +204,7 @@ QVariantMap UserMediaState::toVariantMap() const
     return {
         {QStringLiteral("watched"), watched},
         {QStringLiteral("favorite"), favorite},
+        {QStringLiteral("inWatchlist"), inWatchlist},
         {QStringLiteral("positionMs"), positionMs},
         {QStringLiteral("unplayedItemCount"), unplayedItemCount},
         {QStringLiteral("lastPlayedAt"), lastPlayedAt}
@@ -273,7 +283,13 @@ QVariantMap StreamRequest::toVariantMap() const
         {QStringLiteral("pinsAudioTrack"), pinsAudioTrack},
         {QStringLiteral("pinsSubtitleTrack"), pinsSubtitleTrack},
         {QStringLiteral("pinnedAudioTrackId"), pinnedAudioTrackId},
-        {QStringLiteral("pinnedSubtitleTrackId"), pinnedSubtitleTrackId}
+        {QStringLiteral("pinnedSubtitleTrackId"), pinnedSubtitleTrackId},
+        {QStringLiteral("timelineOffsetMs"), timelineOffsetMs},
+        {QStringLiteral("seekRequiresReanchor"), seekRequiresReanchor},
+        {QStringLiteral("carriesSourceTracks"), carriesSourceTracks},
+        {QStringLiteral("deliveredAudioTracks"), intList(deliveredAudioTracks)},
+        {QStringLiteral("deliveredSubtitleTracks"), intList(deliveredSubtitleTracks)},
+        {QStringLiteral("subtitleBurnedIn"), subtitleBurnedIn}
     };
 }
 
@@ -290,7 +306,9 @@ QVariantMap PlaybackTrack::toVariantMap() const
         {QStringLiteral("isExternal"), isExternal},
         {QStringLiteral("isHearingImpaired"), isHearingImpaired},
         {QStringLiteral("audio"), audio.toVariantMap()},
-        {QStringLiteral("externalUrl"), externalUrl}
+        {QStringLiteral("externalUrl"), externalUrl},
+        {QStringLiteral("sourceIndex"), sourceIndex},
+        {QStringLiteral("requiresReplan"), requiresReplan}
     };
 }
 

@@ -170,6 +170,7 @@ private slots:
     void nativeRoutesUseContentIdentityAndCorrectMethods();
     void themeGrantFlowUsesProfileAndFreshGrant();
     void playbackSurvivesAccessRefreshDuringCapabilityRead();
+    void playbackStartRenewsOnlyAgingAccessTokens();
     void staleFirstPageCannotReplaceCurrentCursor();
     void hierarchyAndRandomFallbacksUseCatalogRoutes();
     void structuredFiltersUseNativeQueryBody();
@@ -186,6 +187,12 @@ private slots:
     void externalSegmentsUseSeriesIdentityAndOrder();
     void externalSegmentsContinueAfterV4Errors_data();
     void externalSegmentsContinueAfterV4Errors();
+    void homeSectionsKeepCuratedVideoRowsInLayoutOrder();
+    void watchlistRequestsUseMembershipRoutes();
+    void homeSectionsServiceAddsWatchlistRowOnlyWithoutOne();
+    void homeSectionsServiceReportsFailure();
+    void watchlistWritesReportSuccessAndFailure();
+    void jellyfinHasNoWatchlistOrCuratedRows();
 };
 
 void SiloCatalogServiceTest::theIntroDbV4Requests_data()
@@ -1081,6 +1088,46 @@ void SiloCatalogServiceTest::themeGrantFlowUsesProfileAndFreshGrant()
     }
 }
 
+void SiloCatalogServiceTest::playbackStartRenewsOnlyAgingAccessTokens()
+{
+    QTemporaryDir directory;
+    ScopedConfigIsolation isolation(directory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    manager.responses = {
+        { 200,
+            QByteArrayLiteral(
+                R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":28800,"user":{"id":"account-1","username":"tester"}})"),
+            false },
+        { 200,
+            QByteArrayLiteral(R"({"items":[{"id":"profile-1","name":"tester","has_pin":false}]})"),
+            false }
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    auth.initialize(&config);
+    QTRY_VERIFY(!auth.isRestoringSession());
+    auth.setProviderSelection(QStringLiteral("silo"));
+    auth.authenticate(QStringLiteral("https://silo.example.test"), QStringLiteral("tester"),
+        QStringLiteral("password"));
+    QTRY_VERIFY(auth.isAuthenticated());
+
+    // A fresh eight-hour token outlives a four-hour feature: no renewal.
+    const qsizetype before = manager.requests.size();
+    bool done = false;
+    auth.ensureAccessTokenValidFor(4 * 60 * 60, [&done]() { done = true; });
+    QVERIFY(done);
+    QCOMPARE(manager.requests.size(), before);
+
+    // Asking for more than half the issued lifetime is capped, so a short-lived
+    // deployment is not renewed on every start.
+    done = false;
+    auth.ensureAccessTokenValidFor(24 * 60 * 60, [&done]() { done = true; });
+    QVERIFY(done);
+    QCOMPARE(manager.requests.size(), before);
+}
+
 void SiloCatalogServiceTest::playbackSurvivesAccessRefreshDuringCapabilityRead()
 {
     QTemporaryDir directory;
@@ -1272,6 +1319,402 @@ void SiloCatalogServiceTest::hierarchyAndRandomFallbacksUseCatalogRoutes()
     const int seek = windowBody.value(QStringLiteral("seek")).toInt(0);
     QVERIFY(seek >= 0 && seek <= 150);
 }
+
+namespace {
+
+// Home layout with every kind of row Bloom must keep or drop.
+QByteArray curatedHomeLayout(bool withWatchlistRow)
+{
+    QByteArray body = QByteArrayLiteral(
+        R"({"sections":[)"
+        R"({"id":"default-continue-watching","section_type":"continue_watching","title":"Continue Watching","items":[)"
+        R"({"content_id":"movie:resume","type":"movie","title":"Resume"}]},)"
+        R"({"id":"for-you","section_type":"recommended_for_you","title":"For You","featured":false,"items":[)"
+        R"({"content_id":"movie:a","type":"movie","title":"Alpha","user_state":{"played":false,"is_favorite":false,"in_watchlist":true,"not_interested":false}},)"
+        R"({"content_id":"series:b","type":"series","title":"Bravo"},)"
+        R"({"content_id":"audiobook:c","type":"audiobook","title":"Charlie"}]},)"
+        R"({"id":"listening","section_type":"custom_filter","title":"Listen Again","items":[)"
+        R"({"content_id":"audiobook:d","type":"audiobook","title":"Delta"},)"
+        R"({"content_id":"ebook:e","type":"ebook","title":"Echo"}]},)"
+        R"({"id":"default-recently-added-movies","section_type":"recently_added","title":"Recently Added Movies","items":[)"
+        R"({"content_id":"movie:new","type":"movie","title":"New"}]},)"
+        R"({"id":"empty-genre","section_type":"genre","title":"Westerns","items":[]},)"
+        R"({"id":"spotlight","section_type":"editorial_spotlight","title":"Spotlight","featured":true,"items":[)"
+        R"({"content_id":"episode:s1e1","type":"episode","title":"Pilot","series_title":"Show","season_number":1,"episode_number":1},)"
+        R"({"content_id":"season:s1","type":"season","title":"Season 1"}]},)"
+        R"({"id":"system-next-up","section_type":"next_up","title":"Next Up","items":[)"
+        R"({"content_id":"episode:next","type":"episode","title":"Next"}]},)"
+        R"({"id":"fresh","section_type":"new_to_library","title":"New to the Library","items":[)"
+        R"({"content_id":"movie:fresh","type":"movie","title":"Fresh"}]},)"
+        R"({"id":"classics","section_type":"collection","title":"Classics","items":[)"
+        R"({"content_id":"movie:a","type":"movie","title":"Alpha"},)"
+        R"({"content_id":"movie:a","type":"movie","title":"Alpha"}]})");
+    if (withWatchlistRow) {
+        body += QByteArrayLiteral(
+            R"(,{"id":"my-list","section_type":"watchlist","title":"My List","items":[)"
+            R"({"content_id":"movie:w","type":"movie","title":"Wanted"}]})");
+    }
+    body += QByteArrayLiteral("]}");
+    return body;
+}
+
+QStringList rowIds(const QVariantList &rows)
+{
+    QStringList ids;
+    for (const QVariant &row : rows) {
+        ids.append(row.toMap().value(QStringLiteral("sectionId")).toString());
+    }
+    return ids;
+}
+
+QStringList itemIds(const QVariant &row)
+{
+    QStringList ids;
+    for (const QVariant &item : row.toMap().value(QStringLiteral("items")).toList()) {
+        ids.append(item.toMap().value(QStringLiteral("itemId")).toString());
+    }
+    return ids;
+}
+
+// Signs in to the scripted Silo server, which has one primary profile.
+bool signInToSilo(ControlledNetworkAccessManager &manager,
+                  ExposedAuthenticationService &auth,
+                  ConfigManager &config)
+{
+    manager.responses = {
+        { 200,
+            QByteArrayLiteral(
+                R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"),
+            false },
+        { 200,
+            QByteArrayLiteral(
+                R"({"items":[{"id":"profile-1","name":"Alice","has_pin":false,"is_child":false,"is_primary":true}]})"),
+            false }
+    };
+    auth.initialize(&config);
+    if (!QTest::qWaitFor([&auth]() { return !auth.isRestoringSession(); }, 1000)) {
+        return false;
+    }
+    auth.setProviderSelection(QStringLiteral("silo"));
+    auth.authenticate(QStringLiteral("https://silo.example.test"),
+                      QStringLiteral("Alice"),
+                      QStringLiteral("password"));
+    return QTest::qWaitFor([&auth]() { return auth.isAuthenticated(); }, 1000);
+}
+
+} // namespace
+
+void SiloCatalogServiceTest::homeSectionsKeepCuratedVideoRowsInLayoutOrder()
+{
+    SiloCatalogProvider provider;
+
+    ProviderCatalogRequest request
+        = provider.createRequest(ProviderCatalogOperation::HomeSections, {});
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/home/sections"));
+    ProviderCatalogQuery modified;
+    modified.limit = 10;
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::HomeSections, modified).supported);
+
+    // Rows Bloom already shows (Continue Watching, Next Up, Recently Added
+    // and its newest-first twin) are skipped; non-video cards are dropped,
+    // and so are rows left empty; cards repeat once per row.
+    ProviderCatalogResponse response = provider.parseResponse(
+        ProviderCatalogOperation::HomeSections, curatedHomeLayout(false));
+    QVERIFY(response.valid);
+    QVERIFY(!response.capabilityMetadata.value(QStringLiteral("layoutHasWatchlist")).toBool());
+    QStringList ids;
+    QList<QStringList> cards;
+    for (const QJsonValue &value : response.rawItems) {
+        const QJsonObject row = value.toObject();
+        ids.append(row.value(QStringLiteral("id")).toString());
+        QStringList rowCards;
+        for (const QJsonValue &item : row.value(QStringLiteral("items")).toArray()) {
+            rowCards.append(item.toObject().value(QStringLiteral("content_id")).toString());
+        }
+        cards.append(rowCards);
+    }
+    QCOMPARE(ids, (QStringList{QStringLiteral("for-you"), QStringLiteral("spotlight"),
+                               QStringLiteral("classics")}));
+    QCOMPARE(cards.at(0), (QStringList{QStringLiteral("movie:a"), QStringLiteral("series:b")}));
+    QCOMPARE(cards.at(1), QStringList{QStringLiteral("episode:s1e1")});
+    QCOMPARE(cards.at(2), QStringList{QStringLiteral("movie:a")});
+    QCOMPARE(response.rawItems.at(0).toObject().value(QStringLiteral("title")).toString(),
+             QStringLiteral("For You"));
+
+    response = provider.parseResponse(
+        ProviderCatalogOperation::HomeSections, curatedHomeLayout(true));
+    QVERIFY(response.valid);
+    QVERIFY(response.capabilityMetadata.value(QStringLiteral("layoutHasWatchlist")).toBool());
+    QCOMPARE(response.rawItems.last().toObject().value(QStringLiteral("id")).toString(),
+             QStringLiteral("my-list"));
+
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::HomeSections,
+                                    QByteArrayLiteral(R"({"items":[]})")).valid);
+}
+
+void SiloCatalogServiceTest::watchlistRequestsUseMembershipRoutes()
+{
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery state;
+    state.itemId = QStringLiteral("movie/heat 1995");
+    state.stateValue = true;
+
+    // addToWatchlist and deleteWatchlistEntry are natural_idempotent.
+    ProviderCatalogRequest request
+        = provider.createRequest(ProviderCatalogOperation::SetWatchlist, state);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Put);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/watchlist/movie%2Fheat%201995"));
+    QVERIFY(request.body.isEmpty());
+    state.stateValue = false;
+    request = provider.createRequest(ProviderCatalogOperation::SetWatchlist, state);
+    QCOMPARE(request.method, ProviderHttpMethod::Delete);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/watchlist/movie%2Fheat%201995"));
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::SetWatchlist, {}).supported);
+    QVERIFY(provider.parseResponse(ProviderCatalogOperation::SetWatchlist, {}).valid);
+
+    ProviderCatalogQuery list;
+    list.limit = 20;
+    request = provider.createRequest(ProviderCatalogOperation::Watchlist, list);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/watchlist?limit=20"));
+    list.startIndex = 20;
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::Watchlist, list).supported);
+
+    const ProviderCatalogResponse watchlist = provider.parseResponse(
+        ProviderCatalogOperation::Watchlist,
+        QByteArrayLiteral(
+            R"({"items":[{"content_id":"movie:w","type":"movie","title":"Wanted"},)"
+            R"({"content_id":"audiobook:x","type":"audiobook","title":"Book"},)"
+            R"({"content_id":"series:y","type":"series","title":"Show"}],"page":{"has_more":false}})"));
+    QVERIFY(watchlist.valid);
+    QCOMPARE(watchlist.rawItems.size(), 2);
+    QCOMPARE(watchlist.rawItems.at(1).toObject().value(QStringLiteral("content_id")).toString(),
+             QStringLiteral("series:y"));
+
+    // Item details carry the membership as canonical user state.
+    const QVariantMap mapped = SiloModelMapper::mediaItem(
+        QJsonDocument::fromJson(QByteArrayLiteral(
+            R"({"content_id":"movie:w","type":"movie","title":"Wanted",)"
+            R"("user_state":{"played":false,"is_favorite":false,"in_watchlist":true,"not_interested":false}})"))
+            .object(),
+        QStringLiteral("connection-1"));
+    QVERIFY(mapped.value(QStringLiteral("inWatchlist")).toBool());
+    QVERIFY(mapped.value(QStringLiteral("userState")).toMap()
+                .value(QStringLiteral("inWatchlist")).toBool());
+}
+
+void SiloCatalogServiceTest::homeSectionsServiceAddsWatchlistRowOnlyWithoutOne()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+    const QString connectionId = config.getActiveConnection().value_or(ServerConnection{}).connectionId;
+    QVERIFY(!connectionId.isEmpty());
+
+    LibraryService service(&auth);
+    QVERIFY(service.supportsWatchlist());
+    QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+    QVERIFY(loaded.isValid());
+
+    // Without a Watchlist row in the layout, Bloom adds one first.
+    manager.responses = {
+        { 200, curatedHomeLayout(false), false },
+        { 200,
+            QByteArrayLiteral(
+                R"({"items":[{"content_id":"movie:w","type":"movie","title":"Wanted"},)"
+                R"({"content_id":"audiobook:x","type":"audiobook","title":"Book"}],"page":{"has_more":false}})"),
+            false }
+    };
+    const qsizetype firstRequest = manager.requests.size();
+    service.getHomeSections();
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    QCOMPARE(manager.requests.size(), firstRequest + 2);
+    const RecordedRequest layoutRequest = manager.requests.at(firstRequest);
+    QCOMPARE(layoutRequest.operation, QNetworkAccessManager::GetOperation);
+    QCOMPARE(layoutRequest.request.url().path(), QStringLiteral("/api/v2/home/sections"));
+    QCOMPARE(layoutRequest.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
+    const RecordedRequest watchlistRequest = manager.requests.at(firstRequest + 1);
+    QCOMPARE(watchlistRequest.request.url().path(), QStringLiteral("/api/v2/watchlist"));
+    QCOMPARE(QUrlQuery(watchlistRequest.request.url()).queryItemValue(QStringLiteral("limit")),
+             QStringLiteral("20"));
+    QCOMPARE(watchlistRequest.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
+
+    QCOMPARE(loaded.first().at(0).toString(), connectionId);
+    QVariantList rows = loaded.first().at(1).toList();
+    QCOMPARE(rowIds(rows), (QStringList{QStringLiteral("bloom:watchlist"), QStringLiteral("for-you"),
+                                        QStringLiteral("spotlight"), QStringLiteral("classics")}));
+    QCOMPARE(rows.first().toMap().value(QStringLiteral("title")).toString(), QStringLiteral("Watchlist"));
+    QCOMPARE(itemIds(rows.at(0)), QStringList{QStringLiteral("movie:w")});
+    QCOMPARE(itemIds(rows.at(1)), (QStringList{QStringLiteral("movie:a"), QStringLiteral("series:b")}));
+    // Rows hold canonical camelCase items scoped to the connection.
+    const QVariantMap alpha = rows.at(1).toMap().value(QStringLiteral("items")).toList().first().toMap();
+    QCOMPARE(alpha.value(QStringLiteral("mediaType")).toString(), QStringLiteral("Movie"));
+    QCOMPARE(alpha.value(QStringLiteral("connectionId")).toString(), connectionId);
+    QVERIFY(alpha.value(QStringLiteral("inWatchlist")).toBool());
+    QVERIFY(!alpha.contains(QStringLiteral("content_id")));
+    const QVariantMap pilot = rows.at(2).toMap().value(QStringLiteral("items")).toList().first().toMap();
+    QCOMPARE(pilot.value(QStringLiteral("mediaType")).toString(), QStringLiteral("Episode"));
+    QCOMPARE(pilot.value(QStringLiteral("seriesName")).toString(), QStringLiteral("Show"));
+
+    // The profile's own Watchlist row stays where the layout puts it, and
+    // no second watchlist read is made.
+    manager.responses = { { 200, curatedHomeLayout(true), false } };
+    const qsizetype secondRequest = manager.requests.size();
+    service.getHomeSections();
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+    QCOMPARE(manager.requests.size(), secondRequest + 1);
+    rows = loaded.at(1).at(1).toList();
+    QCOMPARE(rowIds(rows), (QStringList{QStringLiteral("for-you"), QStringLiteral("spotlight"),
+                                        QStringLiteral("classics"), QStringLiteral("my-list")}));
+    QCOMPARE(rows.last().toMap().value(QStringLiteral("title")).toString(), QStringLiteral("My List"));
+
+    // An empty watchlist adds no row, and a failed watchlist read keeps the
+    // profile's rows.
+    manager.responses = {
+        { 200, curatedHomeLayout(false), false },
+        { 200, QByteArrayLiteral(R"({"items":[],"page":{"has_more":false}})"), false },
+        { 200, curatedHomeLayout(false), false },
+        { 404, QByteArrayLiteral(R"({"type":"about:blank","title":"Not Found","status":404})"), false }
+    };
+    service.getHomeSections();
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 3, 1000);
+    QCOMPARE(rowIds(loaded.at(2).at(1).toList()).first(), QStringLiteral("for-you"));
+    service.getHomeSections();
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 4, 1000);
+    QCOMPARE(rowIds(loaded.at(3).at(1).toList()).size(), 3);
+}
+
+void SiloCatalogServiceTest::homeSectionsServiceReportsFailure()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+    QSignalSpy failed(&service, &LibraryService::canonicalHomeSectionsFailed);
+
+    // A newer request supersedes an older one still in flight.
+    manager.responses = {
+        { 200, curatedHomeLayout(true), true },
+        { 404, QByteArrayLiteral(R"({"type":"about:blank","title":"Not Found","status":404})"), true }
+    };
+    service.getHomeSections();
+    QTRY_COMPARE_WITH_TIMEOUT(manager.replies.size(), 3, 1000);
+    QPointer<ControlledReply> olderReply = manager.replies.constLast();
+    service.getHomeSections();
+    QTRY_COMPARE_WITH_TIMEOUT(manager.replies.size(), 4, 1000);
+    QPointer<ControlledReply> newerReply = manager.replies.constLast();
+    QVERIFY(olderReply && newerReply);
+    newerReply->complete();
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+    QCOMPARE(failed.first().at(0).toString(),
+             config.getActiveConnection().value_or(ServerConnection{}).connectionId);
+    olderReply->complete();
+    QCoreApplication::sendPostedEvents();
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QTest::qWait(50);
+    QCOMPARE(loaded.count(), 0);
+    QCOMPARE(failed.count(), 1);
+}
+
+void SiloCatalogServiceTest::watchlistWritesReportSuccessAndFailure()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QSignalSpy changed(&service, &LibraryService::watchlistStatusChanged);
+    QSignalSpy failed(&service, &LibraryService::watchlistStatusFailed);
+
+    manager.responses = { { 204, QByteArray(), false }, { 204, QByteArray(), false } };
+    const qsizetype firstRequest = manager.requests.size();
+    service.setItemWatchlisted(QStringLiteral("movie:heat-1995"), true);
+    QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 1, 1000);
+    QCOMPARE(changed.first().at(0).toString(), QStringLiteral("movie:heat-1995"));
+    QCOMPARE(changed.first().at(1).toBool(), true);
+    const RecordedRequest add = manager.requests.at(firstRequest);
+    QCOMPARE(add.operation, QNetworkAccessManager::PutOperation);
+    QCOMPARE(add.request.url().path(), QStringLiteral("/api/v2/watchlist/movie:heat-1995"));
+    QCOMPARE(add.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
+    QCOMPARE(add.request.rawHeader("Authorization"), QByteArrayLiteral("Bearer access-1"));
+    QVERIFY(add.body.isEmpty());
+
+    service.setItemWatchlisted(QStringLiteral("movie:heat-1995"), false);
+    QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 2, 1000);
+    QCOMPARE(changed.at(1).at(1).toBool(), false);
+    QCOMPARE(manager.requests.at(firstRequest + 1).operation,
+             QNetworkAccessManager::DeleteOperation);
+
+    manager.responses = {
+        { 404, QByteArrayLiteral(R"({"type":"about:blank","title":"Not Found","status":404})"), false }
+    };
+    service.setItemWatchlisted(QStringLiteral("movie:gone"), true);
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+    QCOMPARE(failed.first().at(0).toString(), QStringLiteral("movie:gone"));
+    QCOMPARE(failed.first().at(1).toBool(), true);
+    QVERIFY(!failed.first().at(2).toString().isEmpty());
+    QCOMPARE(changed.count(), 2);
+    // A 404 is not replayed.
+    QCOMPARE(manager.requests.size(), firstRequest + 3);
+}
+
+void SiloCatalogServiceTest::jellyfinHasNoWatchlistOrCuratedRows()
+{
+    SiloProviderAdapter silo;
+    QVERIFY(silo.supportsCapability(ProviderCapability::Watchlist));
+    QVERIFY(silo.supportsCapability(ProviderCapability::HomeSections));
+
+    JellyfinProviderAdapter jellyfin;
+    QVERIFY(!jellyfin.supportsCapability(ProviderCapability::Watchlist));
+    QVERIFY(!jellyfin.supportsCapability(ProviderCapability::HomeSections));
+    const ICatalogProvider *catalog = jellyfin.catalogProvider();
+    QVERIFY(catalog);
+    ProviderCatalogQuery state;
+    state.itemId = QStringLiteral("item-1");
+    state.stateValue = true;
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::SetWatchlist, state).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::Watchlist, {}).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::HomeSections, {}).supported);
+
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    ExposedAuthenticationService auth(&transport, &jellyfin);
+    LibraryService service(&auth);
+    QVERIFY(!service.supportsWatchlist());
+    QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+    service.getHomeSections();
+    QCOMPARE(loaded.count(), 1);
+    QVERIFY(loaded.first().at(1).toList().isEmpty());
+    QVERIFY(manager.requests.isEmpty());
+}
+
 
 QTEST_MAIN(SiloCatalogServiceTest)
 #include "SiloCatalogServiceTest.moc"

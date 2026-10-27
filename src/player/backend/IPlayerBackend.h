@@ -56,6 +56,8 @@ signals:
     void pauseChanged(bool paused);
     void pausedForCacheChanged(bool paused);
     void playbackEnded();
+    // mpv opened a file (the first, a playlist entry, or a loadfile replace).
+    void fileLoaded();
     void cacheEndChanged(double seconds);
     void volumeChanged(int volume);
     void muteChanged(bool muted);

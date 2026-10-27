@@ -95,6 +95,7 @@ stdenv.mkDerivation {
       EpisodeSelectionScriptTest \
       TrackPreferencesManagerTest \
       SimilarItemsRetryTest \
+      HomeRowsAndWatchlistTest \
       UpNextRecommendationsViewModelTest \
       UpdateServiceTest
     runHook postBuild

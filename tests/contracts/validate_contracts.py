@@ -21,6 +21,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.auth.me",
     "native.auth.logout",
     "native.auth.sessions",
+    "native.auth.device",
     "native.profiles.list",
     "native.profiles.pin",
     "native.catalog.libraries",
@@ -30,6 +31,8 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.catalog.hierarchy",
     "native.state.watched",
     "native.state.favorite",
+    "native.state.watchlist",
+    "native.home.sections",
     "native.artwork.refetch",
     "native.playback.capability",
     "native.playback.start-v3",
@@ -230,6 +233,8 @@ def _validate_native_silo(data, snapshot):
     operations = {(op["method"], op["path"]): op for op in manifest["operations"]}
     evidence_prefix = f"https://github.com/Silo-Server/silo-server/blob/{native['sourceRevision']}/"
     terms = {"native.auth.login": ("access_token", "refresh_token", "string", "username"),
+             "native.auth.device": ("device_code", "user_code", "interval", "poll_after", "expires_in",
+                                    "non_retryable", "429"),
              "native.auth.errors": ("problem+json", "type", "title", "status", "detail", "instance"),
              "native.catalog.page": ("cursor", "page.next_cursor", "window_cursor"),
              "native.catalog.query": ("100", "cursor", "string"),
