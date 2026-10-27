@@ -30,6 +30,7 @@
 #include <QUrl>
 #include <QSet>
 #include <QStringList>
+#include <utility>
 #include <QThread>
 #include <atomic>
 #include <algorithm>
@@ -681,7 +682,7 @@ void PlayerController::onExitPlayingState()
 
 void PlayerController::onExitPausedState()
 {
-    // Nothing to cleanup when leaving Paused
+    m_progressReportTimer->stop();
 }
 
 void PlayerController::onExitErrorState()
@@ -1025,6 +1026,10 @@ void PlayerController::onEnterPlayingState()
 void PlayerController::onEnterPausedState()
 {
     qCInfo(lcPlayback) << "Entering Paused state, position:" << m_currentPosition << "s";
+
+    // Paused heartbeats ride the progress timer (see reportPlaybackProgress).
+    m_pausedProgressTicks = 0;
+    m_progressReportTimer->start();
     
     // Report pause to server
     const QVariantMap segment = activePlaybackSegment();
@@ -1189,6 +1194,7 @@ void PlayerController::onPositionChanged(double seconds)
     // Positions are source positions; a server stream may start its clock later.
     m_segmentRelativePosition = seconds + m_streamTimelineOffsetSeconds;
     seconds = m_segmentRelativePosition;
+    requestDeferredSegmentDescriptor();
     const double offsetSeconds = static_cast<double>(m_activePlaybackSegmentOffsetMs) / 1000.0;
     const double aggregatePosition = offsetSeconds + seconds;
     m_currentPosition = aggregatePosition;
@@ -1375,6 +1381,14 @@ void PlayerController::requestDeferredSegmentDescriptor()
     if (context == m_deferredSegmentContext || !m_playbackService || next <= 0
         || next >= m_playbackSegments.size()
         || !m_playbackSegments.at(next).value(QStringLiteral("deferredDescriptor")).toBool()) {
+        return;
+    }
+    // Silo expires a session that is not read for about 45 s, and mpv opens
+    // the next playlist entry only at the handoff, so start it shortly before.
+    const qint64 activeDurationMs = m_playbackSegments.at(next - 1)
+                                        .value(QStringLiteral("durationMs")).toLongLong();
+    if (activeDurationMs > 0
+        && activeDurationMs / 1000.0 - m_segmentRelativePosition > kDeferredSegmentLeadSeconds) {
         return;
     }
     const QVariantMap segment = m_playbackSegments.at(next);
@@ -2141,6 +2155,8 @@ void PlayerController::onPlaybackReplannedForRequest(const QString &sessionId,
         || m_activePlaybackSegmentIndex < 0
         || m_activePlaybackSegmentIndex >= m_playbackSegments.size()) {
         m_replanQueued = false;
+        m_queuedAudioTrack = kNoQueuedTrack;
+        m_queuedSubtitleTrack = kNoQueuedTrack;
         return;
     }
 
@@ -2222,12 +2238,52 @@ void PlayerController::onPlaybackReplannedForRequest(const QString &sessionId,
     emit timelineChanged();
 
     if (m_replanQueued) {
-        m_replanQueued = false;
         // The new stream has not reported a position yet; it starts here.
-        requestStreamReplan(m_queuedReplanIsSeek,
-                            m_queuedReplanSourceSeconds >= 0.0
-                                ? m_queuedReplanSourceSeconds
-                                : static_cast<double>(descriptor.startPositionMs) / 1000.0);
+        dispatchQueuedReplan(static_cast<double>(descriptor.startPositionMs) / 1000.0);
+    }
+}
+
+void PlayerController::dispatchQueuedReplan(double fallbackSourceSeconds)
+{
+    m_replanQueued = false;
+    const double sourceSeconds = m_queuedReplanSourceSeconds >= 0.0
+        ? m_queuedReplanSourceSeconds
+        : fallbackSourceSeconds;
+    const int queuedAudio = std::exchange(m_queuedAudioTrack, kNoQueuedTrack);
+    const int queuedSubtitle = std::exchange(m_queuedSubtitleTrack, kNoQueuedTrack);
+    if (queuedAudio == kNoQueuedTrack && queuedSubtitle == kNoQueuedTrack) {
+        requestStreamReplan(m_queuedReplanIsSeek, sourceSeconds);
+        return;
+    }
+    // A refusal of the queued request restores what the stream now carries.
+    const int grantedAudio = m_selectedAudioTrack;
+    const int grantedSubtitle = m_selectedSubtitleTrack;
+    m_pendingAudioSwitchPreviousTrack = grantedAudio;
+    m_pendingSubtitleReplanPreviousTrack = grantedSubtitle;
+    if (queuedAudio != kNoQueuedTrack) {
+        m_selectedAudioTrack = queuedAudio;
+    }
+    if (queuedSubtitle != kNoQueuedTrack) {
+        m_selectedSubtitleTrack = queuedSubtitle;
+    }
+    if (!requestStreamReplan(m_queuedReplanIsSeek, sourceSeconds)) {
+        m_selectedAudioTrack = grantedAudio;
+        m_selectedSubtitleTrack = grantedSubtitle;
+        m_pendingAudioSwitchPreviousTrack = -2;
+        m_pendingSubtitleReplanPreviousTrack = -2;
+        return;
+    }
+    if (m_activePlaybackSegmentIndex >= 0
+        && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
+        QVariantMap &segment = m_playbackSegments[m_activePlaybackSegmentIndex];
+        segment[QStringLiteral("audioIndex")] = m_selectedAudioTrack;
+        segment[QStringLiteral("subtitleIndex")] = m_selectedSubtitleTrack;
+    }
+    if (grantedAudio != m_selectedAudioTrack) {
+        emit selectedAudioTrackChanged();
+    }
+    if (grantedSubtitle != m_selectedSubtitleTrack) {
+        emit selectedSubtitleTrackChanged();
     }
 }
 
@@ -2246,6 +2302,8 @@ void PlayerController::onPlaybackReplanFailedForRequest(const QString &sessionId
     m_pendingSubtitleReplanPreviousTrack = -2;
     if (sessionId != m_playSessionId) {
         m_replanQueued = false;
+        m_queuedAudioTrack = kNoQueuedTrack;
+        m_queuedSubtitleTrack = kNoQueuedTrack;
         return;
     }
     if (previousAudioTrack != -2 && previousAudioTrack != m_selectedAudioTrack) {
@@ -2273,11 +2331,7 @@ void PlayerController::onPlaybackReplanFailedForRequest(const QString &sessionId
     qCWarning(lcPlayback) << (seek ? "Server seek failed:" : "Server track change failed:")
                           << error;
     if (m_replanQueued) {
-        m_replanQueued = false;
-        requestStreamReplan(m_queuedReplanIsSeek,
-                            m_queuedReplanSourceSeconds >= 0.0
-                                ? m_queuedReplanSourceSeconds
-                                : currentReportingPositionMs() / 1000.0);
+        dispatchQueuedReplan(currentReportingPositionMs() / 1000.0);
     }
 }
 
@@ -2341,6 +2395,14 @@ bool PlayerController::requestStreamReplan(bool seek, double sourceSeconds)
         } else if (!wasQueued) {
             m_queuedReplanSourceSeconds = -1.0; // where the stream is when it runs
         }
+        if (!seek) {
+            // The answer to the replan in flight overwrites the selection (or
+            // rolls it back), so remember only what the viewer changed since.
+            m_queuedAudioTrack = m_selectedAudioTrack != m_inFlightAudioTrack
+                ? m_selectedAudioTrack : kNoQueuedTrack;
+            m_queuedSubtitleTrack = m_selectedSubtitleTrack != m_inFlightSubtitleTrack
+                ? m_selectedSubtitleTrack : kNoQueuedTrack;
+        }
         m_replanQueued = true;
         return true;
     }
@@ -2349,6 +2411,8 @@ bool PlayerController::requestStreamReplan(bool seek, double sourceSeconds)
                             : PlaybackReplan::Operation::TrackChange;
     replan.audioTrackIndex = m_selectedAudioTrack;
     replan.subtitleTrackIndex = m_selectedSubtitleTrack;
+    m_inFlightAudioTrack = m_selectedAudioTrack;
+    m_inFlightSubtitleTrack = m_selectedSubtitleTrack;
     for (const QVariant &trackVariant : m_availableSubtitleTracks) {
         const QVariantMap option = trackVariant.toMap();
         if (m_selectedSubtitleTrack != -1

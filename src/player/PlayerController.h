@@ -462,6 +462,7 @@ private slots:
                                               const QString &requestContext);
     void onPlaybackSessionLost(const QString &playbackSessionId, bool endedByServer);
     void requestDeferredSegmentDescriptor();
+    void dispatchQueuedReplan(double fallbackSourceSeconds);
     void onPlaybackReplannedForRequest(const QString &sessionId,
                                        const Bloom::PlaybackDescriptor &descriptor,
                                        const QString &requestContext);
@@ -910,6 +911,8 @@ private:
     static constexpr int kAudioDeviceReloadDebounceMs = 500;
     static constexpr int kProgressReportIntervalMs = 10000; // 10 seconds
     static constexpr int kPausedProgressEveryTicks = 6;     // one paused sample per minute
+    // A deferred multipart part's session starts this close to the handoff.
+    static constexpr double kDeferredSegmentLeadSeconds = 20.0;
     int m_pausedProgressTicks = 0;
     // Request context of the in-flight deferred multipart segment descriptor.
     QString m_deferredSegmentContext;
@@ -1022,6 +1025,13 @@ private:
     // A replan asked for while another is in flight runs when that one ends;
     // the server rejects replans of a plan it has already replaced.
     bool m_replanQueued = false;
+    // Tracks the in-flight replan asked for, and choices made since then that
+    // the queued replan must carry (kNoQueuedTrack: none; -1 is subtitles off).
+    static constexpr int kNoQueuedTrack = -2;
+    int m_inFlightAudioTrack = kNoQueuedTrack;
+    int m_inFlightSubtitleTrack = kNoQueuedTrack;
+    int m_queuedAudioTrack = kNoQueuedTrack;
+    int m_queuedSubtitleTrack = kNoQueuedTrack;
     bool m_queuedReplanIsSeek = false;
     double m_queuedReplanSourceSeconds = 0.0;
     // Active stream timeline and track layout (see Bloom::StreamRequest).

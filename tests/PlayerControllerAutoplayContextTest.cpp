@@ -2997,6 +2997,12 @@ void PlayerControllerAutoplayContextTest::expiringSessionsDeferLaterMultipartSeg
     QCOMPARE(controller.m_playbackSegments.size(), 2);
     QVERIFY(controller.m_playbackSegments.at(1).value(QStringLiteral("deferredDescriptor")).toBool());
 
+    // The next part's session starts only shortly before the handoff.
+    controller.m_playbackSegments[0][QStringLiteral("durationMs")] = 600000;
+    controller.m_segmentRelativePosition = 10.0;
+    controller.requestDeferredSegmentDescriptor();
+    QCOMPARE(playbackService.requestedDescriptorItemIds, QStringList{QStringLiteral("movie-1")});
+    controller.m_segmentRelativePosition = 600.0 - PlayerController::kDeferredSegmentLeadSeconds;
     controller.requestDeferredSegmentDescriptor();
     QCOMPARE(playbackService.requestedDescriptorItemIds.last(), QStringLiteral("movie-1-part-2"));
     QVERIFY(playbackService.requestedDescriptorContexts.last().startsWith(QStringLiteral("segment|")));
@@ -3020,7 +3026,14 @@ void PlayerControllerAutoplayContextTest::pausedPlaybackSendsMinuteHeartbeat()
                                 &playbackService, &libraryService, &authService);
     controller.m_currentItemId = QStringLiteral("item-1");
     controller.m_playSessionId = QStringLiteral("play-session-1");
-    controller.m_playbackState = PlayerController::Paused;
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_progressReportTimer->start();
+
+    // Leaving Playing stops the timer; the paused state must keep it running.
+    QVERIFY(controller.processEvent(PlayerController::Event::Pause));
+    QCOMPARE(controller.m_playbackState, PlayerController::Paused);
+    QVERIFY(controller.m_progressReportTimer->isActive());
+    playbackService.progressReports.clear();
 
     for (int tick = 1; tick < PlayerController::kPausedProgressEveryTicks; ++tick) {
         controller.reportPlaybackProgress();
@@ -3029,6 +3042,10 @@ void PlayerControllerAutoplayContextTest::pausedPlaybackSendsMinuteHeartbeat()
     controller.reportPlaybackProgress();
     QCOMPARE(playbackService.progressReports.size(), 1);
     QVERIFY(playbackService.progressReports.first().isPaused);
+
+    QVERIFY(controller.processEvent(PlayerController::Event::Resume));
+    QCOMPARE(controller.m_playbackState, PlayerController::Playing);
+    QVERIFY(controller.m_progressReportTimer->isActive());
 }
 
 void PlayerControllerAutoplayContextTest::lostServerSessionRecoversOrLeaves()
@@ -4884,6 +4901,22 @@ void PlayerControllerAutoplayContextTest::serverStreamReplansKeepTheSourceTimeli
     QCOMPARE(playbackService.replans.size(), 4);
     QCOMPARE(playbackService.replans.last().audioTrackIndex, 1);
     QCOMPARE(playbackService.replans.last().operation, PlaybackReplan::Operation::TrackChange);
+
+    // A choice made while that request runs survives its answer: the answer
+    // grants audio 1, and the queued request still asks for audio 0.
+    controller.setSelectedAudioTrack(0);
+    QCOMPARE(playbackService.replans.size(), 4);
+    Bloom::PlaybackDescriptor granted = packaged(500000, 501000);
+    granted.selectedAudioTrackId = QStringLiteral("1");
+    granted.stream.pinnedAudioTrackId = QStringLiteral("1");
+    granted.stream.deliveredAudioTracks = {1};
+    playbackService.completeReplan(QStringLiteral("session-1"), granted);
+    QCOMPARE(playbackService.replans.size(), 5);
+    QCOMPARE(playbackService.replans.last().audioTrackIndex, 0);
+    QCOMPARE(controller.selectedAudioTrack(), 0);
+    // Refusing it restores what the stream carries, not the older choice.
+    playbackService.failReplan(QStringLiteral("session-1"), QStringLiteral("refused"));
+    QCOMPARE(controller.selectedAudioTrack(), 1);
 }
 
 void PlayerControllerAutoplayContextTest::audioStartupPlanOverridesProfileOutputArgs()
