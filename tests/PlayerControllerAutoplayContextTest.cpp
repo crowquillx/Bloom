@@ -607,6 +607,7 @@ private slots:
     void multipartPlaybackPublishesNoVersions();
     void expiringSessionsDeferLaterMultipartSegments();
     void pausedPlaybackSendsMinuteHeartbeat();
+    void inPlaceReloadKeepsHeadersPlaylistAndOrigins();
     void lostServerSessionRecoversOrLeaves();
     void adjacentEpisodesCrossSeasonBoundaries();
     void requestPlaybackRecoversLibraryProfileFromSeriesDetails();
@@ -3046,6 +3047,75 @@ void PlayerControllerAutoplayContextTest::pausedPlaybackSendsMinuteHeartbeat()
     QVERIFY(controller.processEvent(PlayerController::Event::Resume));
     QCOMPARE(controller.m_playbackState, PlayerController::Playing);
     QVERIFY(controller.m_progressReportTimer->isActive());
+}
+
+void PlayerControllerAutoplayContextTest::inPlaceReloadKeepsHeadersPlaylistAndOrigins()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    const auto segment = [](const QString &name) {
+        return QVariantMap{{QStringLiteral("itemId"), name},
+                           {QStringLiteral("playSessionId"), QStringLiteral("session-") + name},
+                           {QStringLiteral("url"), QStringLiteral("https://silo.example.test/") + name},
+                           {QStringLiteral("durationMs"), 600000}};
+    };
+    controller.m_playbackSegments = {segment(QStringLiteral("a")), segment(QStringLiteral("b")),
+                                     segment(QStringLiteral("c"))};
+    controller.applyPlaybackSegment(1, false);
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_pendingAudioSwitchContext = QStringLiteral("replan|test");
+
+    Bloom::PlaybackDescriptor descriptor;
+    descriptor.playbackSessionId = QStringLiteral("session-b");
+    descriptor.stream.url = QUrl(QStringLiteral("https://silo.example.test/b/master.m3u8"));
+    descriptor.stream.method = Bloom::PlaybackMethod::DirectStream;
+    descriptor.stream.headers = {{QStringLiteral("Authorization"), QStringLiteral("Bearer token")}};
+    backend.variantCommands.clear();
+    emit playbackService.playbackReplannedForRequest(
+        QStringLiteral("session-b"), descriptor, QStringLiteral("replan|test"));
+
+    // Headers are replaced entry by entry, which every backend applies.
+    QVERIFY(backend.variantCommands.contains(QVariantList(
+        {QStringLiteral("change-list"), QStringLiteral("http-header-fields"), QStringLiteral("clr"), QString()})));
+    QVERIFY(backend.variantCommands.contains(QVariantList(
+        {QStringLiteral("change-list"), QStringLiteral("http-header-fields"), QStringLiteral("append"),
+         QStringLiteral("Authorization: Bearer token")})));
+
+    // The replacement playlist starts at the reloaded segment; part c follows it.
+    backend.emitPlaylistPosition(0);
+    QCOMPARE(controller.m_activePlaybackSegmentIndex, 1);
+    backend.emitFileLoaded();
+    QCOMPARE(backend.appendedUrls, QStringList{QStringLiteral("https://silo.example.test/c")});
+    backend.emitPlaylistPosition(0);
+    QCOMPARE(controller.m_activePlaybackSegmentIndex, 1);
+    backend.emitPlaylistPosition(1);
+    QCOMPARE(controller.m_activePlaybackSegmentIndex, 2);
+
+    // Credentials never follow a sidecar to another origin.
+    controller.m_playbackSegments[2][QStringLiteral("streamHeaders")] = QVariantMap{
+        {QStringLiteral("Authorization"), QStringLiteral("Bearer token")}};
+    const auto subAdds = [&backend]() {
+        return std::count_if(backend.variantCommands.cbegin(), backend.variantCommands.cend(),
+                             [](const QVariantList &command) {
+                                 return !command.isEmpty()
+                                     && command.first().toString() == QStringLiteral("sub-add");
+                             });
+    };
+    backend.variantCommands.clear();
+    controller.addExternalSubtitleTrackInternal(QStringLiteral("https://elsewhere.example.test/x.vtt"),
+                                                QStringLiteral("Other"), QStringLiteral("eng"), -1, false);
+    QCOMPARE(subAdds(), 0);
+    controller.addExternalSubtitleTrackInternal(QStringLiteral("https://silo.example.test/y.vtt"),
+                                                QStringLiteral("Same"), QStringLiteral("eng"), -1, false);
+    QCOMPARE(subAdds(), 1);
 }
 
 void PlayerControllerAutoplayContextTest::lostServerSessionRecoversOrLeaves()

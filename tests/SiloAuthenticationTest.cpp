@@ -1396,11 +1396,12 @@ void SiloAuthenticationTest::deviceSignInKeepsPollingWhilePendingThenSignsInLike
     HttpTransport transport(&manager);
     SiloProviderAdapter adapter;
     AuthenticationService service(nullptr, &transport, &adapter);
-    beginDeviceSignIn(service, manager);
+    // A slower test clock keeps the third poll from racing the queued approval.
+    beginDeviceSignIn(service, manager, 900, 200);
 
     manager.responses.append(response(200, devicePoll("pending")));
     manager.responses.append(response(200, devicePoll("pending", true)));
-    QTRY_VERIFY_WITH_TIMEOUT(service.deviceSignIn().value(QStringLiteral("opened")).toBool(), 1000);
+    QTRY_VERIFY_WITH_TIMEOUT(service.deviceSignIn().value(QStringLiteral("opened")).toBool(), 3000);
     QCOMPARE(deviceState(service), QStringLiteral("waiting"));
     QCOMPARE(manager.countPath(kDevicePoll), 2);
     const RecordedRequest &poll = manager.requests.last();
@@ -1410,7 +1411,7 @@ void SiloAuthenticationTest::deviceSignInKeepsPollingWhilePendingThenSignsInLike
 
     manager.responses.append(response(200, deviceApproved()));
     manager.responses.append(response(200, singleUnlockedProfile()));
-    QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
+    QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 3000);
     QCOMPARE(deviceState(service), QStringLiteral("idle"));
     QCOMPARE(manager.countPath(kDevicePoll), 3);
 

@@ -442,7 +442,7 @@ private slots:
     void onPausedForCacheChanged(bool pausedForCache);
     void onCacheEndChanged(double seconds);
     void onPlaybackEnded();
-    void onPlaylistPositionChanged(int index);
+    void onPlaylistPositionChanged(int playlistIndex);
     void onNextEpisodeLoaded(const QString &connectionId,
                              const QString &seriesId,
                              const QVariantMap &episodeData,
@@ -1032,6 +1032,8 @@ private:
     int m_inFlightSubtitleTrack = kNoQueuedTrack;
     int m_queuedAudioTrack = kNoQueuedTrack;
     int m_queuedSubtitleTrack = kNoQueuedTrack;
+    // Segment index of mpv playlist entry 0 (non-zero after an in-place reload).
+    int m_playlistSegmentOffset = 0;
     bool m_queuedReplanIsSeek = false;
     double m_queuedReplanSourceSeconds = 0.0;
     // Active stream timeline and track layout (see Bloom::StreamRequest).

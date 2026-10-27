@@ -1353,8 +1353,13 @@ void PlayerController::onPlaybackEnded()
     requestTerminalTransition(TerminalReason::PlaybackEnd);
 }
 
-void PlayerController::onPlaylistPositionChanged(int index)
+void PlayerController::onPlaylistPositionChanged(int playlistIndex)
 {
+    if (m_awaitingInPlaceReload) {
+        return; // the replacement playlist, not a segment change
+    }
+    // After an in-place reload mpv's playlist starts at the reloaded segment.
+    const int index = playlistIndex + m_playlistSegmentOffset;
     if (index < 0 || index >= m_playbackSegments.size() || index == m_activePlaybackSegmentIndex) {
         return;
     }
@@ -2208,11 +2213,14 @@ void PlayerController::onPlaybackReplannedForRequest(const QString &sessionId,
     applyAudioPlanOptions();
     // Credentials follow the stream: a later stream on another origin must
     // not inherit the previous one's headers.
-    QVariantList fields;
+    // Embedded backends set list-valued properties as strings, so replace the
+    // list entry by entry instead of with set_property.
+    m_playerBackend->sendVariantCommand({"change-list", "http-header-fields", "clr", QString()});
     for (auto it = descriptor.stream.headers.cbegin(); it != descriptor.stream.headers.cend(); ++it) {
-        fields.append(it.key() + QStringLiteral(": ") + it.value().toString());
+        m_playerBackend->sendVariantCommand(
+            {"change-list", "http-header-fields", "append",
+             it.key() + QStringLiteral(": ") + it.value().toString()});
     }
-    m_playerBackend->sendVariantCommand({"set_property", "http-header-fields", fields});
     if (m_streamSeekRequiresReanchor) {
         m_playerBackend->sendVariantCommand(
             {"change-list", "demuxer-lavf-o", "append", "live_start_index=0"});
@@ -2226,6 +2234,9 @@ void PlayerController::onPlaybackReplannedForRequest(const QString &sessionId,
     m_seekTargetWhileBuffering = -1;
     m_awaitingInPlaceReload = true;
     m_ignoreReplacedFileEnd = true;
+    // loadfile replace leaves mpv a one-entry playlist holding the active
+    // segment; later segments are appended again once it has loaded.
+    m_playlistSegmentOffset = m_activePlaybackSegmentIndex;
     m_playerBackend->sendVariantCommand({"loadfile", m_pendingUrl, "replace", -1,
                                          QStringLiteral("start=%1").arg(playerStart, 0, 'f', 3)});
     if (previousAudio != m_selectedAudioTrack) {
@@ -2353,6 +2364,20 @@ void PlayerController::onBackendFileLoaded()
     queueActiveSegmentExternalSubtitleTracks();
     applySubtitleDelay();
     m_reportProgressOnNextPositionUpdate = true;
+    QStringList laterSegmentUrls;
+    for (int index = m_activePlaybackSegmentIndex + 1; index < m_playbackSegments.size(); ++index) {
+        const QVariantMap segment = m_playbackSegments.at(index);
+        if (segment.value(QStringLiteral("deferredDescriptor")).toBool()) {
+            break; // appended when its session starts
+        }
+        const QString url = segment.value(QStringLiteral("url")).toString();
+        if (!url.isEmpty()) {
+            laterSegmentUrls.append(url);
+        }
+    }
+    if (!laterSegmentUrls.isEmpty()) {
+        m_playerBackend->appendUrlsToPlaylist(laterSegmentUrls);
+    }
 }
 
 void PlayerController::loadActiveStreamLayout(const QVariantMap &segment)
@@ -4038,6 +4063,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
                                 << "selectedMpvSubtitle=" << m_mpvSubtitleTrack;
         }
         m_pendingPlaylistAppendUrls = requestedPlaylistAppendUrls;
+        m_playlistSegmentOffset = 0;
 
         // Clear previous OSC/trickplay state and request new data
         m_currentSegments.clear();
@@ -4592,6 +4618,24 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
     if (!(m_playbackState == Playing || m_playbackState == Paused)) {
         qCWarning(lcPlayback) << "Cannot add external subtitle outside active playback state";
         return;
+    }
+
+    // mpv sends http-header-fields with every request, so while the stream
+    // carries credentials a sidecar from another origin would receive them.
+    const QVariantMap activeSegment = activePlaybackSegment();
+    if (!activeSegment.value(QStringLiteral("streamHeaders")).toMap().isEmpty()) {
+        const QUrl sidecar(normalizedSubtitleUrl);
+        const QUrl stream(activeSegment.value(QStringLiteral("url")).toString());
+        const auto port = [](const QUrl &url) {
+            return url.port(url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0
+                                ? 443 : 80);
+        };
+        if (sidecar.scheme().compare(stream.scheme(), Qt::CaseInsensitive) != 0
+            || sidecar.host().compare(stream.host(), Qt::CaseInsensitive) != 0
+            || port(sidecar) != port(stream)) {
+            qCWarning(lcPlayback) << "Skipping a cross-origin subtitle while stream headers are active";
+            return;
+        }
     }
 
     int syntheticIndex = -1000 - m_externalSubtitleTrackMap.size();
