@@ -12,12 +12,12 @@
     "siloCompatibilityRevision": "8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6",
     "siloCompatibilityImage": "ghcr.io/silo-server/silo-server@sha256:944ee9821de1d6a61876c9b7b06daa358118163d1e5f9b3aa9f5437856fd06e9",
     "siloCompatibilityImageTag": "8044eb8",
-    "siloRevision": "35ef973bc64af293aff76bcd49fa2dcab82a7f74",
+    "siloRevision": "62b1a6e82408eb4be3409255583bf8b0a192a69f",
     "siloOpenApiVersion": "2",
-    "siloOpenApiSha256": "be30c2f6d2a4dc7fbfef2a9b1438d843b4c25239eb2d637ec09dfef12f1220be",
-    "siloMigrationSha256": "2580fbf4222c5518605af3ff19ee3df634480dbf5226b22cf99bee6159516d61",
-    "siloOpenApiSource": "https://raw.githubusercontent.com/Silo-Server/silo-server/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json",
-    "siloMigrationSource": "https://raw.githubusercontent.com/Silo-Server/silo-server/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/migration.json"
+    "siloOpenApiSha256": "874142d5f0bd4abe657ce158af93744572c24924c8b806854fa6a8afc489376b",
+    "siloMigrationSha256": "f30d8063f00d75835cb4bc3171fc55ed6ed4859fe688ff85d658f1998e9fd73d",
+    "siloOpenApiSource": "https://raw.githubusercontent.com/Silo-Server/silo-server/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json",
+    "siloMigrationSource": "https://raw.githubusercontent.com/Silo-Server/silo-server/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/migration.json"
   },
   "outcomes": {
     "supported": "Bloom-required behavior and payload semantics are present.",
@@ -56,7 +56,7 @@
       "supportLabel": "silo-compatibility-support"
     },
     {
-      "id": "silo-35ef973-native",
+      "id": "silo-62b1a6e-native",
       "product": "Silo Server",
       "protocolMode": "native",
       "surface": "silo-native-v2",
@@ -583,13 +583,13 @@
       "id": "optional.watchlist",
       "issue": 80,
       "journey": "optional-follow-up",
-      "bloomCaller": "Future watchlist surface",
+      "bloomCaller": "Native Silo only (native.state.watchlist); none on these deployments",
       "method": "N/A",
       "path": "provider-specific watchlist",
       "requestSemantics": ["No Bloom request is made for this optional follow-up"],
       "requiredSemantics": ["Watchlist support is not inferred from favorite or played state"],
       "expectations": {
-        "jellyfin-supported": {"outcome": "not-applicable", "evidence": "Bloom currently has favorite and played state, not a distinct watchlist contract."},
+        "jellyfin-supported": {"outcome": "not-applicable", "evidence": "Jellyfin has favorite and played state but no watchlist, so Bloom hides the watchlist action and row."},
         "silo-8044eb8-compat": {"outcome": "not-applicable", "evidence": "No distinct compatibility watchlist route is pinned or consumed."}
       }
     },
@@ -679,7 +679,7 @@
     }
   ],
   "nativeSiloContract": {
-    "sourceRevision": "35ef973bc64af293aff76bcd49fa2dcab82a7f74",
+    "sourceRevision": "62b1a6e82408eb4be3409255583bf8b0a192a69f",
     "detection": {
       "method": "GET",
       "path": "/api/v2/system/info",
@@ -725,6 +725,7 @@
       "native.auth.me",
       "native.auth.logout",
       "native.auth.sessions",
+      "native.auth.device",
       "native.profiles.list",
       "native.profiles.pin",
       "native.catalog.libraries",
@@ -734,6 +735,8 @@
       "native.catalog.hierarchy",
       "native.state.watched",
       "native.state.favorite",
+      "native.state.watchlist",
+      "native.home.sections",
       "native.artwork.refetch",
       "native.playback.capability",
       "native.playback.start-v3",
@@ -772,7 +775,7 @@
           "Never enable a feature from server_version or contract_digest."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
       },
@@ -796,10 +799,11 @@
           "Public discovery before login."
         ],
         "requiredSemantics": [
-          "An items collection declares provider id, display_name, mode and default."
+          "An items collection declares provider id, display_name, mode and default.",
+          "password_login false hides the password form when device sign-in is offered; unknown modes are ignored."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ]
       },
       {
@@ -825,7 +829,7 @@
           "access_token, refresh_token, positive expires_in, and user with opaque string id and username."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
       },
@@ -854,7 +858,7 @@
           "406 and 415 are terminal format failures; 408 and 429 retries require explicit replay safety."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
       },
@@ -881,7 +885,7 @@
           "A rotated access_token and positive expires_in; retain refresh_token when rotation is absent."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
       },
@@ -908,7 +912,7 @@
           "Opaque string id, username, role, permissions and download_allowed validate the account."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
       },
@@ -935,7 +939,7 @@
           "The current authentication session is revoked."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ]
       },
       {
@@ -965,7 +969,54 @@
           "items contains opaque session IDs; page.next_cursor continues a session list."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
+        ]
+      },
+      {
+        "id": "native.auth.device",
+        "issue": 77,
+        "method": "GET/POST",
+        "path": "/api/v2/auth/device/capability and /api/v2/auth/device/start and /api/v2/auth/device/poll and /api/v2/auth/device/cancel",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/auth/device/capability"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/auth/device/start"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/auth/device/poll"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/auth/device/cancel"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "getDeviceLoginCapability state available with protocol version 2; the code option is hidden otherwise."
+        },
+        "requestSemantics": [
+          "Public operations without bearer or profile headers; start sends device_name and device_platform and never temporary or remote_playback.",
+          "Poll and cancel send the device_code in the JSON body; start and poll are non_retryable and never replayed by the transport, cancel is naturally idempotent."
+        ],
+        "requiredSemantics": [
+          "Start returns device_code, user_code, verification_uri, verification_uri_complete, positive expires_in and interval.",
+          "Poll status pending keeps polling after max(interval, poll_after) and moves the deadline to a pending expires_at; approved carries the same token pair as login exactly once.",
+          "denied, expired, canceled, consumed and 404 end the code; 429 slows polling by five seconds; cancel withdraws a live code when the capability reports cancel."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/docs/architecture/device-login.md"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloAuthenticator.h",
+          "src/network/DeviceSignInSession.cpp",
+          "tests/SiloAuthenticationTest.cpp"
         ]
       },
       {
@@ -991,7 +1042,7 @@
           "items contains profile id, name, has_pin, is_child and is_primary."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
       },
@@ -1018,7 +1069,7 @@
           "valid false denotes an incorrect PIN; valid true requires profile_token."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ]
       },
       {
@@ -1044,7 +1095,7 @@
           "items contains profile-accessible libraries with opaque string library IDs."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
       },
@@ -1072,7 +1123,7 @@
           "items, total, total_exact, page.has_more, page.next_cursor and window_cursor describe a stable query window."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
       },
@@ -1100,7 +1151,7 @@
           "items, total, total_exact, page.has_more, page.next_cursor and window_cursor; no offset or snapshot request."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
       },
@@ -1131,7 +1182,7 @@
           "Detail contains provider IDs, user state, versions, themes and playback variants."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
       },
@@ -1170,7 +1221,7 @@
           "Ordered seasons and episodes retain content identity."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ]
       },
       {
@@ -1200,7 +1251,7 @@
           "Watched state changes by content identity; mutations are never automatically replayed."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ]
       },
       {
@@ -1230,7 +1281,80 @@
           "The selected item favorite state changes without using file identity."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
+        ]
+      },
+      {
+        "id": "native.state.watchlist",
+        "method": "PUT/DELETE/GET",
+        "path": "/api/v2/watchlist/{item_id} and /api/v2/watchlist",
+        "operations": [
+          {
+            "method": "PUT",
+            "path": "/api/v2/watchlist/{item_id}"
+          },
+          {
+            "method": "DELETE",
+            "path": "/api/v2/watchlist/{item_id}"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/watchlist"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operations; Bloom exposes them as ProviderCapability::Watchlist on native Silo only."
+        },
+        "requestSemantics": [
+          "Profile-scoped membership write by content identity with an empty body.",
+          "addToWatchlist and deleteWatchlistEntry are natural_idempotent, so a lost response may be replayed.",
+          "The Home row reads the first page newest first with limit 20."
+        ],
+        "requiredSemantics": [
+          "Membership is a set: the item ends on or off the watchlist whatever the earlier state.",
+          "Item details carry user_state.in_watchlist, which seeds the detail page toggle.",
+          "Watchlist pages hold catalog items; only movie, series and episode cards reach Home."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/network/LibraryService.cpp"
+        ]
+      },
+      {
+        "id": "native.home.sections",
+        "method": "GET",
+        "path": "/api/v2/home/sections",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/home/sections"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operation; Bloom exposes it as ProviderCapability::HomeSections on native Silo only."
+        },
+        "requestSemantics": [
+          "Profile-scoped aggregate read of the acting profile's Home layout with each row's cards.",
+          "Section IDs come from the layout; Bloom never requests a fixed section ID."
+        ],
+        "requiredSemantics": [
+          "Rows arrive in display order with id, section_type, title and items, after the server's cross-row de-duplication and hide-watched rules.",
+          "Next Up keeps movie and episode cards from continue_watching and next_up rows.",
+          "Home adds the other rows below its own, except recently_added and new_to_library, keeping only movie, series and episode cards and dropping empty rows."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/viewmodels/HomeSectionsViewModel.cpp"
         ]
       },
       {
@@ -1264,7 +1388,7 @@
           "Artwork URLs are opaque fetch locations; preserve their signed query."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ]
       },
       {
@@ -1291,7 +1415,7 @@
           "Unknown capability states fail closed."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true,
         "implementationEvidence": [
@@ -1324,7 +1448,7 @@
           "Only supported deliveries and unshifted seekable timelines become PlaybackDescriptor; unknown enums fail safely."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true,
         "requiresMutationFlag": true,
@@ -1356,7 +1480,7 @@
           "A sequence applies once; stale replay cannot overwrite newer progress."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true,
         "requiresMutationFlag": true,
@@ -1388,7 +1512,7 @@
           "Stop tears down the session and preserves final progress; replay is safe."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true,
         "requiresMutationFlag": true,
@@ -1400,22 +1524,39 @@
       {
         "id": "native.playback.transcode",
         "issue": 80,
-        "method": "NONE",
-        "path": "unavailable",
-        "operations": [],
-        "outcome": "not-applicable",
+        "method": "GET",
+        "path": "/api/v2/playback/transcode/{session_id}/master.m3u8 and /api/v2/playback/transcode/{session_id}/segment/{name}",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/playback/transcode/{session_id}/master.m3u8"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/playback/transcode/{session_id}/segment/{name}"
+          }
+        ],
+        "outcome": "partial",
         "capability": {
-          "state": "unavailable",
+          "state": "conditional",
           "discovery": "Explicit capability and profile permission, never build identity."
         },
         "requestSemantics": [
-          "No new native transcode or forward-only delivery support."
+          "Start and replan offer the hls delivery class after original_http, so the server keeps the original file whenever it can play.",
+          "mpv fetches the plan master.m3u8 with the same-origin account token query and an Authorization bearer header, which segment URIs written through EXT-X-DEFINE need because FFmpeg does not expand HLS variables."
         ],
         "requiredSemantics": [
-          "Unavailable until timeline translation and seek reanchoring have runtime validation."
+          "server_remux_hls and server_transcode_hls plans become DirectStream and Transcode descriptors; timeline_offset_seconds turns player positions into source positions for progress, seeks and sidecar subtitles.",
+          "A stream with can_seek_anywhere false seeks outside its produced range through a seek_reanchor replan and needs seek_reanchor_v1; audio and embedded subtitle changes use track_change replans.",
+          "server_remux_progressive is never requested and is rejected; HLS Dolby Vision, quality rungs and plan_invalidated are not negotiated."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloPlaybackProvider.cpp",
+          "src/network/PlaybackService.cpp",
+          "src/player/PlayerController.cpp"
         ]
       },
       {
@@ -1435,13 +1576,14 @@
           "discovery": "Explicit capability and profile permission, never build identity."
         },
         "requestSemantics": [
-          "operation track_change, selected_tracks, installation_id, active plan identities and stable replan_request_id."
+          "operation track_change, selected_tracks, installation_id, active plan identities and stable replan_request_id.",
+          "operation seek_reanchor with position_seconds moves a stream whose timeline cannot seek anywhere; it echoes the current selected_tracks."
         ],
         "requiredSemantics": [
           "A new PlaybackDecision supplies the replacement plan; there is no audio PATCH route in the contract."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true,
         "requiresMutationFlag": true,
@@ -1477,7 +1619,7 @@
           "File markers carry intro, credits, recap and preview intervals in seconds with provenance."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ]
       },
       {
@@ -1507,7 +1649,7 @@
           "Chapter start and end seconds become canonical milliseconds."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ]
       },
       {
@@ -1538,7 +1680,7 @@
           "Signed sheets expire; a missing published fixture is unavailable live evidence."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
       },
@@ -1579,7 +1721,7 @@
           "Converted delivery has no ranges or length; each loop obtains a new grant."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true,
         "requiresMutationFlag": true
@@ -1612,8 +1754,8 @@
           "Card overlay_summary fields fill the badges each poster shows; preset styling and accent colours are not used."
         ],
         "evidenceSources": [
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json",
-          "https://github.com/Silo-Server/silo-server/blob/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/settings/v1/schemas/card-overlays.json"
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/settings/v1/schemas/card-overlays.json"
         ],
         "implementationEvidence": [
           "src/providers/silo/SiloModelMapper.cpp",

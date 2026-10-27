@@ -1,5 +1,6 @@
 #include "AuthenticationService.h"
 #include "ConnectionSessionPool.h"
+#include "DeviceSignInSession.h"
 #include "HttpTransport.h"
 #include "models/MediaModels.h"
 #include "../security/ISecretStore.h"
@@ -9,6 +10,7 @@
 #include "providers/IProviderRequestFactory.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include <algorithm>
+#include <tuple>
 #include <utility>
 #include <QCoreApplication>
 #include <QDebug>
@@ -58,6 +60,8 @@ QJsonObject capabilitiesObject(ProviderCapabilities capabilities)
     add(ProviderCapability::MediaSegments, "media_segments");
     add(ProviderCapability::Playback, "playback");
     add(ProviderCapability::PlaybackReporting, "playback_reporting");
+    add(ProviderCapability::Watchlist, "watchlist");
+    add(ProviderCapability::HomeSections, "home_sections");
     return result;
 }
 }
@@ -76,6 +80,7 @@ AuthenticationService::AuthenticationService(std::shared_ptr<ISecretStore> secre
 {
     m_sessionPool = new ConnectionSessionPool(m_secretStore, this);
     configureTransport();
+    initializeDeviceSignIn();
 }
 
 AuthenticationService::AuthenticationService(std::shared_ptr<ISecretStore> secretStore,
@@ -92,6 +97,7 @@ AuthenticationService::AuthenticationService(std::shared_ptr<ISecretStore> secre
 {
     m_sessionPool = new ConnectionSessionPool(m_secretStore, this);
     configureTransport();
+    initializeDeviceSignIn();
 }
 
 AuthenticationService::AuthenticationService(
@@ -111,6 +117,7 @@ AuthenticationService::AuthenticationService(
     activateProvider(initial);
     m_sessionPool = new ConnectionSessionPool(m_secretStore, this);
     configureTransport();
+    initializeDeviceSignIn();
 }
 
 AuthenticationService::~AuthenticationService()
@@ -535,22 +542,27 @@ void AuthenticationService::setProviderSelection(const QString &selection)
     emit providerSelectionChanged();
 }
 
-void AuthenticationService::authenticate(const QString &serverUrl,
-                                           const QString &username,
-                                           const QString &password)
+std::pair<QString, QString> AuthenticationService::resolveServerAddress(
+    const QString &address) const
 {
-    clearAccountStateInternal(false, false);
-    m_serverUrl = normalizeUrl(serverUrl);
-    m_schemeFallbackUrl.clear();
+    const QString normalized = normalizeUrl(address);
     // A bare host ("media.example.com:8096") tries HTTPS first and falls back
     // to HTTP only when HTTPS produces no HTTP response at all. An explicit
     // scheme is used as typed and never downgraded.
     static const QRegularExpression schemePattern(
         QStringLiteral("^[A-Za-z][A-Za-z0-9+.-]*://"));
-    if (!m_serverUrl.isEmpty() && !schemePattern.match(m_serverUrl).hasMatch()) {
-        m_schemeFallbackUrl = QStringLiteral("http://") + m_serverUrl;
-        m_serverUrl = QStringLiteral("https://") + m_serverUrl;
+    if (!normalized.isEmpty() && !schemePattern.match(normalized).hasMatch()) {
+        return {QStringLiteral("https://") + normalized, QStringLiteral("http://") + normalized};
     }
+    return {normalized, QString()};
+}
+
+void AuthenticationService::authenticate(const QString &serverUrl,
+                                           const QString &username,
+                                           const QString &password)
+{
+    clearAccountStateInternal(false, false);
+    std::tie(m_serverUrl, m_schemeFallbackUrl) = resolveServerAddress(serverUrl);
     emit serverUrlChanged();
     const quint64 generation = m_stateGeneration;
 
@@ -741,6 +753,7 @@ void AuthenticationService::handleAuthenticationResult(
     }
 
     m_accessToken = authentication.accessToken;
+    setAccessTokenLifetime(authentication.expiresInSeconds);
     m_refreshToken = authentication.refreshToken;
     m_profileToken = authentication.profileToken;
     m_userId = authentication.accountId;
@@ -1590,6 +1603,27 @@ void AuthenticationService::renewConnection(const QString &connectionId,
     }
 }
 
+void AuthenticationService::setAccessTokenLifetime(qint64 expiresInSeconds)
+{
+    m_accessTokenLifetimeSeconds = qMax<qint64>(0, expiresInSeconds);
+    m_accessTokenExpiresAt = expiresInSeconds > 0
+        ? QDateTime::currentDateTimeUtc().addSecs(expiresInSeconds)
+        : QDateTime();
+}
+
+void AuthenticationService::ensureAccessTokenValidFor(qint64 seconds,
+                                                      std::function<void()> done)
+{
+    const bool expiring = !m_accessTokenExpiresAt.isValid()
+        || QDateTime::currentDateTimeUtc().secsTo(m_accessTokenExpiresAt)
+            < qMin(seconds, m_accessTokenLifetimeSeconds / 2);
+    if (!expiring || m_refreshToken.isEmpty() || !isAuthenticated()) {
+        done();
+        return;
+    }
+    renewConnection(activeConnectionId(), [done = std::move(done)](TokenRenewal) { done(); });
+}
+
 void AuthenticationService::finishRenewal(const QString &connectionId, TokenRenewal outcome)
 {
     if (connectionId == m_liveRenewalConnectionId) {
@@ -1666,6 +1700,7 @@ void AuthenticationService::refreshLiveSession()
                 return;
             }
             m_accessToken = authentication.accessToken;
+            setAccessTokenLifetime(authentication.expiresInSeconds);
             if (!authentication.refreshToken.isEmpty()) {
                 m_refreshToken = authentication.refreshToken;
             }
@@ -1758,6 +1793,7 @@ void AuthenticationService::renewPooledConnection(const QString &connectionId)
                 // session adopts the rotated tokens. Persisting also updates
                 // the pool.
                 m_accessToken = renewed.accessToken;
+                setAccessTokenLifetime(authentication.expiresInSeconds);
                 m_refreshToken = renewed.refreshToken;
                 persistCredentialsAsync();
                 finishRenewal(connectionId, TokenRenewal::Renewed);
@@ -1838,6 +1874,7 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
     m_serverUrl = normalizedServerUrl;
     m_userId = userId;
     m_accessToken = accessToken;
+    setAccessTokenLifetime(-1);
     m_username = username;
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
@@ -1910,6 +1947,7 @@ void AuthenticationService::seedSession(const QString &serverUrl,
     m_serverUrl = normalizeUrl(serverUrl);
     m_userId = userId;
     m_accessToken = accessToken;
+    setAccessTokenLifetime(-1);
     m_username = username;
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
@@ -1970,6 +2008,8 @@ void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
         m_transport->cancelAll();
     }
     Bloom::ArtworkRef::clearTransientSourceUrls();
+    // Leaving or replacing the signed-out state abandons a code sign-in.
+    m_deviceSignIn->cancel();
     const bool wasAuthenticated = isAuthenticated();
     ++m_stateGeneration;
     abandonLiveRenewal();
@@ -2001,6 +2041,7 @@ void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
     m_activeConnection = {};
     m_detectionResult = {};
     m_accessToken.clear();
+    setAccessTokenLifetime(-1);
     m_refreshToken.clear();
     m_profileToken.clear();
     m_userId.clear();
@@ -2034,6 +2075,11 @@ void AuthenticationService::updateAuthenticationStep(const QString &step)
     }
     const bool wasAuthenticated = isAuthenticated();
     m_authenticationStep = step;
+    // A code sign-in that reached profiles, PIN, or the app is done.
+    if (step != QStringLiteral("credentials")
+        && m_deviceSignIn->state() == DeviceSignInSession::State::SigningIn) {
+        m_deviceSignIn->reset();
+    }
     emit authenticationStepChanged();
     if (wasAuthenticated != isAuthenticated()) {
         emit authenticatedChanged();
@@ -2128,4 +2174,266 @@ void AuthenticationService::validateAccessToken(std::function<void(SessionValidi
                          : SessionValidity::Unreachable);
         },
         options);
+}
+
+// ---------------------------------------------------------------------------
+// Sign-in discovery and device sign-in ("sign in with a code")
+// ---------------------------------------------------------------------------
+
+void AuthenticationService::initializeDeviceSignIn()
+{
+    m_deviceSignIn = new DeviceSignInSession(this);
+    connect(m_deviceSignIn, &DeviceSignInSession::changed,
+            this, &AuthenticationService::deviceSignInChanged);
+    // Profile loading or credential storage can still fail after approval;
+    // the code screen then shows that error instead of "Signing in".
+    connect(this, &AuthenticationService::loginError, this, [this](const QString &error) {
+        m_deviceSignIn->fail(error);
+    });
+}
+
+QVariantMap AuthenticationService::signInOptions() const
+{
+    return {
+        {QStringLiteral("server"), m_signInDiscovery.address},
+        {QStringLiteral("state"), m_signInDiscovery.state},
+        {QStringLiteral("silo"), m_signInDiscovery.silo},
+        {QStringLiteral("passwordSignIn"), m_signInDiscovery.passwordSignIn},
+        {QStringLiteral("deviceSignIn"), m_signInDiscovery.deviceSignIn},
+    };
+}
+
+QVariantMap AuthenticationService::deviceSignIn() const
+{
+    return m_deviceSignIn->toVariantMap();
+}
+
+HttpRequestOptions AuthenticationService::discoveryRequestOptions(int maxAttempts) const
+{
+    // Public reads: safe to replay, short deadlines so the form never waits long.
+    HttpRequestOptions options;
+    options.retrySafety = RetrySafety::Idempotent;
+    options.retryPolicy.maxAttempts = maxAttempts;
+    options.retryPolicy.baseDelayMs = 500;
+    options.attemptTimeoutMs = 10000;
+    options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
+    return options;
+}
+
+void AuthenticationService::checkSignInOptions(const QString &serverAddress)
+{
+    const QString address = serverAddress.trimmed();
+    if (address == m_signInDiscovery.address
+        && (m_signInDiscovery.state == QStringLiteral("checking")
+            || m_signInDiscovery.state == QStringLiteral("ready"))) {
+        return;
+    }
+
+    const quint64 generation = ++m_signInDiscoveryGeneration;
+    m_signInDiscovery = {};
+    m_signInDiscovery.address = address;
+    if (address.isEmpty()) {
+        emit signInOptionsChanged();
+        return;
+    }
+
+    IProviderAdapter *silo = providerForKind(ProviderKind::Silo);
+    if (m_providerSelection == QStringLiteral("jellyfin") || !silo || !silo->requestFactory()
+        || !networkManager()) {
+        // Only native Silo offers anything beyond the password form.
+        m_signInDiscovery.state = QStringLiteral("ready");
+        emit signInOptionsChanged();
+        return;
+    }
+    if (!m_discoveryTransport || m_discoveryTransport->networkManager() != networkManager()) {
+        m_discoveryTransport = std::make_unique<HttpTransport>(networkManager());
+        const IProviderRequestFactory *factory = silo->requestFactory();
+        m_discoveryTransport->setUrlRedactor([factory](const QUrl &url) {
+            return factory->redactedUrl(url);
+        });
+    }
+    m_signInDiscovery.state = QStringLiteral("checking");
+    emit signInOptionsChanged();
+
+    const auto [baseUrl, fallbackUrl] = resolveServerAddress(address);
+    discoverSilo(baseUrl, fallbackUrl, generation);
+}
+
+void AuthenticationService::discoverSilo(const QString &baseUrl,
+                                         const QString &fallbackUrl,
+                                         quint64 generation)
+{
+    IProviderAdapter *silo = providerForKind(ProviderKind::Silo);
+    const auto endpoint = silo->endpointFor(ProviderRoute::SystemInfo);
+    if (!endpoint) {
+        finishSignInDiscovery(QStringLiteral("ready"), generation);
+        return;
+    }
+    ProviderRequestContext context = requestContext(false);
+    context.baseUrl = baseUrl;
+    const IProviderRequestFactory *factory = silo->requestFactory();
+    m_discoveryTransport->sendWithRetry(
+        this,
+        *endpoint,
+        [this, factory, context, endpoint = *endpoint]() {
+            return networkManager()->get(factory->createRequest(context, endpoint));
+        },
+        [this, silo, baseUrl, generation](QNetworkReply *reply) {
+            if (generation != m_signInDiscoveryGeneration) {
+                return;
+            }
+            m_signInDiscovery.baseUrl = baseUrl;
+            const auto detected = silo->mapDetectionResult(
+                QJsonDocument::fromJson(reply->readAll()).object());
+            if (!detected) {
+                // Jellyfin or another server: password sign-in only.
+                finishSignInDiscovery(QStringLiteral("ready"), generation);
+                return;
+            }
+            m_signInDiscovery.silo = true;
+            m_signInDiscovery.detection = *detected;
+            discoverDeviceSignIn(generation);
+        },
+        [this, baseUrl, fallbackUrl, generation](const NetworkError &error) {
+            if (generation != m_signInDiscoveryGeneration) {
+                return;
+            }
+            if (error.httpStatus != 0) {
+                // The server answered, just not as native Silo.
+                m_signInDiscovery.baseUrl = baseUrl;
+                finishSignInDiscovery(QStringLiteral("ready"), generation);
+            } else if (!fallbackUrl.isEmpty()) {
+                discoverSilo(fallbackUrl, QString(), generation);
+            } else {
+                finishSignInDiscovery(QStringLiteral("unreachable"), generation);
+            }
+        },
+        discoveryRequestOptions(1));
+}
+
+void AuthenticationService::discoverDeviceSignIn(quint64 generation)
+{
+    IProviderAdapter *silo = providerForKind(ProviderKind::Silo);
+    const IProviderAuthenticator *authenticator = silo->authenticator();
+    const auto endpoint = authenticator->deviceAuthorizationCapabilityEndpoint();
+    if (!endpoint) {
+        discoverSignInMethods(generation);
+        return;
+    }
+    ProviderRequestContext context = requestContext(false);
+    context.baseUrl = m_signInDiscovery.baseUrl;
+    const IProviderRequestFactory *factory = silo->requestFactory();
+    m_discoveryTransport->sendWithRetry(
+        this,
+        *endpoint,
+        [this, factory, context, endpoint = *endpoint]() {
+            return networkManager()->get(factory->createRequest(context, endpoint));
+        },
+        [this, authenticator, generation](QNetworkReply *reply) {
+            if (generation != m_signInDiscoveryGeneration) {
+                return;
+            }
+            const auto capability =
+                authenticator->parseDeviceAuthorizationCapability(reply->readAll());
+            m_signInDiscovery.deviceSignIn = capability && capability->available;
+            m_signInDiscovery.deviceCanWithdraw = capability && capability->cancel;
+            discoverSignInMethods(generation);
+        },
+        [this, generation](const NetworkError &) {
+            if (generation == m_signInDiscoveryGeneration) {
+                discoverSignInMethods(generation);
+            }
+        },
+        discoveryRequestOptions(2));
+}
+
+void AuthenticationService::discoverSignInMethods(quint64 generation)
+{
+    IProviderAdapter *silo = providerForKind(ProviderKind::Silo);
+    const IProviderAuthenticator *authenticator = silo->authenticator();
+    const auto endpoint = authenticator->signInMethodsEndpoint();
+    if (!endpoint) {
+        finishSignInDiscovery(QStringLiteral("ready"), generation);
+        return;
+    }
+    ProviderRequestContext context = requestContext(false);
+    context.baseUrl = m_signInDiscovery.baseUrl;
+    const IProviderRequestFactory *factory = silo->requestFactory();
+    m_discoveryTransport->sendWithRetry(
+        this,
+        *endpoint,
+        [this, factory, context, endpoint = *endpoint]() {
+            return networkManager()->get(factory->createRequest(context, endpoint));
+        },
+        [this, authenticator, generation](QNetworkReply *reply) {
+            if (generation != m_signInDiscoveryGeneration) {
+                return;
+            }
+            const auto methods = authenticator->parseSignInMethods(reply->readAll());
+            // Without an answer, keep the password form.
+            m_signInDiscovery.passwordSignIn =
+                !methods || methods->passwordSignIn.value_or(true);
+            finishSignInDiscovery(QStringLiteral("ready"), generation);
+        },
+        [this, generation](const NetworkError &) {
+            finishSignInDiscovery(QStringLiteral("ready"), generation);
+        },
+        discoveryRequestOptions(2));
+}
+
+void AuthenticationService::finishSignInDiscovery(const QString &state, quint64 generation)
+{
+    if (generation != m_signInDiscoveryGeneration) {
+        return;
+    }
+    // A server without password sign-in must still offer a way in.
+    if (!m_signInDiscovery.deviceSignIn) {
+        m_signInDiscovery.passwordSignIn = true;
+    }
+    m_signInDiscovery.state = state;
+    emit signInOptionsChanged();
+}
+
+void AuthenticationService::startDeviceSignIn(const QString &serverAddress)
+{
+    const QString address = serverAddress.trimmed();
+    IProviderAdapter *silo = providerForKind(ProviderKind::Silo);
+    if (address != m_signInDiscovery.address
+        || m_signInDiscovery.state != QStringLiteral("ready")
+        || !m_signInDiscovery.deviceSignIn || !silo) {
+        emit loginError(tr("This server doesn't offer sign-in with a code."));
+        return;
+    }
+
+    clearAccountStateInternal(false, false);
+    if (!activateProvider(silo)) {
+        emit loginError(tr("The selected provider is not available."));
+        return;
+    }
+    m_serverUrl = m_signInDiscovery.baseUrl;
+    m_schemeFallbackUrl.clear();
+    m_detectionResult = m_signInDiscovery.detection;
+    emit serverUrlChanged();
+
+    const quint64 generation = m_stateGeneration;
+    DeviceSignInSession::Target target;
+    target.networkManager = networkManager();
+    target.requestFactory = m_requestFactory;
+    target.authenticator = m_providerAuthenticator;
+    target.context = requestContext(false);
+    target.canWithdraw = m_signInDiscovery.deviceCanWithdraw;
+    m_deviceSignIn->start(target, [this, generation](
+                                      const ProviderAuthenticationResult &authentication) {
+        if (generation != m_stateGeneration) {
+            m_deviceSignIn->reset();
+            return;
+        }
+        // From here the sign-in is identical to a password login.
+        handleAuthenticationResult(authentication, generation);
+    });
+}
+
+void AuthenticationService::cancelDeviceSignIn()
+{
+    m_deviceSignIn->cancel();
 }

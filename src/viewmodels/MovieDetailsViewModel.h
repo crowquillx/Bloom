@@ -36,6 +36,10 @@ class MovieDetailsViewModel : public BaseViewModel
     Q_PROPERTY(QString backdropUrl READ backdropUrl NOTIFY backdropUrlChanged)
     Q_PROPERTY(int productionYear READ productionYear NOTIFY productionYearChanged)
     Q_PROPERTY(bool isWatched READ isWatched NOTIFY isWatchedChanged)
+    // Watchlist membership; the action shows only where the provider has a
+    // watchlist (Silo).
+    Q_PROPERTY(bool watchlistSupported READ watchlistSupported NOTIFY watchlistSupportedChanged)
+    Q_PROPERTY(bool inWatchlist READ inWatchlist NOTIFY inWatchlistChanged)
     
     Q_PROPERTY(QString officialRating READ officialRating NOTIFY officialRatingChanged)
     Q_PROPERTY(qint64 durationMs READ durationMs NOTIFY durationMsChanged)
@@ -65,6 +69,8 @@ public:
     QString backdropUrl() const { return m_backdropUrl; }
     int productionYear() const { return m_productionYear; }
     bool isWatched() const { return m_isWatched; }
+    bool watchlistSupported() const;
+    bool inWatchlist() const { return m_inWatchlist; }
     
     QString officialRating() const { return m_officialRating; }
     qint64 durationMs() const { return m_durationMs; }
@@ -101,6 +107,14 @@ public:
      * @brief Mark the movie as unwatched.
      */
     Q_INVOKABLE void markAsUnwatched();
+
+    /**
+     * @brief Add the movie to the watchlist, or remove it.
+     *
+     * Updates `inWatchlist` at once and restores it if the server refuses
+     * (`watchlistUpdateFailed`). Ignored while a change is in flight.
+     */
+    Q_INVOKABLE void toggleWatchlist();
 
     /**
      * @brief Clear all data and reset state.
@@ -141,6 +155,9 @@ signals:
     void backdropUrlChanged();
     void productionYearChanged();
     void isWatchedChanged();
+    void watchlistSupportedChanged();
+    void inWatchlistChanged();
+    void watchlistUpdateFailed(const QString &message);
     
     void officialRatingChanged();
     void durationMsChanged();
@@ -174,6 +191,8 @@ private slots:
                                const QString &itemId,
                                const QString &error);
     void onErrorOccurred(const QString &endpoint, const QString &error);
+    void onWatchlistStatusChanged(const QString &itemId, bool inWatchlist);
+    void onWatchlistStatusFailed(const QString &itemId, bool inWatchlist, const QString &error);
 
 private:
     void updateMovieMetadata(const QVariantMap &data);
@@ -198,6 +217,8 @@ private:
     QString m_backdropUrl;
     int m_productionYear = 0;
     bool m_isWatched = false;
+    bool m_inWatchlist = false;
+    bool m_watchlistPending = false;
     
     QString m_officialRating;
     qint64 m_durationMs = 0;

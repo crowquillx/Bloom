@@ -18,9 +18,21 @@ public:
         const QString path = request.url().path();
         const bool authenticationRoute =
             path.contains(QStringLiteral("/api/v2/auth/"));
-        const bool loginRoute = path.endsWith(QStringLiteral("/api/v2/auth/login"));
+        // Collecting an approved device request opens a login session like
+        // password login, so it reports the device the same way.
+        const bool deviceCollectRoute =
+            path.endsWith(QStringLiteral("/api/v2/auth/device/poll"));
+        const bool loginRoute = path.endsWith(QStringLiteral("/api/v2/auth/login"))
+            || deviceCollectRoute;
+        // The device's own pairing operations carry the device code, never a
+        // bearer token; approve/deny stay authenticated.
+        const bool deviceAuthorizationRoute = deviceCollectRoute
+            || path.endsWith(QStringLiteral("/api/v2/auth/device/start"))
+            || path.endsWith(QStringLiteral("/api/v2/auth/device/cancel"))
+            || path.endsWith(QStringLiteral("/api/v2/auth/device/capability"));
         const bool publicAuthenticationRoute =
             loginRoute
+            || deviceAuthorizationRoute
             || path.endsWith(QStringLiteral("/api/v2/auth/refresh"))
             || path.endsWith(QStringLiteral("/api/v2/auth/providers"))
             || path.endsWith(QStringLiteral("/health"))

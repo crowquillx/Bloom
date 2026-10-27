@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "sourceRevision": "35ef973bc64af293aff76bcd49fa2dcab82a7f74",
-  "source": "https://raw.githubusercontent.com/Silo-Server/silo-server/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/openapi.json",
-  "sourceSha256": "be30c2f6d2a4dc7fbfef2a9b1438d843b4c25239eb2d637ec09dfef12f1220be",
-  "migrationSource": "https://raw.githubusercontent.com/Silo-Server/silo-server/35ef973bc64af293aff76bcd49fa2dcab82a7f74/contracts/api/v2/migration.json",
-  "migrationSha256": "2580fbf4222c5518605af3ff19ee3df634480dbf5226b22cf99bee6159516d61",
+  "sourceRevision": "62b1a6e82408eb4be3409255583bf8b0a192a69f",
+  "source": "https://raw.githubusercontent.com/Silo-Server/silo-server/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json",
+  "sourceSha256": "874142d5f0bd4abe657ce158af93744572c24924c8b806854fa6a8afc489376b",
+  "migrationSource": "https://raw.githubusercontent.com/Silo-Server/silo-server/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/migration.json",
+  "migrationSha256": "f30d8063f00d75835cb4bc3171fc55ed6ed4859fe688ff85d658f1998e9fd73d",
   "apiVersion": "2",
-  "pathCount": 707,
+  "pathCount": 722,
   "operations": [
     {
       "method": "DELETE",
@@ -238,6 +238,13 @@
         {
           "in": "header",
           "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Silo-Device-Id",
           "schema": {
             "type": "string"
           }
@@ -605,6 +612,125 @@
       "deprecated": false
     },
     {
+      "method": "DELETE",
+      "path": "/api/v2/watchlist/{item_id}",
+      "operationId": "deleteWatchlistEntry",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "item_id",
+          "required": true,
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "204": {},
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
       "method": "GET",
       "path": "/api/v2/account/me",
       "operationId": "getCurrentUser",
@@ -686,6 +812,115 @@
       },
       "conditional": false,
       "class": "authenticated",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/auth/device/capability",
+      "operationId": "getDeviceLoginCapability",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "If-Match",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceLoginCapability"
+              }
+            }
+          },
+          "headers": {
+            "Cache-Control": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "304": {
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "412": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          },
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": true,
+      "class": "public",
       "deprecated": false
     },
     {
@@ -4863,6 +5098,511 @@
     },
     {
       "method": "GET",
+      "path": "/api/v2/playback/transcode/{session_id}/master.m3u8",
+      "operationId": "getPlaybackManifest",
+      "parameters": [
+        {
+          "in": "path",
+          "name": "session_id",
+          "required": true,
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "st",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "silo_rendition",
+          "schema": {
+            "enum": [
+              "video",
+              "subtitles"
+            ],
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/vnd.apple.mpegurl": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "headers": {
+            "Cache-Control": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "Content-Length": {
+              "schema": {
+                "format": "int64",
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "409": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "410": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/playback/transcode/{session_id}/segment/{name}",
+      "operationId": "getPlaybackSegment",
+      "parameters": [
+        {
+          "in": "path",
+          "name": "session_id",
+          "required": true,
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "query",
+          "name": "st",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "name",
+          "required": true,
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-Match",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-Unmodified-Since",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "Range",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-Range",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-Modified-Since",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "multipart/byteranges": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "text/vtt": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "video/mp2t": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "video/mp4": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "headers": {
+            "Accept-Ranges": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "Cache-Control": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "Content-Length": {
+              "schema": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "Last-Modified": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "206": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "multipart/byteranges": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "text/vtt": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "video/mp2t": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "video/mp4": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "headers": {
+            "Content-Range": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "304": {},
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "409": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "410": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "412": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "416": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          },
+          "headers": {
+            "Content-Range": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
       "path": "/api/v2/profiles",
       "operationId": "listProfiles",
       "parameters": [
@@ -6866,6 +7606,537 @@
       "deprecated": false
     },
     {
+      "method": "GET",
+      "path": "/api/v2/watchlist",
+      "operationId": "listWatchlist",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "image_size",
+          "schema": {
+            "enum": [
+              "small",
+              "medium",
+              "large",
+              "original"
+            ],
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "poster_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "backdrop_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "logo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "still_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "photo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "limit",
+          "schema": {
+            "default": 50,
+            "format": "int64",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "cursor",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchlistCollection"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/auth/device/cancel",
+      "operationId": "cancelDeviceLogin",
+      "parameters": [],
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CancelDeviceLoginInputBody"
+            }
+          }
+        },
+        "required": true
+      },
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceLoginCancel"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "408": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "413": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "415": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "public",
+      "deprecated": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/auth/device/poll",
+      "operationId": "pollDeviceLogin",
+      "parameters": [],
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PollDeviceLoginInputBody"
+            }
+          }
+        },
+        "required": true
+      },
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceLoginPoll"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "408": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "413": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "415": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "public",
+      "deprecated": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/auth/device/start",
+      "operationId": "startDeviceLogin",
+      "parameters": [],
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/StartDeviceLoginInputBody"
+            }
+          }
+        },
+        "required": true
+      },
+      "responses": {
+        "201": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceLoginStart"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "408": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "413": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "415": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "public",
+      "deprecated": false
+    },
+    {
       "method": "POST",
       "path": "/api/v2/auth/login",
       "operationId": "login",
@@ -6963,6 +8234,15 @@
           }
         },
         "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
           "content": {
             "application/problem+json": {
               "schema": {
@@ -7612,6 +8892,13 @@
         },
         {
           "in": "header",
+          "name": "X-Silo-Device-Id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
           "name": "User-Agent",
           "schema": {
             "type": "string"
@@ -7697,13 +8984,6 @@
         {
           "in": "header",
           "name": "X-Silo-Client-Channel",
-          "schema": {
-            "type": "string"
-          }
-        },
-        {
-          "in": "header",
-          "name": "X-Silo-Device-Id",
           "schema": {
             "type": "string"
           }
@@ -7881,6 +9161,13 @@
         {
           "in": "header",
           "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Silo-Device-Id",
           "schema": {
             "type": "string"
           }
@@ -8144,6 +9431,13 @@
         {
           "in": "header",
           "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Silo-Device-Id",
           "schema": {
             "type": "string"
           }
@@ -8790,6 +10084,125 @@
       "conditional": false,
       "class": "profile_scoped",
       "deprecated": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v2/watchlist/{item_id}",
+      "operationId": "addToWatchlist",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "item_id",
+          "required": true,
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "204": {},
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
     }
   ],
   "schemas": {
@@ -9073,6 +10486,7 @@
           "type": "string"
         },
         "photo_url": {
+          "format": "uri-reference",
           "type": "string"
         }
       },
@@ -9110,6 +10524,7 @@
           "type": "string"
         },
         "poster_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "series_index": {
@@ -9158,6 +10573,7 @@
           "type": "string"
         },
         "icon_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "id": {
@@ -9253,6 +10669,19 @@
       ],
       "type": "object"
     },
+    "CancelDeviceLoginInputBody": {
+      "additionalProperties": false,
+      "properties": {
+        "device_code": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_code"
+      ],
+      "type": "object"
+    },
     "CastCredit": {
       "additionalProperties": false,
       "properties": {
@@ -9276,6 +10705,7 @@
           "type": "string"
         },
         "photo_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "plex_guid": {
@@ -9495,6 +10925,7 @@
           "type": "string"
         },
         "backdrop_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "badges": {
@@ -9533,9 +10964,11 @@
           "type": "array"
         },
         "last_air_date": {
+          "format": "date",
           "type": "string"
         },
         "logo_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "machine_translated_fields": {
@@ -9588,6 +11021,7 @@
           "type": "string"
         },
         "poster_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "progress_updated_at": {
@@ -9612,6 +11046,7 @@
           "type": "number"
         },
         "release_date": {
+          "format": "date",
           "type": "string"
         },
         "runtime": {
@@ -9720,6 +11155,7 @@
           "type": "string"
         },
         "air_date": {
+          "format": "date",
           "type": "string"
         },
         "air_time": {
@@ -9738,10 +11174,12 @@
           "type": "string"
         },
         "backdrop_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "backdrop_urls": {
           "items": {
+            "format": "uri-reference",
             "type": "string"
           },
           "type": "array"
@@ -9756,6 +11194,7 @@
           "type": "string"
         },
         "banner_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "cast": {
@@ -9765,6 +11204,7 @@
           "type": "array"
         },
         "clearart_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "content_id": {
@@ -9789,6 +11229,7 @@
           "type": "array"
         },
         "disc_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "duration_seconds": {
@@ -9802,6 +11243,7 @@
           "type": "boolean"
         },
         "effective_subtitle_language": {
+          "pattern": "^(?:[a-z]{2,3}(?:-[0-9A-Za-z]{1,8})*|x(?:-[0-9A-Za-z]{1,8})+)?$",
           "type": "string"
         },
         "effective_subtitle_mode": {
@@ -9837,6 +11279,7 @@
           "type": "array"
         },
         "first_air_date": {
+          "format": "date",
           "type": "string"
         },
         "folder_paths": {
@@ -9870,6 +11313,7 @@
           "type": "array"
         },
         "last_air_date": {
+          "format": "date",
           "type": "string"
         },
         "locked_fields": {
@@ -9880,6 +11324,7 @@
           "type": "array"
         },
         "logo_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "machine_translated_fields": {
@@ -9948,6 +11393,7 @@
           "type": "string"
         },
         "poster_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "preview": {
@@ -9990,6 +11436,7 @@
           "$ref": "#/components/schemas/Marker"
         },
         "release_date": {
+          "format": "date",
           "type": "string"
         },
         "runtime": {
@@ -10044,6 +11491,7 @@
           "type": "string"
         },
         "thumb_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "title": {
@@ -10176,6 +11624,7 @@
           "type": "number"
         },
         "release_date": {
+          "format": "date",
           "type": "string"
         },
         "resolution": {
@@ -10198,6 +11647,7 @@
       "additionalProperties": false,
       "properties": {
         "air_date": {
+          "format": "date",
           "type": "string"
         },
         "air_time": {
@@ -10675,6 +12125,7 @@
           "type": "string"
         },
         "photo_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "plex_guid": {
@@ -10751,6 +12202,14 @@
         "max_channels": {
           "format": "int64",
           "type": "integer"
+        },
+        "max_channels_by_codec": {
+          "additionalProperties": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "maxProperties": 32,
+          "type": "object"
         },
         "subtitles": {
           "$ref": "#/components/schemas/DeliverySubtitleCapabilitiesV3"
@@ -10854,6 +12313,187 @@
       },
       "type": "object"
     },
+    "DeviceLoginCancel": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "canceled",
+            "denied",
+            "consumed",
+            "expired"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "DeviceLoginCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "cancel": {
+          "type": "boolean"
+        },
+        "jellyfin_quick_connect": {
+          "type": "boolean"
+        },
+        "opened_signal": {
+          "type": "boolean"
+        },
+        "protocol_versions": {
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "remote_playback_handoff": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "available",
+            "disabled",
+            "not_configured",
+            "unsupported"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "remote_playback_handoff",
+        "jellyfin_quick_connect",
+        "protocol_versions",
+        "cancel",
+        "opened_signal",
+        "revision",
+        "state"
+      ],
+      "type": "object"
+    },
+    "DeviceLoginPoll": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": "string"
+        },
+        "opened": {
+          "type": "boolean"
+        },
+        "poll_after": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "profile_id": {
+          "type": "string"
+        },
+        "profile_token": {
+          "type": "string"
+        },
+        "session_expires_at": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "denied",
+            "consumed",
+            "canceled",
+            "expired"
+          ],
+          "type": "string"
+        },
+        "temporary": {
+          "type": "boolean"
+        },
+        "tokens": {
+          "$ref": "#/components/schemas/TokenPair"
+        }
+      },
+      "required": [
+        "status",
+        "poll_after",
+        "opened",
+        "profile_id",
+        "profile_token",
+        "temporary"
+      ],
+      "type": "object"
+    },
+    "DeviceLoginStart": {
+      "additionalProperties": false,
+      "properties": {
+        "client_purpose": {
+          "type": "string"
+        },
+        "device_code": {
+          "type": "string"
+        },
+        "device_name": {
+          "type": "string"
+        },
+        "device_platform": {
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": "string"
+        },
+        "expires_in": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "interval": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "match_code": {
+          "type": "string"
+        },
+        "temporary": {
+          "type": "boolean"
+        },
+        "user_code": {
+          "type": "string"
+        },
+        "verification_uri": {
+          "type": "string"
+        },
+        "verification_uri_complete": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_code",
+        "user_code",
+        "match_code",
+        "verification_uri",
+        "verification_uri_complete",
+        "expires_at",
+        "expires_in",
+        "interval",
+        "device_name",
+        "device_platform",
+        "client_purpose",
+        "temporary"
+      ],
+      "type": "object"
+    },
     "DolbyVisionProfileCapabilityV3": {
       "additionalProperties": false,
       "properties": {
@@ -10931,6 +12571,9 @@
         "height": {
           "format": "int64",
           "type": "integer"
+        },
+        "segment_container": {
+          "type": "string"
         },
         "video_codec": {
           "type": "string"
@@ -11060,6 +12703,7 @@
       "additionalProperties": false,
       "properties": {
         "air_date": {
+          "format": "date",
           "type": "string"
         },
         "content_id": {
@@ -11117,6 +12761,7 @@
           "type": "string"
         },
         "still_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "title": {
@@ -11512,6 +13157,13 @@
         "kind": {
           "type": "string"
         },
+        "still_thumbhash": {
+          "type": "string"
+        },
+        "still_url": {
+          "format": "uri-reference",
+          "type": "string"
+        },
         "title": {
           "type": "string"
         }
@@ -11712,6 +13364,7 @@
           "type": "string"
         },
         "poster_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "progress": {
@@ -11799,6 +13452,7 @@
           "type": "string"
         },
         "thumbnail_url": {
+          "format": "uri-reference",
           "type": "string"
         }
       },
@@ -11959,12 +13613,14 @@
           "type": "string"
         },
         "birth_date": {
+          "format": "date",
           "type": "string"
         },
         "birthplace": {
           "type": "string"
         },
         "death_date": {
+          "format": "date",
           "type": "string"
         },
         "homepage": {
@@ -11984,6 +13640,7 @@
           "type": "string"
         },
         "photo_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "plex_guid": {
@@ -12024,11 +13681,51 @@
       ],
       "type": "object"
     },
+    "PlaybackBandwidthLimit": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "kbps": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "observed_rebuffer"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kbps",
+        "source",
+        "expires_at"
+      ],
+      "type": "object"
+    },
     "PlaybackCapabilities": {
       "additionalProperties": false,
       "properties": {
         "allowed": {
           "type": "boolean"
+        },
+        "bandwidth_probe_automatic": {
+          "type": "boolean"
+        },
+        "bandwidth_probe_max_age_seconds": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "bandwidth_probe_target_kbps": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "bandwidth_probe_url": {
+          "format": "uri",
+          "type": "string"
         },
         "deliveries": {
           "items": {
@@ -12135,6 +13832,9 @@
     "PlaybackPlan": {
       "additionalProperties": false,
       "properties": {
+        "active_quality": {
+          "type": "string"
+        },
         "applied_quirks": {
           "items": {
             "$ref": "#/components/schemas/AppliedQuirkV3"
@@ -12146,6 +13846,9 @@
             "$ref": "#/components/schemas/AvailableQualityV3"
           },
           "type": "array"
+        },
+        "bandwidth_limit": {
+          "$ref": "#/components/schemas/PlaybackBandwidthLimit"
         },
         "claims": {
           "$ref": "#/components/schemas/ValidationClaimsV3"
@@ -12297,6 +14000,13 @@
           "format": "int64",
           "type": "integer"
         },
+        "bandwidth_estimate_source": {
+          "enum": [
+            "probe",
+            "observed_rebuffer"
+          ],
+          "type": "string"
+        },
         "client_capabilities": {
           "$ref": "#/components/schemas/ClientCodecCapabilitiesV3"
         },
@@ -12321,6 +14031,13 @@
           "minLength": 1,
           "type": "string"
         },
+        "learned_limit": {
+          "enum": [
+            "ignore",
+            "clear"
+          ],
+          "type": "string"
+        },
         "local_mutations": {
           "items": {
             "type": "string"
@@ -12331,6 +14048,12 @@
         "metered": {
           "deprecated": true,
           "type": "boolean"
+        },
+        "observed_throughput_kbps": {
+          "format": "int64",
+          "maximum": 1000000,
+          "minimum": 100,
+          "type": "integer"
         },
         "operation": {
           "enum": [
@@ -12510,6 +14233,13 @@
           "format": "int64",
           "type": "integer"
         },
+        "bandwidth_estimate_source": {
+          "enum": [
+            "probe",
+            "observed_rebuffer"
+          ],
+          "type": "string"
+        },
         "client_capabilities": {
           "$ref": "#/components/schemas/ClientCodecCapabilitiesV3"
         },
@@ -12530,9 +14260,22 @@
           "minLength": 1,
           "type": "string"
         },
+        "learned_limit": {
+          "enum": [
+            "ignore",
+            "clear"
+          ],
+          "type": "string"
+        },
         "metered": {
           "deprecated": true,
           "type": "boolean"
+        },
+        "observed_throughput_kbps": {
+          "format": "int64",
+          "maximum": 1000000,
+          "minimum": 100,
+          "type": "integer"
         },
         "playback_attempt_id": {
           "type": "string"
@@ -12687,6 +14430,19 @@
       ],
       "type": "object"
     },
+    "PollDeviceLoginInputBody": {
+      "additionalProperties": false,
+      "properties": {
+        "device_code": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "device_code"
+      ],
+      "type": "object"
+    },
     "Problem": {
       "additionalProperties": false,
       "properties": {
@@ -12778,6 +14534,7 @@
           "type": "string"
         },
         "avatar_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "created_at": {
@@ -12799,6 +14556,7 @@
           "type": "boolean"
         },
         "language": {
+          "pattern": "^(?:[a-z]{2,3}(?:-[0-9A-Za-z]{1,8})*|x(?:-[0-9A-Za-z]{1,8})+)?$",
           "type": "string"
         },
         "library_restrictions_enabled": {
@@ -12823,6 +14581,7 @@
           "type": "string"
         },
         "preferred_metadata_language": {
+          "pattern": "^(?:[a-z]{2,3}(?:-[0-9A-Za-z]{1,8})*|x(?:-[0-9A-Za-z]{1,8})+)?$",
           "type": "string"
         },
         "quality_preference": {
@@ -12835,6 +14594,7 @@
           "type": "boolean"
         },
         "subtitle_language": {
+          "pattern": "^(?:[a-z]{2,3}(?:-[0-9A-Za-z]{1,8})*|x(?:-[0-9A-Za-z]{1,8})+)?$",
           "type": "string"
         },
         "subtitle_mode": {
@@ -12982,6 +14742,7 @@
       "additionalProperties": false,
       "properties": {
         "air_date": {
+          "format": "date",
           "type": "string"
         },
         "content_id": {
@@ -13013,6 +14774,7 @@
           "type": "string"
         },
         "poster_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "season_number": {
@@ -13167,6 +14929,30 @@
       },
       "type": "object"
     },
+    "StartDeviceLoginInputBody": {
+      "additionalProperties": false,
+      "properties": {
+        "client_purpose": {
+          "enum": [
+            "device_login",
+            "remote_playback"
+          ],
+          "type": "string"
+        },
+        "device_name": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "device_platform": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "temporary": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "StreamV3": {
       "additionalProperties": false,
       "properties": {
@@ -13177,6 +14963,7 @@
           "type": "string"
         },
         "header_refresh_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "headers": {
@@ -13192,6 +14979,7 @@
           "type": "string"
         },
         "url": {
+          "format": "uri-reference",
           "type": "string"
         }
       },
@@ -13217,6 +15005,7 @@
           "type": "number"
         },
         "url": {
+          "format": "uri-reference",
           "type": "string"
         }
       },
@@ -13329,6 +15118,7 @@
           "type": "string"
         },
         "font_bundle_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "forced": {
@@ -13353,6 +15143,7 @@
           "type": "string"
         },
         "url": {
+          "format": "uri-reference",
           "type": "string"
         }
       },
@@ -13379,6 +15170,9 @@
         },
         "links": {
           "$ref": "#/components/schemas/SystemInfoLinks"
+        },
+        "request_origin": {
+          "type": "string"
         },
         "server_version": {
           "type": "string"
@@ -13467,6 +15261,7 @@
           "type": "string"
         },
         "url": {
+          "format": "uri-reference",
           "type": "string"
         }
       },
@@ -13705,6 +15500,7 @@
           "type": "string"
         },
         "poster_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "sort_order": {
@@ -13765,6 +15561,7 @@
           "type": "string"
         },
         "thumbnail_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "title": {
@@ -14086,6 +15883,7 @@
           "type": "string"
         },
         "thumbnail_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "title": {
@@ -14108,6 +15906,7 @@
           "type": "string"
         },
         "backdrop_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "content_id": {
@@ -14120,6 +15919,7 @@
           "type": "boolean"
         },
         "effective_subtitle_language": {
+          "pattern": "^(?:[a-z]{2,3}(?:-[0-9A-Za-z]{1,8})*|x(?:-[0-9A-Za-z]{1,8})+)?$",
           "type": "string"
         },
         "effective_subtitle_mode": {
@@ -14160,6 +15960,7 @@
           "type": "string"
         },
         "poster_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "preview": {
@@ -14667,6 +16468,7 @@
           "type": "integer"
         },
         "url": {
+          "format": "uri-reference",
           "type": "string"
         }
       },
@@ -14837,6 +16639,24 @@
         "dv_config_present",
         "dv_bl_compat_id_present",
         "interlaced"
+      ],
+      "type": "object"
+    },
+    "WatchlistCollection": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/components/schemas/CatalogItem"
+          },
+          "type": "array"
+        },
+        "page": {
+          "$ref": "#/components/schemas/PageInfo"
+        }
+      },
+      "required": [
+        "items"
       ],
       "type": "object"
     }

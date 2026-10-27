@@ -36,7 +36,11 @@ enum class ProviderCapability {
     Playback = 1 << 7,
     PlaybackReporting = 1 << 8,
     ThemeSongs = 1 << 9,
-    Trickplay = 1 << 10
+    Trickplay = 1 << 10,
+    // A per-profile watchlist distinct from favorites.
+    Watchlist = 1 << 11,
+    // Server-curated Home rows for the selected profile.
+    HomeSections = 1 << 12
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

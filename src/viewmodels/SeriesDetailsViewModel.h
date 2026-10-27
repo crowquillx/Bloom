@@ -152,6 +152,10 @@ class SeriesDetailsViewModel : public BaseViewModel
     Q_PROPERTY(int productionYear READ productionYear NOTIFY productionYearChanged)
     Q_PROPERTY(bool isWatched READ isWatched NOTIFY isWatchedChanged)
     Q_PROPERTY(bool isFavorite READ isFavorite NOTIFY isFavoriteChanged)
+    // Watchlist membership; the action shows only where the provider has a
+    // watchlist (Silo).
+    Q_PROPERTY(bool watchlistSupported READ watchlistSupported NOTIFY watchlistSupportedChanged)
+    Q_PROPERTY(bool inWatchlist READ inWatchlist NOTIFY inWatchlistChanged)
     Q_PROPERTY(QString tmdbId READ tmdbId NOTIFY tmdbIdChanged)
     Q_PROPERTY(QVariantList people READ people NOTIFY peopleChanged)
     Q_PROPERTY(QStringList genres READ genres NOTIFY genresChanged)
@@ -207,6 +211,8 @@ public:
     int productionYear() const { return m_productionYear; }
     bool isWatched() const { return m_isWatched; }
     bool isFavorite() const { return m_isFavorite; }
+    bool watchlistSupported() const;
+    bool inWatchlist() const { return m_inWatchlist; }
     QString tmdbId() const { return m_tmdbId; }
     QVariantList people() const { return m_people; }
     QStringList genres() const { return m_genres; }
@@ -294,6 +300,13 @@ public:
      */
     Q_INVOKABLE void markAsUnwatched();
     Q_INVOKABLE void toggleFavorite();
+    /**
+     * @brief Add the series to the watchlist, or remove it.
+     *
+     * Updates `inWatchlist` at once and restores it if the server refuses
+     * (`watchlistUpdateFailed`). Ignored while a change is in flight.
+     */
+    Q_INVOKABLE void toggleWatchlist();
     Q_INVOKABLE void loadFocusedEpisodeDetails(const QString &episodeId);
     Q_INVOKABLE void clearFocusedEpisodeDetails();
     Q_INVOKABLE void loadFocusedEpisodeChapters(const QString &episodeId);
@@ -350,6 +363,9 @@ signals:
     void productionYearChanged();
     void isWatchedChanged();
     void isFavoriteChanged();
+    void watchlistSupportedChanged();
+    void inWatchlistChanged();
+    void watchlistUpdateFailed(const QString &message);
     void tmdbIdChanged();
     void peopleChanged();
     void genresChanged();
@@ -404,6 +420,8 @@ private slots:
                              const QString &requestContext);
     void onSeriesWatchedStatusChanged(const QString &seriesId);
     void onFavoriteStatusChanged(const QString &itemId, bool isFavorite);
+    void onWatchlistStatusChanged(const QString &itemId, bool inWatchlist);
+    void onWatchlistStatusFailed(const QString &itemId, bool inWatchlist, const QString &error);
     void onSimilarItemsLoaded(const QString &connectionId,
                               const QString &itemId,
                               const QVariantList &items);
@@ -447,6 +465,8 @@ private:
     int m_productionYear = 0;
     bool m_isWatched = false;
     bool m_isFavorite = false;
+    bool m_inWatchlist = false;
+    bool m_watchlistPending = false;
     QString m_imdbId;
     QString m_tmdbId;
     QVariantList m_people;

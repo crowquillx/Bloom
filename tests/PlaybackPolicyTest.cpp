@@ -75,6 +75,7 @@ private slots:
     void normalizesLanguageAliases();
     void scoresLanguageStreamsDeterministically();
     void resolvesTrackSelectionPrecedence();
+    void prefersEmbeddedSubtitlesOverExternalFiles();
     void classifiesHdrAndDolbyVision();
     void evaluatesHdrOutputPolicy();
     void selectsVersionsByForcedIdAndAffinity();
@@ -230,6 +231,46 @@ void PlaybackPolicyTest::resolvesTrackSelectionPrecedence()
     QCOMPARE(resolved.audioSource, QStringLiteral("fallback"));
     QCOMPARE(resolved.subtitleIndex, -1);
     QCOMPARE(resolved.subtitleSource, QStringLiteral("global-forced-off"));
+}
+
+void PlaybackPolicyTest::prefersEmbeddedSubtitlesOverExternalFiles()
+{
+    const auto external = [](QVariantMap value) {
+        value.insert(QStringLiteral("isExternal"), true);
+        return value;
+    };
+    // The provider lists an external English file ahead of the embedded one.
+    const QVariantMap source = mediaSource(
+        QStringLiteral("source"),
+        QStringLiteral("Version"),
+        QStringLiteral("/media/movie.mkv"),
+        {
+            stream(QStringLiteral("Audio"), 1, QStringLiteral("eng"), true),
+            external(stream(QStringLiteral("Subtitle"), 2, QStringLiteral("eng"))),
+            external(stream(QStringLiteral("Subtitle"), 3, QStringLiteral("eng"),
+                            false, true)),
+            stream(QStringLiteral("Subtitle"), 4, QStringLiteral("eng")),
+            stream(QStringLiteral("Subtitle"), 5, QStringLiteral("eng"), false, true)
+        });
+
+    auto resolved = PlayerPolicy::resolveTrackSelection(
+        source, {}, QStringLiteral("eng"), QStringLiteral("eng"));
+    QCOMPARE(resolved.subtitleIndex, 4);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("global-language"));
+
+    resolved = PlayerPolicy::resolveTrackSelection(
+        source, {}, QStringLiteral("eng"), QStringLiteral("forced"));
+    QCOMPARE(resolved.subtitleIndex, 5);
+
+    // An external file still wins when it is the only match.
+    QVariantMap externalOnly = source;
+    externalOnly[QStringLiteral("mediaStreams")] = QVariantList{
+        stream(QStringLiteral("Subtitle"), 4, QStringLiteral("spa")),
+        external(stream(QStringLiteral("Subtitle"), 2, QStringLiteral("eng")))
+    };
+    resolved = PlayerPolicy::resolveTrackSelection(
+        externalOnly, {}, QStringLiteral("eng"), QStringLiteral("eng"));
+    QCOMPARE(resolved.subtitleIndex, 2);
 }
 
 void PlaybackPolicyTest::classifiesHdrAndDolbyVision()

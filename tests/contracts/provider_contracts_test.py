@@ -257,7 +257,7 @@ class ProviderContractValidationTest(unittest.TestCase):
         manifest = load_silo_openapi_manifest()
         self.assertEqual(manifest["sourceSha256"], snapshot["siloOpenApiSha256"])
         self.assertEqual(manifest["migrationSha256"], snapshot["siloMigrationSha256"])
-        self.assertEqual(manifest["pathCount"], 707)
+        self.assertEqual(manifest["pathCount"], 722)
         for requirement in native["requirements"]:
             if requirement["id"].startswith("native.playback.") and requirement["capability"]["state"] != "unavailable":
                 self.assertTrue(requirement["implementationEvidence"])
@@ -363,7 +363,7 @@ class ProviderContractValidationTest(unittest.TestCase):
                 run_live_contracts.main(
                     [
                         "--deployment",
-                        "silo-35ef973-native",
+                        "silo-62b1a6e-native",
                         "--base-url",
                         "https://silo.example",
                     ]

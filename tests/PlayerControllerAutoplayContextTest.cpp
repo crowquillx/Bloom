@@ -172,6 +172,11 @@ public:
         emit playbackEnded();
     }
 
+    void emitFileLoaded()
+    {
+        emit fileLoaded();
+    }
+
     void emitCacheEnd(double seconds)
     {
         emit cacheEndChanged(seconds);
@@ -360,17 +365,32 @@ public:
         }
     }
 
-    bool switchPlaybackAudio(const QString &playbackSessionId,
-                             int audioTrackIndex,
-                             qint64 positionMs,
-                             const QString &requestContext) override
+    bool replanPlayback(const QString &playbackSessionId,
+                        const PlaybackReplan &replan,
+                        const QString &requestContext) override
     {
-        Q_UNUSED(audioTrackIndex);
-        Q_UNUSED(positionMs);
-        emit playbackAudioSwitchedForRequest(playbackSessionId,
-                                             QUrl(QStringLiteral("https://example.invalid/reloaded")),
-                                             requestContext);
+        replans.append(replan);
+        replanContexts.append(requestContext);
+        if (deferReplans) {
+            return true;
+        }
+        Bloom::PlaybackDescriptor descriptor;
+        descriptor.playbackSessionId = playbackSessionId;
+        descriptor.stream.url = QUrl(QStringLiteral("https://example.invalid/reloaded"));
+        descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
+        emit playbackReplannedForRequest(playbackSessionId, descriptor, requestContext);
         return true;
+    }
+
+    void completeReplan(const QString &playbackSessionId,
+                        const Bloom::PlaybackDescriptor &descriptor)
+    {
+        emit playbackReplannedForRequest(playbackSessionId, descriptor, replanContexts.last());
+    }
+
+    void failReplan(const QString &playbackSessionId, const QString &error)
+    {
+        emit playbackReplanFailedForRequest(playbackSessionId, error, replanContexts.last());
     }
 
     void getPlaybackInfo(const QString &itemId) override
@@ -436,6 +456,11 @@ public:
     QStringList requestedAdditionalPartsItemIds;
     QStringList requestedAdditionalPartsContexts;
     bool deferDescriptorRequests = false;
+    bool deferReplans = false;
+    QList<PlaybackReplan> replans;
+    QStringList replanContexts;
+    bool queuedSessionsExpire = false;
+    bool queuedPlaybackSessionsExpire() const override { return queuedSessionsExpire; }
     QStringList requestedDescriptorContexts;
     mutable QStringList requestedDescriptorItemIds;
     mutable QStringList requestedDescriptorMediaSourceIds;
@@ -536,6 +561,7 @@ private slots:
     void playbackServiceReportsMissingProvider();
     void localPreviewsGenerateOnRequestAndYieldToServer();
     void autoplayRetainsDescriptorForLocalPreviews();
+    void descriptorExternalSubtitleReusesItsSourceEntry();
     void seekPreviewSettingsGateServerAndLocalPreviews();
     void thresholdMetRequestsNextEpisodeDirectly();
     void userStopPastThresholdRequestsNextEpisode();
@@ -579,6 +605,10 @@ private slots:
     void switchPlaybackVersionRestartsAtCurrentPosition();
     void switchPlaybackVersionKeepsQueuedResumePosition();
     void multipartPlaybackPublishesNoVersions();
+    void expiringSessionsDeferLaterMultipartSegments();
+    void pausedPlaybackSendsMinuteHeartbeat();
+    void inPlaceReloadKeepsHeadersPlaylistAndOrigins();
+    void lostServerSessionRecoversOrLeaves();
     void adjacentEpisodesCrossSeasonBoundaries();
     void requestPlaybackRecoversLibraryProfileFromSeriesDetails();
     void remoteMountStartupBufferingAppendsMpvArgs();
@@ -609,7 +639,7 @@ private slots:
     void runtimeSubtitleDelayAppliesAndPersists();
     void backendTrackSyncUsesReverseMap();
     void descriptorPinnedTrackIdsDefaultToMinusOne();
-    void nativeAudioReloadRetainsTrackMapping();
+    void serverStreamReplansKeepTheSourceTimeline();
     void audioStartupPlanOverridesProfileOutputArgs();
     void autoAudioDeviceChangesReloadAfterInitialBaseline();
     void explicitAudioDeviceReloadsOnDisappearAndReconnect();
@@ -743,8 +773,12 @@ void PlayerControllerAutoplayContextTest::localPreviewsGenerateOnRequestAndYield
     const QString beforeAudioSwitch = controller.trickplayPreviewUrlAt(10);
     controller.m_playSessionId = QStringLiteral("session");
     controller.m_pendingAudioSwitchContext = QStringLiteral("audio-refresh");
-    controller.onPlaybackAudioSwitchedForRequest(QStringLiteral("session"),
-        QUrl::fromLocalFile(QStringLiteral("/missing/audio-only-replacement")), QStringLiteral("audio-refresh"));
+    Bloom::PlaybackDescriptor replacement = descriptor;
+    replacement.playbackSessionId = QStringLiteral("session");
+    replacement.stream.url = QUrl::fromLocalFile(QStringLiteral("/missing/audio-only-replacement"));
+    controller.onPlaybackReplannedForRequest(QStringLiteral("session"), replacement,
+                                             QStringLiteral("audio-refresh"));
+    controller.onBackendFileLoaded();
     QVERIFY(controller.m_useLocalTrickplay);
     QCOMPARE(controller.trickplayPreviewUrlAt(10), beforeAudioSwitch);
     controller.m_activePlaybackSegmentOffsetMs = 60000;
@@ -797,6 +831,58 @@ void PlayerControllerAutoplayContextTest::localPreviewsGenerateOnRequestAndYield
     controller.onTrickplayInfoLoaded(descriptor.media.itemId, {});
     QVERIFY(!controller.hasTrickplay());
     QVERIFY(!controller.m_localSeekPreview->isAvailable());
+}
+
+void PlayerControllerAutoplayContextTest::descriptorExternalSubtitleReusesItsSourceEntry()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    Bloom::PlaybackDescriptor descriptor;
+    Bloom::PlaybackTrack listed;
+    listed.trackId = QStringLiteral("0");
+    listed.language = QStringLiteral("eng");
+    listed.isExternal = true;
+    listed.sourceIndex = 7;
+    listed.externalUrl = QUrl(QStringLiteral("https://example.invalid/listed.vtt"));
+    Bloom::PlaybackTrack downloaded = listed;
+    downloaded.trackId = QStringLiteral("5");
+    downloaded.sourceIndex = -1;
+    downloaded.externalUrl = QUrl(QStringLiteral("https://example.invalid/downloaded.vtt"));
+    descriptor.subtitleTracks = {listed, downloaded};
+    descriptor.selectedSubtitleTrackId = listed.trackId;
+
+    QVariantList tracks = {QVariantMap{{QStringLiteral("index"), 2}},
+                           QVariantMap{{QStringLiteral("index"), 7}}};
+    int selected = 2;
+    controller.appendDescriptorExternalSubtitleTracks(tracks, descriptor, &selected);
+    QCOMPARE(tracks.size(), 3);
+    QCOMPARE(tracks.at(1).toMap().value(QStringLiteral("index")).toInt(), 7);
+    QVERIFY(tracks.at(1).toMap().value(QStringLiteral("isExternal")).toBool());
+    QCOMPARE(tracks.at(1).toMap().value(QStringLiteral("externalUrl")).toString(),
+             QStringLiteral("https://example.invalid/listed.vtt"));
+    QCOMPARE(tracks.at(2).toMap().value(QStringLiteral("index")).toInt(), -1000);
+    QCOMPARE(selected, 7);
+
+    // mpv numbers only the file's embedded subtitles before any sub-add.
+    controller.updateTrackMappings({{QStringLiteral("mediaStreams"), QVariantList{
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")},
+                    {QStringLiteral("index"), 7}, {QStringLiteral("isExternal"), true}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")},
+                    {QStringLiteral("index"), 2}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")},
+                    {QStringLiteral("index"), 3}}
+    }}});
+    QCOMPARE(controller.mpvSubtitleTrackForSourceIndex(2), 1);
+    QCOMPARE(controller.mpvSubtitleTrackForSourceIndex(3), 2);
+    QCOMPARE(controller.mpvSubtitleTrackForSourceIndex(7), -1);
 }
 
 void PlayerControllerAutoplayContextTest::autoplayRetainsDescriptorForLocalPreviews()
@@ -1836,10 +1922,11 @@ void PlayerControllerAutoplayContextTest::staleNativeAudioSwitchResponseIsIgnore
 
     controller.setSelectedAudioTrack(-1);
 
-    QVERIFY(controller.m_pendingAudioSwitchContext.isEmpty());
+    // The replan stays in flight, but its failure no longer owns the audio.
+    QCOMPARE(controller.m_pendingAudioSwitchPreviousTrack, -2);
     QCOMPARE(controller.selectedAudioTrack(), -1);
     QVERIFY(QMetaObject::invokeMethod(&controller,
-                                      "onPlaybackAudioSwitchFailedForRequest",
+                                      "onPlaybackReplanFailedForRequest",
                                       Qt::DirectConnection,
                                       Q_ARG(QString, QStringLiteral("session-audio")),
                                       Q_ARG(QString, QStringLiteral("stale failure")),
@@ -2868,6 +2955,196 @@ void PlayerControllerAutoplayContextTest::multipartPlaybackPublishesNoVersions()
     QVERIFY(!backend.appendedUrls.isEmpty());
     QCOMPARE(controller.m_playbackVersionsItemId, QStringLiteral("movie-1"));
     QVERIFY(controller.m_playbackVersions.isEmpty());
+}
+
+void PlayerControllerAutoplayContextTest::expiringSessionsDeferLaterMultipartSegments()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    playbackService.queuedSessionsExpire = true;
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("movie-1")},
+        {QStringLiteral("isMovie"), true},
+        {QStringLiteral("allowVersionPrompt"), false}
+    });
+    const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
+    const auto source = [](const QString &id, const QString &path) {
+        return buildMediaSourceInfo(id, id, path, {QVariantMap{{QStringLiteral("type"), QStringLiteral("Video")}}});
+    };
+    emit playbackService.playbackInfoLoadedForRequest(
+        QStringLiteral("movie-1"),
+        buildPlaybackInfo({source(QStringLiteral("hd"), QStringLiteral("/hd/part1.mkv"))}),
+        requestId);
+    emit playbackService.additionalPartsLoadedForRequest(
+        QStringLiteral("movie-1"),
+        QVariantList{QVariantMap{{QStringLiteral("itemId"), QStringLiteral("movie-1-part-2")}}},
+        requestId);
+    emit playbackService.playbackInfoLoadedForRequest(
+        QStringLiteral("movie-1-part-2"),
+        buildPlaybackInfo({source(QStringLiteral("hd-2"), QStringLiteral("/hd/part2.mkv"))}),
+        requestId);
+
+    // Only the first part's session starts before playback.
+    QCOMPARE(playbackService.requestedDescriptorItemIds, QStringList{QStringLiteral("movie-1")});
+    QVERIFY(backend.appendedUrls.isEmpty());
+    QCOMPARE(controller.m_playbackSegments.size(), 2);
+    QVERIFY(controller.m_playbackSegments.at(1).value(QStringLiteral("deferredDescriptor")).toBool());
+
+    // The next part's session starts only shortly before the handoff.
+    controller.m_playbackSegments[0][QStringLiteral("durationMs")] = 600000;
+    controller.m_segmentRelativePosition = 10.0;
+    controller.requestDeferredSegmentDescriptor();
+    QCOMPARE(playbackService.requestedDescriptorItemIds, QStringList{QStringLiteral("movie-1")});
+    controller.m_segmentRelativePosition = 600.0 - PlayerController::kDeferredSegmentLeadSeconds;
+    controller.requestDeferredSegmentDescriptor();
+    QCOMPARE(playbackService.requestedDescriptorItemIds.last(), QStringLiteral("movie-1-part-2"));
+    QVERIFY(playbackService.requestedDescriptorContexts.last().startsWith(QStringLiteral("segment|")));
+    QCOMPARE(backend.appendedUrls, QStringList{QStringLiteral("https://example.invalid/movie-1-part-2")});
+    QVERIFY(!controller.m_playbackSegments.at(1).contains(QStringLiteral("deferredDescriptor")));
+
+    controller.requestDeferredSegmentDescriptor();
+    QCOMPARE(backend.appendedUrls.size(), 1);
+}
+
+void PlayerControllerAutoplayContextTest::pausedPlaybackSendsMinuteHeartbeat()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_playSessionId = QStringLiteral("play-session-1");
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_progressReportTimer->start();
+
+    // Leaving Playing stops the timer; the paused state must keep it running.
+    QVERIFY(controller.processEvent(PlayerController::Event::Pause));
+    QCOMPARE(controller.m_playbackState, PlayerController::Paused);
+    QVERIFY(controller.m_progressReportTimer->isActive());
+    playbackService.progressReports.clear();
+
+    for (int tick = 1; tick < PlayerController::kPausedProgressEveryTicks; ++tick) {
+        controller.reportPlaybackProgress();
+    }
+    QVERIFY(playbackService.progressReports.isEmpty());
+    controller.reportPlaybackProgress();
+    QCOMPARE(playbackService.progressReports.size(), 1);
+    QVERIFY(playbackService.progressReports.first().isPaused);
+
+    QVERIFY(controller.processEvent(PlayerController::Event::Resume));
+    QCOMPARE(controller.m_playbackState, PlayerController::Playing);
+    QVERIFY(controller.m_progressReportTimer->isActive());
+}
+
+void PlayerControllerAutoplayContextTest::inPlaceReloadKeepsHeadersPlaylistAndOrigins()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    const auto segment = [](const QString &name) {
+        return QVariantMap{{QStringLiteral("itemId"), name},
+                           {QStringLiteral("playSessionId"), QStringLiteral("session-") + name},
+                           {QStringLiteral("url"), QStringLiteral("https://silo.example.test/") + name},
+                           {QStringLiteral("durationMs"), 600000}};
+    };
+    controller.m_playbackSegments = {segment(QStringLiteral("a")), segment(QStringLiteral("b")),
+                                     segment(QStringLiteral("c"))};
+    controller.applyPlaybackSegment(1, false);
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_pendingAudioSwitchContext = QStringLiteral("replan|test");
+
+    Bloom::PlaybackDescriptor descriptor;
+    descriptor.playbackSessionId = QStringLiteral("session-b");
+    descriptor.stream.url = QUrl(QStringLiteral("https://silo.example.test/b/master.m3u8"));
+    descriptor.stream.method = Bloom::PlaybackMethod::DirectStream;
+    descriptor.stream.headers = {{QStringLiteral("Authorization"), QStringLiteral("Bearer token")}};
+    backend.variantCommands.clear();
+    emit playbackService.playbackReplannedForRequest(
+        QStringLiteral("session-b"), descriptor, QStringLiteral("replan|test"));
+
+    // Headers are replaced entry by entry, which every backend applies.
+    QVERIFY(backend.variantCommands.contains(QVariantList(
+        {QStringLiteral("change-list"), QStringLiteral("http-header-fields"), QStringLiteral("clr"), QString()})));
+    QVERIFY(backend.variantCommands.contains(QVariantList(
+        {QStringLiteral("change-list"), QStringLiteral("http-header-fields"), QStringLiteral("append"),
+         QStringLiteral("Authorization: Bearer token")})));
+
+    // The replacement playlist starts at the reloaded segment; part c follows it.
+    backend.emitPlaylistPosition(0);
+    QCOMPARE(controller.m_activePlaybackSegmentIndex, 1);
+    backend.emitFileLoaded();
+    QCOMPARE(backend.appendedUrls, QStringList{QStringLiteral("https://silo.example.test/c")});
+    backend.emitPlaylistPosition(0);
+    QCOMPARE(controller.m_activePlaybackSegmentIndex, 1);
+    backend.emitPlaylistPosition(1);
+    QCOMPARE(controller.m_activePlaybackSegmentIndex, 2);
+
+    // Credentials never follow a sidecar to another origin.
+    controller.m_playbackSegments[2][QStringLiteral("streamHeaders")] = QVariantMap{
+        {QStringLiteral("Authorization"), QStringLiteral("Bearer token")}};
+    const auto subAdds = [&backend]() {
+        return std::count_if(backend.variantCommands.cbegin(), backend.variantCommands.cend(),
+                             [](const QVariantList &command) {
+                                 return !command.isEmpty()
+                                     && command.first().toString() == QStringLiteral("sub-add");
+                             });
+    };
+    backend.variantCommands.clear();
+    controller.addExternalSubtitleTrackInternal(QStringLiteral("https://elsewhere.example.test/x.vtt"),
+                                                QStringLiteral("Other"), QStringLiteral("eng"), -1, false);
+    QCOMPARE(subAdds(), 0);
+    controller.addExternalSubtitleTrackInternal(QStringLiteral("https://silo.example.test/y.vtt"),
+                                                QStringLiteral("Same"), QStringLiteral("eng"), -1, false);
+    QCOMPARE(subAdds(), 1);
+}
+
+void PlayerControllerAutoplayContextTest::lostServerSessionRecoversOrLeaves()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_playSessionId = QStringLiteral("play-session-1");
+    controller.m_playbackState = PlayerController::Playing;
+
+    emit playbackService.playbackSessionLost(QStringLiteral("other-session"), true);
+    QVERIFY(controller.m_errorMessage.isEmpty());
+
+    emit playbackService.playbackSessionLost(QStringLiteral("play-session-1"), false);
+    QVERIFY(controller.m_lastErrorWasNetworkRecoverable);
+    QVERIFY(controller.m_errorMessage.contains(QStringLiteral("expired")));
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_terminalTransitionActive = false;
+    emit playbackService.playbackSessionLost(QStringLiteral("play-session-1"), true);
+    QVERIFY(!controller.m_lastErrorWasNetworkRecoverable);
+    QCOMPARE(controller.m_errorMessage, QStringLiteral("The server ended this playback."));
 }
 
 void PlayerControllerAutoplayContextTest::adjacentEpisodesCrossSeasonBoundaries()
@@ -4530,42 +4807,186 @@ void PlayerControllerAutoplayContextTest::descriptorPinnedTrackIdsDefaultToMinus
     QCOMPARE(segment.value(QStringLiteral("pinnedSubtitleTrack")).toInt(), -1);
 }
 
-void PlayerControllerAutoplayContextTest::nativeAudioReloadRetainsTrackMapping()
+void PlayerControllerAutoplayContextTest::serverStreamReplansKeepTheSourceTimeline()
 {
     ConfigManager config;
     TrackPreferencesManager trackPrefs;
     DisplayManager displayManager(&config);
     AuthenticationService authService(nullptr);
     FakePlaybackService playbackService(&authService);
+    playbackService.deferReplans = true;
     FakeLibraryService libraryService(&authService);
     FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
 
-    PlayerController controller(&backend,
-                                &config,
-                                &trackPrefs,
-                                &displayManager,
-                                &playbackService,
-                                &libraryService,
-                                &authService);
-
-    controller.m_playbackState = PlayerController::Playing;
-    controller.m_playSessionId = QStringLiteral("session-1");
-    controller.m_pendingAudioSwitchContext = QStringLiteral("audio|attempt|9");
-    controller.m_selectedAudioTrack = 9;
-    controller.m_activeMediaSource = buildMediaSource({
-        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 4}},
-        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 9}}
+    const QVariantMap mediaSource = buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Video")}, {QStringLiteral("index"), 0}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 0}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 1}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 2}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 3}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 4}}
     });
-    controller.updateTrackMappings(controller.m_activeMediaSource);
+    // A copy remux anchored at 30 s: it carries audio 0 and subtitle 3 (an HLS
+    // rendition), offers subtitle 2 through a new stream, and cannot deliver 4.
+    const auto packaged = [](qint64 offsetMs, qint64 startMs) {
+        Bloom::PlaybackDescriptor descriptor;
+        descriptor.media = {QStringLiteral("connection"), QStringLiteral("item")};
+        descriptor.playbackSessionId = QStringLiteral("session-1");
+        descriptor.durationMs = 600000;
+        descriptor.startPositionMs = startMs;
+        descriptor.stream.url = QUrl(QStringLiteral("https://example.invalid/master.m3u8"));
+        descriptor.stream.method = Bloom::PlaybackMethod::DirectStream;
+        descriptor.stream.carriesSourceTracks = false;
+        descriptor.stream.seekRequiresReanchor = true;
+        descriptor.stream.timelineOffsetMs = offsetMs;
+        descriptor.stream.deliveredAudioTracks = {0};
+        descriptor.stream.deliveredSubtitleTracks = {3};
+        descriptor.stream.pinsAudioTrack = true;
+        descriptor.stream.pinnedAudioTrackId = QStringLiteral("0");
+        descriptor.selectedAudioTrackId = QStringLiteral("0");
+        descriptor.selectedSubtitleTrackId = QStringLiteral("2");
+        Bloom::PlaybackTrack replanned;
+        replanned.trackId = QStringLiteral("1");
+        replanned.sourceIndex = 2;
+        replanned.requiresReplan = true;
+        Bloom::PlaybackTrack rendition;
+        rendition.trackId = QStringLiteral("2");
+        rendition.sourceIndex = 3;
+        Bloom::PlaybackTrack sidecar;
+        sidecar.trackId = QStringLiteral("0");
+        sidecar.language = QStringLiteral("ger");
+        sidecar.isExternal = true;
+        sidecar.externalUrl = QUrl(QStringLiteral("https://example.invalid/0.vtt"));
+        descriptor.subtitleTracks = {sidecar, replanned, rendition};
+        return descriptor;
+    };
 
-    controller.onPlaybackAudioSwitchedForRequest(
-        QStringLiteral("session-1"),
-        QUrl(QStringLiteral("https://example.invalid/reloaded")),
-        QStringLiteral("audio|attempt|9"));
-    backend.emitAudioTrackId(2);
+    QVariantMap segment{
+        {QStringLiteral("itemId"), QStringLiteral("item")},
+        {QStringLiteral("mediaSource"), mediaSource},
+        {QStringLiteral("audioIndex"), 1},
+        {QStringLiteral("subtitleIndex"), 4},
+        {QStringLiteral("availableSubtitleTracks"),
+         controller.buildAvailableTrackOptions(mediaSource, QStringLiteral("Subtitle"))}
+    };
+    controller.applyPlaybackDescriptorToSegment(segment, packaged(30000, 100000));
+    QCOMPARE(segment.value(QStringLiteral("audioIndex")).toInt(), 0);
+    controller.m_playbackSegments = {segment};
+    controller.applyPlaybackSegment(0, false);
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_duration = 600.0;
 
-    QCOMPARE(controller.selectedAudioTrack(), 9);
-    QCOMPARE(controller.m_mpvAudioTrack, 2);
+    QCOMPARE(controller.selectedSubtitleTrack(), 3);
+    QCOMPARE(controller.mpvAudioTrackForSourceIndex(0), 1);
+    QCOMPARE(controller.mpvAudioTrackForSourceIndex(1), -1);
+    QCOMPARE(controller.mpvSubtitleTrackForSourceIndex(3), 1);
+    QStringList menu;
+    for (const QVariant &option : controller.m_availableSubtitleTracks) {
+        const QVariantMap map = option.toMap();
+        menu.append(QStringLiteral("%1:%2:%3")
+                        .arg(map.value(QStringLiteral("index")).toInt())
+                        .arg(int(map.value(QStringLiteral("isExternal")).toBool()))
+                        .arg(int(map.value(QStringLiteral("requiresReplan")).toBool())));
+    }
+    QCOMPARE(menu, QStringList({QStringLiteral("2:0:1"), QStringLiteral("3:0:0"),
+                                QStringLiteral("-1000:1:0")}));
+
+    // mpv's clock starts at the anchor; Bloom's timeline and reports do not.
+    backend.emitPosition(10.0);
+    QCOMPARE(controller.m_currentPosition, 40.0);
+    QCOMPARE(controller.currentReportingPositionMs(), 40000);
+    backend.emitCacheEnd(20.0);
+    QCOMPARE(controller.cacheEndSeconds(), 50.0);
+    controller.onDurationChanged(20.0);
+    QCOMPARE(controller.m_duration, 600.0);
+
+    // Inside what the server has produced, mpv seeks on its own clock.
+    backend.variantCommands.clear();
+    controller.seek(45.0);
+    QCOMPARE(backend.variantCommands.size(), 1);
+    QCOMPARE(backend.variantCommands.first(), QVariantList({QStringLiteral("seek"), 15.0,
+                                                            QStringLiteral("absolute")}));
+    QVERIFY(playbackService.replans.isEmpty());
+
+    // Elsewhere the server re-anchors the stream.
+    controller.seek(500.0);
+    QCOMPARE(playbackService.replans.size(), 1);
+    QCOMPARE(playbackService.replans.first().operation, PlaybackReplan::Operation::SeekReanchor);
+    QCOMPARE(playbackService.replans.first().positionMs, 500000);
+    // A second seek waits for the first replan.
+    controller.seek(520.0);
+    QCOMPARE(playbackService.replans.size(), 1);
+
+    backend.variantCommands.clear();
+    playbackService.completeReplan(QStringLiteral("session-1"), packaged(498000, 500000));
+    QVERIFY(controller.m_awaitingInPlaceReload);
+    QVERIFY(std::any_of(backend.variantCommands.cbegin(), backend.variantCommands.cend(),
+                        [](const QVariantList &command) {
+                            return command == QVariantList({QStringLiteral("loadfile"),
+                                                            QStringLiteral("https://example.invalid/master.m3u8"),
+                                                            QStringLiteral("replace"), -1,
+                                                            QStringLiteral("start=2.000")});
+                        }));
+    // The queued seek follows the first one.
+    QCOMPARE(playbackService.replans.size(), 2);
+    QCOMPARE(playbackService.replans.last().positionMs, 520000);
+
+    // Replacing the file ends the previous one; that is not the end of playback.
+    backend.emitPlaybackEndedSignal();
+    QCOMPARE(controller.m_playbackState, PlayerController::Playing);
+    QVERIFY(!controller.m_terminalTransitionActive);
+    backend.emitPosition(400.0);
+    QCOMPARE(controller.m_currentPosition, 40.0);
+    backend.variantCommands.clear();
+    backend.emitFileLoaded();
+    QVERIFY(!controller.m_awaitingInPlaceReload);
+    QVERIFY(backend.variantCommands.contains(
+        QVariantList({QStringLiteral("set_property"), QStringLiteral("sid"), 1})));
+    backend.emitPosition(3.0);
+    QCOMPARE(controller.m_currentPosition, 501.0);
+    playbackService.failReplan(QStringLiteral("session-1"), QStringLiteral("refused"));
+
+    // A sidecar's cues are on the source clock: shift them onto mpv's.
+    backend.variantCommands.clear();
+    controller.setSelectedSubtitleTrack(-1000);
+    controller.m_externalSubtitleTrackMap.insert(-1000, 2);
+    controller.applySubtitleDelay();
+    QCOMPARE(backend.variantCommands.last(),
+             QVariantList({QStringLiteral("set_property"), QStringLiteral("sub-delay"), -498.0}));
+
+    // An embedded track the stream lacks is asked for; a refusal restores the
+    // previous choice, and a choice made meanwhile runs after it.
+    controller.setSelectedSubtitleTrack(2);
+    QCOMPARE(playbackService.replans.size(), 3);
+    QCOMPARE(playbackService.replans.last().operation, PlaybackReplan::Operation::TrackChange);
+    QCOMPARE(playbackService.replans.last().subtitleTrackId, QStringLiteral("1"));
+    QCOMPARE(playbackService.replans.last().positionMs, 501000);
+    QCOMPARE(controller.selectedSubtitleTrack(), 2);
+    controller.setSelectedAudioTrack(1);
+    QCOMPARE(playbackService.replans.size(), 3);
+    playbackService.failReplan(QStringLiteral("session-1"), QStringLiteral("refused"));
+    QCOMPARE(controller.selectedSubtitleTrack(), -1000);
+    QCOMPARE(playbackService.replans.size(), 4);
+    QCOMPARE(playbackService.replans.last().audioTrackIndex, 1);
+    QCOMPARE(playbackService.replans.last().operation, PlaybackReplan::Operation::TrackChange);
+
+    // A choice made while that request runs survives its answer: the answer
+    // grants audio 1, and the queued request still asks for audio 0.
+    controller.setSelectedAudioTrack(0);
+    QCOMPARE(playbackService.replans.size(), 4);
+    Bloom::PlaybackDescriptor granted = packaged(500000, 501000);
+    granted.selectedAudioTrackId = QStringLiteral("1");
+    granted.stream.pinnedAudioTrackId = QStringLiteral("1");
+    granted.stream.deliveredAudioTracks = {1};
+    playbackService.completeReplan(QStringLiteral("session-1"), granted);
+    QCOMPARE(playbackService.replans.size(), 5);
+    QCOMPARE(playbackService.replans.last().audioTrackIndex, 0);
+    QCOMPARE(controller.selectedAudioTrack(), 0);
+    // Refusing it restores what the stream carries, not the older choice.
+    playbackService.failReplan(QStringLiteral("session-1"), QStringLiteral("refused"));
+    QCOMPARE(controller.selectedAudioTrack(), 1);
 }
 
 void PlayerControllerAutoplayContextTest::audioStartupPlanOverridesProfileOutputArgs()

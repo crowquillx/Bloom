@@ -620,6 +620,10 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
                 this, &SeriesDetailsViewModel::onSeriesWatchedStatusChanged);
         connect(m_libraryService, &LibraryService::favoriteStatusChanged,
                 this, &SeriesDetailsViewModel::onFavoriteStatusChanged);
+        connect(m_libraryService, &LibraryService::watchlistStatusChanged,
+                this, &SeriesDetailsViewModel::onWatchlistStatusChanged);
+        connect(m_libraryService, &LibraryService::watchlistStatusFailed,
+                this, &SeriesDetailsViewModel::onWatchlistStatusFailed);
         connect(m_libraryService,
                 qOverload<const QString &, const QVariantMap &, const QString &>(&LibraryService::canonicalItemLoaded),
                 this, &SeriesDetailsViewModel::onEpisodeDetailsLoaded);
@@ -672,6 +676,7 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
     m_seriesId = seriesId;
     m_connectionId = requestConnectionId;
     emit seriesIdChanged();
+    emit watchlistSupportedChanged();
     
     // Try cache first (serve stale-while-revalidate)
     QJsonObject cachedSeries;
@@ -896,6 +901,58 @@ void SeriesDetailsViewModel::toggleFavorite()
     m_libraryService->toggleFavorite(m_seriesId, !m_isFavorite);
 }
 
+bool SeriesDetailsViewModel::watchlistSupported() const
+{
+    return m_libraryService && m_libraryService->supportsWatchlist();
+}
+
+void SeriesDetailsViewModel::toggleWatchlist()
+{
+    if (!m_libraryService || m_seriesId.isEmpty() || m_watchlistPending
+        || !watchlistSupported()) {
+        return;
+    }
+    // Optimistic: the button follows the press; a refusal restores it.
+    m_watchlistPending = true;
+    m_inWatchlist = !m_inWatchlist;
+    emit inWatchlistChanged();
+    m_libraryService->setItemWatchlisted(m_seriesId, m_inWatchlist);
+}
+
+void SeriesDetailsViewModel::onWatchlistStatusChanged(const QString &itemId, bool inWatchlist)
+{
+    if (itemId != m_seriesId) {
+        return;
+    }
+    m_watchlistPending = false;
+    if (m_inWatchlist != inWatchlist) {
+        m_inWatchlist = inWatchlist;
+        emit inWatchlistChanged();
+    }
+    if (!m_seriesData.isEmpty()) {
+        m_seriesData.insert(QStringLiteral("inWatchlist"), inWatchlist);
+        QJsonObject userState = m_seriesData.value(QStringLiteral("userState")).toObject();
+        userState.insert(QStringLiteral("inWatchlist"), inWatchlist);
+        m_seriesData.insert(QStringLiteral("userState"), userState);
+        storeSeriesCache(itemId, m_seriesData);
+    }
+}
+
+void SeriesDetailsViewModel::onWatchlistStatusFailed(const QString &itemId,
+                                                     bool inWatchlist,
+                                                     const QString &error)
+{
+    if (itemId != m_seriesId || !m_watchlistPending) {
+        return;
+    }
+    qCWarning(lcViewModels) << "SeriesDetailsViewModel: watchlist change failed:" << error;
+    m_watchlistPending = false;
+    m_inWatchlist = !inWatchlist;
+    emit inWatchlistChanged();
+    emit watchlistUpdateFailed(inWatchlist ? tr("Couldn't add this to your watchlist.")
+                                           : tr("Couldn't remove this from your watchlist."));
+}
+
 void SeriesDetailsViewModel::loadFocusedEpisodeDetails(const QString &episodeId)
 {
     if (!m_libraryService) {
@@ -1005,6 +1062,8 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     m_productionYear = 0;
     m_isWatched = false;
     m_isFavorite = false;
+    m_inWatchlist = false;
+    m_watchlistPending = false;
     m_imdbId.clear();
     m_tmdbId.clear();
     m_people.clear();
@@ -1069,6 +1128,7 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     emit isWatchedChanged();
     emit isFavoriteChanged();
     emit tmdbIdChanged();
+    emit inWatchlistChanged();
     emit peopleChanged();
     emit genresChanged();
     emit similarItemsChanged();
@@ -1737,6 +1797,10 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QVariantMap &data)
     m_productionYear = data.value(QStringLiteral("productionYear")).toInt();
     m_isWatched = data.value(QStringLiteral("watched")).toBool();
     m_isFavorite = data.value(QStringLiteral("favorite")).toBool();
+    // A change in flight wins over details that may predate it.
+    if (!m_watchlistPending) {
+        m_inWatchlist = data.value(QStringLiteral("inWatchlist")).toBool();
+    }
     m_officialRating = data.value(QStringLiteral("officialRating")).toString();
     m_recursiveItemCount = data.value(QStringLiteral("recursiveItemCount")).toInt();
     m_status = data.value(QStringLiteral("status")).toString();
@@ -1760,6 +1824,7 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QVariantMap &data)
     emit isWatchedChanged();
     emit isFavoriteChanged();
     emit officialRatingChanged();
+    emit inWatchlistChanged();
     emit recursiveItemCountChanged();
     emit statusChanged();
     emit endDateChanged();

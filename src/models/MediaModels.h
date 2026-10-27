@@ -71,6 +71,8 @@ struct ArtworkRef {
 struct UserMediaState {
     bool watched = false;
     bool favorite = false;
+    // On the profile's watchlist (providers with a watchlist only).
+    bool inWatchlist = false;
     qint64 positionMs = 0;
     int unplayedItemCount = 0;
     QString lastPlayedAt;
@@ -121,6 +123,20 @@ struct StreamRequest {
     bool pinsSubtitleTrack = false;
     QString pinnedAudioTrackId;
     QString pinnedSubtitleTrackId;
+    // Added to a player position to get the source position. Non-zero when a
+    // server stream starts its own clock at a resume point.
+    qint64 timelineOffsetMs = 0;
+    // The player may seek only inside what the server has produced; other
+    // seeks ask the provider for a stream anchored at the new position.
+    bool seekRequiresReanchor = false;
+    // False when the server packages a stream that carries only the tracks
+    // listed below, in mpv order, instead of every source stream.
+    bool carriesSourceTracks = true;
+    QList<int> deliveredAudioTracks;
+    QList<int> deliveredSubtitleTracks;
+    // The pinned subtitle is rendered into the video; any other subtitle
+    // choice needs a new stream.
+    bool subtitleBurnedIn = false;
 
     bool isValid() const;
     QVariantMap toVariantMap() const;
@@ -140,6 +156,12 @@ struct PlaybackTrack {
     // Transient executable location for external subtitle tracks. This is
     // retained in-process only and is not part of persistent model identity.
     QUrl externalUrl;
+    // Provider source stream index this track delivers, when the source
+    // metadata already lists it; -1 for tracks that exist only in the plan.
+    int sourceIndex = -1;
+    // The current stream cannot select this track; choosing it asks the
+    // provider for a new stream that delivers it.
+    bool requiresReplan = false;
 
     QVariantMap toVariantMap() const;
 };

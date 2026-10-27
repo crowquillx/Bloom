@@ -65,10 +65,12 @@ public:
         qint64 startPositionMs = 0,
         const QString &playbackSessionId = QString(),
         const QString &requestContext = QString());
-    Q_INVOKABLE virtual bool switchPlaybackAudio(const QString &playbackSessionId,
-                                                  int audioTrackIndex,
-                                                  qint64 positionMs = 0,
-                                                  const QString &requestContext = QString());
+    // Asks the provider for a new stream in an active session: a track change on
+    // a stream that carries only the selected tracks, or a seek outside what a
+    // server stream has produced. False when the provider has no such request.
+    virtual bool replanPlayback(const QString &playbackSessionId,
+                                const PlaybackReplan &replan,
+                                const QString &requestContext);
     Q_INVOKABLE virtual void requestPlaybackRecovery(
         const QString &itemId,
         const QVariantMap &providerSource,
@@ -132,6 +134,10 @@ public:
                                                    const QString &playbackOrder = QStringLiteral("Default"));
     Q_INVOKABLE void markItemPlayed(const QString &itemId);
 
+    /// True when the active provider expires sessions that are started but
+    /// not yet streamed (see IPlaybackProvider::queuedSessionsExpire).
+    virtual bool queuedPlaybackSessionsExpire() const;
+
 signals:
     // Playback info with media streams for track selection
     void playbackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
@@ -141,12 +147,15 @@ signals:
     void playbackDescriptorFailedForRequest(const QString &itemId,
                                             const QString &error,
                                             const QString &requestContext);
-    void playbackAudioSwitchedForRequest(const QString &playbackSessionId,
-                                         const QUrl &reloadUrl,
-                                         const QString &requestContext);
-    void playbackAudioSwitchFailedForRequest(const QString &playbackSessionId,
-                                             const QString &error,
-                                             const QString &requestContext);
+    void playbackReplannedForRequest(const QString &playbackSessionId,
+                                     const Bloom::PlaybackDescriptor &descriptor,
+                                     const QString &requestContext);
+    void playbackReplanFailedForRequest(const QString &playbackSessionId,
+                                        const QString &error,
+                                        const QString &requestContext);
+    // A progress report found the server-side session gone. endedByServer
+    // means the player must leave playback instead of starting a new session.
+    void playbackSessionLost(const QString &playbackSessionId, bool endedByServer);
     void playbackRecoveryLoadedForRequest(const QString &itemId,
                                           const Bloom::PlaybackDescriptor &descriptor,
                                           const QString &requestContext);
@@ -238,6 +247,10 @@ private:
                                      const QList<MediaSegmentInfo> &mergedSegments);
     void finishMediaSegments(const QString &itemId,
                              const QList<MediaSegmentInfo> &segments);
+    static constexpr qint64 kPlaybackTokenLifetimeSeconds = 4 * 60 * 60;
+    void handleReportFailure(const IPlaybackProvider *provider,
+                             const PlaybackReport &report,
+                             int httpStatus);
     void sendPlaybackReport(const PlaybackReport &report,
                             std::function<void()> completion = {},
                             const IPlaybackProvider *providerOverride = nullptr);

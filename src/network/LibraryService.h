@@ -133,7 +133,20 @@ public:
     Q_INVOKABLE virtual void markItemFavorite(const QString &itemId);
     Q_INVOKABLE virtual void markItemUnfavorite(const QString &itemId);
     Q_INVOKABLE virtual void toggleFavorite(const QString &itemId, bool isFavorite);
+    // Watchlist membership, for providers with ProviderCapability::Watchlist
+    // (Silo). Results arrive as watchlistStatusChanged or
+    // watchlistStatusFailed; an unsupported provider reports failure.
+    Q_INVOKABLE virtual bool supportsWatchlist() const;
+    Q_INVOKABLE virtual void setItemWatchlisted(const QString &itemId, bool inWatchlist);
     Q_INVOKABLE virtual void getThemeSongs(const QString &seriesId);
+
+    // The rows the profile curates for its Home page that Bloom does not
+    // already show, in the server's layout order: each {sectionId, title,
+    // items} with canonical movie, series and episode items. A Watchlist row
+    // comes first when the layout has none and the watchlist is not empty.
+    // Providers without ProviderCapability::HomeSections answer no rows.
+    // A newer call supersedes an older one.
+    Q_INVOKABLE virtual void getHomeSections();
     
     // Search. Libraries in excludedLibraryIds are left out: the remaining
     // libraries are searched one by one and their results interleaved.
@@ -260,6 +273,10 @@ signals:
     void seriesWatchedStatusChanged(const QString &seriesId);
     void itemPlayedStatusChanged(const QString &itemId, bool isPlayed);
     void favoriteStatusChanged(const QString &itemId, bool isFavorite);
+    void watchlistStatusChanged(const QString &itemId, bool inWatchlist);
+    void watchlistStatusFailed(const QString &itemId, bool inWatchlist, const QString &error);
+    void canonicalHomeSectionsLoaded(const QString &connectionId, const QVariantList &sections);
+    void canonicalHomeSectionsFailed(const QString &connectionId, const QString &error);
     void themeSongsLoaded(const QString &seriesId, const QStringList &urls);
     void themeSongPlaybackLoaded(const QString &seriesId, const QStringList &urls, bool requiresFreshGrant);
     void canonicalSearchResultsLoaded(const QString &connectionId,
@@ -337,6 +354,7 @@ private:
     QList<QPointer<HttpRequestHandle>> m_catalogRequests;
     quint64 m_requestGeneration = 0;
     quint64 m_heroRequestGeneration = 0;
+    quint64 m_homeSectionsGeneration = 0;
     // Newest search; a replaced search (new term or library exclusions)
     // must not publish results after it.
     quint64 m_searchGeneration = 0;

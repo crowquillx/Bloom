@@ -374,6 +374,7 @@ FocusScope {
         }
         if (itemIsDescendant(activeItem, playButton)
                 || itemIsDescendant(activeItem, markWatchedButton)
+                || itemIsDescendant(activeItem, watchlistButton)
                 || itemIsDescendant(activeItem, contextMenuButton)) {
             return "hero"
         }
@@ -399,6 +400,7 @@ FocusScope {
         if (area === "hero") {
             if (itemIsDescendant(activeItem, markWatchedButton)) return 1
             if (itemIsDescendant(activeItem, contextMenuButton)) return 2
+            if (itemIsDescendant(activeItem, watchlistButton)) return 3
             return 0
         }
         if (area === "cast") return Math.max(0, castList.currentIndex)
@@ -425,6 +427,8 @@ FocusScope {
                 markWatchedButton.forceActiveFocus()
             } else if (targetIndex === 2 && contextMenuButton.visible) {
                 contextMenuButton.forceActiveFocus()
+            } else if (targetIndex === 3 && watchlistButton.visible) {
+                watchlistButton.forceActiveFocus()
             } else {
                 playButton.forceActiveFocus()
             }
@@ -858,7 +862,7 @@ FocusScope {
                         sidePadding: Math.round(36 * Theme.layoutScale)
 
                         KeyNavigation.left: playButton
-                        KeyNavigation.right: contextMenuButton
+                        KeyNavigation.right: watchlistButton.visible ? watchlistButton : contextMenuButton
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
@@ -896,6 +900,50 @@ FocusScope {
                         }
                     }
 
+                    // Only providers with a watchlist (Silo) show this.
+                    SecondaryActionButton {
+                        id: watchlistButton
+                        visible: MovieDetailsViewModel.watchlistSupported
+                        text: MovieDetailsViewModel.inWatchlist ? qsTr("On Watchlist") : qsTr("Add to Watchlist")
+                        iconGlyph: MovieDetailsViewModel.inWatchlist ? Icons.bookmark : Icons.bookmarkBorder
+                        implicitHeight: Theme.buttonHeightHero
+                        labelPixelSize: Theme.fontSizeMedium
+                        iconPixelSize: Theme.iconSizeLarge
+                        sidePadding: Math.round(36 * Theme.layoutScale)
+
+                        KeyNavigation.left: markWatchedButton
+                        KeyNavigation.right: contextMenuButton
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root.ensureTopVisible()
+                            }
+                        }
+
+                        Keys.onUpPressed: (event) => root.heroUp(event)
+
+                        Keys.onDownPressed: (event) => {
+                            root.focusFirstLowerSection()
+                            event.accepted = true
+                        }
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: MovieDetailsViewModel.toggleWatchlist()
+                    }
+
                     SecondaryActionButton {
                         id: contextMenuButton
                         text: ""
@@ -904,7 +952,7 @@ FocusScope {
                         implicitHeight: Theme.buttonHeightHero
                         iconPixelSize: Theme.iconSizeLarge
 
-                        KeyNavigation.left: markWatchedButton
+                        KeyNavigation.left: watchlistButton.visible ? watchlistButton : markWatchedButton
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
@@ -1324,6 +1372,9 @@ FocusScope {
                 focusTimer.start()
             }
             Qt.callLater(root.tryRestorePendingReturnState)
+        }
+        function onWatchlistUpdateFailed(message) {
+            playbackToast.show(message)
         }
     }
 

@@ -1099,6 +1099,7 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
     state.favorite = stateValue(QStringLiteral("is_favorite")).isBool()
         ? stateValue(QStringLiteral("is_favorite")).toBool()
         : stateValue(QStringLiteral("favorite")).toBool();
+    state.inWatchlist = stateValue(QStringLiteral("in_watchlist")).toBool();
     state.positionMs = secondsToMilliseconds(
         stateValue(QStringLiteral("position_seconds")).toDouble());
     state.unplayedItemCount = stateValue(QStringLiteral("unplayed_count")).toInt();
@@ -1227,6 +1228,7 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("userState"), state.toVariantMap()},
         {QStringLiteral("watched"), state.watched},
         {QStringLiteral("favorite"), state.favorite},
+        {QStringLiteral("inWatchlist"), state.inWatchlist},
         {QStringLiteral("positionMs"), state.positionMs},
         {QStringLiteral("unplayedItemCount"), state.unplayedItemCount},
         {QStringLiteral("isInProgress"),

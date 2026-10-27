@@ -156,7 +156,14 @@ void LinuxMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, c
     }
 
     if (m_debugLogging) {
-        qCInfo(lcLinuxLibmpvBackend) << "startMpv args" << args;
+        QStringList loggedArgs;
+        for (const QString &arg : args) {
+            // Header fields carry stream credentials.
+            loggedArgs << (arg.startsWith(QStringLiteral("--http-header-fields"))
+                               ? arg.section(QLatin1Char(':'), 0, 0) + QStringLiteral(": <redacted>")
+                               : arg);
+        }
+        qCInfo(lcLinuxLibmpvBackend) << "startMpv args" << loggedArgs;
     }
 
     if (!initializeMpv(args)) {
@@ -677,6 +684,7 @@ void LinuxMpvBackend::processMpvEvents()
         }
         case MPV_EVENT_FILE_LOADED:
             scheduleDiagnosticSnapshots();
+            emit fileLoaded();
             break;
         case MPV_EVENT_GET_PROPERTY_REPLY:
             m_propertySnapshots.handleEvent(event, [this](const QString &stage,

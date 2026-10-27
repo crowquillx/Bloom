@@ -26,6 +26,7 @@
 #include "viewmodels/SeriesDetailsViewModel.h"
 #include "viewmodels/MovieDetailsViewModel.h"
 #include "viewmodels/UpNextRecommendationsViewModel.h"
+#include "viewmodels/HomeSectionsViewModel.h"
 #include "utils/SidebarSettings.h"
 #include "utils/SystemPowerController.h"
 #include "ui/UiSoundController.h"
@@ -333,6 +334,10 @@ void ApplicationInitializer::registerServices()
     m_upNextRecommendationsViewModel = std::make_unique<UpNextRecommendationsViewModel>();
     ServiceLocator::registerService<UpNextRecommendationsViewModel>(m_upNextRecommendationsViewModel.get());
 
+    // 7.7 HomeSectionsViewModel - Depends on LibraryService
+    m_homeSectionsViewModel = std::make_unique<HomeSectionsViewModel>();
+    ServiceLocator::registerService<HomeSectionsViewModel>(m_homeSectionsViewModel.get());
+
     // 8. SidebarSettings
     m_sidebarSettings = std::make_unique<SidebarSettings>();
     ServiceLocator::registerService<SidebarSettings>(m_sidebarSettings.get());
@@ -391,6 +396,9 @@ void ApplicationInitializer::initializeServices()
         }
         if (m_upNextRecommendationsViewModel) {
             m_upNextRecommendationsViewModel->clear();
+        }
+        if (m_homeSectionsViewModel) {
+            m_homeSectionsViewModel->clear();
         }
     });
 

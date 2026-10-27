@@ -36,6 +36,12 @@ enum class ProviderCatalogOperation {
     // The viewer's poster badge preferences and the server-wide defaults.
     PosterBadgeSettings,
     PosterBadgeDefaults,
+    // The profile's own Home rows (Silo). rawItems holds one object per row
+    // with `id`, `title`, `section_type` and wire `items`, in layout order.
+    HomeSections,
+    // The profile's watchlist, and adding or removing one item.
+    Watchlist,
+    SetWatchlist,
 };
 
 enum class ProviderHttpMethod {

@@ -6,11 +6,14 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QTimer>
+#include <algorithm>
 #include <cstring>
 
 #include "network/AuthenticationService.h"
+#include "network/DeviceSignInSession.h"
 #include "network/HttpTransport.h"
 #include "providers/IProviderAuthenticator.h"
 #include "providers/IProviderAdapter.h"
@@ -94,6 +97,7 @@ struct RecordedRequest {
     QNetworkAccessManager::Operation operation;
     QNetworkRequest request;
     QByteArray body;
+    qint64 elapsedMs = 0;
 };
 
 class FakeNetworkAccessManager final : public QNetworkAccessManager
@@ -101,6 +105,17 @@ class FakeNetworkAccessManager final : public QNetworkAccessManager
 public:
     QList<QueuedResponse> responses;
     QList<RecordedRequest> requests;
+    QElapsedTimer clock;
+
+    FakeNetworkAccessManager() { clock.start(); }
+
+    qsizetype countPath(const QString &path) const
+    {
+        return std::count_if(requests.cbegin(), requests.cend(),
+                             [&path](const RecordedRequest &recorded) {
+            return recorded.request.url().path() == path;
+        });
+    }
 
 protected:
     QNetworkReply *createRequest(Operation operation,
@@ -108,7 +123,7 @@ protected:
                                  QIODevice *outgoingData) override
     {
         const QByteArray body = outgoingData ? outgoingData->readAll() : QByteArray{};
-        requests.append({operation, request, body});
+        requests.append({operation, request, body, clock.elapsed()});
         QueuedResponse response { 500,
             QByteArrayLiteral(
                 R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/test_queue_empty","title":"test_queue_empty","status":400,"detail":"No response queued","instance":"urn:silo:request:test"})"),
@@ -149,6 +164,78 @@ QByteArray singleUnlockedProfile()
         R"({"items":[{"id":"profile-1","name":"Alice","has_pin":false,"is_child":false,"is_primary":true}]})");
 }
 
+QByteArray siloSystemInfo()
+{
+    return QByteArrayLiteral(R"({"api_major":2,"links":{}})");
+}
+
+QByteArray deviceCapability(const char *state = "available")
+{
+    return QByteArray(R"({"state":")") + state
+        + QByteArray(R"(","protocol_versions":[2],"cancel":true,"opened_signal":true,"remote_playback_handoff":true,"jellyfin_quick_connect":true,"revision":"r1"})");
+}
+
+QByteArray authProviders(bool passwordLogin)
+{
+    return QByteArray(R"({"password_login":)") + (passwordLogin ? "true" : "false")
+        + QByteArray(R"(,"items":[{"id":"sso","display_name":"Company SSO","mode":"oauth","default":true}]})");
+}
+
+QByteArray deviceStart(int expiresIn = 900)
+{
+    return QByteArray(
+        R"({"device_code":"device-secret","user_code":"4821-7730","match_code":"warm pony","verification_uri":"https://silo.example.test/activate","verification_uri_complete":"https://silo.example.test/activate?code=48217730","expires_at":"2026-01-02T03:14:05.678Z","expires_in":)")
+        + QByteArray::number(expiresIn)
+        + QByteArray(R"(,"interval":1,"device_name":"tv","device_platform":"linux","client_purpose":"device_login","temporary":false})");
+}
+
+QByteArray devicePoll(const char *status, bool opened = false)
+{
+    return QByteArray(R"({"status":")") + status + QByteArray(R"(","poll_after":1,"opened":)")
+        + (opened ? "true" : "false")
+        + QByteArray(R"(,"profile_id":"","profile_token":"","temporary":false})");
+}
+
+QByteArray deviceApproved()
+{
+    return QByteArrayLiteral(
+        R"({"status":"approved","poll_after":1,"opened":true,"profile_id":"","profile_token":"","temporary":false,"tokens":{"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}}})");
+}
+
+constexpr int kTestSecondMs = 20;
+const QString kSiloAddress = QStringLiteral("https://silo.example.test");
+const QString kDevicePoll = QStringLiteral("/api/v2/auth/device/poll");
+
+// Discovery (system info, device capability, providers), then a started code.
+void beginDeviceSignIn(AuthenticationService &service,
+                       FakeNetworkAccessManager &manager,
+                       int expiresIn = 900,
+                       int secondMs = kTestSecondMs)
+{
+    service.deviceSignInSession()->setSecondDurationForTesting(secondMs);
+    const QVariantMap options = service.signInOptions();
+    if (options.value(QStringLiteral("server")).toString() != kSiloAddress
+        || options.value(QStringLiteral("state")).toString() != QStringLiteral("ready")) {
+        manager.responses.append(response(200, siloSystemInfo()));
+        manager.responses.append(response(200, deviceCapability()));
+        manager.responses.append(response(200, authProviders(true)));
+        service.checkSignInOptions(kSiloAddress);
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(service.signInOptions().value(QStringLiteral("state")).toString(),
+                              QStringLiteral("ready"), 1000);
+    QVERIFY(service.signInOptions().value(QStringLiteral("deviceSignIn")).toBool());
+
+    manager.responses.append(response(201, deviceStart(expiresIn)));
+    service.startDeviceSignIn(kSiloAddress);
+    QTRY_COMPARE_WITH_TIMEOUT(service.deviceSignIn().value(QStringLiteral("state")).toString(),
+                              QStringLiteral("waiting"), 1000);
+}
+
+QString deviceState(const AuthenticationService &service)
+{
+    return service.deviceSignIn().value(QStringLiteral("state")).toString();
+}
+
 } // namespace
 
 class SiloAuthenticationTest : public QObject
@@ -183,6 +270,14 @@ private slots:
     void schemelessAddressFallsBackToHttpWhenHttpsIsUnreachable();
     void schemelessAddressStaysOnHttpsOnceTheServerAnswers();
     void explicitHttpsIsNeverDowngraded();
+    void authenticatorBuildsAndParsesDeviceAuthorizationContracts();
+    void signInOptionsOfferCodesOnlyOnSupportingSiloServers();
+    void deviceSignInStartsAndShowsCode();
+    void deviceSignInKeepsPollingWhilePendingThenSignsInLikePassword();
+    void deviceSignInSlowsDownWhenRateLimited();
+    void deviceSignInExpiresWhenServerOrDeadlineSaysSo();
+    void deviceSignInStopsWhenDenied();
+    void cancelingDeviceSignInWithdrawsCodeAndStopsPolling();
 };
 
 void SiloAuthenticationTest::adapterExposesNativeAuthenticationBoundaries()
@@ -1108,6 +1203,366 @@ void SiloAuthenticationTest::explicitHttpsIsNeverDowngraded()
     QTRY_COMPARE_WITH_TIMEOUT(errors.size(), 1, 1000);
     QCOMPARE(manager.requests.size(), 1);
     QCOMPARE(service.getServerUrl(), QStringLiteral("https://silo.example.test"));
+}
+
+void SiloAuthenticationTest::authenticatorBuildsAndParsesDeviceAuthorizationContracts()
+{
+    SiloAuthenticator authenticator;
+    QCOMPARE(authenticator.deviceAuthorizationCapabilityEndpoint(),
+             std::optional<QString>(QStringLiteral("/api/v2/auth/device/capability")));
+    const auto capability = authenticator.parseDeviceAuthorizationCapability(deviceCapability());
+    QVERIFY(capability.has_value());
+    QVERIFY(capability->available);
+    QVERIFY(capability->cancel);
+    QVERIFY(!authenticator.parseDeviceAuthorizationCapability(deviceCapability("disabled"))
+                 ->available);
+    QVERIFY(!authenticator.parseDeviceAuthorizationCapability(QByteArrayLiteral("{}")));
+
+    QCOMPARE(authenticator.signInMethodsEndpoint(),
+             std::optional<QString>(QStringLiteral("/api/v2/auth/providers")));
+    QCOMPARE(authenticator.parseSignInMethods(authProviders(false))->passwordSignIn,
+             std::optional<bool>(false));
+    QVERIFY(!authenticator.parseSignInMethods(QByteArrayLiteral(R"({"password_login":true})")));
+
+    const auto start = authenticator.createDeviceAuthorizationRequest(
+        QStringLiteral("Living room"), QStringLiteral("linux"));
+    QVERIFY(start.has_value());
+    QCOMPARE(start->endpoint, QStringLiteral("/api/v2/auth/device/start"));
+    const QJsonObject startBody = QJsonDocument::fromJson(start->body).object();
+    QCOMPARE(startBody.value(QStringLiteral("device_name")).toString(), QStringLiteral("Living room"));
+    QCOMPARE(startBody.value(QStringLiteral("device_platform")).toString(), QStringLiteral("linux"));
+    QVERIFY(!startBody.contains(QStringLiteral("client_purpose")));
+    QVERIFY(!startBody.contains(QStringLiteral("temporary")));
+
+    const auto started = authenticator.parseDeviceAuthorizationResponse(deviceStart());
+    QVERIFY(started.has_value());
+    QCOMPARE(started->deviceCode, QStringLiteral("device-secret"));
+    QCOMPARE(started->userCode, QStringLiteral("4821-7730"));
+    QCOMPARE(started->verificationUriComplete,
+             QStringLiteral("https://silo.example.test/activate?code=48217730"));
+    QCOMPARE(started->expiresInSeconds, 900);
+    QCOMPARE(started->intervalSeconds, 1);
+    QVERIFY(started->expiresAt.isValid());
+    QVERIFY(!authenticator.parseDeviceAuthorizationResponse(
+        QByteArrayLiteral(R"({"device_code":"d","user_code":"1","verification_uri":"javascript:void","expires_in":900,"interval":5})")));
+
+    const auto poll = authenticator.createDeviceAuthorizationPollRequest(QStringLiteral("device-secret"));
+    QCOMPARE(poll->endpoint, kDevicePoll);
+    QCOMPARE(QJsonDocument::fromJson(poll->body).object().value(QStringLiteral("device_code")).toString(),
+             QStringLiteral("device-secret"));
+    QVERIFY(!authenticator.createDeviceAuthorizationPollRequest({}));
+    QCOMPARE(authenticator.createDeviceAuthorizationCancelRequest(QStringLiteral("device-secret"))->endpoint,
+             QStringLiteral("/api/v2/auth/device/cancel"));
+
+    using Status = ProviderDeviceAuthorizationPoll::Status;
+    const auto pending = authenticator.parseDeviceAuthorizationPollResponse(devicePoll("pending", true));
+    QCOMPARE(pending.status, Status::Pending);
+    QVERIFY(pending.opened);
+    QCOMPARE(pending.pollAfterSeconds, 1);
+    QCOMPARE(authenticator.parseDeviceAuthorizationPollResponse(devicePoll("denied")).status,
+             Status::Denied);
+    QCOMPARE(authenticator.parseDeviceAuthorizationPollResponse(devicePoll("expired")).status,
+             Status::Expired);
+    QCOMPARE(authenticator.parseDeviceAuthorizationPollResponse(devicePoll("consumed")).status,
+             Status::Consumed);
+    QCOMPARE(authenticator.parseDeviceAuthorizationPollResponse(devicePoll("unknown")).status,
+             Status::Invalid);
+    // Approval without a valid token pair is malformed, never a success.
+    QCOMPARE(authenticator.parseDeviceAuthorizationPollResponse(devicePoll("approved")).status,
+             Status::Invalid);
+    const auto approved = authenticator.parseDeviceAuthorizationPollResponse(deviceApproved());
+    QCOMPARE(approved.status, Status::Approved);
+    QVERIFY(approved.authentication.isValid());
+    QCOMPARE(approved.authentication.refreshToken, QStringLiteral("refresh-1"));
+    QCOMPARE(approved.authentication.expiresInSeconds, 900);
+
+    // The device's own pairing operations never carry stale bearer or profile headers.
+    SiloRequestFactory factory;
+    ProviderRequestContext context;
+    context.baseUrl = kSiloAddress;
+    context.accessToken = QStringLiteral("stale-access-token");
+    context.profileId = QStringLiteral("profile-1");
+    context.profileToken = QStringLiteral("stale-profile-token");
+    context.deviceName = QStringLiteral("Living room");
+    for (const QString &path : {QStringLiteral("/api/v2/auth/device/start"), kDevicePoll,
+                                QStringLiteral("/api/v2/auth/device/cancel"),
+                                QStringLiteral("/api/v2/auth/device/capability")}) {
+        const QNetworkRequest request = factory.createRequest(context, path);
+        QVERIFY2(!request.hasRawHeader("Authorization"), qPrintable(path));
+        QVERIFY2(!request.hasRawHeader("X-Profile-Id"), qPrintable(path));
+        QVERIFY2(!request.hasRawHeader("X-Profile-Token"), qPrintable(path));
+        QCOMPARE(request.rawHeader("X-Silo-Device-Name"), QByteArrayLiteral("Living room"));
+    }
+    // Approving stays an authenticated operation.
+    QCOMPARE(factory.createRequest(context, QStringLiteral("/api/v2/auth/device/approve"))
+                 .rawHeader("Authorization"),
+             QByteArrayLiteral("Bearer stale-access-token"));
+}
+
+void SiloAuthenticationTest::signInOptionsOfferCodesOnlyOnSupportingSiloServers()
+{
+    FakeNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    QSignalSpy errors(&service, &AuthenticationService::loginError);
+
+    // An SSO-only Silo server: codes are the way in, the password form hides.
+    manager.responses = {response(200, siloSystemInfo()), response(200, deviceCapability()),
+                         response(200, authProviders(false))};
+    service.checkSignInOptions(QStringLiteral("  https://silo.example.test  "));
+    QCOMPARE(service.signInOptions().value(QStringLiteral("state")).toString(),
+             QStringLiteral("checking"));
+    QTRY_COMPARE_WITH_TIMEOUT(service.signInOptions().value(QStringLiteral("state")).toString(),
+                              QStringLiteral("ready"), 1000);
+    QVariantMap options = service.signInOptions();
+    QCOMPARE(options.value(QStringLiteral("server")).toString(), kSiloAddress);
+    QVERIFY(options.value(QStringLiteral("silo")).toBool());
+    QVERIFY(options.value(QStringLiteral("deviceSignIn")).toBool());
+    QVERIFY(!options.value(QStringLiteral("passwordSignIn")).toBool());
+    QCOMPARE(manager.requests.size(), 3);
+    QCOMPARE(manager.requests.at(0).request.url().path(), QStringLiteral("/api/v2/system/info"));
+    QCOMPARE(manager.requests.at(1).request.url().path(),
+             QStringLiteral("/api/v2/auth/device/capability"));
+    QCOMPARE(manager.requests.at(2).request.url().path(), QStringLiteral("/api/v2/auth/providers"));
+    for (const RecordedRequest &request : manager.requests) {
+        QCOMPARE(request.operation, QNetworkAccessManager::GetOperation);
+        QVERIFY(!request.request.hasRawHeader("Authorization"));
+    }
+
+    // Repeating the same address does not probe again.
+    service.checkSignInOptions(kSiloAddress);
+    QCOMPARE(manager.requests.size(), 3);
+
+    // Silo with device sign-in turned off keeps the password form.
+    manager.responses = {response(200, siloSystemInfo()), response(200, deviceCapability("disabled")),
+                         response(200, authProviders(false))};
+    service.checkSignInOptions(QStringLiteral("https://silo-two.example.test"));
+    QTRY_COMPARE_WITH_TIMEOUT(service.signInOptions().value(QStringLiteral("state")).toString(),
+                              QStringLiteral("ready"), 1000);
+    options = service.signInOptions();
+    QVERIFY(options.value(QStringLiteral("silo")).toBool());
+    QVERIFY(!options.value(QStringLiteral("deviceSignIn")).toBool());
+    QVERIFY(options.value(QStringLiteral("passwordSignIn")).toBool());
+
+    // A Jellyfin server answers system info with 404: password only, no code option.
+    manager.responses = {response(404, QByteArrayLiteral("Not Found"))};
+    service.checkSignInOptions(QStringLiteral("https://jellyfin.example.test"));
+    QTRY_COMPARE_WITH_TIMEOUT(service.signInOptions().value(QStringLiteral("state")).toString(),
+                              QStringLiteral("ready"), 1000);
+    options = service.signInOptions();
+    QVERIFY(!options.value(QStringLiteral("silo")).toBool());
+    QVERIFY(!options.value(QStringLiteral("deviceSignIn")).toBool());
+    QVERIFY(options.value(QStringLiteral("passwordSignIn")).toBool());
+
+    const qsizetype before = manager.requests.size();
+    service.startDeviceSignIn(QStringLiteral("https://jellyfin.example.test"));
+    QCOMPARE(errors.size(), 1);
+    QCOMPARE(manager.requests.size(), before);
+    QCOMPARE(deviceState(service), QStringLiteral("idle"));
+}
+
+void SiloAuthenticationTest::deviceSignInStartsAndShowsCode()
+{
+    FakeNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    beginDeviceSignIn(service, manager);
+
+    const RecordedRequest &start = manager.requests.last();
+    QCOMPARE(start.operation, QNetworkAccessManager::PostOperation);
+    QCOMPARE(start.request.url().toString(), QStringLiteral("https://silo.example.test/api/v2/auth/device/start"));
+    QVERIFY(!start.request.hasRawHeader("Authorization"));
+    QVERIFY(QJsonDocument::fromJson(start.body).object().contains(QStringLiteral("device_name")));
+
+    const QVariantMap state = service.deviceSignIn();
+    QCOMPARE(state.value(QStringLiteral("userCode")).toString(), QStringLiteral("4821 7730"));
+    QCOMPARE(state.value(QStringLiteral("verificationUrl")).toString(),
+             QStringLiteral("https://silo.example.test/activate?code=48217730"));
+    QCOMPARE(state.value(QStringLiteral("verificationPage")).toString(),
+             QStringLiteral("https://silo.example.test/activate"));
+    QVERIFY(!state.value(QStringLiteral("opened")).toBool());
+    QVERIFY(state.value(QStringLiteral("secondsRemaining")).toInt() > 890);
+    QVERIFY(!state.contains(QStringLiteral("deviceCode")));
+    QCOMPARE(service.authenticationStep(), QStringLiteral("credentials"));
+    QCOMPARE(service.activeProviderKind(), ProviderKind::Silo);
+    service.cancelDeviceSignIn();
+}
+
+void SiloAuthenticationTest::deviceSignInKeepsPollingWhilePendingThenSignsInLikePassword()
+{
+    FakeNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    // A slower test clock keeps the third poll from racing the queued approval.
+    beginDeviceSignIn(service, manager, 900, 200);
+
+    manager.responses.append(response(200, devicePoll("pending")));
+    manager.responses.append(response(200, devicePoll("pending", true)));
+    QTRY_VERIFY_WITH_TIMEOUT(service.deviceSignIn().value(QStringLiteral("opened")).toBool(), 3000);
+    QCOMPARE(deviceState(service), QStringLiteral("waiting"));
+    QCOMPARE(manager.countPath(kDevicePoll), 2);
+    const RecordedRequest &poll = manager.requests.last();
+    QCOMPARE(QJsonDocument::fromJson(poll.body).object().value(QStringLiteral("device_code")).toString(),
+             QStringLiteral("device-secret"));
+    QVERIFY(!poll.request.hasRawHeader("Authorization"));
+
+    manager.responses.append(response(200, deviceApproved()));
+    manager.responses.append(response(200, singleUnlockedProfile()));
+    QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 3000);
+    QCOMPARE(deviceState(service), QStringLiteral("idle"));
+    QCOMPARE(manager.countPath(kDevicePoll), 3);
+
+    // The same session a password login produces.
+    FakeNetworkAccessManager passwordManager;
+    passwordManager.responses = {response(200, successfulLogin()),
+                                 response(200, singleUnlockedProfile())};
+    HttpTransport passwordTransport(&passwordManager);
+    SiloProviderAdapter passwordAdapter;
+    AuthenticationService password(nullptr, &passwordTransport, &passwordAdapter);
+    password.setProviderSelection(QStringLiteral("silo"));
+    password.authenticate(kSiloAddress, QStringLiteral("Alice"), QStringLiteral("password"));
+    QTRY_VERIFY_WITH_TIMEOUT(password.isAuthenticated(), 1000);
+
+    QCOMPARE(service.getServerUrl(), password.getServerUrl());
+    QCOMPARE(service.getUserId(), password.getUserId());
+    QCOMPARE(service.getUsername(), password.getUsername());
+    QCOMPARE(service.getAccessToken(), password.getAccessToken());
+    QCOMPARE(service.authenticationStep(), password.authenticationStep());
+    QCOMPARE(service.activeConnectionId(), password.activeConnectionId());
+    const QNetworkRequest deviceRequest = service.createRequest(QStringLiteral("/api/v2/catalog"));
+    const QNetworkRequest passwordRequest = password.createRequest(QStringLiteral("/api/v2/catalog"));
+    QCOMPARE(deviceRequest.rawHeader("Authorization"), passwordRequest.rawHeader("Authorization"));
+    QCOMPARE(deviceRequest.rawHeader("X-Profile-Id"), passwordRequest.rawHeader("X-Profile-Id"));
+
+    // The refresh token from the approval renews the session.
+    manager.responses.append(response(
+        200, QByteArrayLiteral(R"({"access_token":"access-2","refresh_token":"refresh-2","expires_in":900})")));
+    TokenRenewal renewal = TokenRenewal::Unavailable;
+    bool renewed = false;
+    service.renewConnection(service.activeConnectionId(), [&](TokenRenewal outcome) {
+        renewal = outcome;
+        renewed = true;
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(renewed, 1000);
+    QCOMPARE(renewal, TokenRenewal::Renewed);
+    QCOMPARE(QJsonDocument::fromJson(manager.requests.last().body).object()
+                 .value(QStringLiteral("refresh_token")).toString(),
+             QStringLiteral("refresh-1"));
+    QCOMPARE(service.getAccessToken(), QStringLiteral("access-2"));
+}
+
+void SiloAuthenticationTest::deviceSignInSlowsDownWhenRateLimited()
+{
+    FakeNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    beginDeviceSignIn(service, manager);
+
+    manager.responses.append(response(429,
+        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/rate_limited","title":"rate_limited","status":429,"detail":"Slow down","instance":"urn:silo:request:test"})")));
+    manager.responses.append(response(200, devicePoll("pending")));
+    manager.responses.append(response(200, devicePoll("pending")));
+    QTRY_COMPARE_WITH_TIMEOUT(manager.countPath(kDevicePoll), 3, 2000);
+    QCOMPARE(deviceState(service), QStringLiteral("waiting"));
+
+    QList<qint64> polls;
+    for (const RecordedRequest &request : manager.requests) {
+        if (request.request.url().path() == kDevicePoll) {
+            polls.append(request.elapsedMs);
+        }
+    }
+    // The interval grows from 1 to 6 server seconds and stays there.
+    const qint64 slowed = 6 * kTestSecondMs;
+    QVERIFY2(polls.at(1) - polls.at(0) >= slowed - 5,
+             qPrintable(QStringLiteral("gap %1").arg(polls.at(1) - polls.at(0))));
+    QVERIFY2(polls.at(2) - polls.at(1) >= slowed - 5,
+             qPrintable(QStringLiteral("gap %1").arg(polls.at(2) - polls.at(1))));
+    service.cancelDeviceSignIn();
+}
+
+void SiloAuthenticationTest::deviceSignInExpiresWhenServerOrDeadlineSaysSo()
+{
+    FakeNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+
+    // The server reports the request expired.
+    beginDeviceSignIn(service, manager);
+    manager.responses.append(response(200, devicePoll("expired")));
+    QTRY_COMPARE_WITH_TIMEOUT(deviceState(service), QStringLiteral("expired"), 1000);
+    QVERIFY(service.deviceSignIn().value(QStringLiteral("userCode")).toString().isEmpty());
+    QVERIFY(!service.isAuthenticated());
+
+    // The local deadline passes while the server still says pending.
+    beginDeviceSignIn(service, manager, 3);
+    for (int i = 0; i < 10; ++i) {
+        manager.responses.append(response(200, devicePoll("pending")));
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(deviceState(service), QStringLiteral("expired"), 1000);
+    const qsizetype polls = manager.countPath(kDevicePoll);
+    QTest::qWait(5 * kTestSecondMs);
+    QCOMPARE(manager.countPath(kDevicePoll), polls);
+
+    // A new code can be requested after expiry.
+    manager.responses = {response(201, deviceStart())};
+    service.startDeviceSignIn(kSiloAddress);
+    QTRY_COMPARE_WITH_TIMEOUT(deviceState(service), QStringLiteral("waiting"), 1000);
+    service.cancelDeviceSignIn();
+}
+
+void SiloAuthenticationTest::deviceSignInStopsWhenDenied()
+{
+    FakeNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    beginDeviceSignIn(service, manager);
+
+    manager.responses.append(response(200, devicePoll("denied")));
+    QTRY_COMPARE_WITH_TIMEOUT(deviceState(service), QStringLiteral("denied"), 1000);
+    const qsizetype requests = manager.requests.size();
+    QTest::qWait(3 * kTestSecondMs);
+    QCOMPARE(manager.requests.size(), requests);
+    QVERIFY(!service.isAuthenticated());
+    QCOMPARE(service.authenticationStep(), QStringLiteral("credentials"));
+}
+
+void SiloAuthenticationTest::cancelingDeviceSignInWithdrawsCodeAndStopsPolling()
+{
+    FakeNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    // Slow server seconds leave room to cancel between two polls.
+    constexpr int secondMs = 250;
+    beginDeviceSignIn(service, manager, 900, secondMs);
+    manager.responses.append(response(200, devicePoll("pending")));
+    QTRY_COMPARE_WITH_TIMEOUT(manager.countPath(kDevicePoll), 1, 1000);
+
+    manager.responses.append(response(200, QByteArrayLiteral(R"({"status":"canceled"})")));
+    service.cancelDeviceSignIn();
+    QCOMPARE(deviceState(service), QStringLiteral("idle"));
+    QVERIFY(service.deviceSignIn().value(QStringLiteral("userCode")).toString().isEmpty());
+    QTRY_COMPARE_WITH_TIMEOUT(manager.countPath(QStringLiteral("/api/v2/auth/device/cancel")), 1, 1000);
+    const RecordedRequest &cancel = manager.requests.last();
+    QCOMPARE(QJsonDocument::fromJson(cancel.body).object().value(QStringLiteral("device_code")).toString(),
+             QStringLiteral("device-secret"));
+    QVERIFY(!cancel.request.hasRawHeader("Authorization"));
+    QTest::qWait(2 * secondMs);
+    QCOMPARE(manager.countPath(kDevicePoll), 1);
+
+    // Leaving the signed-out state (another space, a password sign-in)
+    // abandons a running code the same way.
+    beginDeviceSignIn(service, manager);
+    manager.responses.append(response(200, QByteArrayLiteral(R"({"status":"canceled"})")));
+    service.clearAccountState();
+    QCOMPARE(deviceState(service), QStringLiteral("idle"));
+    QTRY_COMPARE_WITH_TIMEOUT(manager.countPath(QStringLiteral("/api/v2/auth/device/cancel")), 2, 1000);
 }
 
 QTEST_MAIN(SiloAuthenticationTest)

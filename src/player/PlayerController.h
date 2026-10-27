@@ -222,8 +222,9 @@ public:
     double currentPositionSeconds() const { return m_currentPosition; }
     double durationSeconds() const { return m_duration; }
     double progressRatio() const { return m_duration > 0.0 ? qBound(0.0, m_currentPosition / m_duration, 1.0) : 0.0; }
-    double cacheEndSeconds() const { return m_cacheEndSeconds; }
-    double cacheProgressRatio() const { return m_duration > 0.0 ? qBound(0.0, m_cacheEndSeconds / m_duration, 1.0) : 0.0; }
+    // mpv reports the cache on the player clock; the timeline is source time.
+    double cacheEndSeconds() const { return m_cacheEndSeconds + m_streamTimelineOffsetSeconds; }
+    double cacheProgressRatio() const { return m_duration > 0.0 ? qBound(0.0, cacheEndSeconds() / m_duration, 1.0) : 0.0; }
     bool isInIntroSegment() const { return m_isInIntroSegment; }
     bool isInOutroSegment() const { return m_isInOutroSegment; }
     bool hasActiveSkipSegment() const { return m_isInIntroSegment || m_isInOutroSegment; }
@@ -441,7 +442,7 @@ private slots:
     void onPausedForCacheChanged(bool pausedForCache);
     void onCacheEndChanged(double seconds);
     void onPlaybackEnded();
-    void onPlaylistPositionChanged(int index);
+    void onPlaylistPositionChanged(int playlistIndex);
     void onNextEpisodeLoaded(const QString &connectionId,
                              const QString &seriesId,
                              const QVariantMap &episodeData,
@@ -459,12 +460,16 @@ private slots:
     void onPlaybackDescriptorFailedForRequest(const QString &itemId,
                                               const QString &error,
                                               const QString &requestContext);
-    void onPlaybackAudioSwitchedForRequest(const QString &sessionId,
-                                           const QUrl &reloadUrl,
-                                           const QString &requestContext);
-    void onPlaybackAudioSwitchFailedForRequest(const QString &sessionId,
-                                               const QString &error,
-                                               const QString &requestContext);
+    void onPlaybackSessionLost(const QString &playbackSessionId, bool endedByServer);
+    void requestDeferredSegmentDescriptor();
+    void dispatchQueuedReplan(double fallbackSourceSeconds);
+    void onPlaybackReplannedForRequest(const QString &sessionId,
+                                       const Bloom::PlaybackDescriptor &descriptor,
+                                       const QString &requestContext);
+    void onPlaybackReplanFailedForRequest(const QString &sessionId,
+                                          const QString &error,
+                                          const QString &requestContext);
+    void onBackendFileLoaded();
     void onAdditionalPartsLoaded(const QString &itemId, const QVariantList &parts);
     void onAdditionalPartsLoadedForRequest(const QString &itemId,
                                            const QVariantList &parts,
@@ -756,6 +761,12 @@ private:
     void maybeFinalizePlaybackDescriptors(const QString &requestId);
     void applyPlaybackDescriptorToSegment(QVariantMap &segment,
                                           const Bloom::PlaybackDescriptor &descriptor) const;
+    void loadActiveStreamLayout(const QVariantMap &segment);
+    bool requestStreamReplan(bool seek, double sourceSeconds);
+    void seekToSourcePosition(double sourceSeconds);
+    bool canSeekLocally(double playerSeconds) const;
+    bool subtitleOptionRequiresReplan(int index) const;
+    bool selectedSubtitleIsSidecar() const;
     void appendDescriptorExternalSubtitleTracks(QVariantList &availableSubtitleTracks,
                                                 const Bloom::PlaybackDescriptor &descriptor,
                                                 int *selectedSubtitleIndex) const;
@@ -835,6 +846,9 @@ private:
         QHash<QString, Bloom::PlaybackDescriptor> descriptors;
         int pendingDescriptorCount = 0;
         bool descriptorsRequested = false;
+        // Only the first segment's session starts up front; see
+        // requestDeferredSegmentDescriptor.
+        bool deferLaterSegments = false;
         QString chosenMediaSourceId;
         QVariantList additionalParts;
         QSet<QString> awaitedPlaybackInfoIds;
@@ -896,6 +910,12 @@ private:
     bool m_audioDeviceListInitialized = false;
     static constexpr int kAudioDeviceReloadDebounceMs = 500;
     static constexpr int kProgressReportIntervalMs = 10000; // 10 seconds
+    static constexpr int kPausedProgressEveryTicks = 6;     // one paused sample per minute
+    // A deferred multipart part's session starts this close to the handoff.
+    static constexpr double kDeferredSegmentLeadSeconds = 20.0;
+    int m_pausedProgressTicks = 0;
+    // Request context of the in-flight deferred multipart segment descriptor.
+    QString m_deferredSegmentContext;
     static constexpr int kVolumePersistDebounceMs = 250;
     static constexpr int kAutoplayPlaybackInfoTimeoutMs = 8000;
     static constexpr double kNextEpisodePrefetchTriggerPercent = 70.0;
@@ -998,8 +1018,36 @@ private:
     QString m_pendingAutoplayDescriptorSessionId;
     QVariantList m_pendingAutoplayDescriptorAudioTracks;
     QVariantList m_pendingAutoplayDescriptorSubtitleTracks;
-    QString m_pendingAudioSwitchContext;
+    QString m_pendingAudioSwitchContext;   // in-flight replan request context
     int m_pendingAudioSwitchPreviousTrack = -2;
+    int m_pendingSubtitleReplanPreviousTrack = -2;
+    bool m_pendingReplanIsSeek = false;
+    // A replan asked for while another is in flight runs when that one ends;
+    // the server rejects replans of a plan it has already replaced.
+    bool m_replanQueued = false;
+    // Tracks the in-flight replan asked for, and choices made since then that
+    // the queued replan must carry (kNoQueuedTrack: none; -1 is subtitles off).
+    static constexpr int kNoQueuedTrack = -2;
+    int m_inFlightAudioTrack = kNoQueuedTrack;
+    int m_inFlightSubtitleTrack = kNoQueuedTrack;
+    int m_queuedAudioTrack = kNoQueuedTrack;
+    int m_queuedSubtitleTrack = kNoQueuedTrack;
+    // Segment index of mpv playlist entry 0 (non-zero after an in-place reload).
+    int m_playlistSegmentOffset = 0;
+    bool m_queuedReplanIsSeek = false;
+    double m_queuedReplanSourceSeconds = 0.0;
+    // Active stream timeline and track layout (see Bloom::StreamRequest).
+    double m_streamTimelineOffsetSeconds = 0.0;
+    double m_streamPlayerStartSeconds = 0.0;
+    bool m_streamSeekRequiresReanchor = false;
+    bool m_streamCarriesSourceTracks = true;
+    bool m_streamSubtitleBurnedIn = false;
+    QList<int> m_streamDeliveredAudioTracks;
+    QList<int> m_streamDeliveredSubtitleTracks;
+    // loadfile replace is in flight: the old file's end is not playback end,
+    // and its positions are on the previous timeline.
+    bool m_awaitingInPlaceReload = false;
+    bool m_ignoreReplacedFileEnd = false;
     QString m_playSessionId;            // Playback session ID for reporting
     QVariantList m_availableAudioTracks;
     QVariantList m_availableSubtitleTracks;

@@ -27,6 +27,7 @@ class LibraryViewModel;
 class SeriesDetailsViewModel;
 class MovieDetailsViewModel;
 class UpNextRecommendationsViewModel;
+class HomeSectionsViewModel;
 class JellyfinProviderAdapter;
 class SiloProviderAdapter;
 class ISecretStore;
@@ -134,6 +135,7 @@ private:
     std::unique_ptr<SeriesDetailsViewModel> m_seriesDetailsViewModel;
     std::unique_ptr<MovieDetailsViewModel> m_movieDetailsViewModel;
     std::unique_ptr<UpNextRecommendationsViewModel> m_upNextRecommendationsViewModel;
+    std::unique_ptr<HomeSectionsViewModel> m_homeSectionsViewModel;
     std::unique_ptr<SidebarSettings> m_sidebarSettings;
     std::unique_ptr<UiSoundController> m_uiSoundController;
     std::unique_ptr<SystemPowerController> m_systemPowerController;

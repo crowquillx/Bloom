@@ -8,15 +8,15 @@ The release label remains **experimental native Silo support**. Implemented clie
 
 | Component | Pin |
 | --- | --- |
-| Native Silo source | `35ef973bc64af293aff76bcd49fa2dcab82a7f74` |
-| Silo API | `2`, 707 paths |
-| Silo OpenAPI SHA-256 | `be30c2f6d2a4dc7fbfef2a9b1438d843b4c25239eb2d637ec09dfef12f1220be` |
-| Silo migration SHA-256 | `2580fbf4222c5518605af3ff19ee3df634480dbf5226b22cf99bee6159516d61` |
+| Native Silo source | `62b1a6e82408eb4be3409255583bf8b0a192a69f` |
+| Silo API | `2`, 722 paths |
+| Silo OpenAPI SHA-256 | `874142d5f0bd4abe657ce158af93744572c24924c8b806854fa6a8afc489376b` |
+| Silo migration SHA-256 | `f30d8063f00d75835cb4bc3171fc55ed6ed4859fe688ff85d658f1998e9fd73d` |
 | Historical Silo compatibility control | `8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6`, image `ghcr.io/silo-server/silo-server@sha256:944ee9821de1d6a61876c9b7b06daa358118163d1e5f9b3aa9f5437856fd06e9` |
 | Jellyfin control | `10.11.10`, image `docker.io/jellyfin/jellyfin@sha256:f66273e014b307e4ac46778845ebc1e9ee24b2e57c1fc17d5ec5ac3015649bfa` |
 | Jellyfin API | `12.0.0`, SDK revision `592747ce7add446b9a14ad56aba8a7441a2e2618`, SHA-256 `f073a3e661f1c7249c8dc7df257b31f290c8931950f8563e9df537a46717f700` |
 
-The native source and exact contract bytes are pinned. No new native container digest is asserted. The live server reported `35ef973b` and served contract bytes equal to the pinned OpenAPI artifact. The historical compatibility image remains a separate baseline; it is not a v2 image pin.
+The native source and exact contract bytes are pinned. No new native container digest is asserted. The 2026-10-18 live run was against the previous pin `35ef973b`; between that pin and `62b1a6e8` Silo removed no operation and changed only optional fields on the operations Bloom calls. The live runner has not yet run against `62b1a6e8`. The historical compatibility image remains a separate baseline; it is not a v2 image pin.
 
 [`provider-contracts.json`](../tests/contracts/provider-contracts.json) records native operation references, behavior, capability conditions, and exclusions. [`silo-v2-openapi-manifest.json`](../tests/contracts/silo-v2-openapi-manifest.json) contains the operations and transitive schemas Bloom consumes. The generator checks both artifact hashes before writing the manifest. The offline validator rejects pin drift, absent operations, unsupported claims, and frozen native API calls.
 
@@ -24,7 +24,7 @@ To reproduce the manifest, use a zsh-compatible shell:
 
 ```sh
 mkdir -p /tmp/opencode
-revision=35ef973bc64af293aff76bcd49fa2dcab82a7f74
+revision=62b1a6e82408eb4be3409255583bf8b0a192a69f
 curl --fail --location "https://raw.githubusercontent.com/Silo-Server/silo-server/$revision/contracts/api/v2/openapi.json" --output /tmp/opencode/openapi.json
 curl --fail --location "https://raw.githubusercontent.com/Silo-Server/silo-server/$revision/contracts/api/v2/migration.json" --output /tmp/opencode/migration.json
 jq '.paths["/api/v2/playback/start"].post.requestBody' /tmp/opencode/openapi.json
@@ -41,7 +41,26 @@ Discovery probes `/health` and `/ready`, then reads `/api/v2/system/info`. Only 
 
 Login and refresh use `/api/v2/auth/login` and `/api/v2/auth/refresh`. Session validation uses `/api/v2/account/me`. Profile and authentication-session lists use `items`. IDs remain opaque strings. Profile-PIN verification requires `valid: true` and a non-empty `profile_token`; `valid: false` is an incorrect PIN.
 
-`SiloRequestFactory` sends bearer authorization and selected `X-Profile-Id` and `X-Profile-Token` headers on same-origin requests. Login, refresh, discovery, and PIN verification exclude stale authentication/profile headers as required. Profile-scoped catalog, capability, watch, marker, and playback requests require the selected profile. Credentials remain in `CredentialStore`; connection metadata contains no token.
+### Sign in with a code
+
+Device sign-in uses `getDeviceLoginCapability`, `startDeviceLogin`, `pollDeviceLogin`, and `cancelDeviceLogin` (`native.auth.device`). When an address is entered on the login screen, Bloom reads system info, the device capability, and `listAuthProviders`. These are public `GET`s with 10-second attempt deadlines; the capability and provider reads may retry once. Bloom offers "Sign in with a code" only on native Silo with capability `state: available` and protocol version 2. `password_login: false` hides the password form, but only when codes are offered. Jellyfin and other servers keep the password form alone.
+
+Start sends `device_name` and `device_platform` with no `client_purpose` or `temporary`, so the request is an ordinary `device_login`. The screen shows `user_code` as `4821 7730`, the `verification_uri_complete` link (falling back to `verification_uri`), and a countdown from the relative `expires_in`. Bloom polls after `max(interval, poll_after)` seconds, clamped to 1–60. A pending answer's `expires_at` moves the local deadline, corrected for the clock offset measured at start and capped at 31 minutes after start. `opened: true` changes the prompt to "Finish on your phone".
+
+Start and poll are `non_retryable`. The transport never replays them, because an approved poll carries the token pair exactly once. The poll loop asks again on its own schedule.
+
+| Answer | Bloom |
+| --- | --- |
+| `approved` with tokens | Signs in as after a password login. |
+| `denied` | Shows "Sign-in was declined". |
+| `expired`, `canceled`, or 404 | Shows "This code expired". |
+| `consumed` without tokens | Fails; the user gets a new code. |
+| 429 | Adds five seconds to the interval for the rest of the code (RFC 8628 `slow_down`). |
+| No response, 408, or 5xx | Retries after a growing delay; fails after three in a row. |
+
+A local deadline with no decision also ends as expired. Every ended state offers "Get a new code". Backing out, leaving the signed-out state, or starting another sign-in withdraws a live code with `cancelDeviceLogin` when the capability reports `cancel`. Cancel is naturally idempotent, so it is sent with one transient retry and its answer is ignored. Approved tokens go through the password-login path: provider profiles and PIN, `CredentialStore`, the refresh token, and the access-token lifetime from `expires_in`. Bloom never starts `remote_playback` requests and never approves devices.
+
+`SiloRequestFactory` sends bearer authorization and selected `X-Profile-Id` and `X-Profile-Token` headers on same-origin requests. Login, refresh, discovery, device start/poll/cancel/capability, and PIN verification exclude stale authentication/profile headers as required. Profile-scoped catalog, capability, watch, marker, and playback requests require the selected profile. Credentials remain in `CredentialStore`; connection metadata contains no token.
 
 Errors use RFC 9457 `application/problem+json` with `type`, `title`, `status`, `detail`, and `instance`. The problem-type suffix supplies the stable error code. Bloom ignores unknown response fields and treats unknown capability, decision, and delivery values as unavailable. HTTP 406 and 415 are terminal format errors. Bounded retries cover 408 and 429 only when the operation is explicitly safe to replay.
 
@@ -53,22 +72,43 @@ Library IDs are strings in query bodies and URLs. Hierarchy requests use explici
 
 Home section IDs come from the profile's layout, so Bloom never requests a fixed section ID. Next Up reads `GET /api/v2/home/sections` and keeps movie and episode cards from the `continue_watching` and `next_up` section types, in layout order and without duplicates. Silo folds Next Up cards into Continue Watching unless the profile shows Next Up separately. The `system-next-up` section exists only in that separate mode. Continue Listening and Continue Reading share the `continue_watching` type, and their cards are dropped.
 
+Home also shows the rows the profile curates in Silo (recommendations, Because You Watched, collections, seasonal picks, genre rows, its watchlist and so on). `LibraryService::getHomeSections` reads the same `GET /api/v2/home/sections`, whose rows come with their cards after the server's cross-row de-duplication and hide-watched rules, and `HomeSectionsViewModel` adds them below Bloom's own shelves in the server's layout order:
+
+- Skipped section types: `continue_watching` and `next_up` (Continue Watching and Up Next), and `recently_added` and `new_to_library` (Bloom's per-library Recently Added; `new_to_library` is the same newest-first list).
+- Every other type is kept, including types Silo adds later. Featured rows (Silo's page hero) are ordinary rows, since Bloom keeps its own hero.
+- Only movie, series and episode cards are kept, once each per row. Rows of music, audiobooks, ebooks, manga or podcasts, and rows left empty, are dropped.
+- Without a `watchlist` row in the layout, Home adds a "Watchlist" row first, from the first 20 entries of `GET /api/v2/watchlist` (newest first). An empty watchlist adds no row; a failed read leaves the other rows.
+- Rows show their first page only; there is no "See all", as on Bloom's other Home rows.
+
+Rows load in the background with the other Home rows and refresh with them: after playback, on returning to Home after 30 seconds, on a library-visibility change, and after a watchlist change. A new Home (sign-in, profile or space switch) starts without rows. Merged spaces keep Bloom's own Home rows only, because a layout belongs to one Silo profile. Jellyfin has no curated layout (`ProviderCapability::HomeSections` is Silo-only), so its Home is unchanged.
+
+The watchlist is a per-profile list separate from favorites. Movie and series pages show "Add to Watchlist" / "On Watchlist" when the provider reports `ProviderCapability::Watchlist` (native Silo only; Jellyfin has none). The state comes from the item's `user_state.in_watchlist` (canonical `inWatchlist`). `PUT` and `DELETE /api/v2/watchlist/{item_id}` change it with an empty body. Both are `natural_idempotent` in the contract, so the transport may replay them after a lost response. The button changes at once and reverts with a message when the server refuses.
+
 Series and season collections omit `type`. The mapper treats an untyped card with `episode_number` as an episode, and one with `season_number` and `episode_count` as a season numbered by `season_number`.
 
 Catalog cards (`CatalogItem`) carry `overlay_summary` but no unwatched episode count: their `user_state` holds only `played`, `is_favorite`, `in_watchlist`, and `not_interested`. Seasons and item details carry the full watch rollup, so Silo series posters show a watched check but no count. Poster badge preferences come from the profile-scoped effective `ui.card_overlays` and `ui.card_overlays_enabled` settings and `GET /api/v2/settings/overlay-config`; see [poster badges](poster-badges.md).
 
 Silo has no series-wide episode route, so `LibraryService::getNextUnplayedEpisode` lists the seasons, reads each season's episodes, and runs `NextEpisodeResolver` over the whole series. The series page and autoplay therefore share the Jellyfin rules, including the excluded current episode. The catalog query source ignores `sort=random`. For the Home backdrop, hero, screensaver and Search suggestions, `LibraryService::sendRandomSampleRequest` reads the count of matching movies and series, fetches a 100-item window at a random `seek` offset, and shuffles it locally. The full backdrop index pages through the same catalog query. A provider that implements these operations natively, such as Jellyfin, keeps its own request.
 
-Conditional playback and theme capability reads return ETags. Bloom sends `If-None-Match` and reuses the cached representation on `304`. The watched, favorite, authentication-session revoke, playback, and theme-grant operations Bloom uses do not declare guarded writes. Bloom does not invent `If-Match` for them. A future guarded write must preserve the resource ETag and reconcile `412` after a fresh read.
+Conditional playback and theme capability reads return ETags. Bloom sends `If-None-Match` and reuses the cached representation on `304`. The watched, favorite, watchlist, authentication-session revoke, playback, and theme-grant operations Bloom uses do not declare guarded writes. Bloom does not invent `If-Match` for them. A future guarded write must preserve the resource ETag and reconcile `412` after a fresh read.
 
 ## Playback, themes, and seek previews
 
 - `/api/v2/playback/capabilities` must allow protocol 3, `playback_plan_v3`, and original HTTP delivery. Its `installation_id` is required on start and reports.
 - Start has ten required fields, including string `file_id`, `playback_attempt_id`, client capabilities, and client playback context. One attempt ID remains stable across retries. `PlaybackDecision.playback_plan` supplies the URL, selected tracks, source duration, and timeline.
 - The `st` query is a reconstruction reference, not account authentication. For mpv's URL-only path, Bloom preserves the plan URL and appends the documented `token` account fallback only on the configured API origin. Other origins receive no account token. Header-authenticated delivery is not advertised. Tokens remain transient and redacted.
-- Audio replan uses `POST /playback/{session_id}/replan` with `operation: track_change`. The audio PATCH route is absent from the contract and returned `404` in the live test. Original-file audio selection can remain local to mpv.
+- Deliveries: Bloom offers `original_http` and the `hls` class, and the planner picks the original file whenever it can play, so direct play stays first. Silo falls back to `server_remux_hls` (Bloom `DirectStream`) or `server_transcode_hls` (`Transcode`) for codecs, containers, bitrate caps or subtitles the original cannot carry. The `hls` entry repeats the decode lists, claims HDR10, HDR10+ and HLG output because mpv tone-maps itself (no Dolby Vision), and lists text, ASS and PGS sidecars without the JSON font bundle. `progressive` is never offered, and a `server_remux_progressive` plan is rejected by name: its chunked response has no ranges and closes while paused.
+- Timeline: positions in Bloom are source positions. A plan's `timeline_offset_seconds` is added to mpv's clock for the UI, progress, intro markers and chapters, and subtracted from seek targets. Duration comes from `source.duration_seconds`, never from mpv, whose HLS length grows while a remux runs. A transcode with a known runtime has a complete playlist (`can_seek_anywhere: true`, offset `0`) and mpv seeks it directly. A copy remux, or a transcode without a known runtime, starts at the resume keyframe and grows: mpv seeks locally only forward inside its cache, and every other seek is a `seek_reanchor` replan at the source position, which Bloom accepts only from servers that advertise `seek_reanchor_v1`. One replan runs at a time; seeks and track changes made meanwhile merge into the next one.
+- Replan uses `POST /playback/{session_id}/replan` with `operation: track_change` (or `seek_reanchor`), the current plan as `failed_plan_id`, and a stable `replan_request_id`. The audio PATCH route is absent from the contract and returned `404` in the live test. Original-file audio and subtitle selection stays local to mpv. An HLS stream carries only the selected audio, so its audio menu switches through a replan; mpv's tracks are numbered from what the stream carries (`deliveredAudioTracks`, `deliveredSubtitleTracks`), not from the source. The new plan reloads in place with `loadfile replace` at its `player_start_seconds`; the replaced file's end is not playback end, and sidecars are added again once the new stream has loaded.
+- HLS authentication: the master playlist URL keeps the `token` rule below, and Silo copies its query onto segment URIs. Playlists the server builds itself carry that query once through `EXT-X-DEFINE` once it saves 64 KiB, which FFmpeg's HLS demuxer does not expand, so mpv also sends `Authorization: Bearer` (`http-header-fields`) when the playlist is on the API origin. mpv sends `http-header-fields` with every request, so while a stream carries headers the player adds no sidecar from another origin, and a replan replaces the header list entry by entry (`change-list`). mpv cannot scope the header to an origin, so this relies on Silo's playlists using relative segment URIs. At the pin they do: every API-served media playlist, whether Silo builds it (`syntheticManifestQuery`) or rewrites it (`RewriteManifestPaths`, including transcode-node playlists relayed by the API), writes `segment/<name>` relative to the playlist. A node serving its stream directly has an absolute URL on another origin and gets no bearer. Recheck this when bumping the pin. Without `hls_variable_substitution_v1`, FFmpeg's own growing playlists stay literal. mpv opens growing (EVENT) playlists at their first segment (`live_start_index=0`), not FFmpeg's live edge.
+- Subtitles are embedded-first. Start sends `subtitle_track_index` as Silo's combined ordinal (external files, then embedded streams, then downloads), which `SiloPlaybackProvider` derives from the `/watch` track lists; the ffmpeg stream index is never sent. Bloom negotiates `embedded_subtitles_v1` and declares `native_embedded` claims keyed by `ffmpeg_stream_index` for every container and codec mpv renders, so Silo answers `render` with `embedded` and extracts nothing. mpv selects embedded tracks from the original stream. On `original_http`, inventory entries with `source: embedded` are never mounted as sidecars. External inventory entries replace the `/watch` track they belong to, and only downloaded subtitles get a new menu entry. An HLS stream holds none of the file's embedded streams, so Bloom negotiates `hls_subtitle_renditions_v1` and `hls_remux_subtitle_renditions_v1` when the server advertises them: the selected embedded text track then arrives as the playlist's WebVTT rendition, which mpv (FFmpeg 9) exposes as the stream's subtitle track. Choosing another embedded track on an HLS stream is a `track_change` replan, which yields a rendition, the plan's sidecar `artifact`, or burn-in, in Silo's order; Bloom does not mount the whole-file embedded sidecars itself because extraction is slow on network storage. External and downloaded sidecars switch locally, shifted by the timeline offset because their cues are on the source clock. A burned-in subtitle pins the stream, so turning it off or choosing another track replans. Embedded tracks the plan lists nowhere are dropped from the menu. `PlaybackPolicy` lists embedded tracks before external files for both providers, so each language, forced and default rule picks an embedded match first.
+- The provider tracks at most 64 sessions and forgets the oldest when full. A start response that arrives after its request was superseded is stopped at once, unless the account or profile changed meanwhile.
+- Session lifecycle: a progress or pause report answered `404` means Silo expired the attempt, so the player recovers through its reconnect path with a new session at the current position. `410 playback_session_ended` means an administrator ended it; the player leaves playback with a message and never restarts it. A paused player sends a paused progress sample once a minute, well inside Silo's 30-minute paused grace.
+- Silo expires a started session after about 45 seconds without stream reads or progress (`queuedSessionsExpire`). Multipart playback therefore starts only part 1's session up front; part N+1's session starts and is appended to mpv's playlist when part N begins playing.
+- The stream URL carries the account token for the whole movie. Before a start request, `AuthenticationService::ensureAccessTokenValidFor` renews a token that expires within four hours, capped at half its issued lifetime, or whose lifetime is unknown after a session restore.
+- A refused decision shows Silo's `terminal.message`. A playable plan Bloom cannot execute names the delivery and the reason (an unrequested delivery, a server-anchored stream without `seek_reanchor_v1`, or stream headers that need refreshing) instead of a generic error. A refused replan restores the previous track choice and keeps the current stream.
 - Progress uses `installation_id`, a monotonic sequence, `position` in seconds, and `is_paused`. Stop has a stable `stop_id`. These requests have explicit replay safety. Rejected plans receive stop cleanup without an invented final position.
-- `/api/v2/watch/{id}` supplies versions, tracks, source duration, chapters, markers, and per-file preview availability. Original HTTP plans with an unshifted seekable timeline are accepted. Forward-only remux and HLS/transcode plans require separate timeline and reanchor work and remain unavailable.
+- `/api/v2/watch/{id}` supplies versions, tracks, source duration, chapters, markers, and per-file preview availability. Original HTTP plans need an unshifted seekable timeline; HLS remux and transcode plans may be anchored as described above. `plan_invalidated_v1`, quality rungs and HLS Dolby Vision are not negotiated: a withdrawn copy-remux plan ends the session, and Bloom's session-loss recovery starts a new one.
 - Themes use `/catalog/themes/capabilities`, detail `themes`, and an owner/theme playback grant. The short-lived URL is never built from an item ID or persisted. Each loop gets a fresh grant. Silo grant audio is fetched once without ranges into a buffer with a 16 MiB limit and a 45-second deadline. Converted audio is progressive AAC in MP4 and has no range or length contract.
 - Previews require `trickplay_v1` and the selected version's `trickplay_available`. `/watch/{id}/trickplay?file_id=...` returns the grid, interval, count, expiring signed sheet URLs, and file identity. Bloom validates these values and keeps a bounded cache scoped to server/account/profile/item. URLs are never reconstructed.
 
@@ -82,13 +122,13 @@ Use `./scripts/dev-build.sh --tests` during development, then `nix flake check` 
 export BLOOM_CONTRACT_USERNAME=tester
 read -rs 'BLOOM_CONTRACT_PASSWORD?Fixture password: '
 export BLOOM_CONTRACT_PASSWORD
-python3 tests/contracts/run_live_contracts.py --deployment silo-35ef973-native --base-url http://silo --allow-mutations --output /tmp/opencode/silo-v2-report.json
+python3 tests/contracts/run_live_contracts.py --deployment silo-62b1a6e-native --base-url http://silo --allow-mutations --output /tmp/opencode/silo-v2-report.json
 unset BLOOM_CONTRACT_PASSWORD
 ```
 
 Set `BLOOM_CONTRACT_TRICKPLAY_ITEM_ID` to a title with published previews to complete that gate. Live GPU playback, audible output, physical keyboard/gamepad navigation, Windows composition, and HDR/display transitions remain separate manual checks.
 
-Ebooks, audiobooks, comics, watch-together, notifications, history imports, downloads/offline, admin operations, and expanded HLS/transcode support remain out of scope. The existing historical Jellyfin compatibility matrix retains its missing/stubbed/partial labels and is not evidence of native v2 behavior.
+Ebooks, audiobooks, comics, watch-together, notifications, history imports, downloads/offline, admin operations, progressive remux, and Silo quality selection remain out of scope. Silo HLS remux and transcode playback have unit coverage only; they need live validation against a server (seek reanchor, rendition subtitles, audio replans, and long playlists that use `EXT-X-DEFINE`). The existing historical Jellyfin compatibility matrix retains its missing/stubbed/partial labels and is not evidence of native v2 behavior.
 
 ### Jellyfin 12 API policy
 

@@ -1149,14 +1149,24 @@ void WindowsMpvBackend::processMpvEvents()
                 return;
             }
 
+            // loadfile replace (an in-place stream reload) ends the old entry
+            // with STOP although nothing asked the backend to stop; the mpv
+            // handle must survive it to play the replacement.
+            const bool replacedEntry = endFile != nullptr
+                && endFile->reason == MPV_END_FILE_REASON_STOP
+                && !m_stopRequested
+                && m_pendingStopReplyUserdata == 0;
+
             if (shouldEmitPlaybackEnded && reachedTerminalPlaybackState) {
-                teardownMpv();
-                syncContainerGeometry();
+                if (!replacedEntry) {
+                    teardownMpv();
+                    syncContainerGeometry();
+                }
                 emit playbackEnded();
                 return;
             }
 
-            if (reachedTerminalPlaybackState && m_pendingStopReplyUserdata == 0) {
+            if (reachedTerminalPlaybackState && m_pendingStopReplyUserdata == 0 && !replacedEntry) {
                 teardownMpv();
                 syncContainerGeometry();
                 return;
@@ -1252,6 +1262,7 @@ void WindowsMpvBackend::processMpvEvents()
             }
             setDirectRunning(true);
             scheduleDiagnosticSnapshots();
+            emit fileLoaded();
             break;
         case MPV_EVENT_GET_PROPERTY_REPLY:
             m_propertySnapshots.handleEvent(event, [this](const QString &stage,
