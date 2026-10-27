@@ -291,7 +291,12 @@ void LocalSeekPreview::launch()
         QDir().mkpath(m_options.cacheRoot);
         QFile::setPermissions(m_options.cacheRoot, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
         m_cache = { new SeekPreviewCache(m_options.cacheRoot), [](SeekPreviewCache *cache) {
-            QThreadPool::globalInstance()->start([cache] { delete cache; });
+            if (auto *pool = QThreadPool::globalInstance()) {
+                pool->start([cache] { delete cache; });
+            } else {
+                // A helper can retain the cache until after Qt destroys the pool.
+                delete cache;
+            }
         } };
         if (!m_cache->locked) {
             fail("cache");

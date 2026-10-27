@@ -110,6 +110,10 @@ failure, a stalled server, and header validation. It also checks the helper
 under an installed UTF-8 locale, cache retention after a frame failure, and
 cache reuse across a stream URL refresh. A small synthetic HDR fixture checks
 that tone mapping changes the output and preserves neutral colour.
+An application subprocess checks that a pending helper can release its cache
+after Qt destroys the global thread pool and leaves no session directory in
+the parent-owned cache root. Final cache removal runs directly
+when the thread pool is no longer available during application shutdown.
 `PlayerControllerAutoplayContextTest` checks automatic fallback, that nothing is
 generated until the filmstrip asks, server priority, multipart offsets, and
 terminal-state response rejection. It checks that both settings gate their
@@ -118,6 +122,16 @@ autoplay keeps the descriptor, source, session and track metadata needed to
 start local previews. A 121-second H.264 fixture with
 B-frames and 15-second keyframe gaps checks out-of-order preview generation
 and image content across the timeline.
+
+CTest runs `LocalSeekPreviewTest` without other tests at the same time. Retry
+and cache tests use the normal ten-second helper deadline, including startup.
+The cache test's wait covers startup and frame deadlines for all three failures.
+The stalled-stream test keeps its short deadline to check timeout handling.
+The settle-delay test sends timer events directly to check that a new request
+restarts the delay and that an event from the old timer does not start a batch.
+This removes the need to check state within a short wall-clock interval.
+Separate Nix builds can still compete for CPU time. To limit that load, run
+`nix flake check --max-jobs 1 --cores 4 --print-build-logs`.
 
 The H.264 fixture was generated with FFmpeg 8.1:
 

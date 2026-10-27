@@ -1421,6 +1421,7 @@ target_compile_definitions(LocalSeekPreviewTest PRIVATE
     BLOOM_SEEK_PREVIEW_HDR_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/seek-preview-hdr.mkv")
 add_dependencies(LocalSeekPreviewTest BloomSeekPreviewHelper)
 add_test(NAME LocalSeekPreviewTest COMMAND LocalSeekPreviewTest)
+set_tests_properties(LocalSeekPreviewTest PROPERTIES RUN_SERIAL TRUE)
 
 target_compile_definitions(PlayerControllerAutoplayContextTest PRIVATE
     BLOOM_SEEK_PREVIEW_HDR_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/seek-preview-hdr.mkv")

@@ -53,6 +53,8 @@ signals:
     void finished(bool complete);
 
 private:
+    friend class LocalSeekPreviewTest;
+
     void launchBatch();
     void launch();
     void readProgress();
