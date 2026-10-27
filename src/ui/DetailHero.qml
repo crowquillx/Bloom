@@ -45,6 +45,14 @@ Column {
     /// Keep the synopsis and Read More slots at their collapsed height even
     /// when the text is short, so the hero does not jump while browsing.
     property bool stableSynopsisHeight: false
+    /// Keep one chip row reserved even while it is empty. Quality badges and
+    /// ratings load after the page's details, so pages that expect them set
+    /// this to stop the hero jumping when they arrive. Chips that would wrap
+    /// past the reserved row are clipped.
+    property bool reserveChipRow: false
+    /// Keep the progress/footnote line reserved even while it is empty, for
+    /// footnotes that load after the page's details.
+    property bool reserveFootnote: false
     property Item primaryAction: null
     /// Playback progress (0..1) drawn under the primary action.
     property real progress: 0
@@ -137,37 +145,52 @@ Column {
         opacity: 0.86
     }
 
-    Flow {
+    Item {
+        readonly property int reservedHeight: Math.round(40 * Theme.layoutScale)
+        readonly property bool hasChips: qualityRepeater.visibleCount > 0 || ratingRepeater.count > 0
+
         width: parent.width
-        spacing: Theme.spacingSmall
-        visible: qualityRepeater.visibleCount > 0 || ratingRepeater.count > 0
+        height: root.reserveChipRow ? reservedHeight : chipFlow.height
+        visible: root.reserveChipRow || hasChips
+        clip: root.reserveChipRow
 
-        Repeater {
-            id: qualityRepeater
-            readonly property int visibleCount: {
-                var total = 0
-                var badges = root.qualityBadges || []
-                for (var i = 0; i < badges.length; ++i) {
-                    if (badges[i])
-                        total++
+        Flow {
+            id: chipFlow
+            width: parent.width
+            spacing: Theme.spacingSmall
+            opacity: parent.hasChips ? 1.0 : 0.0
+            Behavior on opacity {
+                enabled: Theme.uiAnimationsEnabled
+                NumberAnimation { duration: Theme.durationFade }
+            }
+
+            Repeater {
+                id: qualityRepeater
+                readonly property int visibleCount: {
+                    var total = 0
+                    var badges = root.qualityBadges || []
+                    for (var i = 0; i < badges.length; ++i) {
+                        if (badges[i])
+                            total++
+                    }
+                    return total
                 }
-                return total
+                model: root.qualityBadges
+
+                MetadataChip {
+                    required property var modelData
+                    text: modelData || ""
+                }
             }
-            model: root.qualityBadges
 
-            MetadataChip {
-                required property var modelData
-                text: modelData || ""
-            }
-        }
+            Repeater {
+                id: ratingRepeater
+                model: root.ratings
 
-        Repeater {
-            id: ratingRepeater
-            model: root.ratings
-
-            RatingMetadataChip {
-                required property var modelData
-                ratingData: modelData
+                RatingMetadataChip {
+                    required property var modelData
+                    ratingData: modelData
+                }
             }
         }
     }
@@ -260,7 +283,8 @@ Column {
     // Resume progress under the primary action, or a short footnote.
     Row {
         spacing: Theme.spacingMedium
-        visible: root.progress > 0 || root.footnote !== ""
+        height: root.reserveFootnote ? Math.max(implicitHeight, footnoteText.implicitHeight) : implicitHeight
+        visible: root.reserveFootnote || root.progress > 0 || root.footnote !== ""
 
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
@@ -279,6 +303,7 @@ Column {
         }
 
         Text {
+            id: footnoteText
             anchors.verticalCenter: parent.verticalCenter
             text: root.footnote
             visible: text !== ""

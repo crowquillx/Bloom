@@ -792,6 +792,8 @@ FocusScope {
                                     formatRuntime(durationMs), calculateEndTime(durationMs), formatCommunityRating()]
                     qualityBadges: [root.videoResolutionBadge(), root.videoHdrBadge()]
                     ratings: root.visibleExternalRatings()
+                    // Playback info and ratings load after the details.
+                    reserveChipRow: true
                     detailItems: genres || []
                     synopsis: movieOverview
                     synopsisPlaceholder: isLoading ? "" : qsTr("No description available.")

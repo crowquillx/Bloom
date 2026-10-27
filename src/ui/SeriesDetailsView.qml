@@ -40,6 +40,19 @@ FocusScope {
     readonly property bool seerrConfigured: typeof SeerrService !== "undefined" && SeerrService !== null && SeerrService.configured
     readonly property string seerrMediaType: "tv" // SeriesDetailsView only issues TV similar-title requests.
     readonly property var externalRatings: SeriesDetailsViewModel.mdbListRatings || ({})
+    // Ratings come from MDBList (with an API key) and, for anime, AniList.
+    // Mirrors the fetch conditions in SeriesDetailsViewModel.
+    readonly property bool expectsExternalRatings: {
+        if (ConfigManager.mdbListApiKey !== "")
+            return true
+        const genres = SeriesDetailsViewModel.genres || []
+        for (let i = 0; i < genres.length; ++i) {
+            const genre = String(genres[i]).toLowerCase()
+            if (genre === "anime" || genre === "animation")
+                return true
+        }
+        return false
+    }
 
     // Hero copy keeps a fixed reading measure (about half a 16:9 screen), so
     // ultrawide screens do not stretch it.
@@ -557,6 +570,9 @@ FocusScope {
                     title: seriesName
                     metadataItems: [root.formatSeriesYears(), SeriesDetailsViewModel.officialRating, root.formatCounts()]
                     ratings: root.visibleExternalRatings()
+                    // Ratings and the up-next episode load after the details.
+                    reserveChipRow: root.expectsExternalRatings
+                    reserveFootnote: true
                     detailItems: SeriesDetailsViewModel.genres || []
                     detailText: root.creatorsSummary() !== ""
                                 ? qsTr("Key creatives: %1").arg(root.creatorsSummary())

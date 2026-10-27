@@ -134,6 +134,13 @@ screens don't stretch the reading measure). Top to bottom:
 Detail pages (movie, series, season, episode) build this block with
 `DetailHero`; Home's carousel and Up Next lay it out themselves.
 
+Nothing in the hero moves unless the user moves it. Anything that loads after
+the page's details keeps its slot reserved from the start: quality badges
+(playback info), external ratings (MDBList, AniList) and late footnotes such
+as a series' up-next episode. Set `reserveChipRow` and `reserveFootnote` on
+`DetailHero` for those, and `stableSynopsisHeight` where browsing changes the
+synopsis.
+
 The hero occupies about the top 60% of the screen. The first shelf sits fully
 in view below it, and the next shelf's header peeks in.
 

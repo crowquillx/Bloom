@@ -1235,6 +1235,8 @@ FocusScope {
                                     selectedEpisodeIsPlayed ? qsTr("Watched")
                                                             : (selectedEpisodePlaybackPosition > 0 ? qsTr("In Progress") : "")]
                     qualityBadges: [root.videoResolutionBadge(), root.videoHdrBadge()]
+                    // Playback info loads per episode, after the episode data.
+                    reserveChipRow: true
                     synopsis: selectedEpisodeOverview
                     synopsisPlaceholder: selectedEpisodeData ? qsTr("No description available.") : ""
                     // Browsing episodes must not move the action row.
