@@ -17,6 +17,16 @@
 #include "providers/silo/SiloProviderAdapter.h"
 #include "providers/silo/SiloCatalogProvider.h"
 
+namespace {
+
+// Silo artwork-bearing reads ask for the widths Bloom draws on a 4K screen.
+QString withArtworkWidths(const QString &endpoint)
+{
+    return endpoint + QStringLiteral("?poster_width=1000&backdrop_width=3840&logo_width=1280");
+}
+
+} // namespace
+
 class ProviderCatalogTest : public QObject
 {
     Q_OBJECT
@@ -32,6 +42,7 @@ private slots:
     void siloPlaybackFallbacksAndExternalSubtitleMetadata();
     void canonicalArtworkAndPlaybackChapterMetadataRemainProviderNeutral();
     void siloEpisodeParentAndBoundedTimes();
+    void siloArtworkCacheIdentityFollowsStoredVariant();
     void siloNumericSeasonRoutesAndEnvelopeOperation();
     void siloThemeMetadataCapabilitiesAndGrants();
 
@@ -700,6 +711,33 @@ void ProviderCatalogTest::canonicalArtworkAndPlaybackChapterMetadataRemainProvid
                  .value(QStringLiteral("startMs")).toLongLong(), 1250);
 }
 
+void ProviderCatalogTest::siloArtworkCacheIdentityFollowsStoredVariant()
+{
+    const auto posterKey = [](const QString &posterUrl) {
+        const QVariantMap mapped = SiloModelMapper::mediaItem(
+            QJsonObject{
+                {QStringLiteral("content_id"), QStringLiteral("movie-1")},
+                {QStringLiteral("type"), QStringLiteral("movie")},
+                {QStringLiteral("poster_url"), posterUrl}
+            },
+            QStringLiteral("silo"));
+        return mapped.value(QStringLiteral("primaryArtwork")).toMap()
+            .value(QStringLiteral("cacheKey")).toString();
+    };
+
+    // Signed queries change daily without changing the stored image.
+    const QString w500 = posterKey(QStringLiteral(
+        "https://s3.example/assets/poster/w500.abc.webp?X-Amz-Date=20261027&X-Amz-Signature=1"));
+    QVERIFY(!w500.isEmpty());
+    QCOMPARE(posterKey(QStringLiteral(
+                 "https://s3.example/assets/poster/w500.abc.webp?X-Amz-Date=20261028&X-Amz-Signature=2")),
+             w500);
+    QVERIFY(posterKey(QStringLiteral(
+                "https://s3.example/assets/poster/w1000.abc.webp?X-Amz-Date=20261028")) != w500);
+    QVERIFY(posterKey(QStringLiteral(
+                "https://s3.example/assets/poster/w500.def.webp?X-Amz-Date=20261028")) != w500);
+}
+
 void ProviderCatalogTest::siloEpisodeParentAndBoundedTimes()
 {
     const QJsonObject episode{
@@ -771,7 +809,7 @@ void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
         provider.createRequest(ProviderCatalogOperation::Items, parentOnlyQuery);
     QVERIFY(seasonsRequest.supported);
     QCOMPARE(seasonsRequest.relativeEndpoint,
-             QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons"));
+             withArtworkWidths(QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons")));
 
     // Season listings keyed only by the season id (player episode navigation).
     ProviderCatalogQuery seasonEpisodesQuery;
@@ -781,7 +819,7 @@ void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
         provider.createRequest(ProviderCatalogOperation::Items, seasonEpisodesQuery);
     QVERIFY(seasonEpisodesRequest.supported);
     QCOMPARE(seasonEpisodesRequest.relativeEndpoint,
-             QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes"));
+             withArtworkWidths(QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes")));
 
     ProviderCatalogQuery query;
     query.seriesId = QStringLiteral("series/one");
@@ -791,7 +829,7 @@ void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
         provider.createRequest(ProviderCatalogOperation::Items, query);
     QVERIFY(request.supported);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons/0"));
+             withArtworkWidths(QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons/0")));
 
     const ProviderCatalogResponse season = provider.parseResponse(
         ProviderCatalogOperation::Items,
@@ -807,7 +845,7 @@ void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
     request = provider.createRequest(ProviderCatalogOperation::Items, query);
     QVERIFY(request.supported);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons/0/episodes"));
+             withArtworkWidths(QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons/0/episodes")));
 
     query.includeItemTypes = {QStringLiteral("Movie")};
     request = provider.createRequest(ProviderCatalogOperation::Items, query);

@@ -31,6 +31,13 @@
 
 namespace {
 
+// Silo artwork-bearing reads ask for the widths Bloom draws on a 4K screen.
+QString withArtworkWidths(const QString &endpoint)
+{
+    return endpoint + (endpoint.contains(QLatin1Char('?')) ? QStringLiteral("&") : QStringLiteral("?"))
+        + QStringLiteral("poster_width=1000&backdrop_width=3840&logo_width=1280");
+}
+
 class ControlledReply final : public QNetworkReply
 {
 public:
@@ -189,6 +196,7 @@ private slots:
     void externalSegmentsContinueAfterV4Errors();
     void homeSectionsKeepCuratedVideoRowsInLayoutOrder();
     void watchlistRequestsUseMembershipRoutes();
+    void artworkWidthsOnlyOnRoutesThatDeclareThem();
     void homeSectionsServiceAddsWatchlistRowOnlyWithoutOne();
     void homeSectionsServiceReportsFailure();
     void watchlistWritesReportSuccessAndFailure();
@@ -432,7 +440,7 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     request = provider.createRequest(ProviderCatalogOperation::Items, query);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/catalog?source=query"));
+    QCOMPARE(request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/catalog?source=query")));
 
     request = provider.createRequest(ProviderCatalogOperation::LatestMedia, query);
     QVERIFY(request.supported);
@@ -453,25 +461,25 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
     QCOMPARE(
-        request.relativeEndpoint, QStringLiteral("/api/v2/catalog/items/content%2Fwith%20space"));
+        request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/catalog/items/content%2Fwith%20space")));
 
     request = provider.createRequest(ProviderCatalogOperation::Versions, query);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
     QCOMPARE(request.relativeEndpoint,
-        QStringLiteral("/api/v2/catalog/items/content%2Fwith%20space/versions"));
+        withArtworkWidths(QStringLiteral("/api/v2/catalog/items/content%2Fwith%20space/versions")));
 
     ProviderCatalogQuery hierarchy;
     hierarchy.seriesId = QStringLiteral("series/one");
     request = provider.createRequest(ProviderCatalogOperation::Items, hierarchy);
     QVERIFY(request.supported);
     QCOMPARE(
-        request.relativeEndpoint, QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons"));
+        request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons")));
     hierarchy.parentId = QStringLiteral("season/one");
     request = provider.createRequest(ProviderCatalogOperation::Items, hierarchy);
     QVERIFY(request.supported);
     QCOMPARE(
-        request.relativeEndpoint, QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes"));
+        request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes")));
 
     // LibraryService::getSeasons / getSeasonEpisodes send only a parent and
     // one item type; both must use hierarchy routes, never library_id.
@@ -481,7 +489,7 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     request = provider.createRequest(ProviderCatalogOperation::Items, seasonEpisodes);
     QVERIFY(request.supported);
     QCOMPARE(
-        request.relativeEndpoint, QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes"));
+        request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes")));
 
     ProviderCatalogQuery state;
     state.itemId = QStringLiteral("content-42");
@@ -492,7 +500,7 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     request = provider.createRequest(ProviderCatalogOperation::Items, season);
     QVERIFY(request.supported);
     QCOMPARE(
-        request.relativeEndpoint, QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons"));
+        request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons")));
     request = provider.createRequest(ProviderCatalogOperation::SetWatched, state);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Post);
@@ -535,7 +543,7 @@ void SiloCatalogServiceTest::structuredFiltersUseNativeQueryBody()
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Post);
     QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/catalog/query"));
+    QCOMPARE(request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/catalog/query")));
     QCOMPARE(request.extraHeaders.value(QByteArrayLiteral("Content-Type")),
              QByteArrayLiteral("application/json"));
 
@@ -669,7 +677,7 @@ void SiloCatalogServiceTest::unsupportedFiltersAreExplicit()
         ProviderCatalogOperation::NextUp, query);
     QVERIFY(nextUp.supported);
     QCOMPARE(nextUp.method, ProviderHttpMethod::Get);
-    QCOMPARE(nextUp.relativeEndpoint, QStringLiteral("/api/v2/home/sections"));
+    QCOMPARE(nextUp.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/home/sections")));
     verifyUnsupported(ProviderCatalogOperation::RandomItems, query);
     verifyUnsupported(ProviderCatalogOperation::ResolveLibrary, query);
 }
@@ -1413,7 +1421,7 @@ void SiloCatalogServiceTest::homeSectionsKeepCuratedVideoRowsInLayoutOrder()
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
     QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/home/sections"));
+    QCOMPARE(request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/home/sections")));
     ProviderCatalogQuery modified;
     modified.limit = 10;
     QVERIFY(!provider.createRequest(ProviderCatalogOperation::HomeSections, modified).supported);
@@ -1455,6 +1463,61 @@ void SiloCatalogServiceTest::homeSectionsKeepCuratedVideoRowsInLayoutOrder()
                                     QByteArrayLiteral(R"({"items":[]})")).valid);
 }
 
+void SiloCatalogServiceTest::artworkWidthsOnlyOnRoutesThatDeclareThem()
+{
+    // Silo answers 422 to query parameters a route does not declare.
+    SiloCatalogProvider provider;
+    const auto hasWidths = [](const ProviderCatalogRequest &request) {
+        const QUrlQuery parameters(QUrl(request.relativeEndpoint).query());
+        return parameters.queryItemValue(QStringLiteral("poster_width")) == QStringLiteral("1000")
+            && parameters.queryItemValue(QStringLiteral("backdrop_width")) == QStringLiteral("3840")
+            && parameters.queryItemValue(QStringLiteral("logo_width")) == QStringLiteral("1280");
+    };
+    const auto mentionsWidths = [](const ProviderCatalogRequest &request) {
+        return request.relativeEndpoint.contains(QStringLiteral("_width"));
+    };
+
+    ProviderCatalogQuery query;
+    QVERIFY(!mentionsWidths(provider.createRequest(ProviderCatalogOperation::Views, query)));
+    QVERIFY(!mentionsWidths(
+        provider.createRequest(ProviderCatalogOperation::FilterOptions, query)));
+    QVERIFY(!mentionsWidths(
+        provider.createRequest(ProviderCatalogOperation::ThemeSongsCapability, query)));
+    QVERIFY(!mentionsWidths(
+        provider.createRequest(ProviderCatalogOperation::PosterBadgeSettings, query)));
+    QVERIFY(!mentionsWidths(
+        provider.createRequest(ProviderCatalogOperation::PosterBadgeDefaults, query)));
+
+    query.parentId = QStringLiteral("home");
+    QVERIFY(hasWidths(provider.createRequest(ProviderCatalogOperation::Views, query)));
+    query.parentId = QStringLiteral("library-1");
+    QVERIFY(hasWidths(provider.createRequest(ProviderCatalogOperation::Views, query)));
+    query.itemId = QStringLiteral("section-1");
+    QVERIFY(hasWidths(provider.createRequest(ProviderCatalogOperation::Items, query)));
+
+    ProviderCatalogQuery item;
+    item.itemId = QStringLiteral("movie-1");
+    item.limit = 12;
+    QVERIFY(hasWidths(provider.createRequest(ProviderCatalogOperation::SimilarItems, item)));
+    item.limit = 0;
+    QVERIFY(!mentionsWidths(provider.createRequest(ProviderCatalogOperation::ThemeSongs, item)));
+    item.themeId = QStringLiteral("theme-1");
+    const ProviderCatalogRequest grant =
+        provider.createRequest(ProviderCatalogOperation::ThemeSongPlayback, item);
+    QCOMPARE(grant.relativeEndpoint,
+             QStringLiteral("/api/v2/catalog/items/movie-1/themes/theme-1/playback"));
+    item.stateValue = true;
+    for (const ProviderCatalogOperation write : {ProviderCatalogOperation::SetWatched,
+                                                 ProviderCatalogOperation::SetFavorite,
+                                                 ProviderCatalogOperation::SetWatchlist}) {
+        QVERIFY(!mentionsWidths(provider.createRequest(write, item)));
+    }
+
+    ProviderCatalogQuery search;
+    search.searchTerm = QStringLiteral("heat");
+    QVERIFY(hasWidths(provider.createRequest(ProviderCatalogOperation::Search, search)));
+}
+
 void SiloCatalogServiceTest::watchlistRequestsUseMembershipRoutes()
 {
     SiloCatalogProvider provider;
@@ -1483,7 +1546,7 @@ void SiloCatalogServiceTest::watchlistRequestsUseMembershipRoutes()
     request = provider.createRequest(ProviderCatalogOperation::Watchlist, list);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/watchlist?limit=20"));
+    QCOMPARE(request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/watchlist?limit=20")));
     list.startIndex = 20;
     QVERIFY(!provider.createRequest(ProviderCatalogOperation::Watchlist, list).supported);
 

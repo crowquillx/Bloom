@@ -1,6 +1,7 @@
 #pragma once
 
 #include "providers/ICatalogProvider.h"
+#include "providers/silo/SiloArtworkSizes.h"
 #include "providers/silo/SiloModelMapper.h"
 
 #include <QJsonArray>
@@ -20,6 +21,18 @@ public:
     ProviderCatalogRequest createRequest(
         ProviderCatalogOperation operation,
         const ProviderCatalogQuery &query) const override
+    {
+        ProviderCatalogRequest request = createOperationRequest(operation, query);
+        if (request.supported && returnsArtwork(operation, request)) {
+            request.relativeEndpoint = SiloArtworkSizes::withWidths(request.relativeEndpoint);
+        }
+        return request;
+    }
+
+private:
+    static ProviderCatalogRequest createOperationRequest(
+        ProviderCatalogOperation operation,
+        const ProviderCatalogQuery &query)
     {
         switch (operation) {
         case ProviderCatalogOperation::Views:
@@ -178,6 +191,7 @@ public:
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
 
+public:
     ProviderCatalogResponse parseResponse(
         ProviderCatalogOperation operation,
         const QByteArray &body,
@@ -313,6 +327,30 @@ public:
     }
 
 private:
+    // These operations read media cards or details on routes that declare
+    // the artwork width parameters; library discovery is the one exception.
+    static bool returnsArtwork(ProviderCatalogOperation operation,
+                               const ProviderCatalogRequest &request)
+    {
+        switch (operation) {
+        case ProviderCatalogOperation::Views:
+            return request.relativeEndpoint != QStringLiteral("/api/v2/user/libraries");
+        case ProviderCatalogOperation::Items:
+        case ProviderCatalogOperation::LatestMedia:
+        case ProviderCatalogOperation::Item:
+        case ProviderCatalogOperation::Chapters:
+        case ProviderCatalogOperation::Versions:
+        case ProviderCatalogOperation::SimilarItems:
+        case ProviderCatalogOperation::Search:
+        case ProviderCatalogOperation::NextUp:
+        case ProviderCatalogOperation::HomeSections:
+        case ProviderCatalogOperation::Watchlist:
+            return true;
+        default:
+            return false;
+        }
+    }
+
     struct Rule
     {
         QString field;

@@ -21,6 +21,7 @@ qt_add_executable(Bloom
     providers/jellyfin/JellyfinCatalogProvider.h
     providers/IPlaybackProvider.h
     providers/jellyfin/JellyfinProviderAdapter.h
+    providers/silo/SiloArtworkSizes.h
     providers/silo/SiloAuthenticator.h
     providers/silo/SiloCatalogProvider.h
     providers/silo/SiloRequestFactory.h

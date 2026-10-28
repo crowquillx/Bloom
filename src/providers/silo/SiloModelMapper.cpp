@@ -1,10 +1,12 @@
 #include "SiloModelMapper.h"
 
 #include <algorithm>
+#include <QCryptographicHash>
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QSet>
+#include <QUrl>
 
 #include <cmath>
 #include <limits>
@@ -117,6 +119,19 @@ QVariantMap providerIds(const QJsonObject &wire)
     return result;
 }
 
+// Silo artwork has no tag, and its signed query changes daily. The object
+// path names the stored size variant and its content hash, so it keys the
+// image cache: a new variant or replaced artwork is fetched instead of
+// reusing cached bytes.
+QString artworkSourceTag(const QString &url)
+{
+    const QByteArray path = QUrl(url)
+        .adjusted(QUrl::RemoveQuery | QUrl::RemoveFragment)
+        .toEncoded();
+    return QString::fromLatin1(
+        QCryptographicHash::hash(path, QCryptographicHash::Sha256).toHex().left(16));
+}
+
 void appendArtwork(QVariantList &all,
                    QVariantMap &owner,
                    const QString &property,
@@ -137,6 +152,7 @@ void appendArtwork(QVariantList &all,
     artwork.kind = kind;
     artwork.ownerKind = ownerKind;
     artwork.index = qMax(0, index);
+    artwork.tag = artworkSourceTag(url);
     artwork.sourceUrl = url;
     const QVariantMap ref = artwork.toVariantMap();
     if (!owner.contains(property)) {
@@ -173,6 +189,7 @@ QVariantList people(const QJsonObject &wireItem, const QString &connectionId)
                 person.artwork.itemId = personId;
                 person.artwork.kind = Bloom::ArtworkKind::Person;
                 person.artwork.ownerKind = Bloom::ArtworkOwnerKind::Person;
+                person.artwork.tag = artworkSourceTag(photoUrl);
                 person.artwork.sourceUrl = photoUrl;
             }
             QVariantMap mapped = person.toVariantMap();

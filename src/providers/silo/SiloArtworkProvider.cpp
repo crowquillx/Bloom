@@ -1,4 +1,5 @@
 #include "SiloArtworkProvider.h"
+#include "SiloArtworkSizes.h"
 
 #include "network/AuthenticationService.h"
 #include "network/HttpTransport.h"
@@ -341,8 +342,8 @@ QString refreshEndpoint(const Bloom::ArtworkRef &artwork)
         case Bloom::ArtworkKind::Thumb:
         case Bloom::ArtworkKind::Backdrop:
         case Bloom::ArtworkKind::Logo:
-            return QStringLiteral("/api/v2/catalog/items/%1")
-                .arg(encodedIdentity(artwork.itemId));
+            return SiloArtworkSizes::withWidths(
+                QStringLiteral("/api/v2/catalog/items/%1").arg(encodedIdentity(artwork.itemId)));
         case Bloom::ArtworkKind::Chapter:
         case Bloom::ArtworkKind::Person:
         case Bloom::ArtworkKind::Unknown:
