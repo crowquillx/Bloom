@@ -128,7 +128,7 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `NavigationBar` | The shell's top navigation (owned by `Main.qml`). |
 | `StageBackdrop` | Full-bleed page background: artwork in `hero` or `ambient` mode with the standard scrims, or the ambient accent glow without art. |
 | `MediaCard` | The one media card: `poster` (caption below) or `landscape` (title on the art, progress), with focus lift, badges and hybrid rounded artwork. |
-| `ShelfList` | Horizontal shelf `ListView` aligned to the gutter with focus room and transitions. |
+| `ShelfList` | Horizontal shelf `ListView` aligned to the gutter with focus room and displacement transitions (no fade-in: ListView can leave an interrupted fade at opacity 0). |
 | `PageHeader` | Eyebrow, display title and detail line for non-hero pages, with a trailing slot for toolbars. |
 | `GlassPanel` | Rounded glass surface (`strong`, `bordered`). |
 | `DialogSurface` / `ModalScrim` | `Dialog`/`Popup` background and `Overlay.modal`. |
