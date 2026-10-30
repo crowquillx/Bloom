@@ -637,6 +637,7 @@ private slots:
     void multipartIntermediateEndIsIgnoredUntilFinalSegment();
     void endFileErrorWhileLoadingFailsWithoutTimeout();
     void endFileErrorMidPlaybackIsNotANaturalEnd();
+    void endFileErrorOnReloadedNonFinalSegmentFails();
     void playbackEndReachesIdleFromEveryActiveState_data();
     void playbackEndReachesIdleFromEveryActiveState();
     void terminalFinalizationLeavesActiveStateWithoutTransition();
@@ -4633,6 +4634,45 @@ void PlayerControllerAutoplayContextTest::endFileErrorMidPlaybackIsNotANaturalEn
     QVERIFY(!controller.m_shouldAutoplay);
     QVERIFY(!controller.awaitingNextEpisodeResolution());
     QCOMPARE(libraryService.requestedSeriesIds.size(), 0);
+}
+
+void PlayerControllerAutoplayContextTest::endFileErrorOnReloadedNonFinalSegmentFails()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    // An in-place reload of part 1 of 2 leaves a one-entry mpv playlist, so
+    // a failed replacement arrives as a terminal end while the active
+    // segment is not the last one. The old file's end was already consumed.
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_playbackSegments = {
+        QVariantMap{{QStringLiteral("itemId"), QStringLiteral("part-1")}},
+        QVariantMap{{QStringLiteral("itemId"), QStringLiteral("part-2")}},
+    };
+    controller.m_activePlaybackSegmentIndex = 0;
+    controller.m_ignoreReplacedFileEnd = true;
+    backend.setRunning(true);
+
+    backend.emitPlaybackEndedSignal(Bloom::PlaybackPolicy::EndFileReason::Error,
+                                    QStringLiteral("loading failed"));
+    QCoreApplication::processEvents();
+
+    QCOMPARE(controller.playbackState(), PlayerController::Error);
+    QVERIFY(!controller.m_ignoreReplacedFileEnd);
 }
 
 void PlayerControllerAutoplayContextTest::playbackEndReachesIdleFromEveryActiveState_data()

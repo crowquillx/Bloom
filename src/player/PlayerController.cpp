@@ -1335,6 +1335,25 @@ void PlayerController::onPauseChanged(bool paused)
 void PlayerController::onPlaybackEnded(Bloom::PlaybackPolicy::EndFileReason reason,
                                        const QString &detail)
 {
+    // A file mpv could not open or read ends with reason=error. It must not
+    // count as a natural end (watched state, Up Next) or wait for the
+    // loading timeout. Check it before the guards below: loadfile replace
+    // ends the previous file with reason=stop, never error, and backends
+    // already hold back ends that mpv follows with another playlist entry,
+    // so an error here is a failed replacement or a failed last entry (for
+    // example a reloaded non-final segment, whose playlist has one entry).
+    if (PlayerPolicy::classifyEndFile(reason, false) == PlayerPolicy::EndFileOutcome::Failed) {
+        m_ignoreReplacedFileEnd = false;
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] playback-ended"
+                                << "reason=" << PlayerPolicy::endFileReasonName(reason)
+                                << "segmentIndex=" << m_activePlaybackSegmentIndex;
+        onProcessError(detail.isEmpty()
+                           ? tr("Playback failed.")
+                           : tr("Playback failed: %1").arg(redactNetworkLogText(detail)));
+        return;
+    }
+
     if (m_ignoreReplacedFileEnd) {
         // loadfile replace ends the previous file first. A new file that fails
         // to load ends again after this flag clears.
@@ -1356,16 +1375,6 @@ void PlayerController::onPlaybackEnded(Bloom::PlaybackPolicy::EndFileReason reas
                             << "reason=" << PlayerPolicy::endFileReasonName(reason)
                             << "position=" << m_currentPosition
                             << "duration=" << m_duration;
-
-    // A file mpv could not open or read ends with reason=error. It must not
-    // count as a natural end (watched state, Up Next) or wait for the
-    // loading timeout.
-    if (PlayerPolicy::classifyEndFile(reason, false) == PlayerPolicy::EndFileOutcome::Failed) {
-        onProcessError(detail.isEmpty()
-                           ? tr("Playback failed.")
-                           : tr("Playback failed: %1").arg(redactNetworkLogText(detail)));
-        return;
-    }
 
     requestTerminalTransition(TerminalReason::PlaybackEnd);
 }

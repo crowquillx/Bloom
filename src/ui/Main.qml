@@ -410,7 +410,9 @@ Window {
             return
         }
         // External mpv has no Bloom overlay; keep its transport keys working.
-        if (actionId === "playback.playPause") {
+        if (actionId === "playback.back") {
+            PlayerController.stop()
+        } else if (actionId === "playback.playPause") {
             PlayerController.togglePause()
         } else if (actionId === "playback.seekBack") {
             PlayerController.seekRelative(-10)
@@ -2001,10 +2003,14 @@ Window {
         }
     }
 
+    // Each of Return and Enter yields only to its own playback binding.
+    readonly property var unboundEnterKeys: ["Return", "Enter"].filter(function(key) {
+        return !playbackKeyBound(key)
+    })
+
     Shortcut {
-        sequences: ["Return", "Enter"]
+        sequences: window.unboundEnterKeys
         enabled: PlayerController.isPlaybackActive && activeEmbeddedPlaybackOverlay.skipPopupVisible
-                 && !playbackKeyBound("Return") && !playbackKeyBound("Enter")
         onActivated: {
             activeEmbeddedPlaybackOverlay.triggerActiveSkip()
         }
@@ -2015,13 +2021,12 @@ Window {
     // Embedded playback brings up the controls instead; external mpv
     // swallows the key.
     Shortcut {
-        sequences: ["Return", "Enter"]
+        sequences: window.unboundEnterKeys
         enabled: PlayerController.isPlaybackActive
                  && !activeEmbeddedPlaybackOverlay.skipPopupVisible
                  && !playbackOverlayNavigationActive
                  && !playbackSelectorOpen
                  && !ScreensaverController.active
-                 && !playbackKeyBound("Return") && !playbackKeyBound("Enter")
         onActivated: ensurePlaybackOverlayFocus()
     }
 
