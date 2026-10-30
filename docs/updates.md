@@ -114,7 +114,8 @@ installer then:
 1. waits up to 60 seconds for `Bloom.exe` to become writable, then aborts with
    exit code 2 before copying anything (silent NSIS would otherwise skip locked
    files and leave a mixed install);
-2. installs, and removes the legacy 32-bit uninstall key;
+2. removes the previous version's files (only Bloom's own, never the whole
+   folder), installs, and removes the legacy 32-bit uninstall key;
 3. with `/RELAUNCH`, starts Bloom through `explorer.exe` so the new process
    runs unelevated as the signed-in user.
 

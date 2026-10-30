@@ -3,7 +3,8 @@
     Bumps the Bloom project version across all relevant files.
 
 .DESCRIPTION
-    Updates the shared VERSION file, PKGBUILD, and installer.nsi.
+    Updates the shared VERSION file and PKGBUILD. installer.nsi reads VERSION
+    (CI passes it as makensis /DVERSION=...).
     Optionally commits and creates an annotated tag.
 
 .PARAMETER Version
@@ -27,11 +28,6 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
-$parts = $Version.Split('.')
-$major = $parts[0]
-$minor = $parts[1]
-$patch = $parts[2]
-
 Write-Host "Bumping version to $Version" -ForegroundColor Cyan
 
 # --- VERSION ---
@@ -45,15 +41,6 @@ $pkg = Get-Content $pkgPath -Raw
 $pkg = $pkg -replace 'pkgver=\d+\.\d+\.\d+', "pkgver=$Version"
 Set-Content $pkgPath $pkg -NoNewline
 Write-Host "  Updated PKGBUILD" -ForegroundColor Green
-
-# --- installer.nsi ---
-$nsiPath = Join-Path $repoRoot 'installer.nsi'
-$nsi = Get-Content $nsiPath -Raw
-$nsi = $nsi -replace '!define VERSIONMAJOR \d+', "!define VERSIONMAJOR $major"
-$nsi = $nsi -replace '!define VERSIONMINOR \d+', "!define VERSIONMINOR $minor"
-$nsi = $nsi -replace '!define VERSIONBUILD \d+', "!define VERSIONBUILD $patch"
-Set-Content $nsiPath $nsi -NoNewline
-Write-Host "  Updated installer.nsi" -ForegroundColor Green
 
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host " Version bumped to $Version" -ForegroundColor Cyan
