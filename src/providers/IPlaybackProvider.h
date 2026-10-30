@@ -73,17 +73,6 @@ struct PlaybackReplanParseResult
     QString error;
 };
 
-struct PlaybackRecoveryRequest
-{
-    QString endpoint;
-    QString method = QStringLiteral("POST");
-    QJsonObject body;
-
-    bool replaySafe = false;
-
-    [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
-};
-
 enum class PlaybackReportEvent {
     Start,
     Progress,
@@ -256,29 +245,6 @@ public:
         return {};
     }
 
-    virtual PlaybackRecoveryRequest createPlaybackRecoveryRequest(
-        const PlaybackProviderContext &context,
-        const Bloom::MediaRef &media,
-        const QVariantMap &providerSource,
-        int selectedAudioTrack,
-        qint64 startPositionMs) const
-    {
-        Q_UNUSED(context)
-        Q_UNUSED(media)
-        Q_UNUSED(providerSource)
-        Q_UNUSED(selectedAudioTrack)
-        Q_UNUSED(startPositionMs)
-        return {};
-    }
-
-    virtual PlaybackStartParseResult parsePlaybackRecoveryResponse(
-        const PlaybackProviderContext &context,
-        const Bloom::MediaRef &media,
-        const QJsonObject &wireResponse,
-        const QVariantMap &providerSource = {}) const
-    {
-        return parsePlaybackStartResponse(context, media, wireResponse, providerSource);
-    }
     virtual PlaybackReportRequest createReportRequest(const PlaybackReport &report) const = 0;
     /// True when a started session expires if its stream is not read soon,
     /// so later multipart segments must start their session when needed.

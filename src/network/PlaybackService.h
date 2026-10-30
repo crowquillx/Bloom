@@ -71,12 +71,6 @@ public:
     virtual bool replanPlayback(const QString &playbackSessionId,
                                 const PlaybackReplan &replan,
                                 const QString &requestContext);
-    Q_INVOKABLE virtual void requestPlaybackRecovery(
-        const QString &itemId,
-        const QVariantMap &providerSource,
-        int selectedAudioTrack = -1,
-        qint64 startPositionMs = 0,
-        const QString &requestContext = QString());
 
     // Playback Info - Get media streams and track information
     Q_INVOKABLE virtual void getPlaybackInfo(const QString &itemId);
@@ -156,12 +150,6 @@ signals:
     // A progress report found the server-side session gone. endedByServer
     // means the player must leave playback instead of starting a new session.
     void playbackSessionLost(const QString &playbackSessionId, bool endedByServer);
-    void playbackRecoveryLoadedForRequest(const QString &itemId,
-                                          const Bloom::PlaybackDescriptor &descriptor,
-                                          const QString &requestContext);
-    void playbackRecoveryFailedForRequest(const QString &itemId,
-                                          const QString &error,
-                                          const QString &requestContext);
     void playbackInfoLoadedForRequest(const QString &itemId,
                                       const PlaybackInfoResponse &playbackInfo,
                                       const QString &requestContext);

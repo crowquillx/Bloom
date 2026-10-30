@@ -73,18 +73,6 @@ public:
         const PlaybackProviderContext &context,
         const QJsonObject &wireResponse) const override;
 
-    PlaybackRecoveryRequest createPlaybackRecoveryRequest(
-        const PlaybackProviderContext &context,
-        const Bloom::MediaRef &media,
-        const QVariantMap &providerSource,
-        int selectedAudioTrack,
-        qint64 startPositionMs) const override;
-
-    PlaybackStartParseResult parsePlaybackRecoveryResponse(
-        const PlaybackProviderContext &context,
-        const Bloom::MediaRef &media,
-        const QJsonObject &wireResponse,
-        const QVariantMap &providerSource = {}) const override;
 private:
     struct Session {
         Bloom::MediaRef media;
