@@ -3,8 +3,8 @@
     Bumps the Bloom project version across all relevant files.
 
 .DESCRIPTION
-    Updates the shared VERSION file and PKGBUILD. installer.nsi reads VERSION
-    (CI passes it as makensis /DVERSION=...).
+    Updates the shared VERSION file. CMake, the Nix package, PKGBUILD's
+    pkgver(), and the CI installer build (makensis /DVERSION=...) read it.
     Optionally commits and creates an annotated tag.
 
 .PARAMETER Version
@@ -34,13 +34,6 @@ Write-Host "Bumping version to $Version" -ForegroundColor Cyan
 $versionPath = Join-Path $repoRoot 'VERSION'
 Set-Content $versionPath "$Version`n" -NoNewline
 Write-Host "  Updated VERSION" -ForegroundColor Green
-
-# --- PKGBUILD ---
-$pkgPath = Join-Path $repoRoot 'PKGBUILD'
-$pkg = Get-Content $pkgPath -Raw
-$pkg = $pkg -replace 'pkgver=\d+\.\d+\.\d+', "pkgver=$Version"
-Set-Content $pkgPath $pkg -NoNewline
-Write-Host "  Updated PKGBUILD" -ForegroundColor Green
 
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host " Version bumped to $Version" -ForegroundColor Cyan

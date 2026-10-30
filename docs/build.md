@@ -324,7 +324,22 @@ limits are in [Dolby Vision dependencies](dolby-vision.md#dependency-audit-and-p
 
 Windows CI installs NSIS through `.github/actions/setup-nsis`. The action first
 tries Chocolatey, then falls back to the checksum-pinned official NSIS archive
-and exposes the selected `makensis.exe` path through `BLOOM_NSIS_EXE`.
+and exposes the selected `makensis.exe` path through `BLOOM_NSIS_EXE`. CI builds
+the installer with `makensis /DVERSION=<version> installer.nsi`. Without
+`/DVERSION`, `installer.nsi` reads the `VERSION` file. See
+[WINDOWS-BUILD.md](WINDOWS-BUILD.md) for what the installer does on install,
+upgrade, and uninstall.
+
+## Arch Linux
+
+The root `PKGBUILD` is a `bloom-jellyfin-git` package that builds the current
+`main` branch with the distribution's Qt, SDL2, and mpv
+(`-DBLOOM_BUNDLE_LIBMPV=OFF`). Its `pkgver()` combines `VERSION` with the
+commit count and short hash, so a version bump needs no `PKGBUILD` edit:
+
+```bash
+makepkg -si
+```
 
 ## Dependency policy
 
@@ -347,7 +362,9 @@ install Qt 6.11+ on Windows (repo layout changed); revert to
 ## Release artifacts
 
 Pull requests run validation and produce workflow artifacts, but do not publish
-GitHub releases. Successful pushes to `main` replace the rolling
+GitHub releases. Linux packages, the Windows installer, and `PKGBUILD` all take
+their version from `VERSION`, so the bump scripts edit only that file and
+generate release notes. Successful pushes to `main` replace the rolling
 `dev-latest` prerelease named `Development Build`. Its tag follows the current
 `main` commit, its assets use stable development filenames such as
 `Bloom-Setup-dev.exe` and `bloom_dev_amd64.deb`, and the previous prerelease is

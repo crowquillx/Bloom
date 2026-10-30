@@ -46,11 +46,8 @@ echo -e "\033[36mBumping version to $VERSION\033[0m"
 printf '%s\n' "$VERSION" > "$REPO_ROOT/VERSION"
 echo -e "  \033[32mUpdated VERSION\033[0m"
 
-# --- PKGBUILD ---
-sed -i "s/pkgver=[0-9]\+\.[0-9]\+\.[0-9]\+/pkgver=$VERSION/" "$REPO_ROOT/PKGBUILD"
-echo -e "  \033[32mUpdated PKGBUILD\033[0m"
-
-# installer.nsi reads VERSION (CI passes it as makensis /DVERSION=...).
+# CMake, the Nix package, PKGBUILD's pkgver(), and the CI installer build
+# (makensis /DVERSION=...) all read VERSION, so no other file needs editing.
 
 echo ""
 echo -e "\033[36m========================================\033[0m"
