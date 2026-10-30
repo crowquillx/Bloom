@@ -167,9 +167,11 @@ public:
         emit stateChanged(running);
     }
 
-    void emitPlaybackEndedSignal()
+    void emitPlaybackEndedSignal(
+        Bloom::PlaybackPolicy::EndFileReason reason = Bloom::PlaybackPolicy::EndFileReason::Stop,
+        const QString &detail = QString())
     {
-        emit playbackEnded();
+        emit playbackEnded(reason, detail);
     }
 
     void emitFileLoaded()
@@ -632,6 +634,11 @@ private slots:
     void embeddedFallbackWaitsForAsynchronousBackendStop();
     void playbackInfoDirectStreamUrlIsPreferred();
     void multipartIntermediateEndIsIgnoredUntilFinalSegment();
+    void endFileErrorWhileLoadingFailsWithoutTimeout();
+    void endFileErrorMidPlaybackIsNotANaturalEnd();
+    void playbackEndReachesIdleFromEveryActiveState_data();
+    void playbackEndReachesIdleFromEveryActiveState();
+    void terminalFinalizationLeavesActiveStateWithoutTransition();
     void versionAffinityPrefersMatchingParentPath();
     void startupTrackSelectionUsesCanonicalMapWhenUrlNotPinned();
     void startupTrackSelectionRespectsPinnedUrlUnlessUserOverride();
@@ -4506,6 +4513,145 @@ void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntil
     // Re-emitting the same playlist position must not add duplicate subtitle tracks.
     controller.onPlaylistPositionChanged(1);
     QCOMPARE(backend.variantCommands.size(), 2);
+}
+
+void PlayerControllerAutoplayContextTest::endFileErrorWhileLoadingFailsWithoutTimeout()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = PlayerController::Loading;
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_loadingTimeoutTimer->start(30000);
+    backend.setRunning(true);
+
+    backend.emitPlaybackEndedSignal(Bloom::PlaybackPolicy::EndFileReason::Error,
+                                    QStringLiteral("loading failed"));
+    QCoreApplication::processEvents();
+
+    QCOMPARE(controller.playbackState(), PlayerController::Error);
+    QVERIFY(!controller.m_loadingTimeoutTimer->isActive());
+    QVERIFY(controller.errorMessage().contains(QStringLiteral("loading failed")));
+    QCOMPARE(backend.stopCallCount, 1);
+}
+
+void PlayerControllerAutoplayContextTest::endFileErrorMidPlaybackIsNotANaturalEnd()
+{
+    ConfigManager config;
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 95.0;
+    backend.setRunning(true);
+
+    backend.emitPlaybackEndedSignal(Bloom::PlaybackPolicy::EndFileReason::Error,
+                                    QStringLiteral("unrecognized file format"));
+    QCoreApplication::processEvents();
+
+    QCOMPARE(controller.playbackState(), PlayerController::Error);
+    QVERIFY(!controller.m_shouldAutoplay);
+    QVERIFY(!controller.awaitingNextEpisodeResolution());
+    QCOMPARE(libraryService.requestedSeriesIds.size(), 0);
+}
+
+void PlayerControllerAutoplayContextTest::playbackEndReachesIdleFromEveryActiveState_data()
+{
+    QTest::addColumn<int>("state");
+    QTest::newRow("loading") << static_cast<int>(PlayerController::Loading);
+    QTest::newRow("buffering") << static_cast<int>(PlayerController::Buffering);
+    QTest::newRow("playing") << static_cast<int>(PlayerController::Playing);
+    QTest::newRow("paused") << static_cast<int>(PlayerController::Paused);
+}
+
+void PlayerControllerAutoplayContextTest::playbackEndReachesIdleFromEveryActiveState()
+{
+    QFETCH(int, state);
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = static_cast<PlayerController::PlaybackState>(state);
+    controller.m_currentItemId = QStringLiteral("item-1");
+    backend.setRunning(true);
+
+    backend.emitPlaybackEndedSignal(Bloom::PlaybackPolicy::EndFileReason::Eof);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    QVERIFY(!controller.m_terminalTransitionActive);
+}
+
+void PlayerControllerAutoplayContextTest::terminalFinalizationLeavesActiveStateWithoutTransition()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_transitions.remove({PlayerController::Loading, PlayerController::Event::Stop});
+    controller.m_playbackState = PlayerController::Loading;
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_loadingTimeoutTimer->start(30000);
+    backend.setRunning(true);
+
+    controller.requestTerminalTransition(PlayerController::TerminalReason::Stop);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    QVERIFY(!controller.m_loadingTimeoutTimer->isActive());
 }
 
 void PlayerControllerAutoplayContextTest::versionAffinityPrefersMatchingParentPath()

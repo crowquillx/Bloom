@@ -83,6 +83,7 @@ private slots:
     void filtersMultipartSourcesAndBuildsSubtitles();
     void evaluatesCompletionAndPrefetchThresholds();
     void validatesPrefetchedEpisodesAndContexts();
+    void classifiesEndFileReasons();
     void resolvesAdjacentEpisodesWithinSeason();
     void resolvesAdjacentSeasonsSkippingSpecials();
     void buildsPlaybackVersionOptions();
@@ -608,6 +609,34 @@ void PlaybackPolicyTest::buildsPlaybackVersionOptions()
     const QVariantList unselected = PlayerPolicy::playbackVersionOptions(sources, QString());
     QVERIFY(!unselected.at(0).toMap().value(QStringLiteral("selected")).toBool());
     QVERIFY(!unselected.at(1).toMap().value(QStringLiteral("selected")).toBool());
+}
+
+void PlaybackPolicyTest::classifiesEndFileReasons()
+{
+    using PlayerPolicy::EndFileOutcome;
+    using PlayerPolicy::EndFileReason;
+
+    QCOMPARE(PlayerPolicy::endFileReasonFromName(QStringLiteral("eof")), EndFileReason::Eof);
+    QCOMPARE(PlayerPolicy::endFileReasonFromName(QStringLiteral("error")), EndFileReason::Error);
+    QCOMPARE(PlayerPolicy::endFileReasonFromName(QStringLiteral("quit")), EndFileReason::Quit);
+    QCOMPARE(PlayerPolicy::endFileReasonFromName(QStringLiteral("redirect")), EndFileReason::Redirect);
+    QCOMPARE(PlayerPolicy::endFileReasonFromName(QString()), EndFileReason::Unknown);
+    // mpv_end_file_reason numbering.
+    QCOMPARE(PlayerPolicy::endFileReasonFromLibmpv(0), EndFileReason::Eof);
+    QCOMPARE(PlayerPolicy::endFileReasonFromLibmpv(2), EndFileReason::Stop);
+    QCOMPARE(PlayerPolicy::endFileReasonFromLibmpv(4), EndFileReason::Error);
+    QCOMPARE(PlayerPolicy::endFileReasonFromLibmpv(5), EndFileReason::Redirect);
+    QCOMPARE(PlayerPolicy::endFileReasonFromLibmpv(99), EndFileReason::Unknown);
+    QCOMPARE(PlayerPolicy::endFileReasonName(EndFileReason::Error), QStringLiteral("error"));
+
+    QCOMPARE(PlayerPolicy::classifyEndFile(EndFileReason::Eof, false), EndFileOutcome::Ended);
+    QCOMPARE(PlayerPolicy::classifyEndFile(EndFileReason::Stop, false), EndFileOutcome::Ended);
+    QCOMPARE(PlayerPolicy::classifyEndFile(EndFileReason::Unknown, false), EndFileOutcome::Ended);
+    QCOMPARE(PlayerPolicy::classifyEndFile(EndFileReason::Error, false), EndFileOutcome::Failed);
+    QCOMPARE(PlayerPolicy::classifyEndFile(EndFileReason::Redirect, false), EndFileOutcome::Continue);
+    // mpv moves on to the next playlist entry (multipart playback).
+    QCOMPARE(PlayerPolicy::classifyEndFile(EndFileReason::Eof, true), EndFileOutcome::Continue);
+    QCOMPARE(PlayerPolicy::classifyEndFile(EndFileReason::Error, true), EndFileOutcome::Continue);
 }
 
 void PlaybackPolicyTest::validatesPrefetchedEpisodesAndContexts()

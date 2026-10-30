@@ -145,6 +145,11 @@ Linux embedded backend details (experimental)
 - Controller parity hardening now preserves next-up/autoplay context across playback teardown, so next-episode prefetch/lookup flows keep the expected series/item/track state.
 - Unit regression coverage now includes the mismatched-series guard for async next-episode callbacks to prevent stale-series autoplay context from being consumed.
 
+End of file
+- Every backend classifies mpv's `end-file` through `Bloom::PlaybackPolicy::classifyEndFile` and reports `IPlayerBackend::playbackEnded(reason, detail)` with the end reason (`eof`, `stop`, `quit`, `error`, `redirect`, `unknown`). A redirect or an entry followed by more playlist entries is not terminal.
+- `PlayerController` treats `reason=error` as a playback error: a 404 or a failed transcode while Loading shows the error at once instead of waiting for the loading timeout, and an error mid-file never marks the item watched or opens Up Next. Recoverable stream failures still go through automatic recovery.
+- Natural end is accepted from Loading, Buffering, Playing, and Paused. If terminal finalization finds no state transition, the controller still enters Idle (or Error) so an active state never outlives a stopped backend.
+
 Key components
 - IPlayerBackend: playback backend contract used by `PlayerController`.
 - ExternalMpvBackend: adapter that delegates to `PlayerProcessManager`.

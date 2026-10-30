@@ -549,12 +549,14 @@ void PlayerController::setupStateMachine()
     m_transitions[{Loading, Event::LoadComplete}] = Buffering;
     m_transitions[{Loading, Event::ErrorOccurred}] = Error;
     m_transitions[{Loading, Event::Stop}] = Idle;
+    m_transitions[{Loading, Event::PlaybackEnd}] = Idle;
     
     // From Buffering
     m_transitions[{Buffering, Event::BufferComplete}] = Playing;
     m_transitions[{Buffering, Event::ErrorOccurred}] = Error;
     m_transitions[{Buffering, Event::Stop}] = Idle;
     m_transitions[{Buffering, Event::Pause}] = Paused;
+    m_transitions[{Buffering, Event::PlaybackEnd}] = Idle;
     
     // From Playing
     m_transitions[{Playing, Event::Pause}] = Paused;
@@ -568,6 +570,7 @@ void PlayerController::setupStateMachine()
     m_transitions[{Paused, Event::Play}] = Loading;  // New content
     m_transitions[{Paused, Event::ErrorOccurred}] = Error;
     m_transitions[{Paused, Event::Stop}] = Idle;
+    m_transitions[{Paused, Event::PlaybackEnd}] = Idle;
     
     // From Error
     m_transitions[{Error, Event::Recover}] = Idle;
@@ -1327,7 +1330,8 @@ void PlayerController::onPauseChanged(bool paused)
  *
  * Processes end-of-playback state, performs stop-related reporting, and initiates any configured autoplay or next-episode navigation logic.
  */
-void PlayerController::onPlaybackEnded()
+void PlayerController::onPlaybackEnded(Bloom::PlaybackPolicy::EndFileReason reason,
+                                       const QString &detail)
 {
     if (m_ignoreReplacedFileEnd) {
         // loadfile replace ends the previous file first. A new file that fails
@@ -1347,8 +1351,19 @@ void PlayerController::onPlaybackEnded()
     qCDebug(lcPlayback) << "PlayerController: Playback ended";
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] playback-ended"
+                            << "reason=" << PlayerPolicy::endFileReasonName(reason)
                             << "position=" << m_currentPosition
                             << "duration=" << m_duration;
+
+    // A file mpv could not open or read ends with reason=error. It must not
+    // count as a natural end (watched state, Up Next) or wait for the
+    // loading timeout.
+    if (PlayerPolicy::classifyEndFile(reason, false) == PlayerPolicy::EndFileOutcome::Failed) {
+        onProcessError(detail.isEmpty()
+                           ? tr("Playback failed.")
+                           : tr("Playback failed: %1").arg(redactNetworkLogText(detail)));
+        return;
+    }
 
     requestTerminalTransition(TerminalReason::PlaybackEnd);
 }
@@ -1531,7 +1546,18 @@ void PlayerController::finalizeTerminalTransition()
                             << "state=" << stateToString(m_playbackState);
 
     resetTerminalTransitionState();
-    processEvent(eventForTerminalReason(reason));
+    if (!processEvent(eventForTerminalReason(reason))
+        && m_playbackState != Idle && m_playbackState != Error) {
+        // The backend has already stopped; never leave the controller in an
+        // active state (and its timeouts running) behind a stopped backend.
+        const PlaybackState fallbackState = reason == TerminalReason::Error ? Error : Idle;
+        qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                   << "] terminal-transition forced"
+                                   << "from=" << stateToString(m_playbackState)
+                                   << "to=" << stateToString(fallbackState);
+        exitState(m_playbackState);
+        enterState(fallbackState);
+    }
 
     if (runPendingReplacementPlaybackAction()) {
         return;

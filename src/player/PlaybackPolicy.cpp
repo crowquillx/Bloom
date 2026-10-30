@@ -790,4 +790,49 @@ QString nextEpisodeRequestContext(const QString &mode,
     return QStringLiteral("player:%1:%2:%3").arg(mode, seriesId, itemId);
 }
 
+EndFileReason endFileReasonFromName(const QString &name)
+{
+    const QString reason = name.trimmed().toLower();
+    if (reason == QStringLiteral("eof")) return EndFileReason::Eof;
+    if (reason == QStringLiteral("stop")) return EndFileReason::Stop;
+    if (reason == QStringLiteral("quit")) return EndFileReason::Quit;
+    if (reason == QStringLiteral("error")) return EndFileReason::Error;
+    if (reason == QStringLiteral("redirect")) return EndFileReason::Redirect;
+    return EndFileReason::Unknown;
+}
+
+EndFileReason endFileReasonFromLibmpv(int reason)
+{
+    // mpv_end_file_reason values from mpv/client.h (stable client API).
+    switch (reason) {
+    case 0: return EndFileReason::Eof;
+    case 2: return EndFileReason::Stop;
+    case 3: return EndFileReason::Quit;
+    case 4: return EndFileReason::Error;
+    case 5: return EndFileReason::Redirect;
+    default: return EndFileReason::Unknown;
+    }
+}
+
+QString endFileReasonName(EndFileReason reason)
+{
+    switch (reason) {
+    case EndFileReason::Eof: return QStringLiteral("eof");
+    case EndFileReason::Stop: return QStringLiteral("stop");
+    case EndFileReason::Quit: return QStringLiteral("quit");
+    case EndFileReason::Error: return QStringLiteral("error");
+    case EndFileReason::Redirect: return QStringLiteral("redirect");
+    case EndFileReason::Unknown: break;
+    }
+    return QStringLiteral("unknown");
+}
+
+EndFileOutcome classifyEndFile(EndFileReason reason, bool hasRemainingPlaylistItems)
+{
+    if (reason == EndFileReason::Redirect || hasRemainingPlaylistItems) {
+        return EndFileOutcome::Continue;
+    }
+    return reason == EndFileReason::Error ? EndFileOutcome::Failed : EndFileOutcome::Ended;
+}
+
 } // namespace Bloom::PlaybackPolicy

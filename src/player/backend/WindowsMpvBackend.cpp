@@ -1073,13 +1073,6 @@ void WindowsMpvBackend::processMpvEvents()
             bool isRedirectTransition = false;
 
             if (endFile != nullptr) {
-                if (endFile->reason == MPV_END_FILE_REASON_ERROR && endFile->error < 0) {
-                    const QString errorMessage = QStringLiteral("libmpv end-file error: %1")
-                                                     .arg(QString::fromUtf8(mpv_error_string(endFile->error)));
-                    qCWarning(lcWindowsLibmpvBackend) << errorMessage;
-                    emit errorOccurred(errorMessage);
-                }
-
                 if (endFile->reason == MPV_END_FILE_REASON_REDIRECT) {
                     isRedirectTransition = true;
                     shouldEmitPlaybackEnded = false;
@@ -1089,7 +1082,12 @@ void WindowsMpvBackend::processMpvEvents()
             const bool hasRemainingPlaylistItems = m_playlistCount > 0
                 && m_playlistPosition >= 0
                 && (m_playlistPosition + 1) < m_playlistCount;
-            const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
+            const Bloom::PlaybackPolicy::EndFileReason endReason = endFile != nullptr
+                ? Bloom::PlaybackPolicy::endFileReasonFromLibmpv(endFile->reason)
+                : Bloom::PlaybackPolicy::EndFileReason::Unknown;
+            const bool reachedTerminalPlaybackState = !isRedirectTransition
+                && Bloom::PlaybackPolicy::classifyEndFile(endReason, hasRemainingPlaylistItems)
+                    != Bloom::PlaybackPolicy::EndFileOutcome::Continue;
 
             const bool endedWithError = endFile != nullptr && endFile->reason == MPV_END_FILE_REASON_ERROR;
             const bool endedWithEof = endFile != nullptr && endFile->reason == MPV_END_FILE_REASON_EOF;
@@ -1158,11 +1156,15 @@ void WindowsMpvBackend::processMpvEvents()
                 && m_pendingStopReplyUserdata == 0;
 
             if (shouldEmitPlaybackEnded && reachedTerminalPlaybackState) {
+                // PlayerController treats an Error reason as a playback failure.
+                const QString detail = endFile != nullptr && endFile->error < 0
+                    ? QString::fromUtf8(mpv_error_string(endFile->error))
+                    : QString();
                 if (!replacedEntry) {
                     teardownMpv();
                     syncContainerGeometry();
                 }
-                emit playbackEnded();
+                emit playbackEnded(endReason, detail);
                 return;
             }
 

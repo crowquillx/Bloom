@@ -144,6 +144,7 @@ int runFakeMpv(const QStringList &arguments)
         QStringLiteral("--fake-ack-commands"));
     const bool disconnectOnce = arguments.contains(QStringLiteral("--fake-disconnect-once"));
     const bool answerProperties = arguments.contains(QStringLiteral("--fake-answer-properties"));
+    const bool sendEndFileError = arguments.contains(QStringLiteral("--fake-end-file-error"));
     int connectionCount = 0;
     QObject::connect(&server, &QLocalServer::newConnection, &server, [&]() {
         while (server.hasPendingConnections()) {
@@ -220,6 +221,17 @@ int runFakeMpv(const QStringList &arguments)
                     {QStringLiteral("data"), 12.5},
                 };
                 socket->write(QJsonDocument(propertyEvent).toJson(QJsonDocument::Compact));
+                socket->write("\n");
+                socket->flush();
+            }
+            if (sendEndFileError) {
+                const QJsonObject event{
+                    {QStringLiteral("event"), QStringLiteral("end-file")},
+                    {QStringLiteral("reason"), QStringLiteral("error")},
+                    {QStringLiteral("file_error"),
+                     QStringLiteral("loading failed https://server.invalid/v?ApiKey=secret")},
+                };
+                socket->write(QJsonDocument(event).toJson(QJsonDocument::Compact));
                 socket->write("\n");
                 socket->flush();
             }
@@ -303,6 +315,7 @@ private slots:
     void batchedIpcMessagesAreFullyDrained();
     void disconnectedIpcReconnectsWithinDeadline();
     void malformedIpcIsIgnoredBeforeValidEvent();
+    void endFileCarriesReasonAndRedactedError();
     void startupFailureIsClear();
     void propertySnapshotCollectsRepliesById();
     void runtimeProbeDetectsEnhancementLayerSupport();
@@ -563,6 +576,24 @@ void PlayerProcessManagerTest::malformedIpcIsIgnoredBeforeValidEvent()
     QCOMPARE(positionSpy.first().first().toDouble(), 12.5);
     QVERIFY(manager.diagnostics().value(QStringLiteral("invalidIpcMessages"))
                 .toULongLong() >= 2);
+    manager.stopMpv();
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
+}
+
+void PlayerProcessManagerTest::endFileCarriesReasonAndRedactedError()
+{
+    PlayerProcessManager manager(fastOptions());
+    QSignalSpy endedSpy(&manager, &PlayerProcessManager::playbackEnded);
+    manager.startMpv(QCoreApplication::applicationFilePath(),
+                     fakeArguments({}, {QStringLiteral("--fake-end-file-error")}),
+                     QStringLiteral("missing-media"));
+
+    QTRY_COMPARE_WITH_TIMEOUT(endedSpy.count(), 1, asyncProcessTimeoutMs);
+    QCOMPARE(endedSpy.first().at(0).value<Bloom::PlaybackPolicy::EndFileReason>(),
+             Bloom::PlaybackPolicy::EndFileReason::Error);
+    const QString detail = endedSpy.first().at(1).toString();
+    QVERIFY(detail.startsWith(QStringLiteral("loading failed")));
+    QVERIFY(!detail.contains(QStringLiteral("secret")));
     manager.stopMpv();
     QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
 }

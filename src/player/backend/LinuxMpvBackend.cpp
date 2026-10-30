@@ -652,7 +652,12 @@ void LinuxMpvBackend::processMpvEvents()
                 isIntentionalEnd = isIntentionalEnd || endFile->reason == MPV_END_FILE_REASON_QUIT;
                 #endif
             }
-            const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
+            const Bloom::PlaybackPolicy::EndFileReason endReason = endFile != nullptr
+                ? Bloom::PlaybackPolicy::endFileReasonFromLibmpv(endFile->reason)
+                : Bloom::PlaybackPolicy::EndFileReason::Unknown;
+            const bool reachedTerminalPlaybackState = !isRedirectTransition
+                && Bloom::PlaybackPolicy::classifyEndFile(endReason, hasRemainingPlaylistItems)
+                    != Bloom::PlaybackPolicy::EndFileOutcome::Continue;
             const bool recoverablePrematureEof = endFile != nullptr
                 && reachedTerminalPlaybackState
                 && !isIntentionalEnd
@@ -678,7 +683,10 @@ void LinuxMpvBackend::processMpvEvents()
                 emit errorOccurred(errorMessage);
                 return;
             } else if (reachedTerminalPlaybackState) {
-                emit playbackEnded();
+                const QString detail = endFile != nullptr && endFile->error < 0
+                    ? QString::fromUtf8(mpv_error_string(endFile->error))
+                    : QString();
+                emit playbackEnded(endReason, detail);
             }
             break;
         }

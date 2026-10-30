@@ -155,4 +155,34 @@ struct AdjacentEpisodes
                                                 const QString &seriesId,
                                                 const QString &itemId);
 
+/// Why mpv finished a playlist entry (its `end-file` reason).
+enum class EndFileReason {
+    Eof,
+    Stop,
+    Quit,
+    Error,
+    Redirect,
+    Unknown
+};
+
+/// What the end of one mpv playlist entry means for the playback session.
+enum class EndFileOutcome {
+    /// mpv moves on to another entry (a redirect or a later playlist entry).
+    Continue,
+    /// The session ended: end of file, or stopped, quit, or replaced.
+    Ended,
+    /// mpv could not play the entry; the session failed.
+    Failed
+};
+
+/// From the `reason` field of an mpv IPC `end-file` event.
+[[nodiscard]] EndFileReason endFileReasonFromName(const QString &name);
+/// From libmpv's `mpv_end_file_reason` value.
+[[nodiscard]] EndFileReason endFileReasonFromLibmpv(int reason);
+[[nodiscard]] QString endFileReasonName(EndFileReason reason);
+/// Every backend classifies `end-file` through this so all of them treat a
+/// failed file the same way.
+[[nodiscard]] EndFileOutcome classifyEndFile(EndFileReason reason,
+                                             bool hasRemainingPlaylistItems);
+
 } // namespace Bloom::PlaybackPolicy
