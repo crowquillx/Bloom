@@ -2,7 +2,7 @@
 
 Bloom 0.8.0 adds Spaces, which combine several servers into one Home, library,
 and search. It also adds native Silo support, a new playback
-overlay, a redesigned interface with a floating navigation rail, and audio
+overlay, a redesigned interface with a floating navigation bar, and audio
 output control. On Windows, Scoop is now the recommended install method and the
 in-app updater works again.
 
@@ -25,6 +25,13 @@ in-app updater works again.
   falls back to HTTP only if HTTPS gets no response.
 - Native Silo support requires Silo's stable API v2 (Silo 1.0). The older
   alpha API is not supported.
+- Bloom now shows only movie and series libraries. Music, book, photo, and
+  other library types no longer appear, and search skips them.
+- Playback keys follow your bindings in Settings > Input. **S now opens the
+  subtitle menu instead of stopping playback**; Esc or Back still stops. K
+  toggles the subtitle style override, and J and L seek 10 seconds.
+- On Arch, the package is now `bloom-jellyfin-git`, built from the latest
+  `main`. Installing it offers to replace `bloom-jellyfin`.
 
 ### Spaces
 
@@ -32,7 +39,8 @@ in-app updater works again.
   Home rows, libraries, and search, and each item shows a badge for the server
   it came from. Opening, playing, or marking an item always uses the server that
   owns it.
-- Switch spaces from the navigation rail. Manage them in Settings > Spaces.
+- Switch spaces from the space avatar in the navigation bar. Manage them in
+  Settings > Spaces.
 - Choose libraries per source. A library can be hidden from browsing and,
   separately, left out of search. Libraries added to a server later show up
   automatically.
@@ -59,6 +67,13 @@ in-app updater works again.
   remembers it per movie or per season, like your subtitle choice.
 - Volume keys show a small volume indicator instead of opening the full
   controls.
+- A file that cannot be opened or read now shows an error right away, instead
+  of "Loading timed out" after 30 seconds. A stream that fails partway no
+  longer counts as watched or starts Up Next.
+- If Bloom cannot look up the next episode, Up Next closes and the display's
+  HDR and refresh rate are restored, instead of leaving Up Next on screen.
+- Pressing Enter while no playback control is showing no longer restarts the
+  item from the page behind the video.
 - Up Next has a new layout with backdrop, logo, countdown ring, and the season's
   episode row. It stays on screen until the next episode is actually playing,
   so the page underneath no longer flashes during the handoff.
@@ -89,8 +104,16 @@ in-app updater works again.
 
 ### Interface
 
-- New floating navigation rail that expands over the page without moving it,
-  and full-screen backdrops on every page.
+- New floating navigation bar across the top of every page: Home, Movies,
+  Series, Search, then updates, Settings, your space, and power. With several
+  movie or series libraries, Movies and Series open a menu with each library
+  and an "All Movies" or "All Series" page that combines them.
+- Home, detail pages, and Up Next open on a full-screen hero; every other page
+  sits on the same backdrop. The interface uses the Inter typeface.
+- Detail pages reserve space for ratings, quality badges, and the up-next
+  episode, so the hero no longer jumps when they load.
+- Chapters without thumbnails appear as a timeline you can step through and
+  play from.
 - With Settings > Home > Sync page backdrop on (the default), the Home hero's
   backdrop fills the whole page. With it off, the artwork sits in a card. Hero
   focus shows as light along its edges instead of a focus ring.
@@ -109,6 +132,19 @@ in-app updater works again.
 - Native Silo support covers sign-in, profiles, browsing, artwork, playback
   with progress reporting, theme songs, and trickplay. It uses Silo's own API,
   so the server's Jellyfin compatibility listener can stay off.
+- On Silo servers that offer it, sign in with a code from another device,
+  including servers that allow only single sign-on.
+- Silo playback falls back to server remux or transcode (HLS) when a file
+  cannot play directly, and plays m2ts, WMV, FLV, and MPEG files directly.
+- Silo subtitles pick the right embedded track, and playback stays alive
+  through long pauses, multi-part movies, and audio or subtitle changes.
+- A single Silo space shows the profile's curated Home rows below Bloom's
+  own, and movie and series pages have a Silo watchlist button and a
+  Watchlist row.
+- Silo poster cards show the badges your Silo profile chose (resolution, HDR,
+  audio, ratings, and more), and Silo artwork loads at up to 4K.
+- For every server, Bloom prefers subtitles embedded in the file over
+  separate subtitle files when both match your preferences.
 - Jellyfin requests follow the Jellyfin 12 API contract and avoid obsolete
   endpoints.
 - Jellyfin streams request up to 1 Gbps, so local network playback no longer
@@ -131,6 +167,16 @@ in-app updater works again.
   installer checksum before installing anything.
 - Switching update channels no longer offers an older version, for example a
   dev build switching to an older stable release.
+- The Windows installer puts shortcuts in the all-users Start menu and
+  desktop. Installing into a folder you pick, such as `C:\Apps`, creates
+  `C:\Apps\Bloom`. Uninstalling removes only Bloom's own files, and later
+  upgrades remove files the previous version left behind. Upgrading from
+  0.7.1 cleans up only in the default `C:\Program Files\Bloom`.
+- The Linux `.deb` installs to `/opt/bloom` with a `bloom` command, so it no
+  longer conflicts with your distribution's mpv package.
+- Controllers work in the Flatpak with Flatpak 1.15.6 or newer on the host.
+  The `.flatpak` bundle can fetch its runtime from Flathub even when the
+  Flathub remote is not set up.
 
 ### Reliability
 
@@ -140,5 +186,10 @@ in-app updater works again.
 - mpv startup, shutdown, HDR, and refresh-rate switching no longer block the
   interface.
 - Artwork loads once per image and size even when several views request it.
+- Fixed a crash at the end of a file with the embedded Linux player.
+- On Windows, a failed subtitle download or other minor player command no
+  longer ends playback.
+- Logs no longer contain server access tokens or the MDBList API key, and
+  external rating lookups give up after 15 seconds.
 
 **Full changelog:** [v0.7.1...v0.8.0](https://github.com/crowquillx/Bloom/compare/v0.7.1...v0.8.0)

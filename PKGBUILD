@@ -10,6 +10,9 @@ pkgdesc="Media client for Jellyfin and Silo servers"
 arch=('x86_64')
 url="https://github.com/crowquillx/Bloom"
 license=('MIT')
+# Replaces the old non-git package; pacman offers to remove it on install.
+provides=("${pkgname%-git}")
+conflicts=("${pkgname%-git}")
 depends=(
     'qt6-base>=6.10'
     'qt6-declarative>=6.10'

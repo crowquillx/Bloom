@@ -351,7 +351,9 @@ upgrade, and uninstall.
 The root `PKGBUILD` is a `bloom-jellyfin-git` package that builds the current
 `main` branch with the distribution's Qt, SDL2, and mpv
 (`-DBLOOM_BUNDLE_LIBMPV=OFF`). Its `pkgver()` combines `VERSION` with the
-commit count and short hash, so a version bump needs no `PKGBUILD` edit:
+commit count and short hash, so a version bump needs no `PKGBUILD` edit. It
+provides and conflicts with the old `bloom-jellyfin` package, so installing it
+offers to remove that package:
 
 ```bash
 makepkg -si
