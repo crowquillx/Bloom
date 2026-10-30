@@ -272,8 +272,12 @@ It checks FEL support before creating the bundle. The old root-level manifest
 has been removed to prevent builds against a different mpv stack.
 
 The Flatpak supports network access, Secret Service, Wayland/X11, audio, GPU
-rendering, and gamepad devices. Host shutdown/restart and arbitrary display
-command settings are intentionally unavailable in the sandbox.
+rendering, and gamepad devices. Gamepads use `--device=input`, which needs
+Flatpak 1.15.6 or newer on the host; older hosts ignore the permission and SDL
+sees no controllers. Host shutdown/restart and arbitrary display command
+settings are intentionally unavailable in the sandbox. The bundle records the
+Flathub repository as its runtime source, so `flatpak install` can fetch the
+KDE runtime on hosts without a Flathub remote.
 
 Flatpak Builder requires unprivileged user and network namespaces. Ubuntu
 24.04 GitHub-hosted runners restrict these through AppArmor by default, so the
