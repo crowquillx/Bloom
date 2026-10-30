@@ -192,10 +192,10 @@ Item {
 | `Theme.spacingSmall` | Small spacing (4px base) |
 | `Theme.spacingMedium` | Medium spacing (8px base) |
 | `Theme.spacingLarge` | Large spacing (16px base) |
-| `Theme.cardWidth` | Responsive card width |
-| `Theme.cardHeight` | Responsive card height |
-| `Theme.posterWidth` | Responsive poster width |
-| `Theme.posterHeight` | Responsive poster height |
+| `Theme.posterCardWidth` | Poster card width (2:3) |
+| `Theme.posterCardHeight` | Poster card height (2:3) |
+| `Theme.landscapeCardWidth` | Landscape card width (16:9) |
+| `Theme.landscapeCardHeight` | Landscape card height (16:9) |
 | `Theme.uiAnimationsEnabled` | Whether UI animations should play |
 
 ### Direct Access
