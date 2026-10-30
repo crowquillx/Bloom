@@ -89,6 +89,21 @@ foreach ($pluginRoot in $pluginCandidates) {
     }
 }
 
+# QML tests import QtQuick.Controls. Without this, the default import path
+# follows whichever Qt6Core.dll loads first (often a windeployqt copy), whose
+# qml tree may lack module plugins. QML_IMPORT_PATH is searched before it.
+if (-not [string]::IsNullOrWhiteSpace($qtPrefix)) {
+    $qtQmlPath = Join-Path $qtPrefix.Split(';')[0] "qml"
+    if (Test-Path $qtQmlPath) {
+        if ([string]::IsNullOrWhiteSpace($env:QML_IMPORT_PATH)) {
+            $env:QML_IMPORT_PATH = $qtQmlPath
+        } else {
+            $env:QML_IMPORT_PATH = "$qtQmlPath;$env:QML_IMPORT_PATH"
+        }
+        Write-Host "Configured QML_IMPORT_PATH entry: $qtQmlPath" -ForegroundColor DarkGray
+    }
+}
+
 if (-not [string]::IsNullOrWhiteSpace($platformPluginPath)) {
     $env:QT_QPA_PLATFORM_PLUGIN_PATH = $platformPluginPath
     Write-Host "Using QT_QPA_PLATFORM_PLUGIN_PATH: $platformPluginPath" -ForegroundColor DarkGray
