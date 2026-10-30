@@ -156,21 +156,15 @@ APPIMAGE_EXTRACT_AND_RUN=1 QT_QPA_PLATFORM=offscreen \
 tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
     -C "$APPDIR/usr" -czf "/output/Bloom-${BLOOM_VERSION}-linux-x86_64.tar.gz" .
 
-DEBROOT=/build/deb
-mkdir -p "$DEBROOT/DEBIAN" "$DEBROOT/usr"
-cp -a "$APPDIR/usr/." "$DEBROOT/usr/"
-cat > "$DEBROOT/DEBIAN/control" <<EOF
-Package: bloom
-Version: ${BLOOM_VERSION}
-Section: video
-Priority: optional
-Architecture: amd64
-Depends: libc6 (>= 2.39), libgl1, libsecret-1-0
-Maintainer: Bloom Contributors <crowquillx@users.noreply.github.com>
-Homepage: https://github.com/crowquillx/Bloom
-Description: Media client for Jellyfin and Silo servers; experimental native Silo support
-EOF
-dpkg-deb --build --root-owner-group "$DEBROOT" "/output/bloom_${BLOOM_VERSION}_amd64.deb"
+DEB="/output/bloom_${BLOOM_VERSION}_amd64.deb"
+bash /build/packaging/portable/build-deb.sh "$APPDIR" "$BLOOM_VERSION" "$DEB"
+# Install the package and start it without the build's LD_LIBRARY_PATH, so the
+# relocated tree must resolve its libraries, plugins, and mpv on its own.
+apt-get install -y --no-install-recommends "$DEB"
+test "$(readlink /usr/bin/bloom)" = /opt/bloom/bin/bloom
+env -u LD_LIBRARY_PATH QT_QPA_PLATFORM=offscreen /usr/bin/bloom --version
+env -u LD_LIBRARY_PATH /opt/bloom/bin/mpv --version
+env -u LD_LIBRARY_PATH /opt/bloom/bin/bloom-seek-preview --self-test
 
 cd /output
 sha256sum \

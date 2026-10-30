@@ -222,7 +222,20 @@ Nix launches a digest-pinned Ubuntu 24.04 container and produces:
 - `Bloom-<version>-linux-x86_64.tar.gz`
 - `SHA256SUMS-linux-x86_64.txt`
 
-These artifacts target Ubuntu 24.04 and newer (glibc 2.39). The packaging
+These artifacts target Ubuntu 24.04 and newer (glibc 2.39).
+
+The tarball and AppImage contain the deployed tree: `bin/` (Bloom, the seek
+preview helper, the pinned `mpv`, and a `qt.conf`), `lib/`, Qt `plugins/` and
+`qml/`, and `share/`. The Debian package installs that tree under `/opt/bloom`,
+so its bundled Qt, FFmpeg, libmpv, Wayland/Vulkan clients, and `mpv` never
+replace or shadow distribution packages such as `mpv`. `/usr` receives only the
+`/usr/bin/bloom` symlink and the desktop entry, icon, and AppStream metainfo
+(`packaging/portable/build-deb.sh` fails if anything else lands there). Qt's
+`applicationDirPath()` and the loader's `$ORIGIN` resolve the symlink, so Bloom
+still finds `qt.conf`, its libraries, plugins, QML, and `mpv`. Packaging
+installs the `.deb` in the build container and starts Bloom, `mpv`, and the
+seek preview helper without `LD_LIBRARY_PATH` to prove the relocated tree is
+self-contained. The packaging
 container is a compatibility boundary, not an alternate development
 environment. Versions, URLs, hashes, and the container digest live in
 `packaging/dependencies.json`.
