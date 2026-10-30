@@ -207,4 +207,24 @@ if ($LASTEXITCODE -ne 0) {
     throw "Seek preview helper self-test failed with exit code $LASTEXITCODE"
 }
 
+# installer.nsi removes exactly these entries on upgrade and uninstall: every
+# file, then every directory deepest-first so each is empty when it is removed.
+$manifestName = "bloom-install-manifest.txt"
+$stageRoot = (Resolve-Path $OutputDir).Path.TrimEnd('\', '/')
+$manifestPath = Join-Path $stageRoot $manifestName
+Remove-Item -Path $manifestPath -Force -ErrorAction SilentlyContinue
+function Get-StagedRelativePath([string]$FullName) {
+    return $FullName.Substring($stageRoot.Length).TrimStart('\', '/').Replace('/', '\')
+}
+$manifestFiles = Get-ChildItem -Path $stageRoot -Recurse -File |
+    ForEach-Object { Get-StagedRelativePath $_.FullName }
+$manifestDirs = Get-ChildItem -Path $stageRoot -Recurse -Directory |
+    Sort-Object { $_.FullName.Length } -Descending |
+    ForEach-Object { Get-StagedRelativePath $_.FullName }
+$unsafeEntries = @($manifestFiles) + @($manifestDirs) | Where-Object { $_ -match '\.\.|[:*?]' }
+if ($unsafeEntries) {
+    throw "Staged paths the installer manifest cannot represent: $($unsafeEntries -join ', ')"
+}
+Set-Content -Path $manifestPath -Value (@($manifestFiles) + @($manifestDirs)) -Encoding ascii
+
 Write-Host "Portable package staged at: $OutputDir" -ForegroundColor Green

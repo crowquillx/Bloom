@@ -65,10 +65,14 @@ VIAddVersionKey "LegalCopyright" "© ${COMPANYNAME}"
 VIAddVersionKey "FileDescription" "${DESCRIPTION}"
 VIAddVersionKey "FileVersion" "${VERSION}"
 
-; Everything a Bloom package puts in $INSTDIR. The upgrade path removes it
-; before copying so stale Qt plugins, QML modules, and DLLs from an older Qt do
-; not survive, and the uninstaller removes only this list instead of the whole
-; directory. windeployqt places Qt plugin types at the top level.
+; package-windows.ps1 stages bloom-install-manifest.txt: every packaged file,
+; then every packaged directory deepest-first, relative to $INSTDIR. Upgrades
+; and the uninstaller delete exactly those files and remove directories only
+; once they are empty, so files that belong to anything else stay.
+!define MANIFEST "bloom-install-manifest.txt"
+
+; Fallback for installs made before the manifest existed. It removes whole Qt
+; directories and every DLL, so it runs only in a folder named Bloom.
 !macro RemoveBloomPayload
     Delete "$INSTDIR\Bloom.exe"
     Delete "$INSTDIR\bloom-seek-preview.exe"
@@ -95,6 +99,72 @@ VIAddVersionKey "FileVersion" "${VERSION}"
     RMDir /r "$INSTDIR\texttospeech"
     RMDir /r "$INSTDIR\virtualkeyboard"
     RMDir /r "$INSTDIR\scenegraph"
+!macroend
+
+; Deletes what the installed manifest lists. Sets $R9 to 1 when a manifest was
+; found, 0 otherwise. Absolute entries, and entries containing "..", ":" or
+; the Delete wildcards "*" and "?", are skipped.
+!macro DEFINE_REMOVE_MANIFEST_PAYLOAD UN
+Function ${UN}RemoveManifestPayload
+    StrCpy $R9 0
+    IfFileExists "$INSTDIR\${MANIFEST}" 0 done
+    ClearErrors
+    FileOpen $R0 "$INSTDIR\${MANIFEST}" r
+    IfErrors done
+    next_line:
+        ClearErrors
+        FileRead $R0 $R1
+        IfErrors end_of_file
+    strip_newline:
+        StrCpy $R2 $R1 1 -1
+        StrCmp $R2 "$\r" +2
+        StrCmp $R2 "$\n" 0 stripped
+        StrCpy $R1 $R1 -1
+        Goto strip_newline
+    stripped:
+        StrCmp $R1 "" next_line
+        StrCpy $R2 $R1 1
+        StrCmp $R2 "\" next_line
+        StrCmp $R2 "/" next_line
+        StrLen $R3 $R1
+        StrCpy $R4 0
+    scan:
+        IntCmp $R4 $R3 safe 0 safe
+        StrCpy $R2 $R1 2 $R4
+        StrCmp $R2 ".." next_line
+        StrCpy $R2 $R1 1 $R4
+        StrCmp $R2 ":" next_line
+        StrCmp $R2 "*" next_line
+        StrCmp $R2 "?" next_line
+        IntOp $R4 $R4 + 1
+        Goto scan
+    safe:
+        IfFileExists "$INSTDIR\$R1\*.*" 0 remove_file
+        RMDir "$INSTDIR\$R1"
+        Goto next_line
+    remove_file:
+        Delete "$INSTDIR\$R1"
+        Goto next_line
+    end_of_file:
+    FileClose $R0
+    Delete "$INSTDIR\${MANIFEST}"
+    StrCpy $R9 1
+    done:
+FunctionEnd
+!macroend
+!insertmacro DEFINE_REMOVE_MANIFEST_PAYLOAD ""
+!insertmacro DEFINE_REMOVE_MANIFEST_PAYLOAD "un."
+
+; Removes the previous payload: the manifest when there is one, otherwise the
+; legacy list, but only in a dedicated Bloom folder. A pre-manifest install in
+; a shared folder is overwritten in place, as older installers did.
+!macro RemovePreviousPayload UN
+    Call ${UN}RemoveManifestPayload
+    StrCmp $R9 1 previous_payload_removed
+    ${GetFileName} "$INSTDIR" $R0
+    StrCmp $R0 "${APPNAME}" 0 previous_payload_removed
+    !insertmacro RemoveBloomPayload
+    previous_payload_removed:
 !macroend
 
 ; /D= replaces $INSTDIR before .onInit, so only the default is replaced here.
@@ -155,7 +225,7 @@ Section "Install"
 
     ; Remove the previous version's payload so files dropped by this version
     ; do not linger.
-    !insertmacro RemoveBloomPayload
+    !insertmacro RemovePreviousPayload ""
 
     ; Set output path to installation directory
     SetOutPath $INSTDIR
@@ -220,7 +290,7 @@ Section "Uninstall"
 
     ; Remove only what Bloom installed; the directory itself goes only once it
     ; is empty, so a folder chosen by the user keeps its other contents.
-    !insertmacro RemoveBloomPayload
+    !insertmacro RemovePreviousPayload "un."
     Delete "$INSTDIR\Uninstall.exe"
     RMDir "$INSTDIR"
 

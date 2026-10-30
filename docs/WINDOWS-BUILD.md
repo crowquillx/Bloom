@@ -64,14 +64,21 @@ Install:
 - Always installs into a folder named `Bloom`. A new install into a typed
   folder such as `C:\Apps` goes to `C:\Apps\Bloom`. A folder that already
   contains `Bloom.exe` is upgraded in place.
-- Before copying, removes the previous version's payload (`Bloom.exe`, the seek
-  preview helper, DLLs, `qt.conf`, `qml\`, `share\`, and the Qt plugin
-  folders), so plugins and QML modules dropped by a newer Qt do not linger.
+- Before copying, removes the previous version's payload, so plugins and QML
+  modules dropped by a newer Qt do not linger. `package-windows.ps1` stages
+  `bloom-install-manifest.txt`, which lists every packaged file and then every
+  packaged directory deepest-first. The installer deletes exactly those files
+  and removes a directory only once it is empty, so other files in a shared
+  folder survive. An install made before the manifest existed is cleaned with
+  a fixed list (`Bloom.exe`, DLLs, `qml\`, `share\`, the Qt plugin folders)
+  only when its folder is named `Bloom`; in any other folder it is
+  overwritten in place.
 - Writes the 64-bit uninstall registry key the in-app updater checks (see
   [updates](updates.md#install-handoff)).
 
-Uninstall removes the same list of Bloom files plus `Uninstall.exe`, then the
-install folder only if it is empty. Settings in `%APPDATA%\Bloom` are kept.
+Uninstall removes the manifest's entries (or, for a pre-manifest install in a
+`Bloom` folder, the fixed list) plus `Uninstall.exe`, then the install folder
+only if it is empty. Settings in `%APPDATA%\Bloom` are kept.
 
 ## CI
 
