@@ -174,8 +174,9 @@ in-app updater works again.
   0.7.1 cleans up only in the default `C:\Program Files\Bloom`.
 - The Linux `.deb` installs to `/opt/bloom` with a `bloom` command, so it no
   longer conflicts with your distribution's mpv package.
-- Controllers work in the Flatpak, and the `.flatpak` bundle can fetch its
-  runtime from Flathub even when the Flathub remote is not set up.
+- Controllers work in the Flatpak with Flatpak 1.15.6 or newer on the host.
+  The `.flatpak` bundle can fetch its runtime from Flathub even when the
+  Flathub remote is not set up.
 
 ### Reliability
 
