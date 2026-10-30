@@ -801,6 +801,12 @@ void LinuxMpvBackend::processMpvEvents()
         default:
             break;
         }
+
+        // Signals reach PlayerController directly, and its handlers may stop
+        // (or replace) playback, which destroys `handle` synchronously.
+        if (m_mpvHandle != handle) {
+            return;
+        }
     }
 #endif
 }

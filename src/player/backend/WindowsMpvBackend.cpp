@@ -1381,6 +1381,11 @@ void WindowsMpvBackend::processMpvEvents()
             }
             break;
         }
+
+        // Signal handlers may tear down or replace the handle synchronously.
+        if (m_mpvHandle != handle) {
+            return;
+        }
     }
 #endif
 }

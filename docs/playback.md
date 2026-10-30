@@ -140,6 +140,7 @@ Linux embedded backend details (experimental)
   - stricter embedded arg filtering for render-critical options (`gpu-context`, `gpu-api`, and context-specific backend flags),
   - debug instrumentation behind `BLOOM_LINUX_LIBMPV_DEBUG=1` for runtime graphics API/FBO diagnostics,
   - automatic software-render fallback (`MPV_RENDER_API_TYPE_SW`) when OpenGL embedded rendering repeatedly reports an invalid framebuffer target on Linux runtime stacks.
+  - an event loop that stops draining mpv events as soon as a signal handler destroys or replaces the mpv handle (for example `PlayerController` calling `stopMpv()` from its `playbackEnded` handler).
 - Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing.
 - Current Linux support status: embedded path is not yet considered fully supported across compositor/driver combinations; treat `external-mpv-ipc` as the stable production path while Linux embedded validation continues.
 - Controller parity hardening now preserves next-up/autoplay context across playback teardown, so next-episode prefetch/lookup flows keep the expected series/item/track state.
