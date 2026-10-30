@@ -187,6 +187,8 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     // Connect to LibraryService for autoplay next episode
     connect(m_libraryService, &LibraryService::canonicalNextUnplayedEpisodeLoaded,
             this, &PlayerController::onNextEpisodeLoaded);
+    connect(m_libraryService, &LibraryService::nextUnplayedEpisodeFailed,
+            this, &PlayerController::onNextEpisodeFailed);
     connect(m_libraryService, &LibraryService::itemLibraryResolved,
             this, &PlayerController::onItemLibraryResolved);
     connect(m_libraryService, &LibraryService::itemLibraryResolutionFailed,
@@ -2057,6 +2059,37 @@ void PlayerController::onNextEpisodeLoaded(const QString &connectionId,
     emitNavigateToNextEpisodeQueued(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay);
     
     // Note: Don't clear pending autoplay context here - playNextEpisode() needs it
+}
+
+/**
+ * @brief Handle a failed next-episode lookup.
+ *
+ * A failed prefetch is ignored; playback end resolves the next episode again.
+ * When the end-of-playback lookup fails, Up Next cannot open, so the pending
+ * autoplay context is dropped (which ends the Up Next handoff surface) and
+ * the display restore parked for Up Next starts.
+ */
+void PlayerController::onNextEpisodeFailed(const QString &seriesId,
+                                           const QString &error,
+                                           const QString &requestContext)
+{
+    if (!m_waitingForNextEpisodeAtPlaybackEnd || !m_shouldAutoplay) {
+        return;
+    }
+    if (!matchesPlaybackRequestContext(requestContext, true)) {
+        return;
+    }
+    if (!m_pendingAutoplaySeriesId.isEmpty() && seriesId != m_pendingAutoplaySeriesId) {
+        return;
+    }
+
+    qCWarning(lcPlayback) << "Next-episode lookup failed; skipping Up Next"
+                          << "seriesId=" << seriesId
+                          << "error=" << redactNetworkLogText(error);
+    m_shouldAutoplay = false;
+    clearNextEpisodePrefetchState();
+    clearPendingAutoplayContext();
+    maybeStartDeferredPostPlaybackDisplayRestore();
 }
 
 void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo)

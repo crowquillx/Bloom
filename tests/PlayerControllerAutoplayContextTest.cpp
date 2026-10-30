@@ -581,6 +581,7 @@ private slots:
     void autoplayDescriptorWaitIsBoundedAndFallbackIsOneShot();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeNavigationKeepsAwaitingUntilQueuedDelivery();
+    void nextEpisodeLookupFailureEndsUpNextHandoff();
     void upNextIdleParkingInvalidatesQueuedDisplayRestore();
     void deferredPostPlaybackDisplayRestoreCanBeReleased();
     void nextEpisodeIgnoresMismatchedSeries();
@@ -1507,6 +1508,56 @@ void PlayerControllerAutoplayContextTest::nextEpisodeNavigationKeepsAwaitingUnti
     QCOMPARE(navigationSpy.count(), 1);
     QVERIFY(!controller.awaitingNextEpisodeResolution());
     QCOMPARE(awaitingSpy.count(), 1);
+}
+
+void PlayerControllerAutoplayContextTest::nextEpisodeLookupFailureEndsUpNextHandoff()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_shouldAutoplay = true;
+    controller.m_waitingForNextEpisodeAtPlaybackEnd = true;
+    controller.m_pendingAutoplayItemId = QStringLiteral("item-1");
+    controller.m_pendingAutoplaySeriesId = QStringLiteral("series-1");
+    controller.setAwaitingNextEpisodeResolution(true);
+    controller.m_deferredPostPlaybackDisplayRestorePending = true;
+    controller.m_deferredPostPlaybackNeedsHdrRestore = true;
+
+    QSignalSpy navigationSpy(&controller, &PlayerController::navigateToNextEpisode);
+
+    // A failure for another request (a prefetch) leaves the handoff alone.
+    emit libraryService.nextUnplayedEpisodeFailed(QStringLiteral("series-1"),
+                                                  QStringLiteral("offline"),
+                                                  QStringLiteral("player:prefetch:series-1:item-1"));
+    QVERIFY(controller.awaitingNextEpisodeResolution());
+    QVERIFY(controller.m_deferredPostPlaybackDisplayRestorePending);
+
+    const quint64 generationBeforeFailure = controller.m_displayRestoreGeneration;
+    emit libraryService.nextUnplayedEpisodeFailed(QStringLiteral("series-1"),
+                                                  QStringLiteral("offline"),
+                                                  QStringLiteral("player:resolve:series-1:item-1"));
+    QCoreApplication::processEvents();
+
+    QVERIFY(!controller.awaitingNextEpisodeResolution());
+    QVERIFY(!controller.m_shouldAutoplay);
+    QVERIFY(!controller.m_waitingForNextEpisodeAtPlaybackEnd);
+    QVERIFY(controller.m_pendingAutoplayItemId.isEmpty());
+    QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
+    QVERIFY(controller.m_displayRestoreGeneration > generationBeforeFailure);
+    QCOMPARE(navigationSpy.count(), 0);
 }
 
 void PlayerControllerAutoplayContextTest::upNextIdleParkingInvalidatesQueuedDisplayRestore()
