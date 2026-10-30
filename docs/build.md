@@ -68,8 +68,9 @@ nix flake check --print-build-logs \
 This builds Bloom and runs the deterministic unit/contract tests, QML lint,
 desktop/AppStream validation, release-manifest validation, and an offscreen
 Release startup/version smoke test. It also checks the deployed mpv/libmpv FEL
-capabilities and dependency pins. ShellCheck and actionlint also validate the
-deep-analysis scripts and workflow definitions. The CI `nix`
+capabilities and dependency pins. ShellCheck validates every `scripts/*.sh` and
+`packaging/portable/*.sh`, and actionlint every workflow in
+`.github/workflows/`. The CI `nix`
 job builds the same `.#checks.x86_64-linux.tests` derivation alongside the
 other checks, so pull requests and dependency updates exercise automated
 tests. Live provider/server, display, GPU, and playback contracts that require

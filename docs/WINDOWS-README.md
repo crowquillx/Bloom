@@ -8,12 +8,15 @@ Before you begin, ensure you have the following installed:
 
 1.  **CMake**: [Download CMake](https://cmake.org/download/)
     *   Ensure it is added to your system PATH.
-2.  **C++ Compiler**:
-    *   **Visual Studio 2022** (Recommended) with "Desktop development with C++" workload.
-    *   OR **MinGW-w64** toolchain.
+2.  **C++ Compiler**: **Visual Studio 2022** or newer with the "Desktop
+    development with C++" workload (MSVC x64). MinGW is not supported: Windows
+    playback requires the embedded libmpv SDK that `build.ps1` fetches.
 3.  **Qt 6**: [Download Qt](https://www.qt.io/download)
-    *   Install the version corresponding to your compiler (e.g., MSVC 2019/2022 64-bit or MinGW 64-bit).
-    *   Make sure to install: Qt Multimedia, Qt Shader Tools, Qt 5 Compatibility Module (if needed), etc.
+    *   Install the version and MSVC 64-bit kit pinned in
+        `packaging/dependencies.json` (`qt.version` and `qt.windows_arch`, for
+        example Qt `6.12.0` with `msvc2022_64`).
+    *   Include Qt Multimedia, Qt Shader Tools, Qt Image Formats, and Qt 5
+        Compatibility Module.
 
 ## Building using build.ps1
 
@@ -27,7 +30,7 @@ The easiest way to build is using the helper script `build.ps1` in the root of t
     ```
 
     This will:
-    *   **Auto-detect** your Qt installation (MinGW or MSVC).
+    *   **Auto-detect** your Qt installation.
     *   Configure the project.
     *   Build the project in `build-windows/`.
     *   Install the output to `install-windows/`.
@@ -40,7 +43,7 @@ Bloom is built as a GUI application on Windows, so launching `Bloom.exe` from Ex
 If CMake cannot find Qt, point it to your Qt installation:
 
 ```powershell
-.\scripts\build.ps1 -QtDir "C:\Qt\6.10.0\msvc2019_64"
+.\scripts\build.ps1 -QtDir "C:\Qt\6.12.0\msvc2022_64"
 ```
 
 **Clean Rebuild:**
@@ -51,11 +54,10 @@ To remove previous build artifacts and start fresh:
 ```
 
 **Use a specific Generator:**
-To force using Ninja or MinGW Makefiles:
+To force Ninja (what CI uses) from an MSVC x64 developer prompt:
 
 ```powershell
 .\scripts\build.ps1 -Generator "Ninja"
-.\scripts\build.ps1 -Generator "MinGW Makefiles"
 ```
 
 ## Manual Build (Advanced)
@@ -65,12 +67,19 @@ If you prefer running CMake manually:
 ```cmd
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:\Qt\6.10.0\msvc2019_64"
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:\Qt\6.12.0\msvc2022_64"
 cmake --build . --config Release
 cmake --install .
 ```
 
+## Packaging
+
+To stage the portable package and build the installer, see
+[WINDOWS-BUILD.md](WINDOWS-BUILD.md).
+
 ## Running tests on Windows
+
+Build with `-BuildTests` first (see [WINDOWS-BUILD.md](WINDOWS-BUILD.md#build-test-and-package)).
 
 If Windows tests fail to start with exit code `0xc0000135`, run tests through the helper script so runtime DLL paths are staged before `ctest` executes.
 

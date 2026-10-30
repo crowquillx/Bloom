@@ -207,19 +207,10 @@
                 ];
               }
               ''
-                shellcheck \
-                  ${./packaging/portable/build-mpv.sh} \
-                  ${./packaging/portable/build.sh} \
-                  ${./scripts/package-flatpak.sh} \
-                  ${./scripts/package-linux-portable.sh} \
-                  ${./scripts/publish-release-assets.sh} \
-                  ${./scripts/run-clang-tidy.sh} \
-                  ${./scripts/run-coverage.sh} \
-                  ${./scripts/run-sanitizers.sh}
-                actionlint \
-                  ${./.github/workflows/ci.yml} \
-                  ${./.github/workflows/deep-analysis.yml} \
-                  ${./.github/workflows/update-dependencies.yml}
+                # Globs, so new scripts and workflows are linted without
+                # editing this list.
+                shellcheck ${./scripts}/*.sh ${./packaging/portable}/*.sh
+                actionlint ${./.github/workflows}/*.yml
                 touch "$out"
               '';
           metadata =
