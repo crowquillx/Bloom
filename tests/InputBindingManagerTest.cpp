@@ -75,6 +75,7 @@ class InputBindingManagerTest : public QObject
 
 private slots:
     void defaultKeyboardResolutionIsContextAware();
+    void keyboardShortcutsFollowPlaybackBindings();
     void defaultControllerPlaybackNavigationBindings();
     void controllerNavigationAndPlaybackBindingsDoNotConflict();
     void crossContextBindingsDoNotConflict();
@@ -96,6 +97,46 @@ void InputBindingManagerTest::defaultKeyboardResolutionIsContextAware()
              QStringLiteral("playback.playPause"));
     QCOMPARE(manager.actionForKeyboardEvent(Qt::Key_I, Qt::ShiftModifier, QStringLiteral("playback")),
              QStringLiteral("playback.statsOnce"));
+}
+
+void InputBindingManagerTest::keyboardShortcutsFollowPlaybackBindings()
+{
+    BindingFixture fixture;
+    InputBindingManager manager(nullptr, &fixture.config);
+
+    const auto shortcutAction = [&manager](const QString &sequence) {
+        for (const QVariant &entry : manager.keyboardShortcuts(QStringLiteral("playback"))) {
+            const QVariantMap shortcut = entry.toMap();
+            if (shortcut.value(QStringLiteral("sequence")).toString() == sequence) {
+                return shortcut.value(QStringLiteral("actionId")).toString();
+            }
+        }
+        return QString();
+    };
+
+    // S and K belong to the subtitle actions, not stop and pause.
+    QCOMPARE(shortcutAction(QStringLiteral("S")), QStringLiteral("playback.subtitleSelector"));
+    QCOMPARE(shortcutAction(QStringLiteral("K")), QStringLiteral("playback.subtitleOverride"));
+    QCOMPARE(shortcutAction(QStringLiteral("Space")), QStringLiteral("playback.playPause"));
+    QCOMPARE(shortcutAction(QStringLiteral("J")), QStringLiteral("playback.seekBack"));
+    QCOMPARE(shortcutAction(QStringLiteral("L")), QStringLiteral("playback.seekForward"));
+    QCOMPARE(shortcutAction(QStringLiteral("I")), QStringLiteral("playback.stats"));
+    QCOMPARE(shortcutAction(QStringLiteral("Shift+I")), QStringLiteral("playback.statsOnce"));
+    QCOMPARE(shortcutAction(QStringLiteral("+")), QStringLiteral("playback.volumeUp"));
+    QVERIFY(shortcutAction(QStringLiteral("Esc")).isEmpty());
+
+    // Rebinding moves the shortcut; an unassigned action has none.
+    QVERIFY(manager.setBindingsForAction(QStringLiteral("keyboard"),
+                                         QStringLiteral("playback.playPause"),
+                                         {QStringLiteral("key:p")}));
+    QVERIFY(manager.setBindingsForAction(QStringLiteral("keyboard"),
+                                         QStringLiteral("playback.subtitleOverride"),
+                                         {}));
+    QCOMPARE(shortcutAction(QStringLiteral("P")), QStringLiteral("playback.playPause"));
+    QVERIFY(shortcutAction(QStringLiteral("Space")).isEmpty());
+    QVERIFY(shortcutAction(QStringLiteral("K")).isEmpty());
+    QCOMPARE(manager.actionForKeyboardEvent(Qt::Key_P, Qt::NoModifier, QStringLiteral("playback")),
+             QStringLiteral("playback.playPause"));
 }
 
 void InputBindingManagerTest::defaultControllerPlaybackNavigationBindings()

@@ -392,6 +392,41 @@ Window {
         homePowerDialog.open()
     }
 
+    readonly property var playbackKeyShortcuts: InputBindingManager.bindingsRevision >= 0
+                                                ? InputBindingManager.keyboardShortcuts("playback")
+                                                : []
+
+    function playbackKeyBound(sequence) {
+        for (var i = 0; i < playbackKeyShortcuts.length; i++) {
+            if (playbackKeyShortcuts[i].sequence === sequence) {
+                return true
+            }
+        }
+        return false
+    }
+
+    function triggerPlaybackKeyAction(actionId) {
+        if (activeEmbeddedPlaybackOverlay.handlePlaybackAction(actionId)) {
+            return
+        }
+        // External mpv has no Bloom overlay; keep its transport keys working.
+        if (actionId === "playback.playPause") {
+            PlayerController.togglePause()
+        } else if (actionId === "playback.seekBack") {
+            PlayerController.seekRelative(-10)
+        } else if (actionId === "playback.seekForward") {
+            PlayerController.seekRelative(10)
+        } else if (actionId === "playback.subtitleOverride") {
+            PlayerController.toggleSubtitleAssOverride()
+        } else if (actionId === "playback.deband") {
+            PlayerController.toggleDeband()
+        } else if (actionId === "playback.stats") {
+            PlayerController.toggleMpvStats()
+        } else if (actionId === "playback.statsOnce") {
+            PlayerController.showMpvStatsOnce()
+        }
+    }
+
     function ensurePlaybackOverlayFocus() {
         if (!embeddedPlaybackActive) {
             return
@@ -1967,17 +2002,9 @@ Window {
     }
 
     Shortcut {
-        sequences: ["Space", "K"]
-        enabled: PlayerController.isPlaybackActive
-        onActivated: {
-            activeEmbeddedPlaybackOverlay.showControls()
-            PlayerController.togglePause()
-        }
-    }
-
-    Shortcut {
         sequences: ["Return", "Enter"]
         enabled: PlayerController.isPlaybackActive && activeEmbeddedPlaybackOverlay.skipPopupVisible
+                 && !playbackKeyBound("Return") && !playbackKeyBound("Enter")
         onActivated: {
             activeEmbeddedPlaybackOverlay.triggerActiveSkip()
         }
@@ -1994,12 +2021,13 @@ Window {
                  && !playbackOverlayNavigationActive
                  && !playbackSelectorOpen
                  && !ScreensaverController.active
+                 && !playbackKeyBound("Return") && !playbackKeyBound("Enter")
         onActivated: ensurePlaybackOverlayFocus()
     }
 
     Shortcut {
         sequence: "Esc"
-        enabled: PlayerController.isPlaybackActive
+        enabled: PlayerController.isPlaybackActive && !playbackKeyBound("Esc")
         onActivated: {
             if (activeEmbeddedPlaybackOverlay.tryDismissPlaybackOverlayBeforeStop()) {
                 return
@@ -2010,7 +2038,7 @@ Window {
 
     Shortcut {
         sequence: "Left"
-        enabled: PlayerController.isPlaybackActive && !playbackSelectorOpen
+        enabled: PlayerController.isPlaybackActive && !playbackSelectorOpen && !playbackKeyBound("Left")
         onActivated: {
             if (playbackOverlayNavigationActive) {
                 activeEmbeddedPlaybackOverlay.handleDirectionalKey("left")
@@ -2023,7 +2051,7 @@ Window {
 
     Shortcut {
         sequence: "Right"
-        enabled: PlayerController.isPlaybackActive && !playbackSelectorOpen
+        enabled: PlayerController.isPlaybackActive && !playbackSelectorOpen && !playbackKeyBound("Right")
         onActivated: {
             if (playbackOverlayNavigationActive) {
                 activeEmbeddedPlaybackOverlay.handleDirectionalKey("right")
@@ -2036,109 +2064,45 @@ Window {
 
     Shortcut {
         sequence: "Up"
-        enabled: embeddedPlaybackActive && !playbackSelectorOpen
+        enabled: embeddedPlaybackActive && !playbackSelectorOpen && !playbackKeyBound("Up")
         onActivated: activeEmbeddedPlaybackOverlay.handleDirectionalKey("up")
     }
 
     Shortcut {
         sequence: "Down"
-        enabled: embeddedPlaybackActive && !playbackSelectorOpen
+        enabled: embeddedPlaybackActive && !playbackSelectorOpen && !playbackKeyBound("Down")
         onActivated: activeEmbeddedPlaybackOverlay.handleDirectionalKey("down")
     }
 
-    Shortcut {
-        sequence: "J"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: {
-            activeEmbeddedPlaybackOverlay.showSeekPreview()
-            PlayerController.seekRelative(-10)
+    // Playback keys come from InputBindingManager, so they do what the
+    // user's bindings say (by default S opens subtitles and K toggles the
+    // subtitle style override). Window shortcuts catch them while no playback
+    // control has focus; they run the same action the overlay would.
+    Repeater {
+        model: window.playbackKeyShortcuts
+        delegate: Item {
+            id: boundPlaybackKey
+            required property var modelData
+            Shortcut {
+                sequence: boundPlaybackKey.modelData.sequence
+                enabled: PlayerController.isPlaybackActive
+                onActivated: window.triggerPlaybackKeyAction(boundPlaybackKey.modelData.actionId)
+            }
         }
     }
 
-    Shortcut {
-        sequence: "L"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: {
-            activeEmbeddedPlaybackOverlay.showSeekPreview()
-            PlayerController.seekRelative(10)
+    // mpv stats pages. A digit bound to a playback action runs that instead.
+    Repeater {
+        model: 10
+        delegate: Item {
+            id: statsPageKey
+            required property int index
+            Shortcut {
+                sequence: String(statsPageKey.index)
+                enabled: PlayerController.isPlaybackActive
+                         && !window.playbackKeyBound(String(statsPageKey.index))
+                onActivated: PlayerController.showMpvStatsPage(statsPageKey.index)
+            }
         }
-    }
-
-    Shortcut {
-        sequence: "S"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.stop()
-    }
-
-    Shortcut {
-        sequence: "I"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.toggleMpvStats()
-    }
-
-    Shortcut {
-        sequence: "Shift+I"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.showMpvStatsOnce()
-    }
-
-    Shortcut {
-        sequence: "0"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.showMpvStatsPage(0)
-    }
-
-    Shortcut {
-        sequence: "1"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.showMpvStatsPage(1)
-    }
-
-    Shortcut {
-        sequence: "2"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.showMpvStatsPage(2)
-    }
-
-    Shortcut {
-        sequence: "3"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.showMpvStatsPage(3)
-    }
-
-    Shortcut {
-        sequence: "4"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.showMpvStatsPage(4)
-    }
-
-    Shortcut {
-        sequence: "5"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.showMpvStatsPage(5)
-    }
-
-    Shortcut {
-        sequence: "6"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.showMpvStatsPage(6)
-    }
-
-    Shortcut {
-        sequence: "7"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.showMpvStatsPage(7)
-    }
-
-    Shortcut {
-        sequence: "8"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.showMpvStatsPage(8)
-    }
-
-    Shortcut {
-        sequence: "9"
-        enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.showMpvStatsPage(9)
     }
 }
