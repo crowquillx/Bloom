@@ -334,10 +334,7 @@ Track Preference Persistence
 - The no-next empty state may show up to six TV-series recommendations via `UpNextRecommendationsViewModel`. Jellyfin similar series are listed first; Seerr TV recommendations are appended when the source series has a TMDB id and Seerr is configured. Recommendation provider failures are silent on this screen.
 - Leaving the Up Next interstitial keeps the exact resolved episode context, including season-0 specials, by carrying the resolved episode id plus its `ParentId`/`SeasonId` directly into `SeriesSeasonEpisodeView`. When playback started from an existing library/episode-list screen, Up Next restores that screen in place; fallback direct navigation is used only when no reusable context exists. Exiting Up Next without starting playback releases any parked display restore.
 
-UI Components for Track Selection
-- `TrackSelector.qml`: Reusable dropdown component for selecting audio/subtitle tracks with keyboard navigation.
-- `MediaInfoPanel.qml`: Displays video info (resolution, codec, HDR) and contains audio/subtitle `TrackSelector` components.
-- `SeriesSeasonEpisodeView.qml` and `MovieDetailsView.qml`: Integrate `MediaInfoPanel` to show track selection before playback.
+UI Components for Playback
 - Explicit user play actions now route through `PlayerController::requestPlayback(...)` instead of assembling stream URLs in QML. This keeps version selection, multipart resolution, and track-hint handling consistent across detail pages, quick play, and Up Next manual play.
 - `MediaSourceSelectionDialog.qml` is the global version picker for entries with multiple media sources (for example 1080p vs 4K) when `playbackVersionPreference` is `ask`. `Main.qml` loads it lazily; the dialog parents itself to `Overlay.overlay` so it centers on the window. It uses the app theme/focus patterns, supports keyboard-only selection, and restores focus with `Qt.callLater(...)` on close.
 - `EmbeddedPlaybackOverlay.qml`: Native 10-foot playback overlay rendered in the dedicated transparent overlay window for Windows embedded playback (and inline for Linux embedded validation). It shows a compact header and one unified glass control bar.

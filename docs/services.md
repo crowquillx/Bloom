@@ -48,7 +48,7 @@ Key services
 3. HttpTransport and the selected `IProviderAdapter` — use deterministic health detection to choose `JellyfinProviderAdapter` for MediaBrowser or `SiloProviderAdapter` for native `/api/v1`; never infer Silo from compatibility `/System/Info`.
 4. AuthenticationService — stable session façade; depends on `CredentialStore`, `HttpTransport`, and the selected provider adapter.
 4.1. LibraryService — depends on AuthenticationService and uses the selected catalog/artwork provider through shared transport.
-4.6. MergedCatalogService, WorkspaceController, and PosterBadgeService (after MergedCatalogService, which it reads through) — depend on AuthenticationService and BloomProfileRepository; registered after PlayerController/ThemeSongManager in both production and test mode. Only the startup session restore gates SessionManager initialization; later space switches restore sessions without re-initializing it.
+4.6. MergedCatalogService, WorkspaceController, and PosterBadgeService (after MergedCatalogService, which it reads through) — depend on AuthenticationService and BloomProfileRepository; registered after PlayerController/ThemeSongManager in both production and test mode.
 5. InputModeManager — depends on QGuiApplication.
 5.1. InputBindingManager — depends on QGuiApplication + ConfigManager.
 6. MediaSegmentProviderService — depends on AuthenticationService + ConfigManager.
@@ -62,8 +62,7 @@ Key services
 14. SidebarSettings — UI preference persistence for the navigation shell (library order, reduce motion).
 15. UiSoundController — depends on ConfigManager for UI sound settings.
 16. SystemPowerController — depends on ConfigManager for pre-action config saves and is exposed to QML.
-17. SessionManager — shared provider-aware session reporting/coordination service.
-18. UpdateService — depends on ConfigManager and PlayerController, and owns the current update provider/applier wiring.
+17. UpdateService — depends on ConfigManager and PlayerController, and owns the current update provider/applier wiring.
 
 Usage
 - Register services at main startup using `ServiceLocator::registerService<T>(&instance);`.
@@ -88,6 +87,6 @@ Note: Avoid tightly coupling multiple services. Prefer small, single-purpose ser
 
 Series/Season detail caching (December 2025)
 - `LibraryService::getSeriesDetails` and `getItems` honor `ETag/If-None-Match` and `If-Modified-Since` when `useCacheValidation=true` (SeriesDetailsViewModel uses this for series + season episode lists). 304 responses are surfaced through the connection-scoped `canonicalSeriesDetailsNotModified` / `canonicalItemsNotModifiedForConnection` signals.
-- `LibraryService::getChapters(itemId)` fetches Jellyfin item `Chapters`, requests chapter image metadata, normalizes missing titles to `Chapter N`, and emits typed chapter data reusable outside playback. `getCachedChapterThumbnailUrl(...)` mirrors the Jellyfin client pattern of requesting `/Items/{itemId}/Images/Chapter/{chapterIndex}` with the chapter image tag when present; the UI keeps a neutral placeholder visible until the image provider reports a ready frame.
+- `LibraryService::getChapters(itemId)` fetches Jellyfin item `Chapters`, requests chapter image metadata, normalizes missing titles to `Chapter N`, and emits typed chapter data reusable outside playback. Each chapter carries an `ArtworkRef` that view models resolve through `getCachedArtworkUrlFromRef(...)`; the Jellyfin mapper requests `/Items/{itemId}/Images/Chapter/{chapterIndex}` with the chapter image tag when present; the UI keeps a neutral placeholder visible until the image provider reports a ready frame.
 - Series details and season/episode lists are cached in-memory (≈5 min TTL) and on disk under `cache/series` (≈1 hour TTL). Cache is served immediately (SWR) and revalidated in the background; stale data stays visible until refresh completes.
 - Prefetch: when navigating seasons, the view model prefetches the next two seasons' episodes (bounded, cancelable) to reduce focus-to-episodes latency.

@@ -282,17 +282,6 @@ FocusScope {
         }
     }
 
-    function focusFirstVisibleRecentlyAddedList() {
-        for (var i = 0; i < recentlyAddedRepeater.count; i++) {
-            var meta = getRecentlyAddedDelegateMeta(i)
-            if (meta.item && meta.item.visible && meta.recentlyAddedListRef) {
-                meta.recentlyAddedListRef.forceActiveFocus()
-                return true
-            }
-        }
-        return false
-    }
-
     function updateDisplayedNextUpModel() {
         var inProgress = []
         var nextItems = []

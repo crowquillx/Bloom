@@ -42,12 +42,6 @@ FocusScope {
         return buttons
     }
 
-    function lastVisibleUpdateTarget() {
-        if (openDownloadPageBtn.visible) return openDownloadPageBtn
-        var rowButtons = visibleUpdateRowButtons()
-        return rowButtons.length > 0 ? rowButtons[rowButtons.length - 1] : null
-    }
-
     function logLevelIndexForValue(value) {
         if (value === "debug") return 1
         if (value === "quiet") return 2
@@ -58,16 +52,6 @@ FocusScope {
         if (index === 1) return "debug"
         if (index === 2) return "quiet"
         return "info"
-    }
-
-    function focusUpdatesDownFromChannel() {
-        if (checkUpdatesBtn.enabled) {
-            checkUpdatesBtn.forceActiveFocus()
-        } else if (openDownloadPageBtn.visible) {
-            openDownloadPageBtn.forceActiveFocus()
-        } else {
-            logLevelCombo.forceActiveFocus()
-        }
     }
 
     function focusLastUpdatesControl() {

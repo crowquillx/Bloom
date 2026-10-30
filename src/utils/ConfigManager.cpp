@@ -1030,15 +1030,6 @@ void ConfigManager::setPersistenceError(const QString &message)
     emit persistenceErrorChanged();
 }
 
-void ConfigManager::exitApplication()
-{
-    // Save configuration before exiting
-    flushPendingSave();
-    
-    // Exit the application
-    QCoreApplication::quit();
-}
-
 QList<ServerConnection> ConfigManager::getConnections() const
 {
     QList<ServerConnection> result;
@@ -1800,17 +1791,6 @@ QString ConfigManager::getDeviceId() const
     
     qDebug() << "ConfigManager: Generated new device ID:" << deviceId;
     return deviceId;
-}
-
-QString ConfigManager::getUserDeviceId(const QString &userId) const
-{
-    // Following jellyfin-android's approach: append userId to deviceId
-    // This ensures each user on the same device has a unique session identity
-    QString baseDeviceId = getDeviceId();
-    if (userId.isEmpty()) {
-        return baseDeviceId;
-    }
-    return baseDeviceId + "-" + userId;
 }
 
 void ConfigManager::clearJellyfinSession()

@@ -500,11 +500,6 @@ void MovieDetailsViewModel::clearMovieChapters()
     }
 }
 
-QVariantMap MovieDetailsViewModel::getMovieData() const
-{
-    return m_movieData.toVariantMap();
-}
-
 void MovieDetailsViewModel::onMovieDetailsLoaded(const QString &itemId, const QVariantMap &data)
 {
     if (itemId != m_movieId) return;

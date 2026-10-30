@@ -316,17 +316,6 @@ void InputBindingManager::resetActionBindings(const QString &device, const QStri
     persistBindings(saved);
 }
 
-void InputBindingManager::resetDeviceBindings(const QString &device)
-{
-    const QString normalizedDevice = normalizeDevice(device);
-    if (normalizedDevice.isEmpty()) {
-        return;
-    }
-    QVariantMap saved = m_config ? m_config->getInputBindings() : QVariantMap();
-    saved[normalizedDevice] = QVariantMap();
-    persistBindings(saved);
-}
-
 void InputBindingManager::resetContextBindings(const QString &device, const QString &context)
 {
     const QString normalizedDevice = normalizeDevice(device);

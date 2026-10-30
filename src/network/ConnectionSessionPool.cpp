@@ -31,13 +31,6 @@ ConnectionSessionPool::ConnectionSessionPool(std::shared_ptr<ISecretStore> secre
     };
 }
 
-void ConnectionSessionPool::setLoader(Loader loader)
-{
-    if (loader) {
-        m_loader = std::move(loader);
-    }
-}
-
 void ConnectionSessionPool::setConnections(const QList<ServerConnection> &connections)
 {
     QSet<QString> wanted;

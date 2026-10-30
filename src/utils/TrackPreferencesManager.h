@@ -96,8 +96,6 @@ public:
     ScopedTrackPreferences getMoviePreferences(const QString &movieId) const;
     void setMoviePreferences(const QString &movieId, const ScopedTrackPreferences &preferences);
     void clearMoviePreferences(const QString &movieId);
-
-    void clearAllPreferences();
     
     /// Get the path to the preferences file
     static QString getPreferencesPath();

@@ -87,7 +87,6 @@ public:
                                                 int audioStreamIndex = -1, int subtitleStreamIndex = -1) override;
     Q_INVOKABLE QString getImageUrl(const QString &itemId, const QString &imageType) override;
     Q_INVOKABLE QString getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width) override;
-    Q_INVOKABLE QString getCachedImageUrl(const QString &itemId, const QString &imageType) override;
     Q_INVOKABLE QString getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width) override;
     Q_INVOKABLE QString getCachedArtworkUrl(const QString &itemId,
                                              const QString &imageType,

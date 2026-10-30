@@ -1534,45 +1534,6 @@ void AuthenticationService::revokeAuthSession(const QString &sessionId)
         options);
 }
 
-void AuthenticationService::remoteLogout()
-{
-    if (m_accessToken.isEmpty() || !m_providerAdapter || !m_transport
-        || !networkManager()) {
-        logout();
-        return;
-    }
-    const auto endpoint = m_providerAdapter->endpointFor(ProviderRoute::CallerLogout);
-    if (!endpoint.has_value()) {
-        logout();
-        return;
-    }
-    const quint64 generation = m_stateGeneration;
-    HttpRequestOptions options;
-    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
-    m_transport->sendWithRetry(
-        this,
-        *endpoint,
-        [this, endpoint = *endpoint]() {
-            return networkManager()->post(createRequest(endpoint), QByteArray{});
-        },
-        [this, generation](QNetworkReply *) {
-            if (generation == m_stateGeneration) {
-                logout();
-            }
-        },
-        [this, generation](const NetworkError &error) {
-            if (generation != m_stateGeneration) {
-                return;
-            }
-            if (error.code == 401) {
-                logout();
-            } else {
-                emit loginError(tr("Remote logout failed: %1").arg(error.userMessage));
-            }
-        },
-        options);
-}
-
 namespace {
 
 // Only an explicit refusal of the refresh token means the sign-in is gone;

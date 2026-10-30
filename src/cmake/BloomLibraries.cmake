@@ -299,7 +299,6 @@ add_library(BloomNetwork STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/network/PlaybackService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/MediaSegmentProviderService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/SeerrService.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/network/SessionManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/SessionService.cpp
 )
 add_library(Bloom::Network ALIAS BloomNetwork)

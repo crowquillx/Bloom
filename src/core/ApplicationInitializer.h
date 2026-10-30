@@ -35,7 +35,6 @@ class HttpTransport;
 class SidebarSettings;
 class UiSoundController;
 class SystemPowerController;
-class SessionManager;
 class SessionService;
 class UpdateService;
 class MockAuthenticationService;
@@ -139,7 +138,6 @@ private:
     std::unique_ptr<SidebarSettings> m_sidebarSettings;
     std::unique_ptr<UiSoundController> m_uiSoundController;
     std::unique_ptr<SystemPowerController> m_systemPowerController;
-    std::unique_ptr<SessionManager> m_sessionManager;
     std::unique_ptr<SessionService> m_sessionService;
     std::unique_ptr<UpdateService> m_updateService;
     std::unique_ptr<ResponsiveLayoutManager> m_responsiveLayoutManager;

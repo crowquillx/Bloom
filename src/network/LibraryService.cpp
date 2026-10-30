@@ -337,7 +337,6 @@ void LibraryService::sendCatalogRequest(
 
             const QByteArray body = reply->readAll();
             const QHash<QByteArray, QByteArray> headers = responseHeaders(reply);
-            emit parsingStarted(operationName);
 
             auto *watcher = new QFutureWatcher<ProviderCatalogResponse>(this);
             connect(watcher, &QFutureWatcher<ProviderCatalogResponse>::finished,
@@ -346,7 +345,6 @@ void LibraryService::sendCatalogRequest(
                      responseHandler = std::move(responseHandler), failureHandler]() mutable {
                 const ProviderCatalogResponse response = watcher->result();
                 watcher->deleteLater();
-                emit parsingFinished(operationName);
                 if (!isCurrent(identity)) {
                     return;
                 }
@@ -1355,7 +1353,6 @@ void LibraryService::getThemeSongs(const QString &seriesId)
     if (m_authService && m_authService->activeProviderKind() == ProviderKind::Silo) {
         const auto finish = [this, seriesId, generation](const QStringList &urls) {
             if (generation != m_themeRequestGeneration) return;
-            emit themeSongsLoaded(seriesId, urls);
             emit themeSongPlaybackLoaded(seriesId, urls, true);
         };
         ProviderCatalogQuery capabilityQuery = baseCatalogQuery();
@@ -1403,7 +1400,6 @@ void LibraryService::getThemeSongs(const QString &seriesId)
                     urls.append(getStreamUrl(itemId));
                 }
             }
-            emit themeSongsLoaded(seriesId, urls);
             emit themeSongPlaybackLoaded(seriesId, urls, false);
         });
 }
@@ -1794,11 +1790,6 @@ QString LibraryService::getImageUrlWithWidth(const QString &itemId, const QStrin
     return getCachedArtworkUrl(itemId, imageType, 0, QString(), width);
 }
 
-QString LibraryService::getCachedImageUrl(const QString &itemId, const QString &imageType)
-{
-    return getCachedArtworkUrl(itemId, imageType, 0, QString(), 400);
-}
-
 QString LibraryService::getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width)
 {
     return getCachedArtworkUrl(itemId, imageType, 0, QString(), width);
@@ -1854,40 +1845,6 @@ QString LibraryService::getCachedArtworkUrlFromRef(const QVariantMap &artworkMap
 
     artwork.requestedWidth = width > 0 ? width : 1920;
     return cachedArtworkSource(artwork);
-}
-
-QString LibraryService::getCachedChapterThumbnailUrl(const QString &itemId, int chapterIndex, const QString &imageTag, const QString &imagePath, int width)
-{
-    if (itemId.isEmpty() || chapterIndex < 0) {
-        qCWarning(lcLibrary) << "LibraryService: Refusing chapter thumbnail URL"
-                   << "item" << itemId
-                   << "index" << chapterIndex;
-        return QString();
-    }
-    if (imageTag.trimmed().isEmpty() && imagePath.trimmed().isEmpty()) {
-        return QString();
-    }
-
-    if (width <= 0) {
-        width = 480;
-    }
-
-    Bloom::ArtworkRef artwork;
-    artwork.connectionId = activeConnectionId(m_authService);
-    artwork.itemId = itemId;
-    artwork.kind = Bloom::ArtworkKind::Chapter;
-    artwork.ownerKind = Bloom::ArtworkOwnerKind::Chapter;
-    artwork.index = chapterIndex;
-    artwork.tag = imageTag.trimmed();
-    artwork.requestedWidth = width;
-    artwork.sourceUrl = imagePath.trimmed();
-    const QString cachedUrl = cachedArtworkSource(artwork);
-    qCInfo(lcLibrary) << "LibraryService: Chapter thumbnail request"
-            << "item" << itemId
-            << "index" << chapterIndex
-            << "imageTagEmpty" << imageTag.trimmed().isEmpty()
-            << "imagePathEmpty" << imagePath.trimmed().isEmpty();
-    return cachedUrl;
 }
 
 QNetworkReply* LibraryService::pingServer()

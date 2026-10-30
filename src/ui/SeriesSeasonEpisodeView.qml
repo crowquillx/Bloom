@@ -695,21 +695,6 @@ FocusScope {
         }
     }
     
-    // Playback info request
-    function requestPlaybackInfo() {
-        if (!selectedEpisodeId
-                || playbackInfoLoadingItemId === selectedEpisodeId
-                || !root.visible
-                || !screenStackActive
-                || PlayerController.awaitingNextEpisodeResolution) {
-            return
-        }
-        
-        playbackInfoLoadingItemId = selectedEpisodeId
-        console.log("[SeriesSeasonEpisodeView] Requesting playback info for episode:", selectedEpisodeId)
-        PlaybackService.getPlaybackInfo(selectedEpisodeId)
-    }
-    
     // Trigger debounced playback info preload when episode is selected
     function schedulePlaybackInfoPreload() {
         if (PlayerController.awaitingNextEpisodeResolution || !selectedEpisodeId) {
@@ -920,10 +905,6 @@ FocusScope {
     property string pendingPlaybackInfoOwnerId: ""
     property string pendingPlaybackRequestEpisodeId: ""
     property Item pendingPlaybackRestoreFocusTarget: null
-
-    function showPlaybackInfoNotReadyToast() {
-        playbackToast.show(qsTr("Playback is still preparing. Try again in a moment."))
-    }
 
     function resetPlaybackReturnFocusState() {
         playbackReturnFocusPending = false
@@ -1905,11 +1886,6 @@ FocusScope {
                 }
             }
         }
-    }
-
-    ToastNotification {
-        id: playbackToast
-        z: 300
     }
 
     Connections {

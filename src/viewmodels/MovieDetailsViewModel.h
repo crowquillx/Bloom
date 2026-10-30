@@ -124,11 +124,6 @@ public:
     Q_INVOKABLE void loadMovieChapters(const QString &movieId);
     Q_INVOKABLE void clearMovieChapters();
 
-    /**
-     * @brief Get full movie data as a QVariantMap.
-     */
-    Q_INVOKABLE QVariantMap getMovieData() const;
-
     // Cache helpers
     QString cacheDir() const;
     QString movieCachePath(const QString &movieId) const;

@@ -1,7 +1,6 @@
 #include "BaseViewModel.h"
 
 #include <QDebug>
-#include <QtConcurrent/QtConcurrent>
 
 BaseViewModel::BaseViewModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -82,29 +81,3 @@ QString BaseViewModel::mapNetworkError(const QString &endpoint, const QString &e
     }
     return QStringLiteral("An unexpected error occurred.");
 }
-
-void BaseViewModel::setBusyWhile(QFutureWatcherBase &watcher)
-{
-    setLoading(true);
-    connect(&watcher, &QFutureWatcherBase::finished, this, [this]() {
-        setLoading(false);
-    });
-    connect(&watcher, &QFutureWatcherBase::canceled, this, [this]() {
-        setLoading(false);
-    });
-}
-
-void BaseViewModel::setBusyWhile(QFutureInterfaceBase &future)
-{
-    setLoading(true);
-    if (future.isFinished() || future.isCanceled()) {
-        setLoading(false);
-    }
-}
-
-
-
-
-
-
-

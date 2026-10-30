@@ -784,27 +784,6 @@ QQuickImageResponse *ImageCacheProvider::requestImageResponse(const QString &id,
     return new CachedImageResponse(url, requestedSize, this);
 }
 
-void ImageCacheProvider::prefetch(const QStringList &urls)
-{
-    if (QThread::currentThread() != thread()) {
-        QMetaObject::invokeMethod(
-            this, [this, urls]() { prefetch(urls); }, Qt::BlockingQueuedConnection);
-        return;
-    }
-    for (const QString &url : urls) {
-        // Check if already cached
-        QString cachedPath = getCachedPath(url);
-        if (!cachedPath.isEmpty() && QFile::exists(cachedPath)) {
-            continue;  // Already cached
-        }
-        
-        // Create a prefetch response (no size requirement)
-        auto *response = new CachedImageResponse(url, QSize(), this);
-        QObject::connect(response, &QQuickImageResponse::finished, 
-                         response, &QObject::deleteLater);
-    }
-}
-
 ImageLoadJob *ImageCacheProvider::subscribe(CachedImageResponse *response,
                                             const QString &cacheKey,
                                             const QSize &requestedSize)
@@ -854,18 +833,6 @@ void ImageCacheProvider::discardPendingRounded(const QString &cacheKey)
     QMutexLocker locker(&m_pendingMutex);
     m_pendingRounded.remove(cacheKey);
     m_knownBaseImages.remove(cacheKey);
-}
-
-QString ImageCacheProvider::getCachedPath(const QString &url, qint64 *revision)
-{
-    if (!m_store) {
-        return {};
-    }
-    const ImageCacheStore::LookupResult result = m_store->lookupEntry(url);
-    if (revision) {
-        *revision = result.revision;
-    }
-    return result.path;
 }
 
 QString ImageCacheProvider::saveDataForKeyIfCurrent(const QString &urlKey,

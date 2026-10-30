@@ -18,15 +18,15 @@ The new responsive system, driven by `ResponsiveLayoutManager`, replaces the old
 - Exception: native child windows (the Windows embedded mpv host) are placed in
   physical pixels. Convert with `ResponsiveLayoutPolicy::toNativePixelRect`
   instead of passing logical geometry to Win32.
-- Replaces `Theme.dpiScale`.
+- Replaces the removed `Theme.dpiScale` alias.
 - Usage: every pixel size must be a Theme token or be multiplied by `Theme.layoutScale`.
   ```qml
   width: Math.round(100 * Theme.layoutScale)
   ```
 
 **2. Ultrawide Support**
-- `Theme.gridColumns` (7 at 16:9) and `Theme.homeRowVisibleItems` (6 at 16:9)
-  grow with width beyond 16:9, so cards keep their on-screen size.
+- `Theme.gridColumns` (7 at 16:9) grows with width beyond 16:9, so cards keep
+  their on-screen size.
 
 See [responsive.md](responsive.md#scaling-model) for the formula, the 4K
 scaling table, and the migration note for the removed breakpoints.
@@ -80,14 +80,13 @@ renders identically on every platform. Sizes are design units multiplied by
 - `pageMarginX` (96): left and right page gutter; copy, shelf headers, first cards and grids align to it
 - `pageMarginTop` (= `navBarReservedHeight`): where non-hero pages start, below the navigation bar; `pageMarginBottom` (64) after the last row
 - `paddingLarge` (56), `sectionSpacing` (56) between shelves, `sectionTitleSpacing` (18) between a header and its content
-- `controlSpacing` (16) between adjacent buttons, `panelPadding` (40) inside glass panels, `dialogPadding` (40)
+- `controlSpacing` (16) between adjacent buttons, `dialogPadding` (40)
 
 ### 3. Dimensions
 - Radii: `radiusSmall` (10), `radiusMedium` / `radiusControl` (16), `radiusLarge` (22), `radiusXLarge` / `radiusDialog` (30), `radiusArtwork` / `imageRadius` (20), `radiusPanel` (32)
-- Buttons: `buttonHeightSmall` (52), `buttonHeightMedium` (60), `buttonHeightLarge` (68), `buttonHeightHero` (84, hero actions), `buttonIconSize` (60)
+- Buttons: `buttonHeightSmall` (52), `buttonHeightMedium` (60), `buttonHeightLarge` (68), `buttonHeightHero` (84, hero actions)
 - Navigation bar: `navBarInsetTop` (34), `navBarHeight` (76), `navBarItemHeight` (64), `navBarReservedHeight` (inset + height + 30), `navBarScrimHeight` (260), `iconSizeNav` (30)
 - Cards: `posterCardWidth` × `posterCardHeight` (268 × 402, 2:3), `landscapeCardWidth` × `landscapeCardHeight` (456 × 256, 16:9), `cardCaptionHeight` (84), `cardGap` (28), `shelfFocusMargin` (22, room for the focus lift). Fixed design units: wider screens show more cards, never bigger ones.
-- Legacy sizes `posterWidth` / `posterHeight` (2:3) and `cardWidthMedium` / `cardHeightMedium` (16:9) remain for older views
 - `detailViewLogoHeight`: hero logo height for movie and series detail views, with a fixed 1.14 boost
 - `seriesLogoHeight` / `seriesLogoMaxWidth`: generic logo bounds for series and related logo usages
 
@@ -97,19 +96,19 @@ Every theme resolves to the same semantic roles. New QML should use these roles 
 | Role | Tokens | Notes |
 |------|--------|-------|
 | Text | `textPrimary`, `textSecondary`, `textTertiary`, `textOnAccent` | `textTertiary` is for eyebrow labels and hints |
-| Surfaces | `surfaceGlass`, `surfaceGlassStrong`, `surfaceDialog`, `surfaceSunken`, `surfaceBorder`, `surfaceBorderStrong` | Soft glass tinted by the theme's `surfaceTint`; light flavors use higher opacity |
+| Surfaces | `surfaceGlassStrong`, `surfaceDialog`, `surfaceBorder`, `surfaceBorderStrong` | Soft glass tinted by the theme's `surfaceTint`; light flavors use higher opacity |
 | Interactive fills | `surfaceInteractive`, `surfaceInteractiveHover`, `surfaceInteractivePressed`, `surfaceInteractiveDisabled` | Neutral fills for rows, chips and secondary controls |
 | Actions | `actionPrimary*`, `actionSecondary*`, `actionDestructive*`, `disabledOpacity` | The primary action is an inverse fill (`textPrimary` on `backgroundPrimary`), so it reads on any artwork and in every theme |
 | Focus | `focusRing`, `focusRingHalo`, `focusRingWidth`, `focusRingGap`, `focusScale` | White ring with a dark halo on dark themes; dark ring with a light halo on light flavors |
 | Selection | `selectionBackground`, `selectionIndicator`, `selectionText`, `selectionIndicatorWidth` | Accent tint and bar; never used to show focus |
 | Status | `errorColor`, `successColor`, `warningColor`, `favoriteColor` | |
 | Progress | `progressTrack`, `progressFill`, `progressTrackOnArtwork`, `progressHeight` | |
-| Scrims | `scrimModal`, `scrimStrong`, `scrimMedium`, `scrimSoft`, `scrimClear` | Derived from `backgroundPrimary`, so light flavors get light scrims |
+| Scrims | `scrimModal` | Tinted to the theme, so light flavors get a light scrim |
 | Elevation | `elevationShadow` | Blurred drop shadow under raised surfaces (focused hero card) |
 | Artwork | `artworkPlaceholder`, `artworkPlaceholderIcon` | Missing or loading art |
-| Stage | `stageBase`, `stageGlowPrimary`, `stageGlowSecondary`, `stageAmbientArtOpacity` | `StageBackdrop`'s ambient glow and muted art |
+| Stage | `stageGlowPrimary`, `stageGlowSecondary`, `stageAmbientArtOpacity` | `StageBackdrop`'s ambient glow and muted art |
 
-Older tokens (`cardBackground`, `buttonPrimaryBackground`, `focusBorder`, `button*BorderFocused`, `chipBackground`, `hoverOverlay`) are kept as aliases of the semantic roles so older components inherit the new look. Do not use them in new code. `Theme.withAlpha(color, alpha)` and `Theme.mix(a, b, t)` derive variants without hardcoding colors.
+`Theme.withAlpha(color, alpha)` and `Theme.mix(a, b, t)` derive variants without hardcoding colors.
 
 ### Focus vs. Selection
 - **Focus** (where the keyboard or gamepad is) is always the shared `FocusRing`: a high-contrast outline separated by `focusRingGap`, with a halo, so it stays visible over bright or busy artwork. Artwork cards may also scale by `Theme.focusScale`.
@@ -130,7 +129,6 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `MediaCard` | The one media card: `poster` (caption below) or `landscape` (title on the art, progress), with focus lift, badges and hybrid rounded artwork. |
 | `ShelfList` | Horizontal shelf `ListView` aligned to the gutter with focus room and displacement transitions (no fade-in: ListView can leave an interrupted fade at opacity 0). |
 | `PageHeader` | Eyebrow, display title and detail line for non-hero pages, with a trailing slot for toolbars. |
-| `GlassPanel` | Rounded glass surface (`strong`, `bordered`). |
 | `DialogSurface` / `ModalScrim` | `Dialog`/`Popup` background and `Overlay.modal`. |
 | `ModalFocusGuard` | Keeps focus inside an open modal `Dialog` when the page behind it restores focus late (`popup`, optional `fallbackItem`). |
 | `BloomMenu` / `BloomMenuItem` | Context menus and submenus (`iconGlyph`, `destructive`, `marked`). |
@@ -158,11 +156,8 @@ Focus behavior: Up that no page item accepts reaches `Main.qml`, which calls `Na
 
 
 ### Playback Overlay Tokens
-- `playbackOverlayTopTint`
-- `playbackOverlayBottomTint`
 - `themeIsLight`
 - `playbackOverlayShadowTint`
-- `playbackOverlayAccentShadowTint`
 - `playbackControlGlassBackground`
 - `playbackControlGlassBackgroundHover`
 - `playbackControlGlassBorder`
@@ -177,11 +172,11 @@ Focus behavior: Up that no page item accepts reaches `Main.qml`, which calls `Na
 - `playbackHeroBackground`, `playbackHeroIcon` (play/pause button)
 - `playbackSkipBackground`, `playbackSkipText` (Skip Intro/Credits control)
 
-Use these instead of hardcoded playback overlay colors so built-in themes remain consistent. `playbackOverlayShadowTint` resolves to black for light themes and the theme background base for dark themes; `playbackOverlayAccentShadowTint` adds a subtle themed accent to active playback chrome shadows.
+Use these instead of hardcoded playback overlay colors so built-in themes remain consistent. `playbackOverlayShadowTint` resolves to black for light themes and the theme background base for dark themes.
 
-Artwork overlays (poster badges/labels drawn on top of images) should use `overlayTextBackground`, `overlayTextBorder`, and `textOnDarkOverlay` rather than theme `chip*` / `textPrimary` tokens. Poster artwork can be bright or busy in any theme, so translucent theme chips (especially Rosé Pine / light flavors) lose contrast. `MetadataChip { onArtwork: true }` applies these tokens.
+Artwork overlays (poster badges/labels drawn on top of images) should use `overlayTextBackground`, `overlayTextBorder`, and `textOnDarkOverlay` rather than theme `surfaceInteractive*` / `textPrimary` tokens. Poster artwork can be bright or busy in any theme, so translucent theme fills (especially Rosé Pine / light flavors) lose contrast. `MetadataChip { onArtwork: true }` applies these tokens.
 
-Page backdrops are drawn by `StageBackdrop`; don't hand-roll page scrims. Older full-page blurred backdrops are covered by `gradientOverlayStart` → `gradientOverlayMiddle` → `gradientOverlayEnd`. These are derived from `backgroundPrimary` at 65–88% opacity so page text stays legible over bright artwork and the scrim follows the active theme (light flavors get a light scrim). Note that QML reads 8-digit hex colors as `#AARRGGBB`, not CSS `#RRGGBBAA`; prefer `Qt.rgba()` when a token needs alpha.
+Page backdrops are drawn by `StageBackdrop`; don't hand-roll page scrims. Note that QML reads 8-digit hex colors as `#AARRGGBB`, not CSS `#RRGGBBAA`; prefer `Qt.rgba()` when a token needs alpha.
 
 ## Layout Patterns
 
@@ -193,7 +188,7 @@ width: 250 // Fixed size, won't scale
 ```
 **Good:**
 ```qml
-width: Theme.posterWidth // Responsive token
+width: Theme.posterCardWidth // Responsive token
 // OR
 width: 250 * Theme.layoutScale // Scaled base value
 ```
@@ -225,14 +220,14 @@ Behavior on width {
 Migrating from old `dpiScale` system:
 
 1.  **Replace Scaling Factor**: Search for `Theme.dpiScale` and replace with `Theme.layoutScale`.
-2.  **Remove Manual Math**: If you were manually calculating responsive sizes, check if a Theme token exists (e.g., `Theme.posterWidth`).
+2.  **Remove Manual Math**: If you were manually calculating responsive sizes, check if a Theme token exists (e.g., `Theme.posterCardWidth`).
 3.  **Update Grids**: Replace hardcoded column counts with `Theme.gridColumns`.
 4.  **Verify Animations**: Ensure all generic animations use `Theme.duration*` tokens.
 
 ## Visual Principles
 See `docs/style-guide.md` for the full page anatomy.
 - **Artwork is the interface**: every page sits on a full-bleed `StageBackdrop`; sharp behind heroes, softened behind dense content.
-- **Open layouts**: content sits on the stage; `surfaceGlass*` is for floating chrome and controls, not for boxing page content. Avoid heavy borders.
+- **Open layouts**: content sits on the stage; `surfaceGlassStrong` is for floating chrome and controls, not for boxing page content. Avoid heavy borders.
 - **Rounded artwork**: `radiusArtwork` for posters and thumbnails, `radiusPanel` for panels.
 - **Restrained color**: accent is for selection, progress and small highlights. Primary actions use the inverse fill.
 - **Clear focus**: the `FocusRing` is the focus signal everywhere except the Home hero carousel, and it must remain visible on every surface.

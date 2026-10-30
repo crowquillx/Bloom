@@ -118,15 +118,6 @@ public:
                                             int targetWidth = 640, int targetHeight = 960);
 
     /**
-     * @brief Pre-fetch images for smoother scrolling
-     * @param urls List of image URLs to prefetch
-     * 
-     * Queues images for background download without blocking.
-     * Use this when preparing adjacent items in a list view.
-     */
-    void prefetch(const QStringList &urls);
-    
-    /**
      * @brief Clear entire cache
      * 
      * Removes all cached images from disk and database.
@@ -199,13 +190,6 @@ private:
     void imageJobFinished(const QString &jobKey, const QString &cacheKey,
                           ImageLoadJob *job, bool successful);
     void discardPendingRounded(const QString &cacheKey);
-    
-    /**
-     * @brief Get cached file path for URL
-     * @param url Image URL
-     * @return Path to cached file, or empty if not cached
-     */
-    QString getCachedPath(const QString &url, qint64 *revision = nullptr);
     
     /**
      * @brief Generate a cache filename from a token-free identity.

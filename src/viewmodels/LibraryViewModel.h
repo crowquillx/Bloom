@@ -220,13 +220,6 @@ public:
      */
     Q_INVOKABLE QVariantMap getItem(int index) const;
 
-    /**
-     * @brief Build image URL for an item based on its type and available images.
-     * @param item The item JSON object
-     * @return The best available image URL
-     */
-    Q_INVOKABLE QString buildImageUrl(const QVariantMap &item) const;
-
 signals:
     void isLoadingMoreChanged();
     void canLoadMoreChanged();
@@ -401,8 +394,6 @@ private:
     static constexpr qsizetype kMemoryCacheMaxEntries = 48;
     static constexpr qint64 kMemoryCacheMaxBytes = 32 * 1024 * 1024;
     
-    // Check if we have valid cached data for a parent ID (respects TTL)
-    bool hasCachedData(const QString &parentId) const;
     // Check if we have any cached data (ignores TTL - for SWR)
     bool hasAnyCachedData(const QString &parentId) const;
     // Get cached data (returns empty entry if not cached)
@@ -440,10 +431,4 @@ public:
      * Call this when user logs out or server changes.
      */
     Q_INVOKABLE static void clearAllCache();
-    
-    /**
-     * @brief Invalidate cache for a specific parent ID.
-     * Call this when data is known to have changed (e.g., after marking watched).
-     */
-    Q_INVOKABLE void invalidateCache(const QString &parentId);
 };

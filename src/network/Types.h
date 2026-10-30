@@ -128,7 +128,6 @@ public:
     int presentationPartTotal = 0;
     QList<MediaStreamInfo> mediaStreams;
 
-    [[nodiscard]] QList<MediaStreamInfo> getVideoStreams() const;
     [[nodiscard]] QList<MediaStreamInfo> getAudioStreams() const;
     [[nodiscard]] QList<MediaStreamInfo> getSubtitleStreams() const;
     [[nodiscard]] QVariantList getMediaStreamsVariant() const;

@@ -27,8 +27,6 @@ Runtime behavior
 - On the post-playback no-next screen, Seerr similar-title failures are ignored and the screen remains focused on Back to Series/Home actions.
 
 API endpoints used
-- Validation:
-  - `GET /api/v1/auth/me`
 - Search:
   - `GET /api/v1/search?query=...&page=...`
 - Request options:
@@ -52,7 +50,6 @@ Code map
 - `src/network/SeerrService.{h,cpp}`: API integration, result mapping, request preparation/submission.
 - `src/ui/SearchScreen.qml`: independent Seerr search flow + the Seerr shelf (poster `MediaCard`s, status in the subtitle).
 - `src/ui/SeerrRequestDialog.qml`: keyboard-first request dialog.
-- `src/ui/SearchResultCard.qml`: Seerr-aware card rendering (TMDB posters/source-status badge) for the Up Next recommendation shelf.
 - `src/ui/SeriesDetailsView.qml`: Seerr recommendations shelf for series details, reusing the request dialog.
 - `src/viewmodels/UpNextRecommendationsViewModel.{h,cpp}` and `src/ui/UpNextScreen.qml`: no-next recommendation shelf that merges Jellyfin similar series with Seerr TV results.
 
