@@ -247,7 +247,8 @@ void LinuxMpvBackend::sendCommand(const QStringList &command)
     commandPtr.append(nullptr);
 
     if (mpv_command_async(handle, 0, commandPtr.data()) < 0) {
-        qCWarning(lcLinuxLibmpvBackend) << "mpv_command_async failed for command" << command;
+        qCWarning(lcLinuxLibmpvBackend) << "mpv_command_async failed for command"
+                                        << redactNetworkLogText(command.join(QLatin1Char(' ')));
     }
 #else
     Q_UNUSED(command);
@@ -368,7 +369,9 @@ void LinuxMpvBackend::sendVariantCommand(const QVariantList &command)
     commandArray.u.list = &commandList;
 
     if (mpv_command_node_async(handle, 0, &commandArray) < 0) {
-        qCWarning(lcLinuxLibmpvBackend) << "mpv_command_node_async failed for command" << command;
+        qCWarning(lcLinuxLibmpvBackend) << "mpv_command_node_async failed for command"
+                                        << redactNetworkLogText(
+                                               QVariant(command).toStringList().join(QLatin1Char(' ')));
     }
 #else
     QStringList converted;

@@ -4390,7 +4390,8 @@ void PlayerController::onRecoveryTick()
                 }
             }
         } else {
-            qCDebug(lcPlayback) << "PlayerController: Recovery ping failed:" << reply->errorString();
+            qCDebug(lcPlayback) << "PlayerController: Recovery ping failed:"
+                                << redactNetworkLogText(reply->errorString());
             if (m_isRecovering) {
                 m_recoveryTimer->start(kRecoveryPingIntervalMs);
             }

@@ -507,4 +507,4 @@ Troubleshooting
 - If track selection doesn't sync, verify that `playSessionId` is being passed correctly in all reporting calls.
 - If track preferences aren't being restored, check that `track_preferences.json` is schema version 4 and that the active connection under `scopes` contains the relevant `episodes` or `movies` entry. Unset preferences intentionally fall back to provider/file defaults and are not written.
 
-Native mpv backend logs and trickplay download errors redact complete HTTP URLs and relative query credentials before logging or emitting error text. External mpv output remains drained without logging.
+Native mpv backend logs and trickplay download errors redact complete HTTP URLs and relative query credentials before logging or emitting error text. This covers media URLs (Jellyfin stream URLs carry `ApiKey=`), logged mpv commands and property values, and mpv's `end-file` error text. External mpv output remains drained without logging.

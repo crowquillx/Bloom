@@ -318,7 +318,8 @@ void WindowsMpvBackend::appendUrlsToPlaylist(const QStringList &mediaUrls)
             continue;
         }
         if (!sendVariantCommandDirect(QVariantList{"loadfile", mediaUrl, "append-play"})) {
-            qCWarning(lcWindowsLibmpvBackend) << "Failed to append media URL to playlist" << mediaUrl;
+            qCWarning(lcWindowsLibmpvBackend) << "Failed to append media URL to playlist"
+                                              << redactNetworkLogText(mediaUrl);
         }
     }
 #endif
@@ -389,7 +390,8 @@ bool WindowsMpvBackend::isRunning() const
 void WindowsMpvBackend::sendCommand(const QStringList &command)
 {
     if (!m_directControlActive) {
-        qCWarning(lcWindowsLibmpvBackend) << "Dropped command - direct control inactive" << command;
+        qCWarning(lcWindowsLibmpvBackend) << "Dropped command - direct control inactive"
+                                          << redactNetworkLogText(command.join(QLatin1Char(' ')));
         return;
     }
 
@@ -400,19 +402,24 @@ void WindowsMpvBackend::sendCommand(const QStringList &command)
     }
 
     if (!sendVariantCommandDirect(variantCommand)) {
-        qCWarning(lcWindowsLibmpvBackend) << "Failed direct command dispatch" << command;
+        qCWarning(lcWindowsLibmpvBackend) << "Failed direct command dispatch"
+                                          << redactNetworkLogText(command.join(QLatin1Char(' ')));
     }
 }
 
 void WindowsMpvBackend::sendVariantCommand(const QVariantList &command)
 {
     if (!m_directControlActive) {
-        qCWarning(lcWindowsLibmpvBackend) << "Dropped command - direct control inactive" << command;
+        qCWarning(lcWindowsLibmpvBackend) << "Dropped command - direct control inactive"
+                                          << redactNetworkLogText(
+                                                 QVariant(command).toStringList().join(QLatin1Char(' ')));
         return;
     }
 
     if (!sendVariantCommandDirect(command)) {
-        qCWarning(lcWindowsLibmpvBackend) << "Failed direct variant command dispatch" << command;
+        qCWarning(lcWindowsLibmpvBackend) << "Failed direct variant command dispatch"
+                                          << redactNetworkLogText(
+                                                 QVariant(command).toStringList().join(QLatin1Char(' ')));
     }
 }
 
@@ -647,7 +654,7 @@ void WindowsMpvBackend::logHdrDiagnostics(const QStringList &args, const QString
 
     qCInfo(lcWindowsLibmpvBackend)
         << "HDR diagnostics"
-        << "media=" << mediaUrl
+        << "media=" << redactNetworkLogText(mediaUrl)
         << "profile=" << m_currentProfileName
         << "windowsRenderApi=" << m_currentWindowsRenderApi
         << "effectiveVo=" << m_effectiveVo
@@ -995,7 +1002,7 @@ bool WindowsMpvBackend::queueLoadFile(const QString &mediaUrl)
     const char *command[] = {"loadfile", mediaUrlUtf8.constData(), "replace", nullptr};
     qCInfo(lcWindowsLibmpvBackend)
         << "Dispatching direct libmpv loadfile"
-        << "media=" << mediaUrl;
+        << "media=" << redactNetworkLogText(mediaUrl);
     Logger::instance().flush();
     const quint64 replyUserdata = ++gWindowsMpvReplyUserdataCounter;
     const int status = mpv_command_async(handle, static_cast<uint64_t>(replyUserdata), command);
@@ -1742,7 +1749,7 @@ bool WindowsMpvBackend::sendVariantCommandDirect(const QVariantList &command)
                 << "Direct libmpv set_property failed:"
                 << QString::fromUtf8(mpv_error_string(status))
                 << "property=" << propertyName
-                << "value=" << propertyValue;
+                << "value=" << redactNetworkLogText(propertyValue.toString());
             return false;
         }
 
@@ -1808,7 +1815,7 @@ bool WindowsMpvBackend::sendVariantCommandDirect(const QVariantList &command)
         qCWarning(lcWindowsLibmpvBackend)
             << "Direct libmpv command dispatch error:"
             << QString::fromUtf8(mpv_error_string(status))
-            << "command=" << command;
+            << "command=" << redactNetworkLogText(QVariant(command).toStringList().join(QLatin1Char(' ')));
         return false;
     }
 
