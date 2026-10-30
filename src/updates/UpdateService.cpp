@@ -77,7 +77,6 @@ UpdateService::UpdateService(ConfigManager *configManager,
             } else {
                 m_downloadInProgress = false;
                 setError(message);
-                emit updateError(message);
             }
             emitStateChanged();
         });
@@ -135,7 +134,6 @@ void UpdateService::downloadAndInstallUpdate()
     if (!m_updateAvailable) {
         const QString message = tr("No update is currently available.");
         setError(message);
-        emit updateError(message);
         return;
     }
 
@@ -147,7 +145,6 @@ void UpdateService::downloadAndInstallUpdate()
     if (!m_availableManifest.installer.isValid()) {
         const QString message = tr("This update does not provide an installer download.");
         setError(message);
-        emit updateError(message);
         return;
     }
 
@@ -280,9 +277,6 @@ void UpdateService::finishCheck(std::optional<UpdateManifest> manifest,
         setUpdateAvailableState(false);
         m_availableManifest = UpdateManifest();
         setError(errorMessage.trimmed().isEmpty() ? tr("Update information was unavailable.") : errorMessage);
-        if (origin == CheckOrigin::Manual) {
-            emit updateError(m_errorMessage);
-        }
         emitStateChanged();
         applyPendingChannelIfNeeded();
         return;
@@ -377,7 +371,6 @@ void UpdateService::scheduleAutoQuit()
 {
     // The installer is already running and waits for Bloom to exit before it
     // replaces any files, so quit even if playback started during the download.
-    emit requestAutoQuit();
     QTimer::singleShot(0, qApp, &QCoreApplication::quit);
 }
 

@@ -9,7 +9,7 @@ namespace {
 
 // Redirects config-related paths into a temporary directory and restores the
 // previous environment on destruction. Shared by tests that exercise
-// ConfigManager, CredentialStore, and SessionManager so each test runs against
+// ConfigManager and CredentialStore so each test runs against
 // an isolated, throwaway configuration tree.
 class ScopedConfigIsolation
 {

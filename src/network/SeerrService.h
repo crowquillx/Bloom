@@ -32,17 +32,9 @@ public:
     /**
      * @brief Returns true if both a base URL and API key are set in ConfigManager.
      *
-     * Does not perform a network check; use validateConnection() for that.
+     * Does not perform a network check.
      */
     Q_INVOKABLE bool isConfigured() const;
-
-    /**
-     * @brief Performs a live connectivity check against the Seerr /auth/me endpoint.
-     *
-     * Emits connectionValidated(true, ...) on success or connectionValidated(false, ...)
-     * on failure.
-     */
-    Q_INVOKABLE void validateConnection();
 
     /**
      * @brief Searches Seerr for movies and TV shows matching @p searchTerm.
@@ -111,9 +103,6 @@ public:
 
 signals:
     void configuredChanged();
-
-    /** @brief Emitted after validateConnection() completes. @p ok is false on any error. */
-    void connectionValidated(bool ok, const QString &message);
 
     /** @brief Emitted when a search() call completes with normalised result items. */
     void searchResultsLoaded(const QString &searchTerm, const QJsonArray &results);

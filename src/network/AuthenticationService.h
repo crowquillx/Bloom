@@ -86,7 +86,6 @@ public:
                                 const QString &accessToken,
                                 const QString &username = QString());
     Q_INVOKABLE virtual void logout();
-    Q_INVOKABLE void remoteLogout();
     Q_INVOKABLE void clearAccountState();
     Q_INVOKABLE void clearProfileState();
     Q_INVOKABLE void switchProfile();

@@ -90,44 +90,6 @@ bool SeerrService::ensureConfigured(const QString &endpoint)
     return true;
 }
 
-void SeerrService::validateConnection()
-{
-    static const QString endpoint = QStringLiteral("auth/me");
-
-    if (!m_authService || !m_authService->networkManager()) {
-        emit errorOccurred(endpoint, tr("Network manager unavailable"));
-        emit connectionValidated(false, tr("Network manager unavailable"));
-        return;
-    }
-
-    if (!ensureConfigured(endpoint)) {
-        emit connectionValidated(false, tr("Seerr URL or API key is not configured"));
-        return;
-    }
-
-    QNetworkReply *reply = m_authService->networkManager()->get(createRequest(endpoint));
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        reply->deleteLater();
-
-        if (reply->error() != QNetworkReply::NoError) {
-            const QString error = tr("Connection failed: %1").arg(reply->errorString());
-            emit errorOccurred("auth/me", error);
-            emit connectionValidated(false, error);
-            return;
-        }
-
-        const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-        if (!doc.isObject()) {
-            const QString error = tr("Invalid Seerr auth response");
-            emit errorOccurred("auth/me", error);
-            emit connectionValidated(false, error);
-            return;
-        }
-
-        emit connectionValidated(true, tr("Connection successful"));
-    });
-}
-
 /**
  * @brief Converts a raw Seerr API result object into the normalised item map used by UI delegates.
  *

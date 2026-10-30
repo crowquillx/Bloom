@@ -173,9 +173,6 @@ signals:
     // Error signals
     void errorOccurred(const QString &endpoint, const QString &error);
     void networkError(const NetworkError &error);
-    
-    // Item marked as played signal
-    void itemMarkedPlayed(const QString &itemId);
 
 private:
     Bloom::PlaybackDescriptor withAudioPlan(Bloom::PlaybackDescriptor descriptor) const;

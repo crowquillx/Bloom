@@ -61,7 +61,6 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/profiles/BloomProfile.cpp
@@ -313,7 +312,6 @@ add_test(NAME ConfigManagerThemeTest COMMAND ConfigManagerThemeTest)
 add_executable(ConnectionPersistenceTest
     ConnectionPersistenceTest.cpp
     TestConfigIsolation.h
-    ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${TEST_CONFIG_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
 )
@@ -1177,7 +1175,6 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${UPDATER_SOURCES}

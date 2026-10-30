@@ -27,8 +27,6 @@ Runtime behavior
 - On the post-playback no-next screen, Seerr similar-title failures are ignored and the screen remains focused on Back to Series/Home actions.
 
 API endpoints used
-- Validation:
-  - `GET /api/v1/auth/me`
 - Search:
   - `GET /api/v1/search?query=...&page=...`
 - Request options:

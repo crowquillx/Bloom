@@ -1535,12 +1535,10 @@ void PlaybackService::markItemPlayed(const QString &itemId)
                 return sendProviderRequest(endpoint, method,
                                            QJsonDocument::fromJson(body).object());
             },
-            [this, itemId](QNetworkReply *reply) {
+            [itemId](QNetworkReply *reply) {
                 if (reply->error() != QNetworkReply::NoError) {
                     qCWarning(lcPlayback) << "Failed to mark Silo item as played:" << itemId
                                           << ":" << reply->errorString();
-                } else {
-                    emit itemMarkedPlayed(itemId);
                 }
             },
             FailureHandler(),
@@ -1556,13 +1554,12 @@ void PlaybackService::markItemPlayed(const QString &itemId)
         [this, endpoint]() {
             return sendProviderRequest(endpoint, QStringLiteral("POST"), {});
         },
-        [this, itemId](QNetworkReply *reply) {
+        [itemId](QNetworkReply *reply) {
             if (reply->error() != QNetworkReply::NoError) {
                 qCWarning(lcPlayback) << "Failed to mark item as played:" << itemId
                                       << ":" << reply->errorString();
             } else {
                 qCDebug(lcPlayback) << "Successfully marked item as played:" << itemId;
-                emit itemMarkedPlayed(itemId);
             }
         },
         FailureHandler(),

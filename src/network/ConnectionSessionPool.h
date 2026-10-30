@@ -37,13 +37,11 @@ class ConnectionSessionPool : public QObject
     Q_OBJECT
 
 public:
-    /// Runs on a worker thread. Tests replace it to avoid a platform keyring.
+    /// Runs on a worker thread.
     using Loader = std::function<ConnectionCredentials(const ServerConnection &)>;
 
     explicit ConnectionSessionPool(std::shared_ptr<ISecretStore> secretStore,
                                    QObject *parent = nullptr);
-
-    void setLoader(Loader loader);
 
     /// Tracks exactly these connections; loads new ones and forgets the rest.
     void setConnections(const QList<ServerConnection> &connections);
