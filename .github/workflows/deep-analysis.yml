@@ -12,6 +12,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CACHIX_CACHE: crowquillx-bloom
+
 jobs:
   clang-tidy:
     name: Targeted clang-tidy
@@ -22,9 +25,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      # Read-only outside main; only main runs may push to the binary cache.
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
         with:
-          extra_nix_config: |
-            accept-flake-config = true
+          name: ${{ env.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.ref != 'refs/heads/main' }}
       - name: Analyze ownership and security boundaries
         env:
           BLOOM_BUILD_JOBS: '4'
@@ -47,9 +53,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      # Read-only outside main; only main runs may push to the binary cache.
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
         with:
-          extra_nix_config: |
-            accept-flake-config = true
+          name: ${{ env.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.ref != 'refs/heads/main' }}
       - name: Build and run instrumented tests
         env:
           BLOOM_BUILD_JOBS: '4'
@@ -64,9 +73,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      # Read-only outside main; only main runs may push to the binary cache.
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
         with:
-          extra_nix_config: |
-            accept-flake-config = true
+          name: ${{ env.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.ref != 'refs/heads/main' }}
       - name: Build tests and collect coverage
         env:
           BLOOM_BUILD_JOBS: '4'

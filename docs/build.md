@@ -170,7 +170,8 @@ in parallel the gate takes about as long as one build.
 
 The portable Linux, Flatpak, and Windows packaging jobs start as soon as build
 metadata is resolved and run in parallel with the `nix` validation job. The
-`release` job depends only on `nix` and the Windows build. It publishes the
+`release` job depends only on `nix` and the Windows build, plus the Windows
+test suite for stable tags (see [Windows](#windows)). It publishes the
 GitHub release, the signed update manifest, and the Scoop update as soon as
 both pass. A failing check still blocks publishing. The `release-linux` and
 `release-flatpak` jobs then attach their artifacts to that release and merge
@@ -179,6 +180,12 @@ A failed Linux or Flatpak build marks the run as failed but does not withdraw
 or block the release. Rerun the failed jobs to attach the missing assets. Each
 attach job skips the upload if a newer `main` push has already moved
 `dev-latest` to another commit.
+
+A newer push cancels the superseded run only for pull requests. Runs for `main`
+and tags are never cancelled, so a second push cannot stop the `release` job
+after it has deleted the previous `dev-latest` release or pushed a manifest.
+Every job in `ci.yml` and `update-dependencies.yml` has a `timeout-minutes`
+bound, set well above its longest observed run so a cold cache still fits.
 
 ### Packaging caches
 
@@ -309,10 +316,18 @@ something to run. Environment-sensitive visual tests remain opt-in through
 .\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure
 ```
 
-Windows CI builds and packages only the application (`BUILD_TESTING=OFF`), so
-shipped binaries never contain test-only code paths; run the Windows test suite
-locally with the commands above when touching Windows-specific code. CI caches
-the checksum-pinned Qt and mpv SDKs.
+The Windows CI job builds and packages only the application
+(`BUILD_TESTING=OFF`), so shipped binaries never contain test-only code paths.
+For stable `vX.Y.Z` tags, a separate `windows-tests` job builds Bloom with
+`-BuildTests` in its own `build-windows-tests/` tree and runs
+`run-windows-tests.ps1`. The `release` job waits for it and does not publish a
+stable release if it fails. Pull requests and `main` pushes skip the job and
+never wait for it, so development builds are no slower. To run it on any
+branch, start the `CI and Release` workflow manually with **windows_tests**
+enabled. Run the Windows test suite locally with the commands above when
+touching Windows-specific code. Both jobs share the Qt, mpv SDK, sccache, and
+MSVC setup in `.github/actions/windows-build`. CI caches the checksum-pinned Qt
+and mpv SDKs.
 The Windows scripts and workflow read those pins from
 `packaging/dependencies.json`.
 
@@ -351,7 +366,11 @@ Actions updates are handled by Dependabot.
 Temporary version holds must be documented in the dependency manifest or the
 pull request that introduces them. The public `crowquillx-bloom` Cachix cache
 only substitutes store paths whose hashes match the locked derivations; it
-does not alter reproducibility.
+does not alter reproducibility. The CI, deep-analysis, and dependency-update
+workflows configure it through `cachix-action`. Pull requests, and scheduled
+or manual analysis and update runs outside `main`, only read from it.
+The flake has no `nixConfig`, so local builds use it only after
+`cachix use crowquillx-bloom`.
 
 As of October 25, 2026, nixpkgs supplies Qt 6.12.0, matching the portable
 Linux and Windows builds, which install it via aqtinstall. Windows CI pins aqtinstall to
@@ -377,8 +396,9 @@ Stable releases are created only from matching `vX.Y.Z` tags. Use
 `./scripts/bump-version.sh X.Y.Z --tag` or
 `.\scripts\bump-version.ps1 X.Y.Z -Tag`, review the generated release commit
 and annotated tag, then push both with `git push origin main vX.Y.Z`. CI rejects
-a version tag that does not match `VERSION`, publishes the committed
-`RELEASE_NOTES.md`, and retains versioned artifact filenames.
+a version tag that does not match `VERSION`, runs the Windows test suite before
+publishing, publishes the committed `RELEASE_NOTES.md`, and retains versioned
+artifact filenames.
 
 Both release channels attach SHA-256 manifests and GitHub build-provenance
 attestations to AppImage, Flatpak, Debian, tarball, and Windows artifacts. Once
