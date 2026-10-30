@@ -11,7 +11,6 @@ Guidance for standardizing ViewModels with shared loading/error state and consis
   - `setError(QString)` / `clearError()` to manage error flags and text.
   - `emitModelReset(fn)` wraps `beginResetModel`/`endResetModel` around a mutator.
   - `mapNetworkError(endpoint, error)` maps common service failures to user-friendly strings.
-  - `setBusyWhile(QFutureWatcherBase&)` for Qt Concurrent tasks (auto-clears loading on finish/cancel).
 
 ## Migration guidance
 - Derive list-style ViewModels from `BaseViewModel` (e.g., `LibraryViewModel`, `SeriesDetailsViewModel`).
@@ -49,25 +48,6 @@ Column {
 - `SeriesDetailsViewModel` and the QML series entry points load children through `LibraryService::getSeasons` and `getSeasonEpisodes`, never untyped `getItems(parentId)`. Silo treats an untyped parent as a library ID.
 - `SeriesDetailsViewModel` owns canonical stale-while-revalidate caches for series metadata, seasons, episodes, and recommendations. Wire-shaped payloads are rejected. Request-start `connectionId` and focused-episode ownership tokens prevent late responses from another source or episode from changing the active view.
 - Focused-episode chapters use canonical `name`, `startMs`, and `ArtworkRef` data, with a small in-memory per-episode cache for quick return navigation. `SeriesSeasonEpisodeView.qml` and the player request boundary keep playback and chapter timing in milliseconds.
-
-## Async work and setBusyWhile
-Use `setBusyWhile` to keep loading flags accurate for Qt Concurrent tasks:
-```cpp
-class ArtworkViewModel : public BaseViewModel {
-    Q_OBJECT
-public:
-    Q_INVOKABLE void reload() override {
-        watcher.setFuture(QtConcurrent::run([=]{
-            // expensive work here
-            return 42;
-        }));
-        setBusyWhile(watcher);
-    }
-private:
-    QFutureWatcher<int> watcher;
-};
-```
-
 
 ## MovieDetailsViewModel
 ViewModel for the series-style movie details screen.
