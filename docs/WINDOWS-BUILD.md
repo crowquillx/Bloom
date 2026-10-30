@@ -71,13 +71,13 @@ Install:
   and removes a directory only once it is empty, so other files in a shared
   folder survive. An install made before the manifest existed is cleaned with
   a fixed list (`Bloom.exe`, DLLs, `qml\`, `share\`, the Qt plugin folders)
-  only when its folder is named `Bloom`; in any other folder it is
-  overwritten in place.
+  only in the default `C:\Program Files\Bloom`; anywhere else it is
+  overwritten in place, and the manifest covers the next upgrade.
 - Writes the 64-bit uninstall registry key the in-app updater checks (see
   [updates](updates.md#install-handoff)).
 
-Uninstall removes the manifest's entries (or, for a pre-manifest install in a
-`Bloom` folder, the fixed list) plus `Uninstall.exe`, then the install folder
+Uninstall removes the manifest's entries (or, for a pre-manifest install in the
+default folder, the fixed list) plus `Uninstall.exe`, then the install folder
 only if it is empty. Settings in `%APPDATA%\Bloom` are kept.
 
 ## CI

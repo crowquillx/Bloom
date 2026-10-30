@@ -72,7 +72,9 @@ VIAddVersionKey "FileVersion" "${VERSION}"
 !define MANIFEST "bloom-install-manifest.txt"
 
 ; Fallback for installs made before the manifest existed. It removes whole Qt
-; directories and every DLL, so it runs only in a folder named Bloom.
+; directories and every DLL, so it runs only in the default
+; $PROGRAMFILES64\Bloom, which an older installer created and only
+; administrators can write to.
 !macro RemoveBloomPayload
     Delete "$INSTDIR\Bloom.exe"
     Delete "$INSTDIR\bloom-seek-preview.exe"
@@ -156,13 +158,14 @@ FunctionEnd
 !insertmacro DEFINE_REMOVE_MANIFEST_PAYLOAD "un."
 
 ; Removes the previous payload: the manifest when there is one, otherwise the
-; legacy list, but only in a dedicated Bloom folder. A pre-manifest install in
-; a shared folder is overwritten in place, as older installers did.
+; legacy list, but only in the default install folder. A pre-manifest install
+; anywhere else may share its folder with other files, so it is overwritten in
+; place, as older installers did; the manifest written now covers the next
+; upgrade.
 !macro RemovePreviousPayload UN
     Call ${UN}RemoveManifestPayload
     StrCmp $R9 1 previous_payload_removed
-    ${GetFileName} "$INSTDIR" $R0
-    StrCmp $R0 "${APPNAME}" 0 previous_payload_removed
+    StrCmp $INSTDIR "$PROGRAMFILES64\${APPNAME}" 0 previous_payload_removed
     !insertmacro RemoveBloomPayload
     previous_payload_removed:
 !macroend
