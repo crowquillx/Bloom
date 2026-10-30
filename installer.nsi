@@ -10,7 +10,7 @@
 
 !define APPNAME "Bloom"
 !define COMPANYNAME "Bloom"
-!define DESCRIPTION "Media Client for Jellyfin and Silo Servers (experimental native Silo support)"
+!define DESCRIPTION "Media Client for Jellyfin and Silo Servers"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
 
 !ifndef VERSION

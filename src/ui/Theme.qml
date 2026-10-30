@@ -17,14 +17,6 @@ QtObject {
 
     // Grid and sidebar info from ResponsiveLayoutManager
     property int gridColumns: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.gridColumns : 7
-    property int homeRowVisibleItems: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.homeRowVisibleItems : 6
-    property string sidebarDefaultMode: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.sidebarDefaultMode : "rail"
-    property real aspectRatio: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.aspectRatio : 1.778
-    property int viewportWidth: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.viewportWidth : 1920
-    property int viewportHeight: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.viewportHeight : 1080
-
-    // Backward compatibility alias
-    property real dpiScale: layoutScale
 
     // Manual DPI scale override from user settings (1.0 = automatic)
     property real manualDpiScaleOverride: typeof ConfigManager !== 'undefined' ? ConfigManager.manualDpiScaleOverride : 1.0
@@ -388,7 +380,6 @@ QtObject {
     property color accentSecondary: activeTheme.accentSecondary
     property color accentGradientStart: activeTheme.accentGradientStart
     property color accentGradientEnd: activeTheme.accentGradientEnd
-    property color accentColor: accentPrimary
 
     // ============================
     // Text hierarchy
@@ -399,7 +390,6 @@ QtObject {
     property color textSecondary: activeTheme.textSecondary
     property color textTertiary: mix(textSecondary, backgroundPrimary, 0.22)
     property color textDisabled: activeTheme.textDisabled
-    property color textMuted: textSecondary
     property color textOnAccent: activeTheme.textOnAccent || "#191724"
 
     // ============================
@@ -409,22 +399,18 @@ QtObject {
     property color successColor: activeTheme.successColor || "#7fd69a"
     property color warningColor: activeTheme.warningColor || "#f2c46d"
     property color colorDestructive: errorColor
-    property color destructiveBorder: colorDestructive
-    property color destructiveHoverBg: withAlpha(colorDestructive, 0.2)
     property color favoriteColor: themeIsLight ? "#c0304a" : "#ff6f86"
 
     // ============================
     // Surfaces & materials
     // ============================
     // Glass is restrained: a theme-tinted translucent fill plus one hairline.
-    // `surfaceGlass` sits on blurred/scrimmed artwork, `surfaceGlassStrong` is
-    // for floating chrome (rail, menus) and `surfaceDialog` is near-opaque so
-    // modal copy never competes with the page behind it.
+    // `surfaceGlassStrong` is for floating chrome (rail, menus) and
+    // `surfaceDialog` is near-opaque so modal copy never competes with the
+    // page behind it.
     property color surfaceTint: activeTheme.surfaceTint || backgroundSecondary
-    property color surfaceGlass: withAlpha(mix(backgroundPrimary, surfaceTint, 0.55), themeIsLight ? 0.80 : 0.72)
     property color surfaceGlassStrong: withAlpha(mix(backgroundPrimary, surfaceTint, 0.35), themeIsLight ? 0.92 : 0.86)
     property color surfaceDialog: withAlpha(mix(backgroundPrimary, surfaceTint, 0.45), 0.97)
-    property color surfaceSunken: withAlpha(backgroundSecondary, themeIsLight ? 0.55 : 0.45)
     property color surfaceBorder: withAlpha(textPrimary, themeIsLight ? 0.14 : 0.11)
     property color surfaceBorderStrong: withAlpha(textPrimary, themeIsLight ? 0.24 : 0.20)
     // Interactive fills for secondary controls, list rows and chips.
@@ -441,10 +427,6 @@ QtObject {
     // Scrims. Artwork is arbitrary and often bright, so scrims are tinted from
     // the theme background and strong enough to keep body text legible.
     property color scrimModal: themeIsLight ? Qt.rgba(0.10, 0.07, 0.14, 0.42) : Qt.rgba(0, 0, 0, 0.62)
-    property color scrimStrong: withAlpha(backgroundPrimary, 0.92)
-    property color scrimMedium: withAlpha(backgroundPrimary, 0.72)
-    property color scrimSoft: withAlpha(backgroundPrimary, 0.38)
-    property color scrimClear: withAlpha(backgroundPrimary, 0.0)
     // Soft drop shadow under raised surfaces (focused hero card).
     property color elevationShadow: Qt.rgba(0, 0, 0, themeIsLight ? 0.30 : 0.65)
 
@@ -461,7 +443,6 @@ QtObject {
     property color actionSecondaryBackgroundHover: surfaceInteractiveHover
     property color actionSecondaryBackgroundPressed: surfaceInteractivePressed
     property color actionSecondaryBorder: surfaceBorder
-    property color actionSecondaryText: textPrimary
     property color actionDestructiveBackground: withAlpha(colorDestructive, themeIsLight ? 0.12 : 0.18)
     property color actionDestructiveBackgroundHover: withAlpha(colorDestructive, themeIsLight ? 0.18 : 0.28)
     property color actionDestructiveText: colorDestructive
@@ -491,28 +472,14 @@ QtObject {
     property color progressTrackOnArtwork: Qt.rgba(1, 1, 1, 0.28)
     property int progressHeight: Math.max(1, Math.round(6 * layoutScale))
 
-    // Legacy overlay names (kept for existing call sites)
-    property color chipBackground: surfaceInteractive
-    property color chipBorder: surfaceBorder
-    property color overlayDark: scrimMedium
-    property color overlayLight: withAlpha(textPrimary, 0.25)
-    property color overlayHighlight: withAlpha(textPrimary, 0.06)
     // Opaque enough for badges/labels drawn over arbitrary poster artwork.
     property color overlayTextBackground: Qt.rgba(0.04, 0.03, 0.06, 0.74)
     property color overlayTextBorder: Qt.rgba(1, 1, 1, 0.16)
     property color textOnDarkOverlay: "#ffffff"
-    // Page backdrop scrim. Backdrops are arbitrary artwork (often bright), so the
-    // scrim is tinted from the theme background and opaque enough for body text.
-    property color gradientOverlayStart: withAlpha(backgroundPrimary, 0.62)
-    property color gradientOverlayMiddle: withAlpha(backgroundPrimary, 0.76)
-    property color gradientOverlayEnd: withAlpha(backgroundPrimary, 0.92)
 
     // Playback chrome sits over video, which is effectively always dark, so
     // its glass is white-based in every theme.
-    property color playbackOverlayTopTint: accentPrimary
-    property color playbackOverlayBottomTint: "#000000"
     property color playbackOverlayShadowTint: themeIsLight ? "#000000" : backgroundPrimary
-    property color playbackOverlayAccentShadowTint: accentPrimary
     property color playbackControlGlassBackground: Qt.rgba(1, 1, 1, 0.10)
     property color playbackControlGlassBackgroundHover: Qt.rgba(1, 1, 1, 0.20)
     property color playbackControlGlassBorder: Qt.rgba(1, 1, 1, 0.16)
@@ -538,12 +505,6 @@ QtObject {
     property color playbackSkipBackground: mix(playbackAccent, Qt.rgba(1, 1, 1, 1), 0.35)
     property color playbackSkipText: Qt.rgba(0.09, 0.07, 0.13, 1)
 
-    // UI element properties (legacy names map onto the semantic tokens)
-    property color focusBorder: focusRing
-    property color hoverOverlay: surfaceInteractive
-    property color inputBackground: surfaceInteractive
-    property color inputBorder: surfaceBorderStrong
-
     // Border properties
     property color borderLight: surfaceBorder
     property int borderWidth: 1
@@ -564,14 +525,6 @@ QtObject {
     // Blur and effects
     property int blurRadius: 40
 
-    // Frosted Glass Card Properties
-    property color cardBackground: surfaceGlass
-    property color cardBackgroundHover: mix(surfaceGlass, withAlpha(textPrimary, surfaceGlass.a), 0.08)
-    property color cardBackgroundFocused: mix(surfaceGlass, withAlpha(textPrimary, surfaceGlass.a), 0.14)
-    property color cardBorder: surfaceBorder
-    property color cardBorderHover: surfaceBorderStrong
-    property color cardBorderFocused: focusRing
-    property int cardBlurRadius: 24
     // Rounded corners for posters/thumbnails
     property int imageRadius: radiusArtwork
 
@@ -610,7 +563,6 @@ QtObject {
     property int fontSizeSmall: Math.round(fontSizeSmallBase * layoutScale)
     property int fontSizeCaption: Math.round(fontSizeCaptionBase * layoutScale)
     property int fontSizeMedium: Math.round(fontSizeMediumBase * layoutScale)
-    property int iconSizeSmall: fontSizeSmall
     property int iconSizeMedium: fontSizeIcon
     property int iconSizeLarge: fontSizeMedium
     property int iconSizeNav: Math.round(30 * layoutScale)
@@ -641,7 +593,6 @@ QtObject {
     property int spacingLarge: Math.round(spacingLargeBase * layoutScale)
     property int spacingXLarge: Math.round(spacingXLargeBase * layoutScale)
     property int spacingXSmall: Math.max(4, Math.round(spacingSmall * 0.5))
-    property int spacingLg: spacingLarge
     property int paddingLarge: Math.round(paddingLargeBase * layoutScale)
 
     // Semantic spacing: page gutters, gaps between sections, and gaps between
@@ -655,7 +606,6 @@ QtObject {
     property int sectionSpacing: Math.round(56 * layoutScale)
     property int sectionTitleSpacing: Math.round(18 * layoutScale)
     property int controlSpacing: Math.round(16 * layoutScale)
-    property int panelPadding: Math.round(40 * layoutScale)
     property int dialogPadding: Math.round(40 * layoutScale)
 
     // ============================
@@ -678,7 +628,6 @@ QtObject {
     // ambient theme glow. Scrims are tinted from the theme background so copy
     // stays legible over arbitrary art. "hero" keeps art vivid behind a
     // leading-edge scrim; "ambient" mutes it behind content.
-    property color stageBase: backgroundPrimary
     property color stageGlowPrimary: withAlpha(accentPrimary, themeIsLight ? 0.20 : 0.16)
     property color stageGlowSecondary: withAlpha(accentSecondary, themeIsLight ? 0.16 : 0.12)
     property real stageAmbientArtOpacity: themeIsLight ? 0.22 : 0.30
@@ -701,74 +650,16 @@ QtObject {
     property int shelfFocusMargin: Math.round(22 * layoutScale)
 
     // ============================
-    // Responsive Dimensions
-    // ============================
-    // Base card dimensions (at layoutScale 1.0)
-    property int cardWidthLargeBase: 520
-    property int cardHeightLargeBase: 320
-    property int cardWidthMediumBase: 420
-    property int cardHeightMediumBase: 240
-    property int cardWidthSmallBase: 220
-    property int cardHeightSmallBase: 320
-    property int posterWidthBase: 240
-    property int posterHeightBase: 420
-
-    // Scaled card dimensions
-    property int cardWidthLarge: Math.round(cardWidthLargeBase * layoutScale)
-    property int cardHeightLarge: Math.round(cardHeightLargeBase * layoutScale)
-    property int cardWidthMedium: Math.round(cardWidthMediumBase * layoutScale)
-    property int cardHeightMedium: Math.round(cardHeightMediumBase * layoutScale)
-    property int cardWidthSmall: Math.round(cardWidthSmallBase * layoutScale)
-    property int cardHeightSmall: Math.round(cardHeightSmallBase * layoutScale)
-    property int posterWidth: Math.round(posterWidthBase * layoutScale)
-    property int posterHeight: Math.round(posterHeightBase * layoutScale)
-
-    // ============================
     // Content Dimensions (Responsive)
     // ============================
     // Base content dimensions (at layoutScale 1.0)
-    property int posterWidthLargeBase: 430
     property int posterHeightLargeBase: 750
-    property int seasonPosterWidthBase: 380
-    property int seasonPosterHeightBase: 640
-    property int episodeCardHeightBase: 373
-    property int episodeThumbWidthBase: 664
-    property int nextUpHeightBase: 560
-    property int nextUpImageHeightBase: 280
-    property int episodeCardMinHeightBase: 300
-    property int episodeThumbMinWidthBase: 400
-    property int episodeListMinHeightBase: 280
     property int detailViewLogoHeightBase: 132
     property int seriesLogoHeightBase: 426
     property int seriesLogoMaxWidthBase: 1334
-    property int seriesOverviewMaxHeightBase: 160
-    property int homeCardWidthLargeBase: 520
-    property int homeCardHeightLargeBase: 320
-    property int homeCardWidthMediumBase: 420
-    property int homeCardHeightMediumBase: 240
-    property int recentlyAddedPosterWidthBase: 300
-    property int recentlyAddedPosterHeightBase: 450
 
     // Scaled content dimensions
-    property int posterWidthLarge: Math.round(posterWidthLargeBase * layoutScale)
     property int posterHeightLarge: Math.round(posterHeightLargeBase * layoutScale)
-    property int seasonPosterWidth: Math.round(seasonPosterWidthBase * layoutScale)
-    property int seasonPosterHeight: Math.round(seasonPosterHeightBase * layoutScale)
-    property int episodeCardHeight: Math.round(episodeCardHeightBase * layoutScale)
-    property int episodeThumbWidth: Math.round(episodeThumbWidthBase * layoutScale)
-    property int nextUpHeight: Math.round(nextUpHeightBase * layoutScale)
-    property int nextUpImageHeight: Math.round(nextUpImageHeightBase * layoutScale)
-
-    // Minimum dimensions to prevent content from becoming too small
-    property int episodeCardMinHeight: Math.round(episodeCardMinHeightBase * layoutScale)
-
-    // placeholder for future responsive rules
-    property int episodeThumbMinWidth: Math.round(episodeThumbMinWidthBase * layoutScale)
-    // placeholder for future responsive rules
-    property int episodeListMinHeight: Math.round(episodeListMinHeightBase * layoutScale)
-
-    // Episode list height to accommodate full 16:9 cards with text labels
-    property int episodeListHeight: Math.round(episodeThumbWidth * 9 / 16 + 50 * layoutScale)
 
     readonly property real detailViewLogoScaleBoost: 1.14
     property int detailViewLogoHeight: Math.min(
@@ -779,15 +670,6 @@ QtObject {
     // Series Details View dimensions (responsive)
     property int seriesLogoHeight: Math.round(seriesLogoHeightBase * layoutScale)
     property int seriesLogoMaxWidth: Math.round(seriesLogoMaxWidthBase * layoutScale)
-    property int seriesOverviewMaxHeight: Math.round(seriesOverviewMaxHeightBase * layoutScale)
-
-    // HomeScreen dimensions (responsive)
-    property int homeCardWidthLarge: Math.round(homeCardWidthLargeBase * layoutScale)
-    property int homeCardHeightLarge: Math.round(homeCardHeightLargeBase * layoutScale)
-    property int homeCardWidthMedium: Math.round(homeCardWidthMediumBase * layoutScale)
-    property int homeCardHeightMedium: Math.round(homeCardHeightMediumBase * layoutScale)
-    property int recentlyAddedPosterWidth: Math.round(recentlyAddedPosterWidthBase * layoutScale)
-    property int recentlyAddedPosterHeight: Math.round(recentlyAddedPosterHeightBase * layoutScale)
 
     // ============================
     // Motion
@@ -803,51 +685,11 @@ QtObject {
     property int easingEmphasized: Easing.OutQuint
 
     // ============================
-    // Glassmorphic Button System (legacy names)
-    // ============================
-
-    // Primary Button (Play, main actions) - accent fill used for selection-like
-    // highlights in older list delegates. New primary actions use action*.
-    property color buttonPrimaryBackground: withAlpha(accentPrimary, 0.88)
-    property color buttonPrimaryBackgroundHover: withAlpha(accentPrimary, 0.95)
-    property color buttonPrimaryBackgroundPressed: accentPrimary
-    property color buttonPrimaryBorder: surfaceBorder
-    property color buttonPrimaryBorderFocused: focusRing
-
-    // Secondary Button (Mark Watched, Back, etc.) - Frosted glass effect
-    property color buttonSecondaryBackground: actionSecondaryBackground
-    property color buttonSecondaryBackgroundDisabled: surfaceInteractiveDisabled
-    property color buttonSecondaryBackgroundHover: actionSecondaryBackgroundHover
-    property color buttonSecondaryBackgroundPressed: actionSecondaryBackgroundPressed
-    property color buttonSecondaryBorder: surfaceBorder
-    property color buttonSecondaryBorderHover: surfaceBorderStrong
-    property color buttonSecondaryBorderFocused: focusRing
-
-    // Icon Button (Bookmark, Favorite, etc.) - Subtle glass circles
-    property color buttonIconBackground: surfaceInteractive
-    property color buttonIconBackgroundHover: surfaceInteractiveHover
-    property color buttonIconBackgroundPressed: surfaceInteractivePressed
-    property color buttonIconBorder: surfaceBorder
-    property color buttonIconBorderHover: surfaceBorderStrong
-    property color buttonIconBorderFocused: focusRing
-
-    // Tab/Filter Button - For filter tabs in library
-    property color buttonTabBackground: surfaceInteractiveDisabled
-    property color buttonTabBackgroundHover: surfaceInteractive
-    property color buttonTabBackgroundActive: selectionBackground
-    property color buttonTabBackgroundPressed: surfaceInteractivePressed
-    property color buttonTabBorder: surfaceBorder
-    property color buttonTabBorderHover: surfaceBorderStrong
-    property color buttonTabBorderActive: selectionIndicator
-    property color buttonTabBorderFocused: focusRing
-
     // Button dimensions (responsive)
+    // ============================
     // Hero actions (Home hero, detail pages, Up Next) are the largest controls.
     property int buttonHeightHero: Math.round(84 * layoutScale)
     property int buttonHeightLarge: Math.round(68 * layoutScale)
     property int buttonHeightMedium: Math.round(60 * layoutScale)
     property int buttonHeightSmall: Math.round(52 * layoutScale)
-    property int buttonIconSize: Math.round(60 * layoutScale)
-    property int buttonFocusBorderWidth: focusRingWidth
-    property int buttonBorderWidth: 1
 }

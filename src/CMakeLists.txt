@@ -110,10 +110,6 @@ set_source_files_properties(ui/Icons.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
-set_source_files_properties(ui/AccessibilityHelpers.qml PROPERTIES
-    QT_QML_SINGLETON_TYPE TRUE
-)
-
 if(COMMAND qt_policy)
     qt_policy(SET QTP0004 NEW)
 endif()
@@ -142,8 +138,6 @@ qt_add_qml_module(Bloom
         ui/Main.qml
         ui/LoginScreen.qml
         ui/LibraryScreen.qml
-        ui/AccessibilityHelpers.qml
-        ui/A11yButton.qml
         ui/MetadataChip.qml
         ui/RatingMetadataChip.qml
         ui/PersonCard.qml
@@ -151,7 +145,6 @@ qt_add_qml_module(Bloom
         ui/SecondaryActionButton.qml
         ui/ActionButton.qml
         ui/FocusRing.qml
-        ui/GlassPanel.qml
         ui/MetadataLine.qml
         ui/SectionHeader.qml
         ui/StateMessage.qml
@@ -165,7 +158,6 @@ qt_add_qml_module(Bloom
         ui/BloomCheckIndicator.qml
         ui/FieldBackground.qml
         ui/SeriesDetailsView.qml
-        ui/SeasonView.qml
         ui/SeriesSeasonEpisodeView.qml
         ui/MovieDetailsView.qml
         ui/HomeScreen.qml
@@ -202,12 +194,10 @@ qt_add_qml_module(Bloom
         ui/MediaSourceSelectionDialog.qml
         ui/SeerrRequestDialog.qml
         ui/SeerrComboBox.qml
-        ui/SearchResultCard.qml
         ui/SourceBadge.qml
         ui/SourceRouter.qml
         ui/PosterBadgeOverlay.qml
         ui/UnwatchedBadge.qml
-        ui/RetryButton.qml
         ui/Theme.qml
         ui/Icons.qml
         ui/NavigationBar.qml
@@ -224,9 +214,7 @@ qt_add_qml_module(Bloom
         ui/VideoSurface.qml
         ui/EmbeddedPlaybackOverlay.qml
         ui/ScreensaverOverlay.qml
-        ui/TrackSelector.qml
         ui/WheelStepScroller.qml
-        ui/MediaInfoPanel.qml
         ui/ToastNotification.qml
         ui/UpNextScreen.qml
         ui/RoundedImage.qml

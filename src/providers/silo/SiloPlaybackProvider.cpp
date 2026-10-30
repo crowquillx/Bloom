@@ -730,21 +730,6 @@ PlaybackReplanParseResult SiloPlaybackProvider::parseReplanResponse(
     return result;
 }
 
-PlaybackRecoveryRequest SiloPlaybackProvider::createPlaybackRecoveryRequest(
-    const PlaybackProviderContext &context, const Bloom::MediaRef &media, const QVariantMap &source,
-    int audio, qint64 positionMs) const
-{
-    const auto start = createPlaybackStartRequest(context, media, source, audio, -1, positionMs);
-    return { start.endpoint, start.method, start.body, start.replaySafe };
-}
-
-PlaybackStartParseResult SiloPlaybackProvider::parsePlaybackRecoveryResponse(
-    const PlaybackProviderContext &context, const Bloom::MediaRef &media, const QJsonObject &wire,
-    const QVariantMap &source) const
-{
-    return parsePlaybackStartResponse(context, media, wire, source);
-}
-
 PlaybackReportRequest SiloPlaybackProvider::createReportRequest(const PlaybackReport &report) const
 {
     PlaybackReportRequest request;

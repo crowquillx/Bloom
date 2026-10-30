@@ -216,7 +216,7 @@ Nothing is smaller than `fontSizeCaption`. Display type uses
   unavailable controls.
 - Accent (`accentPrimary`) is for eyebrows, selection indicators, progress
   and the glow. It is never the only signal of state.
-- Surfaces: `surfaceInteractive*` for controls and rows, `surfaceGlass` /
+- Surfaces: `surfaceInteractive*` for controls and rows,
   `surfaceGlassStrong` for floating chrome, `surfaceDialog` for modals.
   Prefer open layouts on the stage over boxing content in glass panels.
 - Scrims are tinted from `backgroundPrimary`. Over artwork, text uses

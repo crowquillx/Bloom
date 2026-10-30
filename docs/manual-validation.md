@@ -1,6 +1,6 @@
 # Manual validation ledger
 
-A live gate passes only when the required behavior is observed. Source inspection, a unit test, and a successful HTTP status do not establish a platform runtime pass. `UNAVAILABLE` and `NOT RUN` are not automated passes. The native release label remains **experimental native Silo support**.
+A live gate passes only when the required behavior is observed. Source inspection, a unit test, and a successful HTTP status do not establish a platform runtime pass. `UNAVAILABLE` and `NOT RUN` are not automated passes.
 
 ## Packaging and CI fixes, 2026-10-30 UTC
 
@@ -89,7 +89,7 @@ The [live report](evidence/silo-v2-2026-10-18.json) records the new runner. It r
 | Incremental build and automated checks | PASS | `./scripts/dev-build.sh --tests --jobs 6` passed. Local CTest passed 35/35 with the same visual/cache exclusions as the Nix suite. The provider-contract Python suite passed 34/34. `nix flake check --print-build-logs --option max-jobs 2 --option cores 6` and `nix build --print-build-logs --option max-jobs 2 --option cores 6` exited 0. The clean checks include contract validation, CTest 35/35, QML lint, dependency pins, package, and offscreen Release smoke. |
 | Linux/Windows GPU playback, physical input, HDR, and displays | NOT RUN | These checks need the applicable runtime and hardware. The migration does not change Windows video layering or the Linux backend policy. |
 
-Current limits are explicit. Forward-only remux and HLS/transcode timelines are unavailable. Ebooks, audiobooks, comics, watch-together, notifications, history imports, downloads/offline, and admin operations remain out of scope. The operator accepted the missing preview fixture for this migration. Native support remains experimental while the platform gates are open.
+Current limits are explicit. Forward-only remux and HLS/transcode timelines are unavailable. Ebooks, audiobooks, comics, watch-together, notifications, history imports, downloads/offline, and admin operations remain out of scope. The operator accepted the missing preview fixture for this migration.
 
 ## Token renewal for every connection, 2026-10-24 UTC
 
@@ -168,7 +168,9 @@ Record the date, operator, exact commit, command output path, and a short observ
 
 ## Graduation decision
 
-The current native v2 gates above supersede alpha evidence. Native and compatibility listeners remain separate. Live Jellyfin preservation, Windows runtime, and physical input/display checks are required before first-class labeling. The operator accepted the missing trickplay fixture for this migration; live preview delivery remains unverified. Missing runtime evidence must remain unavailable.
+The current native v2 gates above supersede alpha evidence. Native and compatibility listeners remain separate.
+
+On 2026-10-30 the maintainer (crowquillx) reported that native Silo support passed live testing without the Jellyfin compatibility listener. The test covered live Jellyfin preservation, the Silo compatibility path, native direct, remux and HLS/transcode playback, tracks and subtitles, markers and chapters, Windows `win-libmpv` overlay transitions, and physical keyboard and gamepad journeys. Native Silo support graduates to first-class support (#73, #81). The rows above record each gate's state when it was written. Per-row command output from the 2026-10-30 test is not retained here.
 
 ## Dolby Vision FEL upgrade
 

@@ -76,8 +76,6 @@ signals:
     void updateAvailableChanged();
     void downloadProgressChanged();
     void startupPopupRequested();
-    void requestAutoQuit();
-    void updateError(const QString &message);
     void channelChanged();
 
 private:

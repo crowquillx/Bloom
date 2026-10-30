@@ -15,6 +15,9 @@
 
 namespace ExternalRatingsHelper {
 
+// Ratings are optional decoration; never let a stalled request linger.
+inline constexpr int kTransferTimeoutMs = 15000;
+
 inline QVariantMap mergeRatings(const QVariantMap &rawRatings, const QVariantMap &aniListRating)
 {
     QVariantMap combined = rawRatings;
@@ -80,6 +83,7 @@ inline void fetchMdbListRatings(QNetworkAccessManager *networkManager,
     url.setQuery(query);
 
     QNetworkRequest request(url);
+    request.setTransferTimeout(kTransferTimeoutMs);
     QNetworkReply *reply = networkManager->get(request);
     QPointer<QObject> guard(context);
 
@@ -95,7 +99,8 @@ inline void fetchMdbListRatings(QNetworkAccessManager *networkManager,
                 onSuccess(doc.object().toVariantMap());
             }
         } else {
-            qCWarning(lcViewModels) << "MDBList API error:" << reply->errorString();
+            // The error text includes the request URL, which carries the API key.
+            qCWarning(lcViewModels) << "MDBList API error:" << redactNetworkLogText(reply->errorString());
         }
     });
 }
@@ -124,6 +129,7 @@ inline void fetchAniListIdFromWikidata(QNetworkAccessManager *networkManager,
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Bloom/1.0 (Qt 6)");
+    request.setTransferTimeout(kTransferTimeoutMs);
 
     QNetworkReply *reply = networkManager->get(request);
     QPointer<QObject> guard(context);
@@ -143,7 +149,7 @@ inline void fetchAniListIdFromWikidata(QNetworkAccessManager *networkManager,
                 anilistId = binding.value("anilistId").toObject().value("value").toString();
             }
         } else {
-            qCWarning(lcViewModels) << "Wikidata query failed:" << reply->errorString();
+            qCWarning(lcViewModels) << "Wikidata query failed:" << redactNetworkLogText(reply->errorString());
         }
 
         if (onFinished) {
@@ -164,6 +170,7 @@ inline void queryAniListById(QNetworkAccessManager *networkManager,
     QUrl url("https://graphql.anilist.co");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setTransferTimeout(kTransferTimeoutMs);
 
     QJsonObject variables;
     variables["id"] = anilistId.toInt();
@@ -182,7 +189,7 @@ inline void queryAniListById(QNetworkAccessManager *networkManager,
         }
 
         if (reply->error() != QNetworkReply::NoError) {
-            qCWarning(lcViewModels) << "AniList API error:" << reply->errorString();
+            qCWarning(lcViewModels) << "AniList API error:" << redactNetworkLogText(reply->errorString());
             return;
         }
 

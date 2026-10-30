@@ -490,7 +490,6 @@ void MockLibraryService::getThemeSongs(const QString &seriesId)
 {
     qCDebug(lcTest) << "MockLibraryService::getThemeSongs(" << seriesId << ")";
     // Return empty list for test mode
-    emit themeSongsLoaded(seriesId, QStringList());
     emit themeSongPlaybackLoaded(seriesId, QStringList(), false);
 }
 
@@ -658,11 +657,6 @@ QString MockLibraryService::getImageUrl(const QString &itemId, const QString &im
 QString MockLibraryService::getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width)
 {
     Q_UNUSED(width)
-    return getImageUrl(itemId, imageType);
-}
-
-QString MockLibraryService::getCachedImageUrl(const QString &itemId, const QString &imageType)
-{
     return getImageUrl(itemId, imageType);
 }
 

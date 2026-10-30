@@ -441,11 +441,16 @@ private slots:
     void onPauseChanged(bool paused);
     void onPausedForCacheChanged(bool pausedForCache);
     void onCacheEndChanged(double seconds);
-    void onPlaybackEnded();
+    void onPlaybackEnded(
+        Bloom::PlaybackPolicy::EndFileReason reason = Bloom::PlaybackPolicy::EndFileReason::Eof,
+        const QString &detail = QString());
     void onPlaylistPositionChanged(int playlistIndex);
     void onNextEpisodeLoaded(const QString &connectionId,
                              const QString &seriesId,
                              const QVariantMap &episodeData,
+                             const QString &requestContext);
+    void onNextEpisodeFailed(const QString &seriesId,
+                             const QString &error,
                              const QString &requestContext);
     void onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
     void onPlaybackInfoLoadedForRequest(const QString &itemId,

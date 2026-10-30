@@ -35,7 +35,6 @@
 #include "utils/Logger.h"
 #include "utils/LoggingConfig.h"
 #include "utils/BloomLogging.h"
-#include "network/SessionManager.h"
 #include "network/SessionService.h"
 #include "providers/IProviderAdapter.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
@@ -350,10 +349,6 @@ void ApplicationInitializer::registerServices()
     m_systemPowerController = std::make_unique<SystemPowerController>(m_configManager.get());
     ServiceLocator::registerService<SystemPowerController>(m_systemPowerController.get());
 
-    // 10. SessionManager - Depends on ConfigManager and SecretStore
-    m_sessionManager = std::make_unique<SessionManager>(m_configManager.get(), m_secretStore.get());
-    ServiceLocator::registerService<SessionManager>(m_sessionManager.get());
-
     // 10.5 UpdateService - Depends on ConfigManager and PlayerController
     m_updateService = std::make_unique<UpdateService>(m_configManager.get(), m_playerController.get());
     ServiceLocator::registerService<UpdateService>(m_updateService.get());
@@ -424,26 +419,9 @@ void ApplicationInitializer::initializeServices()
     // GpuMemoryTrimmer is created and wired by WindowManager::setup(), which runs
     // after service registration and owns the ImageCacheProvider dependency.
     
-    // Session restoration and legacy credential migration must finish before
-    // SessionManager can rotate the device ID or touch the same secret store.
     if (isTestMode) {
         m_mockAuthService->initialize(m_configManager.get());
-        m_sessionManager->initialize();
     } else {
         m_authService->initialize(m_configManager.get());
-        if (m_authService->isRestoringSession()) {
-            // Workspace switches restore sessions again later; only the
-            // startup restore gates SessionManager.
-            auto connection = std::make_shared<QMetaObject::Connection>();
-            *connection = connect(m_authService.get(), &AuthenticationService::isRestoringSessionChanged,
-                    this, [this, connection]() {
-                if (!m_authService->isRestoringSession()) {
-                    disconnect(*connection);
-                    m_sessionManager->initialize();
-                }
-            });
-        } else {
-            m_sessionManager->initialize();
-        }
     }
 }

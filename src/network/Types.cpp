@@ -85,22 +85,6 @@ QVariantMap MediaStreamInfo::toVariantMap() const
 // ============================================================================
 
 /**
- * @brief Filter and return only video streams from mediaStreams
- * 
- * Used for video track selection UI and mpv --vid parameter.
- * 
- * @return List of video streams (Type == "Video")
- */
-QList<MediaStreamInfo> MediaSourceInfo::getVideoStreams() const
-{
-    QList<MediaStreamInfo> result;
-    for (const auto &stream : mediaStreams) {
-        if (stream.type == "Video") result.append(stream);
-    }
-    return result;
-}
-
-/**
  * @brief Filter and return only audio streams from mediaStreams
  * 
  * Used for audio track selection UI and mpv --aid parameter.

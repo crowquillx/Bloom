@@ -190,18 +190,11 @@ public:
     // Device ID - unique per installation, includes hostname
     // Generated on first launch and stored in settings
     QString getDeviceId() const;
-    
-    // Get device ID combined with user ID for per-user session uniqueness
-    // This follows jellyfin-android's approach to prevent cross-user session conflicts
-    QString getUserDeviceId(const QString &userId) const;
 
     void load();
     bool save();
     bool flushPendingSave();
     QString getLastPersistenceError() const;
-    
-    // Application exit - saves config and quits
-    Q_INVOKABLE void exitApplication();
     
     // Provider-neutral connection management
     QList<ServerConnection> getConnections() const;

@@ -624,150 +624,6 @@ bool PlaybackService::replanPlayback(const QString &playbackSessionId,
     return true;
 }
 
-void PlaybackService::requestPlaybackRecovery(const QString &itemId,
-                                              const QVariantMap &providerSource,
-                                              int selectedAudioTrack,
-                                              qint64 startPositionMs,
-                                              const QString &requestContext)
-{
-    const quint64 generation =
-        beginRequest(QStringLiteral("recovery"), itemId, requestContext);
-    const IPlaybackProvider *provider =
-        m_authService ? m_authService->playbackProvider() : nullptr;
-    if (!m_authService || !provider || !m_authService->isAuthenticated()) {
-        endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
-        if (!requestContext.isEmpty()) {
-            emit playbackRecoveryFailedForRequest(itemId, tr("Not authenticated"),
-                                                   requestContext);
-        }
-        return;
-    }
-    Bloom::MediaRef media;
-    media.itemId = itemId;
-    ConfigManager *config = m_configManager ? m_configManager : m_authService->configManager();
-    if (const auto connection = config ? config->getActiveConnection() : std::nullopt;
-        connection.has_value()) {
-        media.connectionId = connection->connectionId;
-    }
-    const PlaybackProviderContext context = providerContext();
-    loadPlaybackCapabilities(provider, context,
-        [=, this](bool allowed)
-        {
-            if (!isCurrentRequest(QStringLiteral("recovery"), itemId, requestContext, generation))
-            {
-                endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
-                return;
-            }
-            if (!allowed)
-            {
-                endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
-                emit playbackRecoveryFailedForRequest(
-                    itemId, tr("Playback is unavailable for this profile."), requestContext);
-                return;
-            }
-            const PlaybackRecoveryRequest recoveryRequest = provider->createPlaybackRecoveryRequest(
-                context, media, providerSource, selectedAudioTrack, startPositionMs);
-            if (!recoveryRequest.isValid())
-            {
-                endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
-                if (!requestContext.isEmpty())
-                {
-                    emit playbackRecoveryFailedForRequest(
-                        itemId, tr("Playback recovery is unavailable."), requestContext);
-                }
-                return;
-            }
-            sendRequestWithRetry(
-                recoveryRequest.endpoint,
-                [this, recoveryRequest, itemId, requestContext, generation]() -> QNetworkReply *
-                {
-                    if (!isCurrentRequest(
-                            QStringLiteral("recovery"), itemId, requestContext, generation))
-                    {
-                        return nullptr;
-                    }
-                    return sendProviderRequest(
-                        recoveryRequest.endpoint, recoveryRequest.method, recoveryRequest.body);
-                },
-                [this, provider, itemId, providerSource, requestContext, generation, context,
-                    media](QNetworkReply *reply)
-                {
-                    if (!isCurrentRequest(
-                            QStringLiteral("recovery"), itemId, requestContext, generation))
-                    {
-                        endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
-                        return;
-                    }
-                    PlaybackProviderContext responseContext = providerContext();
-                    responseContext.playbackAttemptId = context.playbackAttemptId;
-                    const PlaybackStartParseResult parsed
-                        = provider->parsePlaybackRecoveryResponse(responseContext, media,
-                            QJsonDocument::fromJson(reply->readAll()).object(), providerSource);
-                    if (!parsed.valid || !parsed.descriptor.isValid())
-                    {
-                        if (!parsed.descriptor.playbackSessionId.isEmpty())
-                        {
-                            PlaybackReport cleanup;
-                            cleanup.event = PlaybackReportEvent::Stop;
-                            cleanup.media = media;
-                            cleanup.playbackSessionId = parsed.descriptor.playbackSessionId;
-                            sendPlaybackReport(cleanup, {}, provider);
-                        }
-                        if (isCurrentRequest(
-                                QStringLiteral("recovery"), itemId, requestContext, generation))
-                        {
-                            endRequest(
-                                QStringLiteral("recovery"), itemId, requestContext, generation);
-                            if (!requestContext.isEmpty())
-                            {
-                                emit playbackRecoveryFailedForRequest(itemId,
-                                    parsed.error.isEmpty() ? tr("Playback recovery failed.")
-                                                           : parsed.error,
-                                    requestContext);
-                            }
-                        }
-                        else
-                        {
-                            endRequest(
-                                QStringLiteral("recovery"), itemId, requestContext, generation);
-                        }
-                        return;
-                    }
-                    Bloom::PlaybackDescriptor descriptor = parsed.descriptor;
-                    descriptor.stream.url
-                        = resolvePlaybackUrl(context.serverUrl, descriptor.stream.url);
-                    if (isCurrentRequest(
-                            QStringLiteral("recovery"), itemId, requestContext, generation))
-                    {
-                        endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
-                        emit playbackRecoveryLoadedForRequest(itemId, withAudioPlan(descriptor), requestContext);
-                    }
-                    else
-                    {
-                        endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
-                    }
-                },
-                [this, itemId, requestContext, generation](const NetworkError &error)
-                {
-                    if (isCurrentRequest(
-                            QStringLiteral("recovery"), itemId, requestContext, generation))
-                    {
-                        endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
-                        if (!requestContext.isEmpty())
-                        {
-                            emit playbackRecoveryFailedForRequest(
-                                itemId, error.userMessage, requestContext);
-                        }
-                    }
-                    else
-                    {
-                        endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
-                    }
-                },
-                0, true, recoveryRequest.replaySafe ? RetrySafety::Idempotent : RetrySafety::Never);
-        });
-}
-
 // ============================================================================
 // Request Helpers
 // ============================================================================
@@ -1679,12 +1535,10 @@ void PlaybackService::markItemPlayed(const QString &itemId)
                 return sendProviderRequest(endpoint, method,
                                            QJsonDocument::fromJson(body).object());
             },
-            [this, itemId](QNetworkReply *reply) {
+            [itemId](QNetworkReply *reply) {
                 if (reply->error() != QNetworkReply::NoError) {
                     qCWarning(lcPlayback) << "Failed to mark Silo item as played:" << itemId
                                           << ":" << reply->errorString();
-                } else {
-                    emit itemMarkedPlayed(itemId);
                 }
             },
             FailureHandler(),
@@ -1700,13 +1554,12 @@ void PlaybackService::markItemPlayed(const QString &itemId)
         [this, endpoint]() {
             return sendProviderRequest(endpoint, QStringLiteral("POST"), {});
         },
-        [this, itemId](QNetworkReply *reply) {
+        [itemId](QNetworkReply *reply) {
             if (reply->error() != QNetworkReply::NoError) {
                 qCWarning(lcPlayback) << "Failed to mark item as played:" << itemId
                                       << ":" << reply->errorString();
             } else {
                 qCDebug(lcPlayback) << "Successfully marked item as played:" << itemId;
-                emit itemMarkedPlayed(itemId);
             }
         },
         FailureHandler(),

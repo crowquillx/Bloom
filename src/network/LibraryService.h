@@ -167,7 +167,6 @@ public:
                                                 int audioStreamIndex = -1, int subtitleStreamIndex = -1);
     Q_INVOKABLE virtual QString getImageUrl(const QString &itemId, const QString &imageType);
     Q_INVOKABLE virtual QString getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
-    Q_INVOKABLE virtual QString getCachedImageUrl(const QString &itemId, const QString &imageType);
     Q_INVOKABLE virtual QString getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
     Q_INVOKABLE virtual QString getCachedArtworkUrl(const QString &itemId,
                                                      const QString &imageType,
@@ -182,7 +181,6 @@ public:
                                                                   int width);
     Q_INVOKABLE virtual QString getCachedArtworkUrlFromRef(const QVariantMap &artwork,
                                                            int width);
-    Q_INVOKABLE virtual QString getCachedChapterThumbnailUrl(const QString &itemId, int chapterIndex, const QString &imageTag, const QString &imagePath = QString(), int width = 480);
 
     QNetworkReply* pingServer();
 
@@ -277,7 +275,6 @@ signals:
     void watchlistStatusFailed(const QString &itemId, bool inWatchlist, const QString &error);
     void canonicalHomeSectionsLoaded(const QString &connectionId, const QVariantList &sections);
     void canonicalHomeSectionsFailed(const QString &connectionId, const QString &error);
-    void themeSongsLoaded(const QString &seriesId, const QStringList &urls);
     void themeSongPlaybackLoaded(const QString &seriesId, const QStringList &urls, bool requiresFreshGrant);
     void canonicalSearchResultsLoaded(const QString &connectionId,
                                       const QString &searchTerm,
@@ -300,11 +297,6 @@ signals:
     // Error signals
     void errorOccurred(const QString &endpoint, const QString &error);
     void networkError(const NetworkError &error);
-
-    // Progress signals for long-running operations
-    void parsingStarted(const QString &operation);
-    void parsingProgress(const QString &operation, int processed, int total);
-    void parsingFinished(const QString &operation);
 
 private:
     struct CatalogRequestIdentity {

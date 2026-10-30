@@ -61,7 +61,6 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/profiles/BloomProfile.cpp
@@ -313,7 +312,6 @@ add_test(NAME ConfigManagerThemeTest COMMAND ConfigManagerThemeTest)
 add_executable(ConnectionPersistenceTest
     ConnectionPersistenceTest.cpp
     TestConfigIsolation.h
-    ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${TEST_CONFIG_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
 )
@@ -1179,7 +1177,6 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${UPDATER_SOURCES}
@@ -1229,9 +1226,6 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/Theme.qml PROPERTIES
 set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/Icons.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
-set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/AccessibilityHelpers.qml PROPERTIES
-    QT_QML_SINGLETON_TYPE TRUE
-)
 set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/EpisodeSelection.js PROPERTIES
     QT_QML_SKIP_QMLDIR_ENTRY TRUE
 )
@@ -1248,10 +1242,7 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/Main.qml
     ${CMAKE_SOURCE_DIR}/src/ui/LoginScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/LibraryScreen.qml
-    ${CMAKE_SOURCE_DIR}/src/ui/AccessibilityHelpers.qml
-    ${CMAKE_SOURCE_DIR}/src/ui/A11yButton.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SeriesDetailsView.qml
-    ${CMAKE_SOURCE_DIR}/src/ui/SeasonView.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SeriesSeasonEpisodeView.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MovieDetailsView.qml
     ${CMAKE_SOURCE_DIR}/src/ui/HomeScreen.qml
@@ -1263,9 +1254,7 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/MediaSourceSelectionDialog.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SeerrRequestDialog.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SeerrComboBox.qml
-    ${CMAKE_SOURCE_DIR}/src/ui/SearchResultCard.qml
     ${CMAKE_SOURCE_DIR}/src/ui/UnwatchedBadge.qml
-    ${CMAKE_SOURCE_DIR}/src/ui/RetryButton.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MetadataChip.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RatingMetadataChip.qml
     ${CMAKE_SOURCE_DIR}/src/ui/PersonCard.qml
@@ -1282,9 +1271,7 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/MediaProgressBar.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MpvProfileEditor.qml
     ${CMAKE_SOURCE_DIR}/src/ui/EmbeddedPlaybackOverlay.qml
-    ${CMAKE_SOURCE_DIR}/src/ui/TrackSelector.qml
     ${CMAKE_SOURCE_DIR}/src/ui/WheelStepScroller.qml
-    ${CMAKE_SOURCE_DIR}/src/ui/MediaInfoPanel.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ToastNotification.qml
     ${CMAKE_SOURCE_DIR}/src/ui/UpNextScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/VideoSurface.qml

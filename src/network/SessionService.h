@@ -78,11 +78,7 @@ signals:
     void errorStringChanged();
     void currentSessionIdChanged();
     void sessionTypeChanged();
-    void sessionsLoaded();
-    void sessionRevoked(QString sessionId);
-    void allOtherSessionsRevoked(int count);
     void selfSessionRevoked();  // Current device was logged out
-    void operationFailed(QString error);
 
 private slots:
     void onFetchSessionsFinished(QNetworkReply *reply);
@@ -102,14 +98,13 @@ private:
     QString m_deviceId;
     bool m_bulkRevokeRefreshPending = false;
     QSet<QString> m_pendingBulkRevokeDeviceIds;
-    int m_successfulBulkRevocations = 0;
 
     void setIsLoading(bool loading);
     void setErrorString(const QString &error);
     bool beginSessionRevocation(const QString &sessionId,
                                 const QString &knownDeviceId = {});
     void revokeLoadedOtherDevices();
-    void finishDeviceRevocation(const QString &deviceId, bool successful);
+    void finishDeviceRevocation(const QString &deviceId);
     QString getDeviceId() const;
     QString deviceIdForSession(const QString &sessionId) const;
     QNetworkRequest createAuthenticatedRequest(const QString &endpoint) const;

@@ -475,14 +475,6 @@ QVariantMap LibraryViewModel::getItem(int index) const
     return m_items.at(index).toVariantMap();
 }
 
-QString LibraryViewModel::buildImageUrl(const QVariantMap &item) const
-{
-    if (!m_libraryService)
-        return QString();
-    
-    return getImageUrl(QJsonObject::fromVariantMap(item));
-}
-
 void LibraryViewModel::updateViews(const QVariantList &views)
 {
     QVariantList viewsList;
@@ -1507,37 +1499,6 @@ QString LibraryViewModel::getImageUrl(const QJsonObject &item) const
 // Cache Management
 // ============================================================================
 
-bool LibraryViewModel::hasCachedData(const QString &parentId) const
-{
-    const QString memoryKey = scopedCacheKey(parentId);
-    if (s_libraryCache.contains(memoryKey)) {
-        const LibraryCacheEntry entry = s_libraryCache.value(memoryKey);
-        if (!isCanonicalCachePayload(entry.items)) {
-            removeMemoryCache(memoryKey);
-        } else if (entry.isValid(kCacheTtlMs)) {
-            touchMemoryCache(memoryKey);
-            return true;
-        }
-    }
-
-    if (m_cacheStore && m_cacheStore->isOpen()) {
-        auto slice = m_cacheStore->read(parentId);
-        if (slice.hasSnapshot()
-            && (!slice.hasData() || !isCanonicalCachePayload(slice.items))) {
-            m_cacheStore->clearParent(parentId);
-        } else if (slice.hasData() && slice.isFresh(kDiskCacheTtlMs)) {
-            LibraryCacheEntry entry;
-            entry.items = slice.items;
-            entry.totalRecordCount = slice.totalCount;
-            entry.timestamp = slice.updatedAtMs;
-            storeMemoryCache(memoryKey, entry);
-            return true;
-        }
-    }
-
-    return false;
-}
-
 bool LibraryViewModel::hasAnyCachedData(const QString &parentId) const
 {
     const QString memoryKey = scopedCacheKey(parentId);
@@ -1688,18 +1649,6 @@ void LibraryViewModel::clearAllCache()
         }
     }
     qCDebug(lcViewModels) << "LibraryViewModel: Cleared all cache";
-}
-
-void LibraryViewModel::invalidateCache(const QString &parentId)
-{
-    const QString memoryKey = scopedCacheKey(parentId);
-    if (s_libraryCache.contains(memoryKey)) {
-        removeMemoryCache(memoryKey);
-        qCDebug(lcViewModels) << "LibraryViewModel: Invalidated cache for" << parentId;
-    }
-    if (m_cacheStore && m_cacheStore->isOpen()) {
-        m_cacheStore->clearParent(parentId);
-    }
 }
 
 QString LibraryViewModel::connectionScopeId() const

@@ -192,10 +192,10 @@ Item {
 | `Theme.spacingSmall` | Small spacing (4px base) |
 | `Theme.spacingMedium` | Medium spacing (8px base) |
 | `Theme.spacingLarge` | Large spacing (16px base) |
-| `Theme.cardWidth` | Responsive card width |
-| `Theme.cardHeight` | Responsive card height |
-| `Theme.posterWidth` | Responsive poster width |
-| `Theme.posterHeight` | Responsive poster height |
+| `Theme.posterCardWidth` | Poster card width (2:3) |
+| `Theme.posterCardHeight` | Poster card height (2:3) |
+| `Theme.landscapeCardWidth` | Landscape card width (16:9) |
+| `Theme.landscapeCardHeight` | Landscape card height (16:9) |
 | `Theme.uiAnimationsEnabled` | Whether UI animations should play |
 
 ### Direct Access
@@ -432,7 +432,7 @@ Button padding and the back-button width scale with `Theme.layoutScale`, keeping
 
 ## Detail pages: hero and shelves
 
-[`MovieDetailsView.qml`](../src/ui/MovieDetailsView.qml), [`SeriesDetailsView.qml`](../src/ui/SeriesDetailsView.qml), [`SeriesSeasonEpisodeView.qml`](../src/ui/SeriesSeasonEpisodeView.qml) and [`SeasonView.qml`](../src/ui/SeasonView.qml) are hero pages (`docs/style-guide.md`). Each is one scrolling column over a full-bleed `StageBackdrop`, laid out like Home:
+[`MovieDetailsView.qml`](../src/ui/MovieDetailsView.qml), [`SeriesDetailsView.qml`](../src/ui/SeriesDetailsView.qml) and [`SeriesSeasonEpisodeView.qml`](../src/ui/SeriesSeasonEpisodeView.qml) are hero pages (`docs/style-guide.md`). Each is one scrolling column over a full-bleed `StageBackdrop`, laid out like Home:
 
 - **Stage**: `mode: "hero"` with the item's (or series') backdrop. A poster fallback is low resolution, so it uses `mode: "ambient"` instead. `dim` rises to 0.72 as the page scrolls past the hero.
 - **Hero**: a `DetailHero` block at `Theme.pageMarginX`, anchored to the foot of a hero area that is 60% of the page height. The copy keeps a fixed reading measure of 1040 design units (`Theme.heroCopyMaxWidth`), so ultrawide screens do not stretch it. When Read More expands the synopsis, the hero area grows so the copy never slides under `Theme.navBarReservedHeight`. Quality badges (4K, Dolby Vision, HDR10) are `MetadataChip`s in the hero; the poster is not shown.

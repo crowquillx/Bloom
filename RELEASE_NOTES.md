@@ -1,7 +1,7 @@
 ## What's Changed in v0.8.0
 
 Bloom 0.8.0 adds Spaces, which combine several servers into one Home, library,
-and search. It also adds experimental native Silo support, a new playback
+and search. It also adds native Silo support, a new playback
 overlay, a redesigned interface with a floating navigation rail, and audio
 output control. On Windows, Scoop is now the recommended install method and the
 in-app updater works again.
@@ -106,9 +106,9 @@ in-app updater works again.
 
 ### Servers and sign-in
 
-- Experimental native Silo support covers sign-in, profiles, browsing, artwork,
-  playback with progress reporting, theme songs, and trickplay. It stays
-  labeled experimental until it has been tested against a live Silo server.
+- Native Silo support covers sign-in, profiles, browsing, artwork, playback
+  with progress reporting, theme songs, and trickplay. It uses Silo's own API,
+  so the server's Jellyfin compatibility listener can stay off.
 - Jellyfin requests follow the Jellyfin 12 API contract and avoid obsolete
   endpoints.
 - Jellyfin streams request up to 1 Gbps, so local network playback no longer

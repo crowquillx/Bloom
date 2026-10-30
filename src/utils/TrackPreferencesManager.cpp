@@ -482,13 +482,3 @@ void TrackPreferencesManager::clearMoviePreferences(const QString &movieId)
     }
 }
 
-void TrackPreferencesManager::clearAllPreferences()
-{
-    const QString scopeId = activeScopeId();
-    const bool hadEpisodes = m_episodePreferences.remove(scopeId) > 0;
-    const bool hadMovies = m_moviePreferences.remove(scopeId) > 0;
-    const bool hadData = hadEpisodes || hadMovies;
-    if (hadData) {
-        scheduleSave();
-    }
-}

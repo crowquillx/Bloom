@@ -42,12 +42,6 @@ FocusScope {
         return buttons
     }
 
-    function lastVisibleUpdateTarget() {
-        if (openDownloadPageBtn.visible) return openDownloadPageBtn
-        var rowButtons = visibleUpdateRowButtons()
-        return rowButtons.length > 0 ? rowButtons[rowButtons.length - 1] : null
-    }
-
     function logLevelIndexForValue(value) {
         if (value === "debug") return 1
         if (value === "quiet") return 2
@@ -58,16 +52,6 @@ FocusScope {
         if (index === 1) return "debug"
         if (index === 2) return "quiet"
         return "info"
-    }
-
-    function focusUpdatesDownFromChannel() {
-        if (checkUpdatesBtn.enabled) {
-            checkUpdatesBtn.forceActiveFocus()
-        } else if (openDownloadPageBtn.visible) {
-            openDownloadPageBtn.forceActiveFocus()
-        } else {
-            logLevelCombo.forceActiveFocus()
-        }
     }
 
     function focusLastUpdatesControl() {
@@ -138,7 +122,7 @@ FocusScope {
                 }
 
                 Text {
-                    text: qsTr("Bloom is a media client for Jellyfin and Silo servers designed for the 10-foot TV experience. Native Silo support is experimental and capability-gated.")
+                    text: qsTr("Bloom is a media client for Jellyfin and Silo servers designed for the 10-foot TV experience.")
                     font.pixelSize: Theme.fontSizeSmall
                     font.family: Theme.fontPrimary
                     color: Theme.textSecondary

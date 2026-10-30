@@ -1,8 +1,6 @@
 #pragma once
 
 #include <QAbstractListModel>
-#include <QFutureInterfaceBase>
-#include <QFutureWatcherBase>
 #include <functional>
 
 /**
@@ -57,10 +55,6 @@ protected:
 
     // Maps service-specific errors to user-friendly strings.
     QString mapNetworkError(const QString &endpoint, const QString &error) const;
-
-    // Optional helper to track async work (Qt Concurrent).
-    void setBusyWhile(QFutureWatcherBase &watcher);
-    void setBusyWhile(QFutureInterfaceBase &future);
 
 private:
     bool m_isLoading = false;

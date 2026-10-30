@@ -247,7 +247,8 @@ void LinuxMpvBackend::sendCommand(const QStringList &command)
     commandPtr.append(nullptr);
 
     if (mpv_command_async(handle, 0, commandPtr.data()) < 0) {
-        qCWarning(lcLinuxLibmpvBackend) << "mpv_command_async failed for command" << command;
+        qCWarning(lcLinuxLibmpvBackend) << "mpv_command_async failed for command"
+                                        << redactNetworkLogText(command.join(QLatin1Char(' ')));
     }
 #else
     Q_UNUSED(command);
@@ -368,7 +369,9 @@ void LinuxMpvBackend::sendVariantCommand(const QVariantList &command)
     commandArray.u.list = &commandList;
 
     if (mpv_command_node_async(handle, 0, &commandArray) < 0) {
-        qCWarning(lcLinuxLibmpvBackend) << "mpv_command_node_async failed for command" << command;
+        qCWarning(lcLinuxLibmpvBackend) << "mpv_command_node_async failed for command"
+                                        << redactNetworkLogText(
+                                               QVariant(command).toStringList().join(QLatin1Char(' ')));
     }
 #else
     QStringList converted;
@@ -652,7 +655,12 @@ void LinuxMpvBackend::processMpvEvents()
                 isIntentionalEnd = isIntentionalEnd || endFile->reason == MPV_END_FILE_REASON_QUIT;
                 #endif
             }
-            const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
+            const Bloom::PlaybackPolicy::EndFileReason endReason = endFile != nullptr
+                ? Bloom::PlaybackPolicy::endFileReasonFromLibmpv(endFile->reason)
+                : Bloom::PlaybackPolicy::EndFileReason::Unknown;
+            const bool reachedTerminalPlaybackState = !isRedirectTransition
+                && Bloom::PlaybackPolicy::classifyEndFile(endReason, hasRemainingPlaylistItems)
+                    != Bloom::PlaybackPolicy::EndFileOutcome::Continue;
             const bool recoverablePrematureEof = endFile != nullptr
                 && reachedTerminalPlaybackState
                 && !isIntentionalEnd
@@ -678,7 +686,10 @@ void LinuxMpvBackend::processMpvEvents()
                 emit errorOccurred(errorMessage);
                 return;
             } else if (reachedTerminalPlaybackState) {
-                emit playbackEnded();
+                const QString detail = endFile != nullptr && endFile->error < 0
+                    ? QString::fromUtf8(mpv_error_string(endFile->error))
+                    : QString();
+                emit playbackEnded(endReason, detail);
             }
             break;
         }
@@ -792,6 +803,12 @@ void LinuxMpvBackend::processMpvEvents()
         }
         default:
             break;
+        }
+
+        // Signals reach PlayerController directly, and its handlers may stop
+        // (or replace) playback, which destroys `handle` synchronously.
+        if (m_mpvHandle != handle) {
+            return;
         }
     }
 #endif

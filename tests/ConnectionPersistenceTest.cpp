@@ -7,7 +7,6 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 
-#include "network/SessionManager.h"
 #include "providers/ServerConnection.h"
 #include "security/CredentialStore.h"
 #include "security/ISecretStore.h"
@@ -181,8 +180,6 @@ private slots:
     void credentialStorePrefersCurrentCredentialOverConfigFallback();
     void credentialStoreMigratesConfigFallbackWhenSecureEntriesAreEmpty();
     void credentialStoreDoesNotOverwriteCredentialWhenSecureReadFails();
-    void deviceRotationMigratesLegacyConfigFallback();
-    void deviceRotationAbortsWhenActiveCredentialsCannotBePreserved();
 };
 
 void ConnectionPersistenceTest::defaultConfigHasEmptyConnectionSchema()
@@ -954,42 +951,6 @@ void ConnectionPersistenceTest::credentialStoreDoesNotOverwriteCredentialWhenSec
         connection, CredentialKind::AccessToken);
     QCOMPARE(secretStore.secrets.value(FakeSecretStore::key(CredentialStore::serviceName(), account)),
              QStringLiteral("current-token"));
-}
-
-void ConnectionPersistenceTest::deviceRotationMigratesLegacyConfigFallback()
-{
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    ScopedConfigIsolation isolation(tempDir.path());
-    writeConfig(legacyV27Config(QStringLiteral("legacy-config-token")));
-
-    ConfigManager config;
-    config.load();
-    FakeSecretStore secretStore;
-    SessionManager sessionManager(&config, &secretStore);
-
-    QVERIFY(sessionManager.rotateDeviceId());
-    CredentialStore credentials(&secretStore);
-    QVERIFY(config.getActiveConnection().has_value());
-    QCOMPARE(credentials.read(*config.getActiveConnection(), CredentialKind::AccessToken),
-             QStringLiteral("legacy-config-token"));
-}
-
-void ConnectionPersistenceTest::deviceRotationAbortsWhenActiveCredentialsCannotBePreserved()
-{
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    ScopedConfigIsolation isolation(tempDir.path());
-
-    ConfigManager config;
-    config.load();
-    config.upsertConnection(jellyfinConnection());
-    FakeSecretStore secretStore;
-    SessionManager sessionManager(&config, &secretStore);
-    const QString originalDeviceId = sessionManager.deviceId();
-
-    QVERIFY(!sessionManager.rotateDeviceId());
-    QCOMPARE(sessionManager.deviceId(), originalDeviceId);
 }
 
 QTEST_MAIN(ConnectionPersistenceTest)

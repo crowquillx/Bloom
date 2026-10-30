@@ -14,6 +14,8 @@
 
 #include <optional>
 
+#include "player/PlaybackPolicy.h"
+
 struct PlayerProcessOptions {
     int gracefulQuitTimeoutMs = 750;
     int terminateTimeoutMs = 750;
@@ -63,7 +65,7 @@ signals:
     void durationChanged(double seconds);
     void pauseChanged(bool paused);
     void pausedForCacheChanged(bool paused);
-    void playbackEnded();
+    void playbackEnded(Bloom::PlaybackPolicy::EndFileReason reason, const QString &detail);
     void cacheEndChanged(double seconds);
     void volumeChanged(int volume);
     void muteChanged(bool muted);

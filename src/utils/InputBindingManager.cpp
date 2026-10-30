@@ -94,8 +94,8 @@ void InputBindingManager::initializeActions()
     add("playback.select", "playback", tr("Select"), tr("Activate the focused playback control"), {}, {"gamepad:a"});
     add("playback.back", "playback", tr("Back"), tr("Dismiss playback controls or stop playback"), {}, {"gamepad:b"});
     add("playback.playPause", "playback", tr("Play/Pause"), tr("Toggle playback pause"), {keyBinding(Qt::Key_Space)}, {"gamepad:start"});
-    add("playback.seekBack", "playback", tr("Seek Back"), tr("Seek backward 10 seconds"), {}, {"gamepad:left_shoulder"});
-    add("playback.seekForward", "playback", tr("Seek Forward"), tr("Seek forward 10 seconds"), {}, {"gamepad:right_shoulder"});
+    add("playback.seekBack", "playback", tr("Seek Back"), tr("Seek backward 10 seconds"), {keyBinding(Qt::Key_J)}, {"gamepad:left_shoulder"});
+    add("playback.seekForward", "playback", tr("Seek Forward"), tr("Seek forward 10 seconds"), {keyBinding(Qt::Key_L)}, {"gamepad:right_shoulder"});
     add("playback.previousChapter", "playback", tr("Previous Chapter"), tr("Jump to previous chapter"), {}, {"gamepad:left_trigger"});
     add("playback.nextChapter", "playback", tr("Next Chapter"), tr("Jump to next chapter"), {}, {"gamepad:right_trigger"});
     add("playback.skipSegment", "playback", tr("Skip Intro/Credits"), tr("Skip the active media segment"), {}, {});
@@ -163,6 +163,39 @@ QString InputBindingManager::actionForKeyboardEvent(int key, int modifiers, cons
         actionId = actionForBinding(kDeviceKeyboard, fallbackBinding, runtimeContext);
     }
     return actionId;
+}
+
+QVariantList InputBindingManager::keyboardShortcuts(const QString &runtimeContext) const
+{
+    const QString normalizedRuntimeContext = normalizeRuntimeContext(runtimeContext);
+    QVariantList shortcuts;
+    QSet<QString> sequences;
+    for (const auto &action : m_actions) {
+        if (!actionMatchesRuntimeContext(action, normalizedRuntimeContext)) {
+            continue;
+        }
+        for (const QString &binding : effectiveBindings(QString::fromLatin1(kDeviceKeyboard), action.id)) {
+            if (!binding.startsWith(QStringLiteral("key:"))) {
+                continue;
+            }
+            const QKeySequence keySequence =
+                QKeySequence::fromString(binding.mid(4), QKeySequence::PortableText);
+            if (keySequence.count() != 1 || keySequence[0].key() == Qt::Key_unknown) {
+                continue;
+            }
+            const QString sequence = keySequence.toString(QKeySequence::PortableText);
+            // actionForBinding resolves a shared key to the first action.
+            if (sequences.contains(sequence)) {
+                continue;
+            }
+            sequences.insert(sequence);
+            shortcuts.append(QVariantMap{
+                {QStringLiteral("sequence"), sequence},
+                {QStringLiteral("actionId"), action.id},
+            });
+        }
+    }
+    return shortcuts;
 }
 
 QString InputBindingManager::bindingForKeyboardEvent(int key, int modifiers) const
@@ -313,17 +346,6 @@ void InputBindingManager::resetActionBindings(const QString &device, const QStri
     QVariantMap deviceMap = saved.value(normalizedDevice).toMap();
     deviceMap.remove(actionId);
     saved[normalizedDevice] = deviceMap;
-    persistBindings(saved);
-}
-
-void InputBindingManager::resetDeviceBindings(const QString &device)
-{
-    const QString normalizedDevice = normalizeDevice(device);
-    if (normalizedDevice.isEmpty()) {
-        return;
-    }
-    QVariantMap saved = m_config ? m_config->getInputBindings() : QVariantMap();
-    saved[normalizedDevice] = QVariantMap();
     persistBindings(saved);
 }
 
