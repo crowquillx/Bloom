@@ -38,11 +38,6 @@ QtObject {
         }
     }
 
-    // Reserved for future subtitle copy; badge alone is shown for now.
-    function reasonLine(reason) {
-        return ""
-    }
-
     function reset() {
         heroModel = []
         loading = false

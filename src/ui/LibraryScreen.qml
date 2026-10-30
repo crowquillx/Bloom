@@ -427,14 +427,6 @@ FocusScope {
         }
     }
 
-    function consumeSeriesDetailsReturnState() {
-        var state = _seriesDetailsReturnState
-        _seriesDetailsReturnState = null
-        _restoreSeriesDetailsReturnState = false
-        restoringFocusFromSeriesDetailsReturn = false
-        return state
-    }
-
     function clearSeriesDetailsReturnState() {
         _seriesDetailsReturnState = null
         _restoreSeriesDetailsReturnState = false
@@ -2812,23 +2804,6 @@ FocusScope {
         return name
     }
 
-    function formatMetaLine(item) {
-        if (!item)
-            return ""
-        const mediaType = item.mediaType || ""
-        const childCount = item.childCount || 0
-        const durationMs = item.durationMs || 0
-        var parts = []
-        var year = item.productionYear || extractYear(item.premiereDate)
-        if (year)
-            parts.push(year)
-        if (mediaType === "Series" && childCount)
-            parts.push(childCount + " items")
-        if (mediaType === "Movie" && durationMs)
-            parts.push(Math.round(durationMs / 60000) + " min")
-        return parts.join(" • ")
-    }
-
     // Poster subtitle per the style guide: year for movies, a year range for
     // series, "S1 E4 · Title" for episodes.
     function formatCardSubtitle(item) {
@@ -2854,37 +2829,6 @@ FocusScope {
             return end && end !== start ? start + " – " + end : String(start)
         }
         return String(start)
-    }
-
-    function formatTypeChip(item) {
-        if (!item)
-            return ""
-        switch (item.mediaType || "") {
-        case "Series": return "Series"
-        case "Season": return "Season"
-        case "Movie": return "Movie"
-        case "Episode": return "Episode"
-        case "CollectionFolder": return "Collection"
-        case "UserView": return "Library"
-        default: return ""
-        }
-    }
-
-    function formatCountBadge(item) {
-        if (!item)
-            return ""
-        const mediaType = item.mediaType || ""
-        const childCount = item.childCount || 0
-        const indexNumber = item.indexNumber !== undefined && item.indexNumber >= 0
-                ? item.indexNumber : undefined
-        const productionYear = item.productionYear || 0
-        if (mediaType === "Series" && childCount)
-            return childCount.toString()
-        if (mediaType === "Season" && indexNumber !== undefined)
-            return "S" + indexNumber
-        if (mediaType === "Movie" && productionYear)
-            return productionYear.toString()
-        return ""
     }
 
     function extractYear(dateString) {
