@@ -42,7 +42,6 @@ public:
                                          const QString &binding,
                                          bool clearConflicts = false);
     Q_INVOKABLE void resetActionBindings(const QString &device, const QString &actionId);
-    Q_INVOKABLE void resetDeviceBindings(const QString &device);
     Q_INVOKABLE void resetContextBindings(const QString &device, const QString &context);
     Q_INVOKABLE void resetAllBindings();
     Q_INVOKABLE QVariantList conflictsForBinding(const QString &device,

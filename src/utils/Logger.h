@@ -110,34 +110,6 @@ public:
     bool isConsoleOutputEnabled() const;
 
     /**
-     * @brief Set the maximum log file size before rotation
-     * @param sizeMB Maximum size in megabytes
-     */
-    void setMaxFileSize(int sizeMB);
-
-    /**
-     * @brief Set the maximum number of rotated log files to keep
-     * @param count Maximum number of rotated files
-     */
-    void setMaxRotatedFiles(int count);
-
-    /**
-     * @brief Set the maximum age of log files before deletion
-     * @param days Maximum age in days
-     */
-    void setMaxLogAge(int days);
-
-    /**
-     * @brief Manually trigger log rotation
-     */
-    void rotateLog();
-
-    /**
-     * @brief Manually trigger cleanup of old log files
-     */
-    void cleanupOldLogs();
-
-    /**
      * @brief Flush any buffered log messages to disk
      */
     void flush();

@@ -144,46 +144,6 @@ bool Logger::isConsoleOutputEnabled() const
     return m_consoleOutputEnabled;
 }
 
-void Logger::setMaxFileSize(int sizeMB)
-{
-    QMutexLocker locker(&m_mutex);
-    if (sizeMB > 0) {
-        m_maxFileSizeMB = sizeMB;
-    }
-}
-
-void Logger::setMaxRotatedFiles(int count)
-{
-    QMutexLocker locker(&m_mutex);
-    if (count >= 0) {
-        m_maxRotatedFiles = count;
-    }
-}
-
-void Logger::setMaxLogAge(int days)
-{
-    QMutexLocker locker(&m_mutex);
-    if (days > 0) {
-        m_maxLogAgeDays = days;
-    }
-}
-
-void Logger::rotateLog()
-{
-    QMutexLocker locker(&m_mutex);
-    if (m_initialized) {
-        performRotation();
-    }
-}
-
-void Logger::cleanupOldLogs()
-{
-    QMutexLocker locker(&m_mutex);
-    if (m_initialized) {
-        deleteOldLogs();
-    }
-}
-
 void Logger::flush()
 {
     QMutexLocker locker(&m_mutex);
