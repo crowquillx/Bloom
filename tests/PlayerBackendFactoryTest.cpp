@@ -15,6 +15,9 @@
 #if defined(Q_OS_WIN)
 #include "player/backend/WindowsMpvBackend.h"
 #endif
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+#include "player/backend/LinuxMpvBackend.h"
+#endif
 
 class PlayerBackendFactoryTest : public QObject
 {
@@ -61,6 +64,7 @@ private slots:
     void externalBackendRuntimeIsUnknownUntilProbed();
     void externalBackendEnumeratesAudioDevicesWhileIdle();
     void linkedRuntimeEnumeratesAudioDevices();
+    void linuxBackendSurvivesStopFromEndFileHandler();
 };
 
 void PlayerBackendFactoryTest::init()
@@ -584,6 +588,40 @@ void PlayerBackendFactoryTest::linkedRuntimeEnumeratesAudioDevices()
     QCOMPARE(second.result(), devices);
 #else
     QSKIP("libmpv is not linked");
+#endif
+}
+
+void PlayerBackendFactoryTest::linuxBackendSurvivesStopFromEndFileHandler()
+{
+#if defined(Q_OS_LINUX) && defined(BLOOM_HAS_LIBMPV)
+    if (!LinuxMpvBackend::isRuntimeSupported()) {
+        QSKIP("Linux libmpv runtime is not supported in this environment");
+    }
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+
+    // PlayerController stops playback from its playbackEnded handler, which
+    // destroys the mpv handle while the backend is still draining events.
+    LinuxMpvBackend backend;
+    int endedCount = 0;
+    Bloom::PlaybackPolicy::EndFileReason endedReason = Bloom::PlaybackPolicy::EndFileReason::Unknown;
+    connect(&backend, &IPlayerBackend::playbackEnded, &backend,
+            [&](Bloom::PlaybackPolicy::EndFileReason reason, const QString &) {
+                ++endedCount;
+                endedReason = reason;
+                backend.stopMpv();
+            });
+    backend.startMpv(QString(), {QStringLiteral("--ao=null")},
+                     directory.filePath(QStringLiteral("missing.mkv")));
+    if (!backend.isRunning()) {
+        QSKIP("libmpv could not be initialized");
+    }
+
+    QTRY_COMPARE_WITH_TIMEOUT(endedCount, 1, 10000);
+    QCOMPARE(endedReason, Bloom::PlaybackPolicy::EndFileReason::Error);
+    QVERIFY(!backend.isRunning());
+#else
+    QSKIP("Linux libmpv backend is not built");
 #endif
 }
 

@@ -63,6 +63,7 @@ Windows embedded overlay layering model
 - Replacement playback requested during an in-flight terminal transition is queued until that transition finalizes, so a new item cannot start against stale embedded playback teardown state.
 - Windows display restoration after playback stop is deferred and non-blocking. HDR-off settle and refresh-rate restore are scheduled after the UI returns to `Idle`, allowing the main scene and detached playback overlay window to repaint/hide promptly. When post-playback Up Next is shown, Bloom parks that restore until the user either leaves Up Next or starts another episode, avoiding a restore-then-switch cycle between consecutive episodes.
 - Natural playback end, explicit stop, and error-triggered shutdown now share one coordinated terminal-transition path so reporting/autoplay work runs once per playback attempt.
+- Only the `loadfile` and `stop` command replies are fatal on `win-libmpv`; both carry known reply userdata. Any other failed command (for example `sub-add` of an external subtitle that returns 404) is logged and playback continues, as on the Linux and external backends.
 - Windows direct-libmpv event handling now suppresses playback reactivation events (`START_FILE`/`FILE_LOADED`/`PLAYBACK_RESTART`/`SEEK`) while a stop command is pending, preventing stale wakeup events from re-showing the embedded host window as a black frame during teardown.
 - Refresh-rate matching starts mpv with explicit display-sync options for exact matches (`--video-sync=display-resample` plus `--display-fps=<content fps>`), except when the user has chosen to keep an already compatible higher multiple such as 120Hz for 23.976fps content. This avoids pacing fractional Windows modes as integer 23/29/59Hz after Bloom switches the display.
 - Windows direct-libmpv diagnostics request mpv log messages by default at `warn` level and include detailed terminal event/teardown breadcrumbs. Set `BLOOM_WINDOWS_LIBMPV_MPV_LOG=info`, `debug`, or `trace` before launching Bloom to collect more mpv-side detail for playback termination, renderer, HDR, and shader diagnosis; use `no`/`off` to disable mpv log forwarding.
@@ -140,10 +141,16 @@ Linux embedded backend details (experimental)
   - stricter embedded arg filtering for render-critical options (`gpu-context`, `gpu-api`, and context-specific backend flags),
   - debug instrumentation behind `BLOOM_LINUX_LIBMPV_DEBUG=1` for runtime graphics API/FBO diagnostics,
   - automatic software-render fallback (`MPV_RENDER_API_TYPE_SW`) when OpenGL embedded rendering repeatedly reports an invalid framebuffer target on Linux runtime stacks.
+  - an event loop that stops draining mpv events as soon as a signal handler destroys or replaces the mpv handle (for example `PlayerController` calling `stopMpv()` from its `playbackEnded` handler).
 - Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing.
 - Current Linux support status: embedded path is not yet considered fully supported across compositor/driver combinations; treat `external-mpv-ipc` as the stable production path while Linux embedded validation continues.
 - Controller parity hardening now preserves next-up/autoplay context across playback teardown, so next-episode prefetch/lookup flows keep the expected series/item/track state.
 - Unit regression coverage now includes the mismatched-series guard for async next-episode callbacks to prevent stale-series autoplay context from being consumed.
+
+End of file
+- Every backend classifies mpv's `end-file` through `Bloom::PlaybackPolicy::classifyEndFile` and reports `IPlayerBackend::playbackEnded(reason, detail)` with the end reason (`eof`, `stop`, `quit`, `error`, `redirect`, `unknown`). A redirect or an entry followed by more playlist entries is not terminal.
+- `PlayerController` treats `reason=error` as a playback error: a 404 or a failed transcode while Loading shows the error at once instead of waiting for the loading timeout, and an error mid-file never marks the item watched or opens Up Next. Recoverable stream failures still go through automatic recovery.
+- Natural end is accepted from Loading, Buffering, Playing, and Paused. If terminal finalization finds no state transition, the controller still enters Idle (or Error) so an active state never outlives a stopped backend.
 
 Key components
 - IPlayerBackend: playback backend contract used by `PlayerController`.
@@ -328,6 +335,7 @@ Track Preference Persistence
   - If no anchor exists, fall back to the first unplayed regular episode, then to the first unplayed special.
 - Tie-breakers when play dates are missing or equal prefer later canonical position, then larger `PlaybackPositionTicks`.
 - `excludeItemId` is used by autoplay/prefetch so the player can advance from the current item even before Jellyfin has updated watch state on the server.
+- If the end-of-playback lookup fails (`LibraryService::nextUnplayedEpisodeFailed` with the matching `player:resolve:` request context), `PlayerController` drops the pending autoplay context, which ends the Up Next handoff surface, and starts the display/HDR restore it had parked for Up Next. A failed prefetch is ignored; playback end resolves the next episode again.
 - `UpNextScreen.qml` shows the series backdrop and logo with the queued episode's `S# E# • Name`, overview, an autoplay countdown ring, a primary "Play S# E#" hero button, and an icon-only Close (back to the episode list, same as Escape/Back). It follows the hero archetype in `docs/style-guide.md`: `StageBackdrop`, eyebrow, display-type title fallback, and a landscape `MediaCard` shelf. Its bottom row lists the queued episode and the rest of its season from `UpNextRecommendationsViewModel::upcomingEpisodes` (same season number, missing episodes skipped). Focusing a row card previews that episode in the hero and cancels the countdown; activating one plays it through `PlayerController::playNextEpisode`.
 - The post-playback flow is one continuous surface. While the next episode resolves, `Main.qml` covers the window with an opaque `Theme.backgroundPrimary` handoff surface (spinner after 600 ms) so the page underneath never flashes. After a play request, Up Next stays on screen in its `starting` state until playback covers the window (the embedded video surface becomes active, or playback reaches Playing/Paused), then pops. An error, a return to Idle, or a 45 s fallback also ends the handoff.
 - If no next episode is available, post-playback navigation still opens `UpNextScreen.qml` in an empty state. The screen must keep keyboard focus and offer actions back to Home or the series.
@@ -496,4 +504,4 @@ Troubleshooting
 - If track selection doesn't sync, verify that `playSessionId` is being passed correctly in all reporting calls.
 - If track preferences aren't being restored, check that `track_preferences.json` is schema version 4 and that the active connection under `scopes` contains the relevant `episodes` or `movies` entry. Unset preferences intentionally fall back to provider/file defaults and are not written.
 
-Native mpv backend logs and trickplay download errors redact complete HTTP URLs and relative query credentials before logging or emitting error text. External mpv output remains drained without logging.
+Native mpv backend logs and trickplay download errors redact complete HTTP URLs and relative query credentials before logging or emitting error text. This covers media URLs (Jellyfin stream URLs carry `ApiKey=`), logged mpv commands and property values, and mpv's `end-file` error text. External mpv output remains drained without logging.

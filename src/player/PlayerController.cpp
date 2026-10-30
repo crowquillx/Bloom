@@ -187,6 +187,8 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     // Connect to LibraryService for autoplay next episode
     connect(m_libraryService, &LibraryService::canonicalNextUnplayedEpisodeLoaded,
             this, &PlayerController::onNextEpisodeLoaded);
+    connect(m_libraryService, &LibraryService::nextUnplayedEpisodeFailed,
+            this, &PlayerController::onNextEpisodeFailed);
     connect(m_libraryService, &LibraryService::itemLibraryResolved,
             this, &PlayerController::onItemLibraryResolved);
     connect(m_libraryService, &LibraryService::itemLibraryResolutionFailed,
@@ -549,12 +551,14 @@ void PlayerController::setupStateMachine()
     m_transitions[{Loading, Event::LoadComplete}] = Buffering;
     m_transitions[{Loading, Event::ErrorOccurred}] = Error;
     m_transitions[{Loading, Event::Stop}] = Idle;
+    m_transitions[{Loading, Event::PlaybackEnd}] = Idle;
     
     // From Buffering
     m_transitions[{Buffering, Event::BufferComplete}] = Playing;
     m_transitions[{Buffering, Event::ErrorOccurred}] = Error;
     m_transitions[{Buffering, Event::Stop}] = Idle;
     m_transitions[{Buffering, Event::Pause}] = Paused;
+    m_transitions[{Buffering, Event::PlaybackEnd}] = Idle;
     
     // From Playing
     m_transitions[{Playing, Event::Pause}] = Paused;
@@ -568,6 +572,7 @@ void PlayerController::setupStateMachine()
     m_transitions[{Paused, Event::Play}] = Loading;  // New content
     m_transitions[{Paused, Event::ErrorOccurred}] = Error;
     m_transitions[{Paused, Event::Stop}] = Idle;
+    m_transitions[{Paused, Event::PlaybackEnd}] = Idle;
     
     // From Error
     m_transitions[{Error, Event::Recover}] = Idle;
@@ -1327,8 +1332,28 @@ void PlayerController::onPauseChanged(bool paused)
  *
  * Processes end-of-playback state, performs stop-related reporting, and initiates any configured autoplay or next-episode navigation logic.
  */
-void PlayerController::onPlaybackEnded()
+void PlayerController::onPlaybackEnded(Bloom::PlaybackPolicy::EndFileReason reason,
+                                       const QString &detail)
 {
+    // A file mpv could not open or read ends with reason=error. It must not
+    // count as a natural end (watched state, Up Next) or wait for the
+    // loading timeout. Check it before the guards below: loadfile replace
+    // ends the previous file with reason=stop, never error, and backends
+    // already hold back ends that mpv follows with another playlist entry,
+    // so an error here is a failed replacement or a failed last entry (for
+    // example a reloaded non-final segment, whose playlist has one entry).
+    if (PlayerPolicy::classifyEndFile(reason, false) == PlayerPolicy::EndFileOutcome::Failed) {
+        m_ignoreReplacedFileEnd = false;
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] playback-ended"
+                                << "reason=" << PlayerPolicy::endFileReasonName(reason)
+                                << "segmentIndex=" << m_activePlaybackSegmentIndex;
+        onProcessError(detail.isEmpty()
+                           ? tr("Playback failed.")
+                           : tr("Playback failed: %1").arg(redactNetworkLogText(detail)));
+        return;
+    }
+
     if (m_ignoreReplacedFileEnd) {
         // loadfile replace ends the previous file first. A new file that fails
         // to load ends again after this flag clears.
@@ -1347,6 +1372,7 @@ void PlayerController::onPlaybackEnded()
     qCDebug(lcPlayback) << "PlayerController: Playback ended";
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] playback-ended"
+                            << "reason=" << PlayerPolicy::endFileReasonName(reason)
                             << "position=" << m_currentPosition
                             << "duration=" << m_duration;
 
@@ -1531,7 +1557,18 @@ void PlayerController::finalizeTerminalTransition()
                             << "state=" << stateToString(m_playbackState);
 
     resetTerminalTransitionState();
-    processEvent(eventForTerminalReason(reason));
+    if (!processEvent(eventForTerminalReason(reason))
+        && m_playbackState != Idle && m_playbackState != Error) {
+        // The backend has already stopped; never leave the controller in an
+        // active state (and its timeouts running) behind a stopped backend.
+        const PlaybackState fallbackState = reason == TerminalReason::Error ? Error : Idle;
+        qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                   << "] terminal-transition forced"
+                                   << "from=" << stateToString(m_playbackState)
+                                   << "to=" << stateToString(fallbackState);
+        exitState(m_playbackState);
+        enterState(fallbackState);
+    }
 
     if (runPendingReplacementPlaybackAction()) {
         return;
@@ -2031,6 +2068,37 @@ void PlayerController::onNextEpisodeLoaded(const QString &connectionId,
     emitNavigateToNextEpisodeQueued(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay);
     
     // Note: Don't clear pending autoplay context here - playNextEpisode() needs it
+}
+
+/**
+ * @brief Handle a failed next-episode lookup.
+ *
+ * A failed prefetch is ignored; playback end resolves the next episode again.
+ * When the end-of-playback lookup fails, Up Next cannot open, so the pending
+ * autoplay context is dropped (which ends the Up Next handoff surface) and
+ * the display restore parked for Up Next starts.
+ */
+void PlayerController::onNextEpisodeFailed(const QString &seriesId,
+                                           const QString &error,
+                                           const QString &requestContext)
+{
+    if (!m_waitingForNextEpisodeAtPlaybackEnd || !m_shouldAutoplay) {
+        return;
+    }
+    if (!matchesPlaybackRequestContext(requestContext, true)) {
+        return;
+    }
+    if (!m_pendingAutoplaySeriesId.isEmpty() && seriesId != m_pendingAutoplaySeriesId) {
+        return;
+    }
+
+    qCWarning(lcPlayback) << "Next-episode lookup failed; skipping Up Next"
+                          << "seriesId=" << seriesId
+                          << "error=" << redactNetworkLogText(error);
+    m_shouldAutoplay = false;
+    clearNextEpisodePrefetchState();
+    clearPendingAutoplayContext();
+    maybeStartDeferredPostPlaybackDisplayRestore();
 }
 
 void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo)
@@ -4331,7 +4399,8 @@ void PlayerController::onRecoveryTick()
                 }
             }
         } else {
-            qCDebug(lcPlayback) << "PlayerController: Recovery ping failed:" << reply->errorString();
+            qCDebug(lcPlayback) << "PlayerController: Recovery ping failed:"
+                                << redactNetworkLogText(reply->errorString());
             if (m_isRecovering) {
                 m_recoveryTimer->start(kRecoveryPingIntervalMs);
             }

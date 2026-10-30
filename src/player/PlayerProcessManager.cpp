@@ -1001,8 +1001,16 @@ void PlayerProcessManager::handleIpcObject(const QJsonObject &object)
         const bool hasRemainingPlaylistItems = m_playlistCount > 0
             && m_playlistPosition >= 0
             && (m_playlistPosition + 1) < m_playlistCount;
-        if (!hasRemainingPlaylistItems) {
-            emit playbackEnded();
+        const auto reason = Bloom::PlaybackPolicy::endFileReasonFromName(
+            object.value(QStringLiteral("reason")).toString());
+        if (Bloom::PlaybackPolicy::classifyEndFile(reason, hasRemainingPlaylistItems)
+            != Bloom::PlaybackPolicy::EndFileOutcome::Continue) {
+            const QString detail = redactNetworkLogText(
+                object.value(QStringLiteral("file_error")).toString());
+            qCInfo(lcPlaybackIpc) << "mpv end-file"
+                                  << "reason=" << Bloom::PlaybackPolicy::endFileReasonName(reason)
+                                  << "fileError=" << detail;
+            emit playbackEnded(reason, detail);
         }
         return;
     }

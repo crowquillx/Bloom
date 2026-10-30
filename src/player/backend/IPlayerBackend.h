@@ -55,7 +55,10 @@ signals:
     void durationChanged(double seconds);
     void pauseChanged(bool paused);
     void pausedForCacheChanged(bool paused);
-    void playbackEnded();
+    // mpv finished the last playlist entry. `detail` is mpv's error text
+    // when `reason` is Error. Backends filter non-terminal entries through
+    // Bloom::PlaybackPolicy::classifyEndFile.
+    void playbackEnded(Bloom::PlaybackPolicy::EndFileReason reason, const QString &detail);
     // mpv opened a file (the first, a playlist entry, or a loadfile replace).
     void fileLoaded();
     void cacheEndChanged(double seconds);

@@ -79,7 +79,7 @@ Acts as the data source for `MovieDetailsView.qml`. It aggregates canonical movi
 
 ### Integration
 - **Services**: Retrieves `LibraryService` via `ServiceLocator` for movie details, user-data updates, and similar-item requests.
-- **Network**: Uses an internal `QNetworkAccessManager` for MDBList and Wikidata/AniList lookups.
+- **Network**: Uses an internal `QNetworkAccessManager` for MDBList and Wikidata/AniList lookups through `ExternalRatingsHelper`. Each request has a 15 s transfer timeout, and error text is passed through `redactNetworkLogText` because the MDBList request URL carries the API key.
 - **Config**: Reads `ConfigManager` for API keys and cache storage paths.
 
 ### Lifecycle & Side Effects

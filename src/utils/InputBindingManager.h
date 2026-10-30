@@ -34,6 +34,10 @@ public:
     Q_INVOKABLE QString actionForKeyboardEvent(int key, int modifiers) const;
     Q_INVOKABLE QString actionForKeyboardEvent(int key, int modifiers, const QString &runtimeContext) const;
     Q_INVOKABLE QString bindingForKeyboardEvent(int key, int modifiers) const;
+    // Keyboard bindings of a runtime context as window shortcuts:
+    // [{sequence: "Shift+I", actionId: "playback.statsOnce"}, ...]. A key
+    // bound to several actions maps to the one actionForKeyboardEvent picks.
+    Q_INVOKABLE QVariantList keyboardShortcuts(const QString &runtimeContext) const;
     Q_INVOKABLE QString displayTextForBinding(const QString &binding) const;
     Q_INVOKABLE QVariantList bindingsForAction(const QString &device, const QString &actionId) const;
     Q_INVOKABLE bool setBindingsForAction(const QString &device, const QString &actionId, const QVariantList &bindings);

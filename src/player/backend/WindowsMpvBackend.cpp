@@ -278,6 +278,7 @@ void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args,
     m_playlistCount = 0;
     m_stopRequested = false;
     m_pendingStopReplyUserdata = 0;
+    m_pendingLoadReplyUserdata = 0;
     m_streamFailures.clear();
 
 #if defined(Q_OS_WIN)
@@ -317,7 +318,8 @@ void WindowsMpvBackend::appendUrlsToPlaylist(const QStringList &mediaUrls)
             continue;
         }
         if (!sendVariantCommandDirect(QVariantList{"loadfile", mediaUrl, "append-play"})) {
-            qCWarning(lcWindowsLibmpvBackend) << "Failed to append media URL to playlist" << mediaUrl;
+            qCWarning(lcWindowsLibmpvBackend) << "Failed to append media URL to playlist"
+                                              << redactNetworkLogText(mediaUrl);
         }
     }
 #endif
@@ -388,7 +390,8 @@ bool WindowsMpvBackend::isRunning() const
 void WindowsMpvBackend::sendCommand(const QStringList &command)
 {
     if (!m_directControlActive) {
-        qCWarning(lcWindowsLibmpvBackend) << "Dropped command - direct control inactive" << command;
+        qCWarning(lcWindowsLibmpvBackend) << "Dropped command - direct control inactive"
+                                          << redactNetworkLogText(command.join(QLatin1Char(' ')));
         return;
     }
 
@@ -399,19 +402,24 @@ void WindowsMpvBackend::sendCommand(const QStringList &command)
     }
 
     if (!sendVariantCommandDirect(variantCommand)) {
-        qCWarning(lcWindowsLibmpvBackend) << "Failed direct command dispatch" << command;
+        qCWarning(lcWindowsLibmpvBackend) << "Failed direct command dispatch"
+                                          << redactNetworkLogText(command.join(QLatin1Char(' ')));
     }
 }
 
 void WindowsMpvBackend::sendVariantCommand(const QVariantList &command)
 {
     if (!m_directControlActive) {
-        qCWarning(lcWindowsLibmpvBackend) << "Dropped command - direct control inactive" << command;
+        qCWarning(lcWindowsLibmpvBackend) << "Dropped command - direct control inactive"
+                                          << redactNetworkLogText(
+                                                 QVariant(command).toStringList().join(QLatin1Char(' ')));
         return;
     }
 
     if (!sendVariantCommandDirect(command)) {
-        qCWarning(lcWindowsLibmpvBackend) << "Failed direct variant command dispatch" << command;
+        qCWarning(lcWindowsLibmpvBackend) << "Failed direct variant command dispatch"
+                                          << redactNetworkLogText(
+                                                 QVariant(command).toStringList().join(QLatin1Char(' ')));
     }
 }
 
@@ -646,7 +654,7 @@ void WindowsMpvBackend::logHdrDiagnostics(const QStringList &args, const QString
 
     qCInfo(lcWindowsLibmpvBackend)
         << "HDR diagnostics"
-        << "media=" << mediaUrl
+        << "media=" << redactNetworkLogText(mediaUrl)
         << "profile=" << m_currentProfileName
         << "windowsRenderApi=" << m_currentWindowsRenderApi
         << "effectiveVo=" << m_effectiveVo
@@ -945,6 +953,7 @@ void WindowsMpvBackend::teardownMpv()
     m_playlistCount = 0;
     m_stopRequested = false;
     m_pendingStopReplyUserdata = 0;
+    m_pendingLoadReplyUserdata = 0;
     m_streamFailures.clear();
     setDirectRunning(false);
     m_directControlActive = false;
@@ -993,9 +1002,10 @@ bool WindowsMpvBackend::queueLoadFile(const QString &mediaUrl)
     const char *command[] = {"loadfile", mediaUrlUtf8.constData(), "replace", nullptr};
     qCInfo(lcWindowsLibmpvBackend)
         << "Dispatching direct libmpv loadfile"
-        << "media=" << mediaUrl;
+        << "media=" << redactNetworkLogText(mediaUrl);
     Logger::instance().flush();
-    const int status = mpv_command_async(handle, 0, command);
+    const quint64 replyUserdata = ++gWindowsMpvReplyUserdataCounter;
+    const int status = mpv_command_async(handle, static_cast<uint64_t>(replyUserdata), command);
     if (status < 0) {
         qCWarning(lcWindowsLibmpvBackend)
             << "Direct libmpv loadfile dispatch failed"
@@ -1003,6 +1013,7 @@ bool WindowsMpvBackend::queueLoadFile(const QString &mediaUrl)
         Logger::instance().flush();
         return false;
     }
+    m_pendingLoadReplyUserdata = replyUserdata;
     return true;
 #endif
 }
@@ -1073,13 +1084,6 @@ void WindowsMpvBackend::processMpvEvents()
             bool isRedirectTransition = false;
 
             if (endFile != nullptr) {
-                if (endFile->reason == MPV_END_FILE_REASON_ERROR && endFile->error < 0) {
-                    const QString errorMessage = QStringLiteral("libmpv end-file error: %1")
-                                                     .arg(QString::fromUtf8(mpv_error_string(endFile->error)));
-                    qCWarning(lcWindowsLibmpvBackend) << errorMessage;
-                    emit errorOccurred(errorMessage);
-                }
-
                 if (endFile->reason == MPV_END_FILE_REASON_REDIRECT) {
                     isRedirectTransition = true;
                     shouldEmitPlaybackEnded = false;
@@ -1089,7 +1093,12 @@ void WindowsMpvBackend::processMpvEvents()
             const bool hasRemainingPlaylistItems = m_playlistCount > 0
                 && m_playlistPosition >= 0
                 && (m_playlistPosition + 1) < m_playlistCount;
-            const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
+            const Bloom::PlaybackPolicy::EndFileReason endReason = endFile != nullptr
+                ? Bloom::PlaybackPolicy::endFileReasonFromLibmpv(endFile->reason)
+                : Bloom::PlaybackPolicy::EndFileReason::Unknown;
+            const bool reachedTerminalPlaybackState = !isRedirectTransition
+                && Bloom::PlaybackPolicy::classifyEndFile(endReason, hasRemainingPlaylistItems)
+                    != Bloom::PlaybackPolicy::EndFileOutcome::Continue;
 
             const bool endedWithError = endFile != nullptr && endFile->reason == MPV_END_FILE_REASON_ERROR;
             const bool endedWithEof = endFile != nullptr && endFile->reason == MPV_END_FILE_REASON_EOF;
@@ -1158,11 +1167,15 @@ void WindowsMpvBackend::processMpvEvents()
                 && m_pendingStopReplyUserdata == 0;
 
             if (shouldEmitPlaybackEnded && reachedTerminalPlaybackState) {
+                // PlayerController treats an Error reason as a playback failure.
+                const QString detail = endFile != nullptr && endFile->error < 0
+                    ? QString::fromUtf8(mpv_error_string(endFile->error))
+                    : QString();
                 if (!replacedEntry) {
                     teardownMpv();
                     syncContainerGeometry();
                 }
-                emit playbackEnded();
+                emit playbackEnded(endReason, detail);
                 return;
             }
 
@@ -1200,12 +1213,26 @@ void WindowsMpvBackend::processMpvEvents()
                 syncContainerGeometry();
                 return;
             }
+            if (m_pendingLoadReplyUserdata != 0
+                && static_cast<quint64>(event->reply_userdata) == m_pendingLoadReplyUserdata) {
+                m_pendingLoadReplyUserdata = 0;
+                if (event->error < 0) {
+                    const QString errorMessage = QStringLiteral("libmpv loadfile failed: %1")
+                                                     .arg(QString::fromUtf8(mpv_error_string(event->error)));
+                    qCWarning(lcWindowsLibmpvBackend) << errorMessage;
+                    emit errorOccurred(errorMessage);
+                }
+                break;
+            }
             if (event->error < 0) {
-                const QString errorMessage = QStringLiteral("libmpv command failed (id=%1): %2")
-                                                 .arg(static_cast<qulonglong>(event->reply_userdata))
-                                                 .arg(QString::fromUtf8(mpv_error_string(event->error)));
-                qCWarning(lcWindowsLibmpvBackend) << errorMessage;
-                emit errorOccurred(errorMessage);
+                // Only loadfile and stop are fatal; a failed auxiliary command
+                // (for example sub-add of an external subtitle that 404s) must
+                // not end playback. The Linux and external backends behave
+                // the same way.
+                qCWarning(lcWindowsLibmpvBackend)
+                    << "libmpv command failed"
+                    << "replyUserdata=" << static_cast<qulonglong>(event->reply_userdata)
+                    << "error=" << QString::fromUtf8(mpv_error_string(event->error));
             }
             break;
         case MPV_EVENT_IDLE:
@@ -1378,6 +1405,11 @@ void WindowsMpvBackend::processMpvEvents()
                     << "error=" << event->error;
             }
             break;
+        }
+
+        // Signal handlers may tear down or replace the handle synchronously.
+        if (m_mpvHandle != handle) {
+            return;
         }
     }
 #endif
@@ -1717,7 +1749,7 @@ bool WindowsMpvBackend::sendVariantCommandDirect(const QVariantList &command)
                 << "Direct libmpv set_property failed:"
                 << QString::fromUtf8(mpv_error_string(status))
                 << "property=" << propertyName
-                << "value=" << propertyValue;
+                << "value=" << redactNetworkLogText(propertyValue.toString());
             return false;
         }
 
@@ -1783,7 +1815,7 @@ bool WindowsMpvBackend::sendVariantCommandDirect(const QVariantList &command)
         qCWarning(lcWindowsLibmpvBackend)
             << "Direct libmpv command dispatch error:"
             << QString::fromUtf8(mpv_error_string(status))
-            << "command=" << command;
+            << "command=" << redactNetworkLogText(QVariant(command).toStringList().join(QLatin1Char(' ')));
         return false;
     }
 

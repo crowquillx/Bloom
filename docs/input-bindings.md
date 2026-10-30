@@ -18,11 +18,36 @@ Storage
 Runtime
 - `InputBindingManager.actionForKeyboardEvent(key, modifiers, runtimeContext)` maps QML key events to action ids.
 - Passing a runtime context allows the same key to mean different things in different modes, for example Space is navigation select in `navigation` and play/pause in `playback`.
+- During playback, `Main.qml` registers a window `Shortcut` for every keyboard binding in the `playback` runtime context, built from `InputBindingManager.keyboardShortcuts("playback")` and rebuilt when bindings change. Each one runs the bound action through `EmbeddedPlaybackOverlay.handlePlaybackAction`, so a key does what its binding says even while no playback control has focus. Under external mpv, which has no Bloom overlay, play/pause, seek, subtitle style override, deband and the stats actions still work. Playback keys are never hardcoded to a different action.
 - SDL2 gamepad input is polled in C++ when SDL2 is available at build time. The backend handles hotplug and disconnect, reports `gamepadAvailable`, and repeats held navigation/seek/volume inputs while keeping toggles edge-triggered.
 - Controller navigation actions synthesize the same Qt key events already used by QML focus handlers.
 - Playback controller actions emit `InputBindingManager.actionTriggeredWithContext(actionId, "playback")` and are handled by `EmbeddedPlaybackOverlay.qml`.
 - Default controller playback bindings: D-pad/left stick move or seek based on overlay state, A selects the focused playback control or active Skip Intro/Credits prompt, B mirrors Escape dismissal/stop behavior, Start play/pause, LB/RB seek, LT/RT chapters, Y opens the Audio page and X the Subtitles page of the playback settings pop-out, Back/View volume control, right stick volume, L3 subtitle ASS override, R3 deband.
 - In the settings pop-out, D-pad/left stick Up/Down move through rows, Right or A opens a category page, A selects an option, and Left returns to the root list. On the Subtitles page, Left/Right on the delay row adjust the current season/movie subtitle delay in 1 ms steps (persisted with subtitle preferences) and A resets it.
+
+Keyboard defaults
+
+| Action | Context | Default keys |
+| --- | --- | --- |
+| Up / Down / Left / Right (`nav.*`) | Navigation | Arrow keys |
+| Select (`nav.select`) | Navigation | Return, Enter, Space |
+| Back (`nav.back`) | Navigation | Esc |
+| Play/Pause (`playback.playPause`) | Playback | Space |
+| Seek Back (`playback.seekBack`) | Playback | J |
+| Seek Forward (`playback.seekForward`) | Playback | L |
+| Volume Up (`playback.volumeUp`) | Playback | +, =, Volume Up |
+| Volume Down (`playback.volumeDown`) | Playback | -, Volume Down |
+| Volume Panel (`playback.volumePanel`) | Playback | V |
+| Audio Selector (`playback.audioSelector`) | Playback | A |
+| Subtitle Selector (`playback.subtitleSelector`) | Playback | S, T, C |
+| Subtitle Style Override (`playback.subtitleOverride`) | Advanced Playback | K |
+| Deband (`playback.deband`) | Advanced Playback | B |
+| Stats (`playback.stats`) | Advanced Playback | I |
+| Stats Once (`playback.statsOnce`) | Advanced Playback | Shift+I |
+
+- Playback navigation/select/back, previous/next chapter, skip segment, mute, and audio/subtitle cycling have no keyboard default.
+- Fixed playback keys that are not actions: Esc dismisses the playback overlay or stops playback, Return/Enter triggers an active skip prompt or brings up the controls, Left/Right seek 10 seconds (or move overlay focus), Up/Down move overlay focus, and 0-9 open mpv stats pages. Each of these yields to a user binding of the same key in the playback context.
+- F11 and Alt+Enter toggle fullscreen everywhere.
 
 Settings UI
 - Settings > Input edits bindings by context and device.
