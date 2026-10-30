@@ -508,6 +508,9 @@ Window {
         id: mainContentArea
         anchors.fill: parent
         visible: !embeddedPlaybackActive
+        // Hidden items keep key focus; disabling stops the page behind the
+        // video (for example its Play button) from receiving Enter.
+        enabled: !embeddedPlaybackActive
         property bool restoringFocusFromNavigation: false
         
         function saveFocusForNavigation() {
@@ -1978,6 +1981,20 @@ Window {
         onActivated: {
             activeEmbeddedPlaybackOverlay.triggerActiveSkip()
         }
+    }
+
+    // Enter with no interactive playback chrome must not reach the page
+    // behind playback, whose focused Play button would restart the item.
+    // Embedded playback brings up the controls instead; external mpv
+    // swallows the key.
+    Shortcut {
+        sequences: ["Return", "Enter"]
+        enabled: PlayerController.isPlaybackActive
+                 && !activeEmbeddedPlaybackOverlay.skipPopupVisible
+                 && !playbackOverlayNavigationActive
+                 && !playbackSelectorOpen
+                 && !ScreensaverController.active
+        onActivated: ensurePlaybackOverlayFocus()
     }
 
     Shortcut {
