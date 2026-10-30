@@ -52,7 +52,6 @@ Code map
 - `src/network/SeerrService.{h,cpp}`: API integration, result mapping, request preparation/submission.
 - `src/ui/SearchScreen.qml`: independent Seerr search flow + the Seerr shelf (poster `MediaCard`s, status in the subtitle).
 - `src/ui/SeerrRequestDialog.qml`: keyboard-first request dialog.
-- `src/ui/SearchResultCard.qml`: Seerr-aware card rendering (TMDB posters/source-status badge) for the Up Next recommendation shelf.
 - `src/ui/SeriesDetailsView.qml`: Seerr recommendations shelf for series details, reusing the request dialog.
 - `src/viewmodels/UpNextRecommendationsViewModel.{h,cpp}` and `src/ui/UpNextScreen.qml`: no-next recommendation shelf that merges Jellyfin similar series with Seerr TV results.
 

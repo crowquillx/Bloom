@@ -9,13 +9,15 @@ To ensure Bloom remains accessible to all users, including those using screen re
 All interactive elements must have the following properties:
 
 1.  **`Accessible.role`**: Define the semantic role of the control.
-2.  **`Accessible.name`**: A concise label for the control. Use `AccessibilityHelpers.a11yName()` for safety.
+2.  **`Accessible.name`**: A concise label for the control.
 3.  **`Accessible.description`**: (Optional but recommended) Provide additional context for complex actions.
 
 ### Implementation Patterns
 
 #### Buttons
-Use `A11yButton` when possible, or annotate standard `Button` components:
+Use the shared `ActionButton` (it sets `Accessible.role`, `Accessible.name` from
+`text` or `accessibleLabel`, and a busy description), or annotate standard
+`Button` components:
 ```qml
 Button {
     text: "Play"
@@ -44,13 +46,9 @@ Text {
 }
 ```
 
-#### Helper Singleton
-Use `AccessibilityHelpers` for consistent roles and utility functions:
-```qml
-import "." // or appropriate import
-
-Accessible.role: AccessibilityHelpers.roleButton
-```
+#### Shared Components
+Prefer the shared components in `docs/theme.md` (`ActionButton`, `BloomMenu`,
+`DialogSurface`, `StateMessage`, ...), which already expose roles and names.
 
 ### Validation
 - Run `qmllint` on your changes.

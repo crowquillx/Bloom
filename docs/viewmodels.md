@@ -23,17 +23,16 @@ Guidance for standardizing ViewModels with shared loading/error state and consis
 ## QML usage
 - Bind spinners/toasts to `isLoading`/`hasError`/`errorMessage` without custom glue per ViewModel.
 - After model reloads that affect focusable delegates, use `Qt.callLater` to restore focus per `docs/developer_notes.md`.
-- Retry pattern (with shared `RetryButton.qml`):
+- Retry pattern (with shared `StateMessage.qml`):
 ```qml
 Column {
     BusyIndicator { running: model.isLoading; visible: running }
-    ToastNotification {
+    StateMessage {
         visible: model.hasError
-        text: model.errorMessage
-    }
-    RetryButton {
-        target: model        // any BaseViewModel-derived instance
-        visible: model.hasError
+        kind: "error"
+        message: model.errorMessage
+        actionText: qsTr("Retry")
+        onActionTriggered: model.reload()   // BaseViewModel::reload()
     }
 }
 ```

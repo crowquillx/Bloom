@@ -130,7 +130,6 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `MediaCard` | The one media card: `poster` (caption below) or `landscape` (title on the art, progress), with focus lift, badges and hybrid rounded artwork. |
 | `ShelfList` | Horizontal shelf `ListView` aligned to the gutter with focus room and displacement transitions (no fade-in: ListView can leave an interrupted fade at opacity 0). |
 | `PageHeader` | Eyebrow, display title and detail line for non-hero pages, with a trailing slot for toolbars. |
-| `GlassPanel` | Rounded glass surface (`strong`, `bordered`). |
 | `DialogSurface` / `ModalScrim` | `Dialog`/`Popup` background and `Overlay.modal`. |
 | `ModalFocusGuard` | Keeps focus inside an open modal `Dialog` when the page behind it restores focus late (`popup`, optional `fallbackItem`). |
 | `BloomMenu` / `BloomMenuItem` | Context menus and submenus (`iconGlyph`, `destructive`, `marked`). |
