@@ -682,6 +682,8 @@ if(WIN32)
         ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.h
         ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.cpp
     )
+    # WindowsMpvBackend maps the video viewport to native pixels.
+    target_link_libraries(PlayerBackendFactoryTest PRIVATE Bloom::ResponsiveLayoutPolicy)
 endif()
 
 target_include_directories(PlayerBackendFactoryTest PRIVATE ${CMAKE_SOURCE_DIR}/src)

@@ -25,8 +25,9 @@ nix build
 nix run
 ```
 
-The package installs a lowercase `bloom` executable and desktop metadata. It
-uses the dependency versions pinned by `flake.lock` and the mpv stack in
+The package installs a lowercase `bloom` executable and desktop metadata. CMake
+names the Linux executable `bloom` (`Bloom.exe` on Windows) to match the desktop
+file's `Exec=bloom`, so no packaging step renames it. It uses the dependency versions pinned by `flake.lock` and the mpv stack in
 `packaging/dependencies.json` / `nix/mpv-stack.nix`; it does not use libraries
 from the host distribution.
 
@@ -67,8 +68,9 @@ nix flake check --print-build-logs \
 This builds Bloom and runs the deterministic unit/contract tests, QML lint,
 desktop/AppStream validation, release-manifest validation, and an offscreen
 Release startup/version smoke test. It also checks the deployed mpv/libmpv FEL
-capabilities and dependency pins. ShellCheck and actionlint also validate the
-deep-analysis scripts and workflow definitions. The CI `nix`
+capabilities and dependency pins. ShellCheck validates every `scripts/*.sh` and
+`packaging/portable/*.sh`, and actionlint every workflow in
+`.github/workflows/`. The CI `nix`
 job builds the same `.#checks.x86_64-linux.tests` derivation alongside the
 other checks, so pull requests and dependency updates exercise automated
 tests. Live provider/server, display, GPU, and playback contracts that require
@@ -169,7 +171,8 @@ in parallel the gate takes about as long as one build.
 
 The portable Linux, Flatpak, and Windows packaging jobs start as soon as build
 metadata is resolved and run in parallel with the `nix` validation job. The
-`release` job depends only on `nix` and the Windows build. It publishes the
+`release` job depends only on `nix` and the Windows build, plus the Windows
+test suite for stable tags (see [Windows](#windows)). It publishes the
 GitHub release, the signed update manifest, and the Scoop update as soon as
 both pass. A failing check still blocks publishing. The `release-linux` and
 `release-flatpak` jobs then attach their artifacts to that release and merge
@@ -178,6 +181,12 @@ A failed Linux or Flatpak build marks the run as failed but does not withdraw
 or block the release. Rerun the failed jobs to attach the missing assets. Each
 attach job skips the upload if a newer `main` push has already moved
 `dev-latest` to another commit.
+
+A newer push cancels the superseded run only for pull requests. Runs for `main`
+and tags are never cancelled, so a second push cannot stop the `release` job
+after it has deleted the previous `dev-latest` release or pushed a manifest.
+Every job in `ci.yml` and `update-dependencies.yml` has a `timeout-minutes`
+bound, set well above its longest observed run so a cold cache still fits.
 
 ### Packaging caches
 
@@ -221,7 +230,20 @@ Nix launches a digest-pinned Ubuntu 24.04 container and produces:
 - `Bloom-<version>-linux-x86_64.tar.gz`
 - `SHA256SUMS-linux-x86_64.txt`
 
-These artifacts target Ubuntu 24.04 and newer (glibc 2.39). The packaging
+These artifacts target Ubuntu 24.04 and newer (glibc 2.39).
+
+The tarball and AppImage contain the deployed tree: `bin/` (Bloom, the seek
+preview helper, the pinned `mpv`, and a `qt.conf`), `lib/`, Qt `plugins/` and
+`qml/`, and `share/`. The Debian package installs that tree under `/opt/bloom`,
+so its bundled Qt, FFmpeg, libmpv, Wayland/Vulkan clients, and `mpv` never
+replace or shadow distribution packages such as `mpv`. `/usr` receives only the
+`/usr/bin/bloom` symlink and the desktop entry, icon, and AppStream metainfo
+(`packaging/portable/build-deb.sh` fails if anything else lands there). Qt's
+`applicationDirPath()` and the loader's `$ORIGIN` resolve the symlink, so Bloom
+still finds `qt.conf`, its libraries, plugins, QML, and `mpv`. Packaging
+installs the `.deb` in the build container and starts Bloom, `mpv`, and the
+seek preview helper without `LD_LIBRARY_PATH` to prove the relocated tree is
+self-contained. The packaging
 container is a compatibility boundary, not an alternate development
 environment. Versions, URLs, hashes, and the container digest live in
 `packaging/dependencies.json`.
@@ -258,8 +280,12 @@ It checks FEL support before creating the bundle. The old root-level manifest
 has been removed to prevent builds against a different mpv stack.
 
 The Flatpak supports network access, Secret Service, Wayland/X11, audio, GPU
-rendering, and gamepad devices. Host shutdown/restart and arbitrary display
-command settings are intentionally unavailable in the sandbox.
+rendering, and gamepad devices. Gamepads use `--device=input`, which needs
+Flatpak 1.15.6 or newer on the host; older hosts ignore the permission and SDL
+sees no controllers. Host shutdown/restart and arbitrary display command
+settings are intentionally unavailable in the sandbox. The bundle records the
+Flathub repository as its runtime source, so `flatpak install` can fetch the
+KDE runtime on hosts without a Flathub remote.
 
 Flatpak Builder requires unprivileged user and network namespaces. Ubuntu
 24.04 GitHub-hosted runners restrict these through AppArmor by default, so the
@@ -291,10 +317,18 @@ something to run. Environment-sensitive visual tests remain opt-in through
 .\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure
 ```
 
-Windows CI builds and packages only the application (`BUILD_TESTING=OFF`), so
-shipped binaries never contain test-only code paths; run the Windows test suite
-locally with the commands above when touching Windows-specific code. CI caches
-the checksum-pinned Qt and mpv SDKs.
+The Windows CI job builds and packages only the application
+(`BUILD_TESTING=OFF`), so shipped binaries never contain test-only code paths.
+For stable `vX.Y.Z` tags, a separate `windows-tests` job builds Bloom with
+`-BuildTests` in its own `build-windows-tests/` tree and runs
+`run-windows-tests.ps1`. The `release` job waits for it and does not publish a
+stable release if it fails. Pull requests and `main` pushes skip the job and
+never wait for it, so development builds are no slower. To run it on any
+branch, start the `CI and Release` workflow manually with **windows_tests**
+enabled. Run the Windows test suite locally with the commands above when
+touching Windows-specific code. Both jobs share the Qt, mpv SDK, sccache, and
+MSVC setup in `.github/actions/windows-build`. CI caches the checksum-pinned Qt
+and mpv SDKs.
 The Windows scripts and workflow read those pins from
 `packaging/dependencies.json`.
 
@@ -306,7 +340,22 @@ limits are in [Dolby Vision dependencies](dolby-vision.md#dependency-audit-and-p
 
 Windows CI installs NSIS through `.github/actions/setup-nsis`. The action first
 tries Chocolatey, then falls back to the checksum-pinned official NSIS archive
-and exposes the selected `makensis.exe` path through `BLOOM_NSIS_EXE`.
+and exposes the selected `makensis.exe` path through `BLOOM_NSIS_EXE`. CI builds
+the installer with `makensis /DVERSION=<version> installer.nsi`. Without
+`/DVERSION`, `installer.nsi` reads the `VERSION` file. See
+[WINDOWS-BUILD.md](WINDOWS-BUILD.md) for what the installer does on install,
+upgrade, and uninstall.
+
+## Arch Linux
+
+The root `PKGBUILD` is a `bloom-jellyfin-git` package that builds the current
+`main` branch with the distribution's Qt, SDL2, and mpv
+(`-DBLOOM_BUNDLE_LIBMPV=OFF`). Its `pkgver()` combines `VERSION` with the
+commit count and short hash, so a version bump needs no `PKGBUILD` edit:
+
+```bash
+makepkg -si
+```
 
 ## Dependency policy
 
@@ -318,7 +367,11 @@ Actions updates are handled by Dependabot.
 Temporary version holds must be documented in the dependency manifest or the
 pull request that introduces them. The public `crowquillx-bloom` Cachix cache
 only substitutes store paths whose hashes match the locked derivations; it
-does not alter reproducibility.
+does not alter reproducibility. The CI, deep-analysis, and dependency-update
+workflows configure it through `cachix-action`. Pull requests, and scheduled
+or manual analysis and update runs outside `main`, only read from it.
+The flake has no `nixConfig`, so local builds use it only after
+`cachix use crowquillx-bloom`.
 
 As of October 25, 2026, nixpkgs supplies Qt 6.12.0, matching the portable
 Linux and Windows builds, which install it via aqtinstall. Windows CI pins aqtinstall to
@@ -329,7 +382,9 @@ install Qt 6.11+ on Windows (repo layout changed); revert to
 ## Release artifacts
 
 Pull requests run validation and produce workflow artifacts, but do not publish
-GitHub releases. Successful pushes to `main` replace the rolling
+GitHub releases. Linux packages, the Windows installer, and `PKGBUILD` all take
+their version from `VERSION`, so the bump scripts edit only that file and
+generate release notes. Successful pushes to `main` replace the rolling
 `dev-latest` prerelease named `Development Build`. Its tag follows the current
 `main` commit, its assets use stable development filenames such as
 `Bloom-Setup-dev.exe` and `bloom_dev_amd64.deb`, and the previous prerelease is
@@ -342,8 +397,9 @@ Stable releases are created only from matching `vX.Y.Z` tags. Use
 `./scripts/bump-version.sh X.Y.Z --tag` or
 `.\scripts\bump-version.ps1 X.Y.Z -Tag`, review the generated release commit
 and annotated tag, then push both with `git push origin main vX.Y.Z`. CI rejects
-a version tag that does not match `VERSION`, publishes the committed
-`RELEASE_NOTES.md`, and retains versioned artifact filenames.
+a version tag that does not match `VERSION`, runs the Windows test suite before
+publishing, publishes the committed `RELEASE_NOTES.md`, and retains versioned
+artifact filenames.
 
 Both release channels attach SHA-256 manifests and GitHub build-provenance
 attestations to AppImage, Flatpak, Debian, tarball, and Windows artifacts. Once

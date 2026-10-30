@@ -2,6 +2,21 @@
 
 A live gate passes only when the required behavior is observed. Source inspection, a unit test, and a successful HTTP status do not establish a platform runtime pass. `UNAVAILABLE` and `NOT RUN` are not automated passes.
 
+## Packaging and CI fixes, 2026-10-30 UTC
+
+The deb moves to `/opt/bloom`, the Linux executable is named `bloom` by CMake, the Flatpak gains `--device=input`, the PKGBUILD becomes `bloom-jellyfin-git`, the NSIS installer changes its install, upgrade, and uninstall behavior, and stable tags run the Windows test suite (see [build](build.md) and [Windows build](WINDOWS-BUILD.md)). The host had no Nix, container engine, Windows, or Arch system.
+
+| Gate | Result | Evidence or procedure |
+| --- | --- | --- |
+| Local static checks | PASS | ShellCheck 0.11.0 passed on all 13 `scripts/*.sh` and `packaging/portable/*.sh`. actionlint 1.7.7 passed on all three workflows. makensis 3.10 (Linux build) compiled `installer.nsi` with `-WX`, both with `-DVERSION` and from a CRLF `VERSION` file, and rejected `-DVERSION=dev`. `build-deb.sh` on a stub AppDir produced only `/opt/bloom/...`, `/usr/bin/bloom -> /opt/bloom/bin/bloom`, and the three desktop files (`dpkg-deb -c`), and failed on a stray `/usr/share` file. CMake 3.31 reconfigured after a `VERSION` change. |
+| `./scripts/dev-build.sh` and `nix flake check` | NOT RUN / UNAVAILABLE | No Nix on the host. The pull-request `nix` job covers `release-smoke`, `automation-lint`, and the tests. |
+| Portable package build | NOT RUN / UNAVAILABLE | No Podman or Docker on the host. `nix run .#package-linux -- --output dist` must pass, including the new install-and-run step for the `.deb`. |
+| Deb beside distribution mpv | NOT RUN | On Ubuntu 24.04 with the `mpv` package installed, `apt install ./bloom_<version>_amd64.deb`. `dpkg -S /usr/bin/mpv` must still name `mpv`, `bloom` must start from the menu and a terminal, and playback must use `/opt/bloom/bin/mpv`. Upgrading from the previous `/usr`-layout deb must leave no Bloom files in `/usr/lib`, `/usr/plugins`, `/usr/qml`, or `/usr/bin/qt.conf`. |
+| Flatpak gamepad | NOT RUN | Install the bundle on a host with Flatpak 1.15.6 or newer and no Flathub remote (the runtime must come from the bundle's runtime repo), connect a controller, and drive Home, a detail page, and playback with it. |
+| PKGBUILD | NOT RUN / UNAVAILABLE | On Arch, `makepkg -si` must build, `pkgver` must read `<VERSION>.r<count>.g<hash>`, `/usr/bin/bloom` must exist, and `/usr/lib/bloom/` must not. |
+| NSIS install, upgrade, uninstall | NOT RUN / UNAVAILABLE | On Windows: fresh install by a standard user who elevates with an admin account (shortcuts must be in the all-users Start menu and public desktop, with the Bloom icon); install to a typed `C:\Apps` (must land in `C:\Apps\Bloom`); upgrade over a 0.8.0 install (old Qt plugin folders and stale DLLs must be gone, the registered folder kept); upgrade a manifest install in a shared folder holding another app's DLLs and a `plugins\` subfolder (those must survive, and stale Bloom files must go); in-app update with `/S /RELAUNCH /D=`; uninstall from a folder holding other files (only Bloom's files may go). |
+| Windows tests job | NOT RUN | Start `CI and Release` manually with **windows_tests** on this branch; it must build in `build-windows-tests/` and pass `run-windows-tests.ps1`. |
+
 ## Silo curated Home rows and watchlist, 2026-10-27 UTC
 
 A single Silo space's Home adds the profile's own rows below Bloom's, and movie and series pages get a watchlist toggle (see [provider compatibility](provider-compatibility.md#catalog-and-conditional-requests)). No Silo server was available.

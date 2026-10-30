@@ -97,6 +97,9 @@ qt_add_executable(Bloom
 
 if(WIN32)
     set_target_properties(Bloom PROPERTIES WIN32_EXECUTABLE TRUE)
+elseif(UNIX AND NOT APPLE)
+    # Linux installs the lowercase command named by the desktop file's Exec=.
+    set_target_properties(Bloom PROPERTIES OUTPUT_NAME bloom)
 endif()
 
 set_source_files_properties(ui/Theme.qml PROPERTIES

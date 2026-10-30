@@ -40,23 +40,14 @@ for arg in "$@"; do
     esac
 done
 
-IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-
 echo -e "\033[36mBumping version to $VERSION\033[0m"
 
 # --- VERSION ---
 printf '%s\n' "$VERSION" > "$REPO_ROOT/VERSION"
 echo -e "  \033[32mUpdated VERSION\033[0m"
 
-# --- PKGBUILD ---
-sed -i "s/pkgver=[0-9]\+\.[0-9]\+\.[0-9]\+/pkgver=$VERSION/" "$REPO_ROOT/PKGBUILD"
-echo -e "  \033[32mUpdated PKGBUILD\033[0m"
-
-# --- installer.nsi ---
-sed -i "s/!define VERSIONMAJOR [0-9]\+/!define VERSIONMAJOR $MAJOR/" "$REPO_ROOT/installer.nsi"
-sed -i "s/!define VERSIONMINOR [0-9]\+/!define VERSIONMINOR $MINOR/" "$REPO_ROOT/installer.nsi"
-sed -i "s/!define VERSIONBUILD [0-9]\+/!define VERSIONBUILD $PATCH/" "$REPO_ROOT/installer.nsi"
-echo -e "  \033[32mUpdated installer.nsi\033[0m"
+# CMake, the Nix package, PKGBUILD's pkgver(), and the CI installer build
+# (makensis /DVERSION=...) all read VERSION, so no other file needs editing.
 
 echo ""
 echo -e "\033[36m========================================\033[0m"

@@ -1,6 +1,14 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" BLOOM_PROJECT_VERSION LIMIT_COUNT 1)
+# A version or dependency-pin bump must regenerate version.h and the pinned
+# mpv describe without a manual reconfigure.
+foreach(_bloom_configure_input IN ITEMS VERSION packaging/dependencies.json)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_bloom_configure_input}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/${_bloom_configure_input}")
+    endif()
+endforeach()
 project(Bloom VERSION ${BLOOM_PROJECT_VERSION} LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 99)
@@ -29,7 +37,8 @@ if(NOT BLOOM_BUILD_CHANNEL IN_LIST BLOOM_ALLOWED_BUILD_CHANNELS)
     message(FATAL_ERROR "Invalid BLOOM_BUILD_CHANNEL '${BLOOM_BUILD_CHANNEL}'. Allowed values: ${BLOOM_ALLOWED_BUILD_CHANNELS}")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network Sql Concurrent Multimedia ShaderTools LinguistTools)
+# Oldest Qt in use: the Flatpak KDE runtime branch in packaging/dependencies.json.
+find_package(Qt6 6.10 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network Sql Concurrent Multimedia ShaderTools LinguistTools)
 find_package(Qt6 COMPONENTS MultimediaQuick QUIET)
 include(CTest)
 if(BUILD_TESTING)

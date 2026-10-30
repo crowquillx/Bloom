@@ -84,7 +84,11 @@ python3 -I "$ROOT/scripts/check-mpv-fel-capability.py" \
     --library "$(find "$FILES/lib" -maxdepth 1 -name 'libplacebo.so.*' -type f | head -1)" \
     --library "$(find "$FILES/lib" -maxdepth 1 -name 'libavcodec.so.*' -type f | head -1)" \
     --require-fel
-flatpak build-bundle "$ROOT/.flatpak-builder/repo" \
+# --runtime-repo lets `flatpak install` fetch the KDE runtime from Flathub
+# when the user has not added that remote.
+flatpak build-bundle \
+    --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+    "$ROOT/.flatpak-builder/repo" \
     "$OUTPUT/Bloom-${VERSION}-linux-x86_64.flatpak" com.github.crowquillx.Bloom
 sha256sum "$OUTPUT/Bloom-${VERSION}-linux-x86_64.flatpak" \
     > "$OUTPUT/SHA256SUMS-flatpak-x86_64.txt"

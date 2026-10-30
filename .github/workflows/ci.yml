@@ -7,10 +7,17 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      windows_tests:
+        description: Also build and run the Windows test suite
+        type: boolean
+        default: false
 
+# Only pull requests cancel superseded runs. A cancelled main or tag run could
+# stop the release job after it deleted dev-latest or pushed a manifest.
 concurrency:
   group: bloom-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -22,6 +29,7 @@ jobs:
   metadata:
     name: Determine build metadata
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.metadata.outputs.version }}
       channel: ${{ steps.metadata.outputs.channel }}
@@ -67,6 +75,7 @@ jobs:
   nix:
     name: Nix build and validation (${{ matrix.group }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -82,9 +91,6 @@ jobs:
         with:
           persist-credentials: false
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
-        with:
-          extra_nix_config: |
-            accept-flake-config = true
       - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
         with:
           name: ${{ env.CACHIX_CACHE }}
@@ -140,6 +146,7 @@ jobs:
   portable-linux:
     name: Portable Linux artifacts
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     needs: metadata
     if: github.event_name != 'pull_request'
     steps:
@@ -191,6 +198,7 @@ jobs:
   flatpak:
     name: Flatpak artifact
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     needs: metadata
     if: github.event_name != 'pull_request'
     steps:
@@ -245,95 +253,20 @@ jobs:
   windows:
     name: Windows x86_64
     runs-on: windows-2025
+    timeout-minutes: 90
     needs: metadata
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # Shipped binaries are built without tests (BUILD_TESTING=OFF).
+      - uses: ./.github/actions/windows-build
         with:
-          python-version: '3.13'
-      - name: Read dependency pins
-        shell: pwsh
-        run: |
-          $deps = Get-Content packaging/dependencies.json -Raw | ConvertFrom-Json
-          "BLOOM_QT_VERSION=$($deps.qt.version)" >> $env:GITHUB_ENV
-          "BLOOM_QT_ARCH=$($deps.qt.windows_arch)" >> $env:GITHUB_ENV
-      - name: Cache Qt SDK
-        id: cache-qt
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.tool_cache }}\Qt
-          key: qt-${{ env.BLOOM_QT_VERSION }}-${{ env.BLOOM_QT_ARCH }}-${{ hashFiles('packaging/dependencies.json') }}
-      - name: Cache mpv SDK
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          # Cache only the pinned archive. build.ps1 verifies its SHA-256 before
-          # extracting it, so restored cache contents never bypass validation.
-          path: third_party\mpv\*.7z
-          key: mpv-sdk-archive-${{ runner.os }}-${{ hashFiles('packaging/dependencies.json') }}
-      - name: Install Qt
-        if: steps.cache-qt.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          python -m pip install --upgrade pip
-          # aqtinstall 3.3.0 cannot install Qt 6.11+ on Windows (repo layout
-          # changed); use the fix on master until 3.3.1 is released.
-          python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@bbfb1f7c0590b9eb3fa91356e75bb64fb15d3643" "py7zr==1.0.*"
-          python -m aqt install-qt -O "$env:RUNNER_TOOL_CACHE\Qt" windows desktop `
-            "$env:BLOOM_QT_VERSION" "$env:BLOOM_QT_ARCH" `
-            -m qtmultimedia qtshadertools qtimageformats qt5compat
-      - name: Configure Qt environment
-        shell: pwsh
-        run: |
-          # aqtinstall installs to <outputdir>/<version>/<arch-dir>/ where
-          # <arch-dir> drops the "win64_" prefix from the package selector.
-          $qtArchDir = $env:BLOOM_QT_ARCH -replace '^win64_', ''
-          $qtRoot = Join-Path $env:RUNNER_TOOL_CACHE "Qt\$env:BLOOM_QT_VERSION\$qtArchDir"
-          if (-not (Test-Path "$qtRoot\lib\cmake\Qt6\Qt6Config.cmake")) {
-            throw "Qt6Config.cmake not found under $qtRoot"
-          }
-          "QT_ROOT_DIR=$qtRoot" >> $env:GITHUB_ENV
-          "CMAKE_PREFIX_PATH=$qtRoot" >> $env:GITHUB_ENV
-          "$qtRoot\bin" >> $env:GITHUB_PATH
-      - name: Install build tools
-        shell: pwsh
-        run: choco install ninja 7zip -y --no-progress
-      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-      # Only main pushes save compiler caches, so pull requests and tags reuse
-      # the latest main cache without filling the repository cache quota.
-      - name: Restore compiler cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}\sccache
-          key: sccache-windows-${{ github.run_id }}
-          restore-keys: sccache-windows-
-      - name: Build and install
-        shell: pwsh
-        env:
-          # Release flags carry no /Zi, so every MSVC compile is cacheable.
-          # Build metadata reaches only the few files that include version.h.
-          CMAKE_C_COMPILER_LAUNCHER: sccache
-          CMAKE_CXX_COMPILER_LAUNCHER: sccache
-          SCCACHE_DIR: ${{ runner.temp }}\sccache
-          SCCACHE_CACHE_SIZE: 1G
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found at $vswhere" }
-          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $vsPath) { throw "No Visual Studio installation with MSVC x64 tools was found" }
-          $devShell = Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-          if (-not (Test-Path $devShell)) { throw "VS DevShell module not found at $devShell" }
-          Import-Module $devShell
-          Enter-VsDevShell -VsInstallPath $vsPath -Arch x64 -HostArch x64 -SkipAutomaticLocation
-          if (-not (Get-Command cl -ErrorAction SilentlyContinue)) { throw "MSVC compiler (cl.exe) is not on PATH after Enter-VsDevShell" }
-          ./scripts/build.ps1 -BuildDir build-windows -InstallDir install-windows `
-            -QtDir "$env:QT_ROOT_DIR" -Generator Ninja `
-            -BuildChannel "${{ needs.metadata.outputs.channel }}" `
-            -BuildId "${{ needs.metadata.outputs.build_id }}" `
-            -GitSha "${{ needs.metadata.outputs.git_sha }}" -Clean -RequireFelCapableMpv
-          # Stopping the server prints the hit rate and flushes the cache to disk.
-          sccache --stop-server
+          build-dir: build-windows
+          install-dir: install-windows
+          channel: ${{ needs.metadata.outputs.channel }}
+          build-id: ${{ needs.metadata.outputs.build_id }}
+          git-sha: ${{ needs.metadata.outputs.git_sha }}
       - name: Save compiler cache
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -349,7 +282,9 @@ jobs:
       - uses: ./.github/actions/setup-nsis
       - name: Build installer
         shell: pwsh
-        run: '& "$env:BLOOM_NSIS_EXE" installer.nsi'
+        env:
+          BLOOM_VERSION: ${{ needs.metadata.outputs.version }}
+        run: '& "$env:BLOOM_NSIS_EXE" "/DVERSION=$env:BLOOM_VERSION" installer.nsi'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Bloom-Windows
@@ -358,15 +293,53 @@ jobs:
             Bloom-Setup-*.exe
           if-no-files-found: error
 
+  # Stable releases only (or on demand through workflow_dispatch): builds the
+  # Windows test suite in its own tree, so the shipped binaries from the
+  # windows job never contain test code, and gates the stable release on it.
+  # Pull requests and main pushes skip this job and never wait for it.
+  windows-tests:
+    name: Windows tests (stable release)
+    runs-on: windows-2025
+    timeout-minutes: 120
+    needs: metadata
+    if: needs.metadata.outputs.is_tagged_release == 'true' || inputs.windows_tests
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/windows-build
+        with:
+          build-dir: build-windows-tests
+          install-dir: install-windows-tests
+          build-tests: 'true'
+          channel: ${{ needs.metadata.outputs.channel }}
+          build-id: ${{ needs.metadata.outputs.build_id }}
+          git-sha: ${{ needs.metadata.outputs.git_sha }}
+      - name: Run Windows tests
+        shell: pwsh
+        run: |
+          ./scripts/run-windows-tests.ps1 -BuildDir build-windows-tests `
+            -InstallDir install-windows-tests -Config Release -OutputOnFailure
+
   # The release is published as soon as validation and the Windows build pass,
   # so the Windows updater and Scoop never wait on Linux packaging. Linux and
   # Flatpak assets are attached by the release-linux and release-flatpak jobs
   # when their builds finish; a failing Flatpak build no longer blocks release.
+  # Stable tags also wait for windows-tests. Elsewhere it is skipped, which
+  # would skip this job too without the explicit result checks below.
   release:
     name: Publish release artifacts
     runs-on: ubuntu-24.04
-    needs: [metadata, nix, windows]
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    timeout-minutes: 20
+    needs: [metadata, nix, windows, windows-tests]
+    if: >-
+      !cancelled() &&
+      (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')) &&
+      needs.metadata.result == 'success' &&
+      needs.nix.result == 'success' &&
+      needs.windows.result == 'success' &&
+      (needs.windows-tests.result == 'success' ||
+        (needs.windows-tests.result == 'skipped' && needs.metadata.outputs.is_tagged_release != 'true'))
     concurrency:
       group: bloom-release-publish
       cancel-in-progress: false
@@ -582,7 +555,15 @@ jobs:
   release-linux:
     name: Attach Linux release artifacts
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     needs: [metadata, release, portable-linux]
+    # The implicit success() also fails when an indirect dependency such as
+    # windows-tests was skipped, so check the direct dependencies instead.
+    if: >-
+      !cancelled() &&
+      needs.metadata.result == 'success' &&
+      needs.release.result == 'success' &&
+      needs.portable-linux.result == 'success'
     # Serializes with release-flatpak so both can merge SHA256SUMS.txt safely.
     concurrency:
       group: bloom-release-assets-${{ github.ref }}
@@ -633,7 +614,13 @@ jobs:
   release-flatpak:
     name: Attach Flatpak release artifact
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     needs: [metadata, release, flatpak]
+    if: >-
+      !cancelled() &&
+      needs.metadata.result == 'success' &&
+      needs.release.result == 'success' &&
+      needs.flatpak.result == 'success'
     concurrency:
       group: bloom-release-assets-${{ github.ref }}
       cancel-in-progress: false

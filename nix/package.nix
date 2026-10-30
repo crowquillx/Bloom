@@ -65,9 +65,6 @@ stdenv.mkDerivation (finalAttrs: {
   '';
 
   postInstall = ''
-    if [ -e "$out/bin/Bloom" ]; then
-      mv "$out/bin/Bloom" "$out/bin/bloom"
-    fi
     substituteInPlace "$out/share/applications/com.github.crowquillx.Bloom.desktop" \
       --replace-fail "Exec=bloom" "Exec=$out/bin/bloom"
   '';

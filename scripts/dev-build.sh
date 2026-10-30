@@ -88,5 +88,5 @@ if ! $CONFIGURE_ONLY; then
 fi
 
 if $RUN; then
-    exec "$BUILD_DIR/src/Bloom"
+    exec "$BUILD_DIR/src/bloom"
 fi

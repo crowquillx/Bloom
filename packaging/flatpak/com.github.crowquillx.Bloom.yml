@@ -10,6 +10,9 @@ finish-args:
   - --socket=fallback-x11
   - --socket=pulseaudio
   - --device=dri
+  # SDL game controllers read /dev/input. Requires Flatpak 1.15.6 or newer on
+  # the host; older hosts ignore it and gamepads stay unavailable.
+  - --device=input
   - --talk-name=org.freedesktop.secrets
   - --env=BLOOM_FLATPAK=1
 modules:
@@ -131,6 +134,5 @@ modules:
       - type: dir
         path: ../..
     post-install:
-      - mv /app/bin/Bloom /app/bin/bloom
       - test -x /app/bin/bloom-seek-preview
       - /app/bin/bloom-seek-preview --self-test
