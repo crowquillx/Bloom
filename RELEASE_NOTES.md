@@ -30,8 +30,8 @@ in-app updater works again.
 - Playback keys follow your bindings in Settings > Input. **S now opens the
   subtitle menu instead of stopping playback**; Esc or Back still stops. K
   toggles the subtitle style override, and J and L seek 10 seconds.
-- On Arch, the package is now `bloom-jellyfin-git`. Remove `bloom-jellyfin`
-  before installing it.
+- On Arch, the package is now `bloom-jellyfin-git`, built from the latest
+  `main`. Installing it offers to replace `bloom-jellyfin`.
 
 ### Spaces
 
