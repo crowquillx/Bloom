@@ -19,7 +19,7 @@ All builds go through Nix; run CMake/Ninja only via `./scripts/dev-build.sh`.
   (add `-R '^NameTest$'` for one test). `LC_ALL=C` is required: under a UTF-8
   locale `mpv_create()` returns null and libmpv tests fail spuriously.
 - `VisualRegressionTest` always skips locally, so its pass proves nothing.
-  `./src/Bloom --test-mode` ignores SIGTERM; kill it explicitly.
+  `./src/bloom --test-mode` ignores SIGTERM; kill it explicitly.
 - QML lint: `nix build .#checks.x86_64-linux.qml-lint`.
 - Final verification: `nix flake check` (tests, QML lint, release smoke, pins).
   CI runs the same checks; sanitizers, TSAN, clang-tidy and coverage run in the

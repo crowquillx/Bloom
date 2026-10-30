@@ -131,6 +131,5 @@ modules:
       - type: dir
         path: ../..
     post-install:
-      - mv /app/bin/Bloom /app/bin/bloom
       - test -x /app/bin/bloom-seek-preview
       - /app/bin/bloom-seek-preview --self-test

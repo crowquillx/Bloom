@@ -25,8 +25,9 @@ nix build
 nix run
 ```
 
-The package installs a lowercase `bloom` executable and desktop metadata. It
-uses the dependency versions pinned by `flake.lock` and the mpv stack in
+The package installs a lowercase `bloom` executable and desktop metadata. CMake
+names the Linux executable `bloom` (`Bloom.exe` on Windows) to match the desktop
+file's `Exec=bloom`, so no packaging step renames it. It uses the dependency versions pinned by `flake.lock` and the mpv stack in
 `packaging/dependencies.json` / `nix/mpv-stack.nix`; it does not use libraries
 from the host distribution.
 

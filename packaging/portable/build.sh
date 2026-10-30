@@ -80,7 +80,6 @@ cmake --build /build/out --parallel
 [[ ! -d /cache ]] || ccache --show-stats
 DESTDIR=/build/stage cmake --install /build/out
 
-mv /build/stage/usr/bin/Bloom /build/stage/usr/bin/bloom
 mkdir -p /build/stage/usr/lib/bloom
 
 # Bloom only uses QSQLITE. The online Qt SDK also ships drivers for external
