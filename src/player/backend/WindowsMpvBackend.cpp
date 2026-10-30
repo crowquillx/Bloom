@@ -278,6 +278,7 @@ void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args,
     m_playlistCount = 0;
     m_stopRequested = false;
     m_pendingStopReplyUserdata = 0;
+    m_pendingLoadReplyUserdata = 0;
     m_streamFailures.clear();
 
 #if defined(Q_OS_WIN)
@@ -945,6 +946,7 @@ void WindowsMpvBackend::teardownMpv()
     m_playlistCount = 0;
     m_stopRequested = false;
     m_pendingStopReplyUserdata = 0;
+    m_pendingLoadReplyUserdata = 0;
     m_streamFailures.clear();
     setDirectRunning(false);
     m_directControlActive = false;
@@ -995,7 +997,8 @@ bool WindowsMpvBackend::queueLoadFile(const QString &mediaUrl)
         << "Dispatching direct libmpv loadfile"
         << "media=" << mediaUrl;
     Logger::instance().flush();
-    const int status = mpv_command_async(handle, 0, command);
+    const quint64 replyUserdata = ++gWindowsMpvReplyUserdataCounter;
+    const int status = mpv_command_async(handle, static_cast<uint64_t>(replyUserdata), command);
     if (status < 0) {
         qCWarning(lcWindowsLibmpvBackend)
             << "Direct libmpv loadfile dispatch failed"
@@ -1003,6 +1006,7 @@ bool WindowsMpvBackend::queueLoadFile(const QString &mediaUrl)
         Logger::instance().flush();
         return false;
     }
+    m_pendingLoadReplyUserdata = replyUserdata;
     return true;
 #endif
 }
@@ -1202,12 +1206,26 @@ void WindowsMpvBackend::processMpvEvents()
                 syncContainerGeometry();
                 return;
             }
+            if (m_pendingLoadReplyUserdata != 0
+                && static_cast<quint64>(event->reply_userdata) == m_pendingLoadReplyUserdata) {
+                m_pendingLoadReplyUserdata = 0;
+                if (event->error < 0) {
+                    const QString errorMessage = QStringLiteral("libmpv loadfile failed: %1")
+                                                     .arg(QString::fromUtf8(mpv_error_string(event->error)));
+                    qCWarning(lcWindowsLibmpvBackend) << errorMessage;
+                    emit errorOccurred(errorMessage);
+                }
+                break;
+            }
             if (event->error < 0) {
-                const QString errorMessage = QStringLiteral("libmpv command failed (id=%1): %2")
-                                                 .arg(static_cast<qulonglong>(event->reply_userdata))
-                                                 .arg(QString::fromUtf8(mpv_error_string(event->error)));
-                qCWarning(lcWindowsLibmpvBackend) << errorMessage;
-                emit errorOccurred(errorMessage);
+                // Only loadfile and stop are fatal; a failed auxiliary command
+                // (for example sub-add of an external subtitle that 404s) must
+                // not end playback. The Linux and external backends behave
+                // the same way.
+                qCWarning(lcWindowsLibmpvBackend)
+                    << "libmpv command failed"
+                    << "replyUserdata=" << static_cast<qulonglong>(event->reply_userdata)
+                    << "error=" << QString::fromUtf8(mpv_error_string(event->error));
             }
             break;
         case MPV_EVENT_IDLE:

@@ -124,6 +124,7 @@ private:
     bool m_stopRequested = false;
     bool m_videoHostDestroyDeferred = false;
     quint64 m_pendingStopReplyUserdata = 0;
+    quint64 m_pendingLoadReplyUserdata = 0;
     quint64 m_stopTeardownGeneration = 0;
     BloomBackend::StreamFailureTracker m_streamFailures;
     QString m_currentProfileName = QStringLiteral("unknown");
