@@ -122,7 +122,7 @@ FocusScope {
                 }
 
                 Text {
-                    text: qsTr("Bloom is a media client for Jellyfin and Silo servers designed for the 10-foot TV experience. Native Silo support is experimental and capability-gated.")
+                    text: qsTr("Bloom is a media client for Jellyfin and Silo servers designed for the 10-foot TV experience.")
                     font.pixelSize: Theme.fontSizeSmall
                     font.family: Theme.fontPrimary
                     color: Theme.textSecondary

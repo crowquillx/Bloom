@@ -2,7 +2,7 @@
 
 Bloom's native Silo provider uses stable API v2 and playback protocol 3. Silo 1.0 returns `410 Gone` for the frozen alpha API. Bloom has no native v1 fallback. The separate Jellyfin compatibility listener retains its existing contract.
 
-The release label remains **experimental native Silo support**. Implemented client code and a passing unit test do not establish a live platform pass. [Manual validation](manual-validation.md) records the available evidence and open gates.
+Native Silo support is first-class: it passed the live release gates without Silo's Jellyfin compatibility listener. [Manual validation](manual-validation.md) records the evidence.
 
 ## Pins and artifacts
 

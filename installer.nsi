@@ -6,7 +6,7 @@
 
 !define APPNAME "Bloom"
 !define COMPANYNAME "Bloom"
-!define DESCRIPTION "Media Client for Jellyfin and Silo Servers (experimental native Silo support)"
+!define DESCRIPTION "Media Client for Jellyfin and Silo Servers"
 !define VERSIONMAJOR 0
 !define VERSIONMINOR 8
 !define VERSIONBUILD 0

@@ -427,7 +427,7 @@ FocusScope {
                     : root.showDeviceSignIn ? root.deviceDescription()
                     : !root.passwordSignInAvailable
                       ? qsTr("This server signs in through your browser or phone. Sign in with a code to continue.")
-                    : qsTr("Bloom will detect whether this server uses Jellyfin or Silo. Native Silo support is experimental.")
+                    : qsTr("Bloom will detect whether this server uses Jellyfin or Silo.")
             color: Theme.textSecondary
             font.family: Theme.fontPrimary
             font.pixelSize: Theme.fontSizeBody

@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
 
     // Parse command-line arguments
     QCommandLineParser parser;
-    parser.setApplicationDescription("Bloom - Media Client for Jellyfin and Silo Servers (experimental native Silo support)");
+    parser.setApplicationDescription("Bloom - Media Client for Jellyfin and Silo Servers");
     parser.addHelpOption();
     // Keep -v available for the documented verbose mode. Qt's convenience
     // version option also claims -v, so Bloom owns a long-only version option.

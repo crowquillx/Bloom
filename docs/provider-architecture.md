@@ -2,7 +2,7 @@
 
 Bloom is migrating from one implicit Jellyfin session to provider-neutral, connection-scoped services. The current implementation keeps the existing QML-facing authentication, library, and playback APIs stable while the boundaries are introduced incrementally under issue #75.
 
-Native Silo is implemented behind the provider adapter boundary and is released as **experimental native Silo support**. It is not first-class support: the pinned native contract and platform/runtime gates still leave optional capabilities unavailable. Use the support labels defined in [provider compatibility](provider-compatibility.md).
+Native Silo is implemented behind the provider adapter boundary and is released as first-class support. Optional capabilities outside the pinned native contract stay unavailable. See [provider compatibility](provider-compatibility.md).
 
 The native Silo path is selected only after version-neutral `GET /health` and `GET /ready` probes, followed by `GET /api/v2/system/info` with `api_major: 2`. A compatibility connection remains a separate MediaBrowser/Jellyfin surface and never silently upgrades to native.
 

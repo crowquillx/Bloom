@@ -60,7 +60,7 @@
       "product": "Silo Server",
       "protocolMode": "native",
       "surface": "silo-native-v2",
-      "supportLabel": "experimental-native-silo-v2"
+      "supportLabel": "native-silo-v2"
     }
   ],
   "coverageRequirements": [

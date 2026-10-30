@@ -43,7 +43,7 @@ mpv config directory
 ### Native Silo connections
 - Native Silo discovery uses `/health` and `/ready`, then `/api/v2/system/info` with `api_major: 2`. Compatibility `/System/Info` remains a separate protocol.
 - Native connections use `protocol_mode: "native"` and the Silo adapter's bearer/device/profile headers. Compatibility connections use the separate MediaBrowser listener and `protocol_mode: "compatibility"`; a compatibility connection never silently upgrades to native.
-- Bloom's native release label is **experimental native Silo support**, not first-class support. Protocol 3, themes, and trickplay use explicit capability and profile permission checks. Build versions and contract digests do not enable features. Forward-only delivery and other optional services remain unavailable. See [provider compatibility](provider-compatibility.md) for the source-grounded matrix and endpoint setup.
+- Native Silo support is first-class. Protocol 3, themes, and trickplay use explicit capability and profile permission checks. Build versions and contract digests do not enable features. Forward-only delivery and other optional services remain unavailable. See [provider compatibility](provider-compatibility.md) for the source-grounded matrix and endpoint setup.
 
 Config API sample (high level)
 - `getMpvConfigArgs()` returns an array of command line args to pass to mpv.

@@ -2,7 +2,7 @@
 pkgname=bloom-jellyfin
 pkgver=0.8.0
 pkgrel=1
-pkgdesc="Media client for Jellyfin and Silo servers; experimental native Silo support"
+pkgdesc="Media client for Jellyfin and Silo servers"
 arch=('x86_64')
 url="https://github.com/crowquillx/Bloom"
 license=('MIT')

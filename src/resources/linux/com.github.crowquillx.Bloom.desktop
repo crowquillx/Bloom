@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Bloom
-Comment=Media client for Jellyfin and Silo servers; experimental native Silo support
+Comment=Media client for Jellyfin and Silo servers
 Exec=bloom
 Icon=com.github.crowquillx.Bloom
 Categories=AudioVideo;Video;Player;TV;

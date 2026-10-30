@@ -11,7 +11,7 @@ A media client for Jellyfin and Silo servers, built for 10-foot TV interfaces wi
 
 ## What it does
 
-Bloom connects to a Jellyfin or Silo server and provides a TV-friendly interface for browsing and playing media. Native Silo support is experimental and has not been validated against a live Silo server. It uses mpv for video playback with `vo=gpu-next` for HDR support.
+Bloom connects to a Jellyfin or Silo server and provides a TV-friendly interface for browsing and playing media. Native Silo support uses Silo's own API and does not need its Jellyfin compatibility listener. It uses mpv for video playback with `vo=gpu-next` for HDR support.
 
 **Current state:**
 - Trickplay
