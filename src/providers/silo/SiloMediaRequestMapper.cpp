@@ -48,18 +48,18 @@ int yearOf(const QJsonObject &wire)
 // One status token for cards: "available" once the library has the title,
 // otherwise the active request's user-facing state (pending, approved,
 // processing), or empty when nobody has requested it.
+// Silo's user-facing request state as Bloom's status token.
+QString statusToken(const QString &state)
+{
+    return state == QStringLiteral("partially_available") ? QStringLiteral("partial") : state;
+}
+
 QString requestStatus(const QJsonObject &wire, const QJsonObject &requestState)
 {
     if (wire.value(QStringLiteral("availability")).toString() == QStringLiteral("available")) {
         return QStringLiteral("available");
     }
-    return requestState.value(QStringLiteral("state")).toString();
-}
-
-// Silo's user-facing request state as Bloom's status token.
-QString statusToken(const QString &state)
-{
-    return state == QStringLiteral("partially_available") ? QStringLiteral("partial") : state;
+    return statusToken(requestState.value(QStringLiteral("state")).toString());
 }
 
 QVariantMap season(const QJsonObject &wireSeason)

@@ -385,6 +385,7 @@ FocusScope {
 
                 DiscoveryListModel {
                     id: requestsModel
+                    keyRole: "requestId"
                 }
 
                 SectionHeader {
@@ -453,6 +454,8 @@ FocusScope {
                     property int nextPage: modelData.nextPage || 0
                     property bool hasMore: !!modelData.hasMore
                     property int loadingPage: 0
+                    /// Pages in a row that brought only titles already shown.
+                    property int repeatedPages: 0
 
                     Layout.fillWidth: true
                     Layout.topMargin: Theme.sectionSpacing
@@ -481,10 +484,19 @@ FocusScope {
                             if (key !== rowSection.rowKey || page !== rowSection.loadingPage)
                                 return
                             rowSection.loadingPage = 0
-                            // A row can repeat titles across pages.
+                            // Lists shift between reads, so a page can repeat
+                            // titles already shown. Keep following the
+                            // server's pages past those, three at most, and
+                            // never re-read the same page.
                             var added = rowItems.appendItems(row.items || [])
-                            rowSection.nextPage = row.nextPage || 0
-                            rowSection.hasMore = !!row.hasMore && added > 0
+                            var next = row.nextPage || page + 1
+                            rowSection.repeatedPages = added > 0 ? 0 : rowSection.repeatedPages + 1
+                            rowSection.nextPage = next
+                            rowSection.hasMore = !!row.hasMore && next > page && rowSection.repeatedPages < 3
+                            if (added === 0 && rowSection.hasMore) {
+                                rowSection.loadingPage = next
+                                MediaRequests.loadDiscoverRow(rowSection.rowKey, next)
+                            }
                         }
 
                         function onDiscoverRowFailed(key, page, error) {

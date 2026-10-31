@@ -164,7 +164,12 @@ private:
     /// changes first. finish() is false once the call was abandoned.
     quint64 track(Abandon onAbandoned);
     bool finish(quint64 token);
-    void abandonPending();
+    /// Runs the abandon callbacks of every tracked call but @p keep.
+    void abandonPending(quint64 keep = 0);
+    /// Emits availabilityChanged() when the backend changes, abandoning the
+    /// old backend's work, or when Silo's features change.
+    void updateBackend(bool siloFeaturesChanged);
+    bool seerrActive() const { return backend() == QStringLiteral("seerr"); }
 
     AuthenticationService *m_authService = nullptr;
     LibraryService *m_libraryService = nullptr;

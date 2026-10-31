@@ -153,6 +153,8 @@ private slots:
     void siloRequestsMapWithCancelRules();
     void siloBrowseResponsesMap();
     void jellyfinHasNoMediaRequests();
+    void libraryServiceAcceptsEveryRequestOperation();
+    void siloPartialStateUsesThePartialStatus();
 
     // Routing
     void siloServesRequestsWithoutSeerr();
@@ -164,6 +166,7 @@ private slots:
     void siloBrowseCategoriesTagKindsAndMediaTypes();
     void siloBrowseAndRequestListRoute();
     void siloFollowAndWatchlistNeedTheirFeatures();
+    void backendSwitchAbandonsTheOldBackendsWork();
 
 private:
     std::unique_ptr<MediaRequestService> makeService();
@@ -603,6 +606,48 @@ void MediaRequestServiceTest::jellyfinHasNoMediaRequests()
     }
 }
 
+void MediaRequestServiceTest::libraryServiceAcceptsEveryRequestOperation()
+{
+    // The real LibraryService, not the scripted one: every request operation
+    // must get past its operation check. Without a Silo session each one then
+    // fails on support instead.
+    LibraryService library(nullptr);
+    const QString unsupported = QStringLiteral("This server does not take media requests.");
+    for (const ProviderCatalogOperation operation : {
+             ProviderCatalogOperation::MediaRequestStatus,
+             ProviderCatalogOperation::MediaRequestSearch,
+             ProviderCatalogOperation::MediaRequestDetail,
+             ProviderCatalogOperation::CreateMediaRequest,
+             ProviderCatalogOperation::MediaRequestDiscover,
+             ProviderCatalogOperation::MediaRequestDiscoverSection,
+             ProviderCatalogOperation::MediaRequestList,
+             ProviderCatalogOperation::CancelMediaRequest,
+             ProviderCatalogOperation::SetMediaRequestFollow,
+             ProviderCatalogOperation::SetWatchlistTitle,
+             ProviderCatalogOperation::MediaRequestBrowseCategories,
+             ProviderCatalogOperation::MediaRequestBrowse}) {
+        QString error;
+        library.sendMediaRequestOperation(operation, {}, {}, [&error](const QString &message) {
+            error = message;
+        });
+        QCOMPARE(error, unsupported);
+    }
+
+    QString error;
+    library.sendMediaRequestOperation(ProviderCatalogOperation::Views, {}, {},
+                                      [&error](const QString &message) { error = message; });
+    QCOMPARE(error, QStringLiteral("Not a media request operation."));
+}
+
+void MediaRequestServiceTest::siloPartialStateUsesThePartialStatus()
+{
+    QJsonObject wire = wireResult("series", 7, "missing");
+    wire.insert("request", QJsonObject{{"requestable", false}, {"state", "partially_available"},
+                                       {"following", false}, {"requested_by_viewer", true}});
+    const QVariantMap item = SiloMediaRequestMapper::result(wire);
+    QCOMPARE(item.value("requestStatus").toString(), QStringLiteral("partial"));
+}
+
 void MediaRequestServiceTest::siloServesRequestsWithoutSeerr()
 {
     auto service = makeService();
@@ -920,6 +965,39 @@ void MediaRequestServiceTest::siloFollowAndWatchlistNeedTheirFeatures()
     QCOMPARE(watchlist.size(), 1);
     QCOMPARE(watchlist.first().at(0).toString(), QStringLiteral("movie"));
     QVERIFY(!watchlist.first().at(2).toBool());
+}
+
+void MediaRequestServiceTest::backendSwitchAbandonsTheOldBackendsWork()
+{
+    auto service = makeService();
+    m_library->answer(ProviderCatalogOperation::MediaRequestStatus, allowedStatus());
+
+    QSignalSpy search(service.get(), &MediaRequestService::searchResultsLoaded);
+    service->search(QStringLiteral("dune"));
+    const auto siloSearch = m_library->last(ProviderCatalogOperation::MediaRequestSearch);
+    // A capability read in flight survives the switch.
+    service->refreshAvailability();
+    QCOMPARE(m_library->count(ProviderCatalogOperation::MediaRequestStatus), 1);
+
+    // Seerr takes over: the Silo search is abandoned at once...
+    m_config->setSeerrBaseUrl(QStringLiteral("http://seerr.test"));
+    m_config->setSeerrApiKey(QStringLiteral("key"));
+    QCOMPARE(service->backend(), QStringLiteral("seerr"));
+    QCOMPARE(search.size(), 1);
+    QVERIFY(search.first().at(1).toList().isEmpty());
+
+    // ...and its late answer cannot replace Seerr's results.
+    siloSearch.onLoaded({{QStringLiteral("items"), QVariantList{discoveryItem("movie", 1)}}});
+    QCOMPARE(search.size(), 1);
+
+    // The capability read still lands, so Silo can take back over.
+    m_library->answer(ProviderCatalogOperation::MediaRequestStatus, allowedStatus());
+    m_config->setSeerrApiKey(QString());
+    QCOMPARE(service->backend(), QStringLiteral("silo"));
+
+    // A Seerr reply arriving after Silo took over is ignored.
+    emit m_seerr->searchResultsLoaded(QStringLiteral("dune"), QJsonArray{QJsonObject{{"name", "x"}}});
+    QCOMPARE(search.size(), 1);
 }
 
 QTEST_MAIN(MediaRequestServiceTest)

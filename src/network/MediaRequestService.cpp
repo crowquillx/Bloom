@@ -81,29 +81,44 @@ MediaRequestService::MediaRequestService(AuthenticationService *authService,
 {
     if (m_seerrService) {
         connect(m_seerrService, &SeerrService::configuredChanged, this, [this]() {
-            if (backend() != m_lastBackend) {
-                m_lastBackend = backend();
-                emit availabilityChanged();
-            }
+            updateBackend(false);
         });
+        // Seerr answers only while it is the backend: a reply to work started
+        // before Silo took over must not reach the screens.
         connect(m_seerrService, &SeerrService::searchResultsLoaded, this,
                 [this](const QString &term, const QJsonArray &results) {
+            if (!seerrActive()) {
+                return;
+            }
             emit searchResultsLoaded(term, results.toVariantList());
         });
         connect(m_seerrService, &SeerrService::similarResultsLoaded, this,
                 [this](const QString &mediaType, int tmdbId, const QJsonArray &results) {
+            if (!seerrActive()) {
+                return;
+            }
             emit similarResultsLoaded(mediaType, tmdbId, results.toVariantList());
         });
-        connect(m_seerrService, &SeerrService::similarResultsFailed,
-                this, &MediaRequestService::similarResultsFailed);
+        connect(m_seerrService, &SeerrService::similarResultsFailed, this,
+                [this](const QString &mediaType, int tmdbId, const QString &error) {
+            if (seerrActive()) {
+                emit similarResultsFailed(mediaType, tmdbId, error);
+            }
+        });
         connect(m_seerrService, &SeerrService::requestPreparationLoaded, this,
                 [this](const QString &mediaType, int tmdbId, const QJsonObject &data) {
+            if (!seerrActive()) {
+                return;
+            }
             QVariantMap payload = data.toVariantMap();
             payload.insert(QStringLiteral("backend"), QStringLiteral("seerr"));
             emit requestPreparationLoaded(mediaType, tmdbId, payload);
         });
         connect(m_seerrService, &SeerrService::requestCreated, this,
                 [this](const QString &mediaType, int tmdbId, const QJsonObject &requestData) {
+            if (!seerrActive()) {
+                return;
+            }
             // Seerr's MediaRequestStatus: 1 pending approval, 2 approved,
             // 3 declined.
             const int status = requestData.value(QStringLiteral("status")).toInt();
@@ -117,6 +132,9 @@ MediaRequestService::MediaRequestService(AuthenticationService *authService,
         });
         connect(m_seerrService, &SeerrService::errorOccurred, this,
                 [this](const QString &endpoint, const QString &error) {
+            if (!seerrActive()) {
+                return;
+            }
             emit errorOccurred(seerrOperation(endpoint), error);
         });
         const auto finishSeerrDiscoverRow = [this](const QString &key, const QVariantMap &row) {
@@ -142,6 +160,9 @@ MediaRequestService::MediaRequestService(AuthenticationService *authService,
         };
         connect(m_seerrService, &SeerrService::discoverRowLoaded, this,
                 [this, finishSeerrDiscoverRow](const QString &key, int page, const QJsonObject &row) {
+            if (!seerrActive()) {
+                return;
+            }
             QVariantMap mapped = row.toVariantMap();
             mapped.insert(QStringLiteral("title"), seerrDiscoverTitle(key));
             if (page == 1 && m_seerrDiscoverPending.contains(key)) {
@@ -152,6 +173,9 @@ MediaRequestService::MediaRequestService(AuthenticationService *authService,
         });
         connect(m_seerrService, &SeerrService::discoverRowFailed, this,
                 [this, finishSeerrDiscoverRow](const QString &key, int page, const QString &error) {
+            if (!seerrActive()) {
+                return;
+            }
             if (page == 1 && m_seerrDiscoverPending.contains(key)) {
                 finishSeerrDiscoverRow(key, {});
             } else {
@@ -159,6 +183,9 @@ MediaRequestService::MediaRequestService(AuthenticationService *authService,
             }
         });
         connect(m_seerrService, &SeerrService::genresLoaded, this, [this](const QJsonArray &genres) {
+            if (!seerrActive()) {
+                return;
+            }
             QVariantList items;
             for (const QJsonValue &value : genres) {
                 const QJsonObject genre = value.toObject();
@@ -179,20 +206,41 @@ MediaRequestService::MediaRequestService(AuthenticationService *authService,
                 {QStringLiteral("items"), items},
             }});
         });
-        connect(m_seerrService, &SeerrService::genresFailed,
-                this, &MediaRequestService::browseCategoriesFailed);
+        connect(m_seerrService, &SeerrService::genresFailed, this,
+                [this](const QString &error) {
+            if (seerrActive()) {
+                emit browseCategoriesFailed(error);
+            }
+        });
         connect(m_seerrService, &SeerrService::browseLoaded, this,
                 [this](const QString &key, int page, const QJsonObject &row) {
+            if (!seerrActive()) {
+                return;
+            }
             emit browseLoaded(key, page, row.toVariantMap());
         });
-        connect(m_seerrService, &SeerrService::browseFailed,
-                this, &MediaRequestService::browseFailed);
+        connect(m_seerrService, &SeerrService::browseFailed, this,
+                [this](const QString &key, int page, const QString &error) {
+            if (seerrActive()) {
+                emit browseFailed(key, page, error);
+            }
+        });
         connect(m_seerrService, &SeerrService::requestsLoaded, this, [this](const QJsonArray &requests) {
+            if (!seerrActive()) {
+                return;
+            }
             emit myRequestsLoaded(requests.toVariantList());
         });
-        connect(m_seerrService, &SeerrService::requestsFailed,
-                this, &MediaRequestService::myRequestsFailed);
+        connect(m_seerrService, &SeerrService::requestsFailed, this,
+                [this](const QString &error) {
+            if (seerrActive()) {
+                emit myRequestsFailed(error);
+            }
+        });
         connect(m_seerrService, &SeerrService::requestCancelled, this, [this](int requestId) {
+            if (!seerrActive()) {
+                return;
+            }
             const QPair<QString, int> title = m_seerrCancels.take(requestId);
             emit requestCancelled(QString::number(requestId), title.first, title.second);
         });
@@ -301,10 +349,26 @@ void MediaRequestService::setSiloAvailable(bool available, const QVariantMap &fe
     const bool featuresChanged = effective != m_siloFeatures;
     m_siloAvailable = available;
     m_siloFeatures = effective;
-    if (backend() != m_lastBackend || (featuresChanged && backend() == QStringLiteral("silo"))) {
-        m_lastBackend = backend();
-        emit availabilityChanged();
+    updateBackend(featuresChanged);
+}
+
+void MediaRequestService::updateBackend(bool siloFeaturesChanged)
+{
+    const QString current = backend();
+    if (current == m_lastBackend) {
+        if (siloFeaturesChanged && current == QStringLiteral("silo")) {
+            emit availabilityChanged();
+        }
+        return;
     }
+    m_lastBackend = current;
+    // Work started on the old backend must not answer for the new one. The
+    // Silo capability read stays: it decides whether Silo can take over.
+    abandonPending(m_statusToken);
+    m_seerrDiscoverPending.clear();
+    m_seerrDiscoverRows.clear();
+    m_seerrCancels.clear();
+    emit availabilityChanged();
 }
 
 bool MediaRequestService::siloFeature(const char *name) const
@@ -363,10 +427,13 @@ bool MediaRequestService::finish(quint64 token)
     return m_pending.remove(token) > 0;
 }
 
-void MediaRequestService::abandonPending()
+void MediaRequestService::abandonPending(quint64 keep)
 {
-    const QHash<quint64, Abandon> pending = std::exchange(m_pending, {});
-    for (const Abandon &onAbandoned : pending) {
+    QHash<quint64, Abandon> pending = std::exchange(m_pending, {});
+    if (keep != 0 && pending.contains(keep)) {
+        m_pending.insert(keep, pending.take(keep));
+    }
+    for (const Abandon &onAbandoned : std::as_const(pending)) {
         if (onAbandoned) {
             onAbandoned();
         }

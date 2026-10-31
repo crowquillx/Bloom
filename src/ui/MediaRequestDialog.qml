@@ -640,20 +640,21 @@ Dialog {
                     Layout.fillWidth: true
                 }
 
+                // Shown even when no season is left to choose.
+                Text {
+                    text: qsTr("Already in the library or requested: %1").arg(seasonListText(coveredSeasons))
+                    visible: isTv && coveredSeasons.length > 0
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.spacingSmall
                     visible: hasSeasonChoices
-
-                    Text {
-                        text: qsTr("Already in the library or requested: %1").arg(seasonListText(coveredSeasons))
-                        visible: coveredSeasons.length > 0
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
 
                     CheckBox {
                         id: allSeasonsCheck

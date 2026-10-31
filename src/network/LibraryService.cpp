@@ -1296,6 +1296,24 @@ void LibraryService::sendMediaRequestOperation(ProviderCatalogOperation operatio
     case ProviderCatalogOperation::MediaRequestDiscoverSection:
         operationName = QStringLiteral("getMediaRequestDiscoverSection");
         break;
+    case ProviderCatalogOperation::MediaRequestList:
+        operationName = QStringLiteral("getMediaRequestList");
+        break;
+    case ProviderCatalogOperation::CancelMediaRequest:
+        operationName = QStringLiteral("cancelMediaRequest");
+        break;
+    case ProviderCatalogOperation::SetMediaRequestFollow:
+        operationName = QStringLiteral("setMediaRequestFollow");
+        break;
+    case ProviderCatalogOperation::SetWatchlistTitle:
+        operationName = QStringLiteral("setWatchlistTitle");
+        break;
+    case ProviderCatalogOperation::MediaRequestBrowseCategories:
+        operationName = QStringLiteral("getMediaRequestBrowseCategories");
+        break;
+    case ProviderCatalogOperation::MediaRequestBrowse:
+        operationName = QStringLiteral("getMediaRequestBrowse");
+        break;
     default:
         if (onFailed) {
             onFailed(tr("Not a media request operation."));

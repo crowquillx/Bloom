@@ -35,6 +35,7 @@ Routing (`MediaRequestService`)
 - Methods: `search`, `getSimilar`, `prepareRequest`, `createRequest`, `loadDiscover`, `loadDiscoverRow`, `loadBrowseCategories`, `browse` with `browseKey`, `loadMyRequests`, `cancelRequest`, `setFollowing`, `setWatchlisted`, `refreshAvailability`, and `statusLabel`.
 - Silo calls run through `LibraryService::sendMediaRequestOperation`, which uses the active provider's catalog boundary and shared transport. A response for a connection, account, or profile that is no longer active is dropped. `MediaRequestService` then reports the work as abandoned (an empty search, a `*Failed` signal, or an `errorOccurred`), so no loading state stays stuck.
 - Seerr's Discover loads its five rows in parallel and answers once with the rows that returned titles, in a fixed order. Each Seerr call has a 20-second transfer timeout.
+- When the backend changes (a Seerr key is set or cleared, or Silo's access changes), work started on the old backend is abandoned and late replies from it are dropped; Seerr replies are forwarded only while Seerr is the backend. The Silo capability read survives the switch so Silo can take over again.
 - Silo search and similar titles leave out titles already in the library; the library shelves show those.
 
 Discovery items
@@ -60,7 +61,8 @@ Request dialog (`src/ui/MediaRequestDialog.qml`)
 
 Discover (`src/ui/DiscoverScreen.qml`) and Browse (`src/ui/BrowseScreen.qml`)
 - Discover, top to bottom: the request list, the discovery rows, then Genres, Studios, and Networks as landscape cards (with the category logo when Silo has one).
-- Each discovery row loads its next page when focus comes within six cards of its end. Silo's `next_page` wins over `page + 1` when rating backfill consumed several provider pages. Repeated titles are skipped.
+- Each discovery row loads its next page when focus comes within six cards of its end. Silo's `next_page` wins over `page + 1` when rating backfill consumed several provider pages. Repeated titles are skipped; a page of nothing new loads the next one at once, up to three in a row, and a page number that does not advance ends the row. Browse pages the same way.
+- The request list shows one card per request, so several requests for one title (different seasons, or other Seerr users) stay separate.
 - A title already in the library opens its details page; any other title opens the request dialog. Requests made or withdrawn update card statuses in place and reload the request list.
 - A category card opens Browse: a poster grid with Movies/Shows (when the category has both) and Popular, Top Rated, and Newest. Seerr's Top Rated needs at least 200 votes, and Newest stops at today's date. The grid loads the next page when focus is within two rows of the end or the pointer scrolls near it.
 - `DiscoveryCard.qml` (the poster card) and `DiscoveryListModel.qml` (a de-duplicating, normalized `ListModel` that keeps focus as pages append) are shared by both pages.

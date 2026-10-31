@@ -41,6 +41,10 @@ FocusScope {
     property int nextPage: 1
     property bool hasMore: false
     property int loadingPage: 0
+    /// Pages in a row that brought only titles already shown.
+    property int repeatedPages: 0
+    /// Pages of nothing new to read past before giving up.
+    readonly property int maxRepeatedPages: 3
     property string loadError: ""
 
     property Item lastFocusTarget: null
@@ -58,6 +62,7 @@ FocusScope {
         loadError = ""
         hasMore = false
         loadingPage = 0
+        repeatedPages = 0
         loadPage(1)
     }
 
@@ -206,8 +211,15 @@ FocusScope {
                 return
             root.loadingPage = 0
             var added = titles.appendItems(row.items || [])
-            root.nextPage = row.nextPage || page + 1
-            root.hasMore = !!row.hasMore && added > 0
+            var next = row.nextPage || page + 1
+            // Lists shift between reads, so a page can repeat titles already
+            // shown. Keep following the server's pages past those, a few at
+            // most, and never re-read the same page.
+            root.repeatedPages = added > 0 ? 0 : root.repeatedPages + 1
+            root.nextPage = next
+            root.hasMore = !!row.hasMore && next > page && root.repeatedPages < root.maxRepeatedPages
+            if (added === 0 && root.hasMore)
+                root.loadPage(next)
         }
 
         function onBrowseFailed(key, page, error) {

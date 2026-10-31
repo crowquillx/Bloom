@@ -11,17 +11,26 @@ import QtQuick
 ListModel {
     id: model
 
-    /// Appends the titles not already in the model; returns how many were new.
+    /// The field that tells entries apart: "itemId" (one card per title) for
+    /// discovery lists, "requestId" for request lists, where one title can
+    /// have several requests.
+    property string keyRole: "itemId"
+
+    function entryKey(entry) {
+        return String(entry[model.keyRole] || entry.itemId || "")
+    }
+
+    /// Appends the entries not already in the model; returns how many were new.
     function appendItems(items) {
         var seen = {}
         for (var i = 0; i < model.count; ++i)
-            seen[model.get(i).itemId] = true
+            seen[model.entryKey(model.get(i))] = true
         var added = 0
         for (var j = 0; j < (items || []).length; ++j) {
             var item = items[j]
-            if (!item || seen[item.itemId])
+            if (!item || seen[model.entryKey(item)])
                 continue
-            seen[item.itemId] = true
+            seen[model.entryKey(item)] = true
             model.append({
                 source: "request",
                 requestBackend: item.requestBackend || "",
