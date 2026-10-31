@@ -792,6 +792,17 @@ Window {
         active: ScreensaverController.active && !useDetachedScreensaverWindow
         focusWindow: window
         restoreWindowEligible: window.appWindowEligible
+        // The item focused before the screensaver may be gone (a reloaded
+        // Home row, a hero button hidden by rotation); hand focus back to
+        // the page as returning from a dialog does.
+        focusFallback: function() {
+            var item = stackView.currentItem
+            if (item && item.visible && typeof item["restoreFocusState"] === "function") {
+                item["restoreFocusState"]()
+            } else if (item && typeof item["forceActiveFocus"] === "function") {
+                item.forceActiveFocus()
+            }
+        }
     }
 
     Loader {

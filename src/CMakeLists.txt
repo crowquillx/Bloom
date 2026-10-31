@@ -214,6 +214,7 @@ qt_add_qml_module(Bloom
         ui/VideoSurface.qml
         ui/EmbeddedPlaybackOverlay.qml
         ui/ScreensaverOverlay.qml
+        ui/ScreensaverFocusMemory.qml
         ui/WheelStepScroller.qml
         ui/ToastNotification.qml
         ui/UpNextScreen.qml

@@ -18,7 +18,9 @@ Item {
     property bool showBackdropA: true
     property string backdropAUrl: ""
     property string backdropBUrl: ""
-    property var savedFocusItem: null
+    /// Restores the page's own focus when the item focused before the
+    /// screensaver can no longer take it back.
+    property var focusFallback: null
     property var restoreWindow: null
     property bool restoreWindowEligible: true
     property string savedNavigationMode: "pointer"
@@ -64,10 +66,7 @@ Item {
                 if (restoreWindowEligible && restoreWindow && typeof restoreWindow.requestActivate === "function") {
                     restoreWindow.requestActivate()
                 }
-                if (savedFocusItem && savedFocusItem.parent && typeof savedFocusItem.forceActiveFocus === "function") {
-                    savedFocusItem.forceActiveFocus()
-                }
-                savedFocusItem = null
+                focusMemory.restore()
             })
         }
     }
@@ -80,11 +79,16 @@ Item {
         function onActiveChanged() {
             if (root.active) {
                 restoreWindow = restoreWindow || focusWindow || root.Window.window || null
-                savedFocusItem = root.focusWindow
-                        ? root.focusWindow.activeFocusItem
-                        : root.Window.activeFocusItem
+                focusMemory.freeze()
             }
         }
+    }
+
+    ScreensaverFocusMemory {
+        id: focusMemory
+        window: root.focusWindow || root.Window.window
+        overlay: root
+        fallback: root.focusFallback
     }
 
     Connections {

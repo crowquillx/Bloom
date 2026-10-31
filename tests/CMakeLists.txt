@@ -807,6 +807,28 @@ set_tests_properties(ModalFocusGuardTest PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
 
+add_executable(ScreensaverFocusMemoryTest
+    ScreensaverFocusMemoryTest.cpp
+)
+
+target_compile_definitions(ScreensaverFocusMemoryTest PRIVATE
+    BLOOM_UI_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/ui"
+)
+
+target_link_libraries(ScreensaverFocusMemoryTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::Test
+)
+
+add_test(NAME ScreensaverFocusMemoryTest COMMAND ScreensaverFocusMemoryTest)
+set_tests_properties(ScreensaverFocusMemoryTest PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
+
 add_executable(DisplayManagerTest
     DisplayManagerTest.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp

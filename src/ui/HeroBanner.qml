@@ -679,6 +679,7 @@ FocusScope {
         running: ConfigManager.heroBannerEnabled && ConfigManager.heroBannerAutoCycleEnabled
                  && root.heroModel.length > 1 && !root.activeFocus && !root.buttonsFocused
                  && !root.actionsFocused && !root.scrolling && !PlayerController.isPlaybackActive && !manualPause.running
+                 && !ScreensaverController.active
         onTriggered: root.transitionToIndex((root.currentIndex + 1) % root.heroModel.length, 1)
     }
     Timer { id: manualPause; interval: 3000 }

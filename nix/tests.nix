@@ -83,6 +83,7 @@ stdenv.mkDerivation {
       ResponsiveLayoutPolicyTest \
       NavigationBarTest \
       ModalFocusGuardTest \
+      ScreensaverFocusMemoryTest \
       PosterBadgesTest \
       CombinedLibraryTest \
       AudioPolicyTest \
