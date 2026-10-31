@@ -230,8 +230,12 @@ FocusScope {
         }
 
         function onAvailabilityChanged() {
-            // Seerr was configured, or the account or its request access changed.
+            // Seerr was configured, or the account or its request access
+            // changed: nothing shown so far belongs to the new backend.
             root.lastFocusTarget = null
+            root.rows = []
+            root.browseGroups = []
+            requestsModel.clear()
             root.load()
         }
 

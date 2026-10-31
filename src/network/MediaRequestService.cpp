@@ -73,11 +73,13 @@ QString seerrDiscoverTitle(const QString &key)
 MediaRequestService::MediaRequestService(AuthenticationService *authService,
                                          LibraryService *libraryService,
                                          SeerrService *seerrService,
+                                         ConfigManager *configManager,
                                          QObject *parent)
     : QObject(parent)
     , m_authService(authService)
     , m_libraryService(libraryService)
     , m_seerrService(seerrService)
+    , m_configManager(configManager)
 {
     if (m_seerrService) {
         connect(m_seerrService, &SeerrService::configuredChanged, this, [this]() {
@@ -253,12 +255,12 @@ MediaRequestService::MediaRequestService(AuthenticationService *authService,
                 this, &MediaRequestService::syncViewer);
         connect(m_authService, &AuthenticationService::userIdChanged,
                 this, &MediaRequestService::syncViewer);
-        // A household profile switch updates the active connection; request
-        // permissions and limits are per profile.
-        if (ConfigManager *config = m_authService->configManager()) {
-            connect(config, &ConfigManager::connectionsChanged,
-                    this, &MediaRequestService::syncViewer);
-        }
+    }
+    // A household profile switch updates the active connection; request
+    // permissions and limits are per profile.
+    if (m_configManager) {
+        connect(m_configManager, &ConfigManager::connectionsChanged,
+                this, &MediaRequestService::syncViewer);
     }
 
     m_lastBackend = backend();
@@ -280,8 +282,7 @@ QString MediaRequestService::backendName() const
         return QStringLiteral("Seerr");
     }
     if (current == QStringLiteral("silo")) {
-        ConfigManager *config = m_authService ? m_authService->configManager() : nullptr;
-        const auto connection = config ? config->getActiveConnection() : std::nullopt;
+        const auto connection = m_configManager ? m_configManager->getActiveConnection() : std::nullopt;
         if (connection.has_value() && !connection->serverName.trimmed().isEmpty()) {
             return connection->serverName.trimmed();
         }
@@ -314,8 +315,7 @@ QString MediaRequestService::viewerKey() const
     if (!m_libraryService || !m_libraryService->supportsMediaRequests()) {
         return {};
     }
-    ConfigManager *config = m_authService ? m_authService->configManager() : nullptr;
-    const auto connection = config ? config->getActiveConnection() : std::nullopt;
+    const auto connection = m_configManager ? m_configManager->getActiveConnection() : std::nullopt;
     return QStringLiteral("%1|%2|%3").arg(
         connection.has_value() ? connection->connectionId : QString(),
         m_authService ? m_authService->getUserId() : QString(),

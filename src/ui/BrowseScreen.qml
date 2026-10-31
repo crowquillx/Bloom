@@ -242,6 +242,8 @@ FocusScope {
         // The backend changed under the page; its ids no longer apply.
         function onAvailabilityChanged() {
             titles.clear()
+            // A late page from the old backend must not land.
+            root.loadingPage = 0
             root.hasMore = false
             root.loadError = MediaRequests.available ? "" : qsTr("Media requests are no longer available.")
         }

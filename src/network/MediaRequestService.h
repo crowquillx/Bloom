@@ -11,6 +11,7 @@
 #include "providers/ICatalogProvider.h"
 
 class AuthenticationService;
+class ConfigManager;
 class LibraryService;
 class SeerrService;
 
@@ -50,9 +51,13 @@ class MediaRequestService : public QObject
     Q_PROPERTY(bool watchlistRequests READ watchlistRequests NOTIFY availabilityChanged)
 
 public:
+    /// @p configManager supplies the active connection and profile. It is
+    /// passed in because AuthenticationService receives its own only when it
+    /// initializes, after services are constructed.
     MediaRequestService(AuthenticationService *authService,
                         LibraryService *libraryService,
                         SeerrService *seerrService,
+                        ConfigManager *configManager,
                         QObject *parent = nullptr);
 
     bool isAvailable() const { return !backend().isEmpty(); }
@@ -174,6 +179,7 @@ private:
     AuthenticationService *m_authService = nullptr;
     LibraryService *m_libraryService = nullptr;
     SeerrService *m_seerrService = nullptr;
+    ConfigManager *m_configManager = nullptr;
 
     QString m_viewerKey;
     QString m_lastBackend;

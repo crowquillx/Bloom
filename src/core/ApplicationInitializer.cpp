@@ -199,7 +199,7 @@ void ApplicationInitializer::registerServices()
         m_seerrService = std::make_unique<SeerrService>(m_mockAuthService.get(), m_configManager.get());
         ServiceLocator::registerService<SeerrService>(m_seerrService.get());
         m_mediaRequestService = std::make_unique<MediaRequestService>(
-            m_mockAuthService.get(), m_mockLibraryService.get(), m_seerrService.get());
+            m_mockAuthService.get(), m_mockLibraryService.get(), m_seerrService.get(), m_configManager.get());
         ServiceLocator::registerService<MediaRequestService>(m_mediaRequestService.get());
         
         // 4. PlayerController
@@ -262,7 +262,7 @@ void ApplicationInitializer::registerServices()
 
         // 3.5 MediaRequestService - Routes requests to Seerr or the Silo server
         m_mediaRequestService = std::make_unique<MediaRequestService>(
-            m_authService.get(), m_libraryService.get(), m_seerrService.get());
+            m_authService.get(), m_libraryService.get(), m_seerrService.get(), m_configManager.get());
         ServiceLocator::registerService<MediaRequestService>(m_mediaRequestService.get());
         
         // 4. PlayerController

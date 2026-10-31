@@ -167,6 +167,7 @@ private slots:
     void siloBrowseAndRequestListRoute();
     void siloFollowAndWatchlistNeedTheirFeatures();
     void backendSwitchAbandonsTheOldBackendsWork();
+    void profileSwitchReadsTheCapabilityAgain();
 
 private:
     std::unique_ptr<MediaRequestService> makeService();
@@ -197,7 +198,8 @@ void MediaRequestServiceTest::cleanup()
 
 std::unique_ptr<MediaRequestService> MediaRequestServiceTest::makeService()
 {
-    return std::make_unique<MediaRequestService>(nullptr, m_library.get(), m_seerr.get());
+    return std::make_unique<MediaRequestService>(nullptr, m_library.get(), m_seerr.get(),
+                                                 m_config.get());
 }
 
 void MediaRequestServiceTest::siloRequestRoutesAreProfileScopedAndSafelyRetried()
@@ -998,6 +1000,39 @@ void MediaRequestServiceTest::backendSwitchAbandonsTheOldBackendsWork()
     // A Seerr reply arriving after Silo took over is ignored.
     emit m_seerr->searchResultsLoaded(QStringLiteral("dune"), QJsonArray{QJsonObject{{"name", "x"}}});
     QCOMPARE(search.size(), 1);
+}
+
+void MediaRequestServiceTest::profileSwitchReadsTheCapabilityAgain()
+{
+    auto service = makeService();
+    m_library->answer(ProviderCatalogOperation::MediaRequestStatus, allowedStatus());
+    QCOMPARE(service->backend(), QStringLiteral("silo"));
+
+    // Switching the household profile rewrites the active connection; the
+    // new profile's request access must be read before Silo is offered.
+    const auto profile = [](const QString &profileId) {
+        ServerConnection connection;
+        connection.connectionId = QStringLiteral("silo-1");
+        connection.providerKind = ProviderKind::Silo;
+        connection.protocolMode = ProtocolMode::Native;
+        connection.baseUrl = QStringLiteral("https://silo.example.test");
+        connection.accountId = QStringLiteral("account");
+        connection.profileId = profileId;
+        connection.username = QStringLiteral("user");
+        connection.credentialReference = ServerConnection::createCredentialReference(connection.connectionId);
+        return connection;
+    };
+    m_config->upsertConnection(profile(QStringLiteral("parent")), true);
+    QCOMPARE(m_library->count(ProviderCatalogOperation::MediaRequestStatus), 1);
+    m_library->answer(ProviderCatalogOperation::MediaRequestStatus, allowedStatus());
+
+    QSignalSpy availability(service.get(), &MediaRequestService::availabilityChanged);
+    m_config->upsertConnection(profile(QStringLiteral("kid")), true);
+    QCOMPARE(service->backend(), QString());
+    QCOMPARE(availability.size(), 1);
+    QCOMPARE(m_library->count(ProviderCatalogOperation::MediaRequestStatus), 1);
+    m_library->answer(ProviderCatalogOperation::MediaRequestStatus, allowedStatus(false));
+    QVERIFY(!service->isAvailable());
 }
 
 QTEST_MAIN(MediaRequestServiceTest)
