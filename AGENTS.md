@@ -147,7 +147,7 @@ move/clip across show/hide, resize, minimize/restore, maximize, and fullscreen.
 - Rounded images and the `ImageCacheProvider` path → `docs/images.md`
 - Silo poster badges (card overlays) → `docs/poster-badges.md`
 - Intro/recap/credits segments → `docs/media-segments.md`
-- Seerr requests → `docs/seerr.md`
+- Media requests (Seerr, Silo) and Discover → `docs/seerr.md`
 - Updater, manifests, key rotation → `docs/updates.md`
 - Credential storage, keyring troubleshooting → `docs/SECURITY.md`
 - Release validation ledger → `docs/manual-validation.md`

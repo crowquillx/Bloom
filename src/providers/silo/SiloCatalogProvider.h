@@ -2,6 +2,7 @@
 
 #include "providers/ICatalogProvider.h"
 #include "providers/silo/SiloArtworkSizes.h"
+#include "providers/silo/SiloMediaRequestMapper.h"
 #include "providers/silo/SiloModelMapper.h"
 
 #include <QJsonArray>
@@ -174,6 +175,133 @@ private:
             }
             return request;
         }
+        // Request routes are profile scoped: the request factory adds the
+        // selected profile, whose permissions and limits apply.
+        case ProviderCatalogOperation::MediaRequestStatus:
+            return get(QStringLiteral("/api/v2/requests/status"));
+        case ProviderCatalogOperation::MediaRequestSearch: {
+            const QString term = query.searchTerm.trimmed();
+            if (term.isEmpty()) {
+                return unsupported(QStringLiteral(
+                    "Silo request search requires a non-empty search term"));
+            }
+            // Percent-encode the term by hand: QUrlQuery leaves '+', which
+            // the server would read as a space.
+            QString endpoint = QStringLiteral("/api/v2/requests/search?q=%1").arg(encodedId(term));
+            if (query.page > 1) {
+                endpoint += QStringLiteral("&page=%1").arg(query.page);
+            }
+            return get(endpoint);
+        }
+        case ProviderCatalogOperation::MediaRequestDetail: {
+            const QString mediaType = SiloMediaRequestMapper::wireMediaType(query.requestMediaType);
+            if (mediaType.isEmpty() || query.tmdbId <= 0) {
+                return unsupported(QStringLiteral(
+                    "Silo request details need a movie or series TMDB id"));
+            }
+            return get(QStringLiteral("/api/v2/requests/detail/%1/%2")
+                           .arg(mediaType)
+                           .arg(query.tmdbId));
+        }
+        case ProviderCatalogOperation::CreateMediaRequest: {
+            const QJsonObject body = SiloMediaRequestMapper::createBody(
+                query.requestMediaType, query.tmdbId, query.requestMedia, query.requestSeasons);
+            if (body.isEmpty()) {
+                return unsupported(QStringLiteral(
+                    "A Silo request needs a movie or series with a TMDB id and a title"));
+            }
+            ProviderCatalogRequest request;
+            request.method = ProviderHttpMethod::Post;
+            // createRequest is declared non_retryable: a replay after a lost
+            // response could file a second request.
+            request.retrySafety = ProviderCatalogRetrySafety::Never;
+            request.relativeEndpoint = QStringLiteral("/api/v2/requests");
+            request.body = QJsonDocument(body).toJson(QJsonDocument::Compact);
+            request.supported = true;
+            return request;
+        }
+        case ProviderCatalogOperation::MediaRequestDiscover:
+            return get(QStringLiteral("/api/v2/requests/discover"));
+        case ProviderCatalogOperation::MediaRequestDiscoverSection: {
+            if (!SiloMediaRequestMapper::isDiscoverSectionKey(query.sectionKey)) {
+                return unsupported(QStringLiteral("Unknown Silo discovery row"));
+            }
+            QString endpoint = QStringLiteral("/api/v2/requests/discover/%1").arg(query.sectionKey);
+            if (query.page > 1) {
+                endpoint += QStringLiteral("?page=%1").arg(query.page);
+            }
+            return get(endpoint);
+        }
+        case ProviderCatalogOperation::MediaRequestList: {
+            QUrlQuery parameters;
+            // The route's maximum page size.
+            parameters.addQueryItem(QStringLiteral("limit"),
+                                    QString::number(query.limit > 0 ? qMin(query.limit, 50) : 50));
+            if (!query.cursor.isEmpty()) {
+                parameters.addQueryItem(QStringLiteral("cursor"), query.cursor);
+            }
+            return get(endpointWithQuery(QStringLiteral("/api/v2/requests/mine"), parameters));
+        }
+        case ProviderCatalogOperation::CancelMediaRequest: {
+            ProviderCatalogRequest request = mutationWithContentId(
+                ProviderHttpMethod::Post, QStringLiteral("/api/v2/requests/%1/cancel"), query.itemId);
+            // cancelRequest is non_retryable; the reason is optional.
+            request.body = QByteArrayLiteral("{}");
+            return request;
+        }
+        case ProviderCatalogOperation::SetMediaRequestFollow:
+        case ProviderCatalogOperation::SetWatchlistTitle: {
+            const QString mediaType = SiloMediaRequestMapper::wireMediaType(query.requestMediaType);
+            if (mediaType.isEmpty() || query.tmdbId <= 0) {
+                return unsupported(QStringLiteral(
+                    "Silo needs a movie or series TMDB id for this title"));
+            }
+            const bool follow = operation == ProviderCatalogOperation::SetMediaRequestFollow;
+            ProviderCatalogRequest request = get(
+                (follow ? QStringLiteral("/api/v2/requests/follows/%1/%2")
+                        : QStringLiteral("/api/v2/watchlist/titles/%1/%2"))
+                    .arg(mediaType)
+                    .arg(query.tmdbId));
+            request.method = query.stateValue ? ProviderHttpMethod::Put : ProviderHttpMethod::Delete;
+            // Following is natural_idempotent. Watchlist title writes are
+            // non_retryable: they can request the title as a side effect.
+            request.retrySafety = follow ? ProviderCatalogRetrySafety::Idempotent
+                                         : ProviderCatalogRetrySafety::Never;
+            return request;
+        }
+        case ProviderCatalogOperation::MediaRequestBrowseCategories: {
+            const QString list = SiloMediaRequestMapper::browseListName(query.browseKind);
+            if (list.isEmpty()) {
+                return unsupported(QStringLiteral("Silo browses genres, studios, and networks only"));
+            }
+            return get(QStringLiteral("/api/v2/requests/discover/%1").arg(list));
+        }
+        case ProviderCatalogOperation::MediaRequestBrowse: {
+            const QString kind = query.browseKind;
+            if (SiloMediaRequestMapper::browseListName(kind).isEmpty()
+                || query.browseId.trimmed().isEmpty()) {
+                return unsupported(QStringLiteral("Silo browsing needs a genre, studio, or network"));
+            }
+            QUrlQuery parameters;
+            if (kind == QStringLiteral("genre")) {
+                // Genres browse movies or series; studios are movies and
+                // networks are series.
+                const QString mediaType = SiloMediaRequestMapper::wireMediaType(query.requestMediaType);
+                if (mediaType.isEmpty()) {
+                    return unsupported(QStringLiteral("Silo genre browsing needs a media type"));
+                }
+                parameters.addQueryItem(QStringLiteral("media_type"), mediaType);
+            }
+            if (SiloMediaRequestMapper::isBrowseSort(query.browseSort)) {
+                parameters.addQueryItem(QStringLiteral("sort"), query.browseSort);
+            }
+            if (query.page > 1) {
+                parameters.addQueryItem(QStringLiteral("page"), QString::number(query.page));
+            }
+            return get(endpointWithQuery(
+                QStringLiteral("/api/v2/requests/discover/browse/%1/%2").arg(kind, encodedId(query.browseId)),
+                parameters));
+        }
         case ProviderCatalogOperation::HomeBackdrops:
         case ProviderCatalogOperation::ScreensaverItems:
         case ProviderCatalogOperation::RandomItems:
@@ -209,6 +337,23 @@ public:
                 response.error = QStringLiteral("Invalid Silo poster badge settings response");
             }
             return response;
+        }
+        switch (operation) {
+        case ProviderCatalogOperation::MediaRequestStatus:
+        case ProviderCatalogOperation::MediaRequestSearch:
+        case ProviderCatalogOperation::MediaRequestDetail:
+        case ProviderCatalogOperation::CreateMediaRequest:
+        case ProviderCatalogOperation::MediaRequestDiscover:
+        case ProviderCatalogOperation::MediaRequestDiscoverSection:
+        case ProviderCatalogOperation::MediaRequestList:
+        case ProviderCatalogOperation::CancelMediaRequest:
+        case ProviderCatalogOperation::SetMediaRequestFollow:
+        case ProviderCatalogOperation::SetWatchlistTitle:
+        case ProviderCatalogOperation::MediaRequestBrowseCategories:
+        case ProviderCatalogOperation::MediaRequestBrowse:
+            return SiloMediaRequestMapper::parseResponse(operation, body);
+        default:
+            break;
         }
         if (operation == ProviderCatalogOperation::SetWatchlist) {
             // 204 No Content on success.

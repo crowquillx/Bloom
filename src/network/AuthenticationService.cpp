@@ -62,6 +62,7 @@ QJsonObject capabilitiesObject(ProviderCapabilities capabilities)
     add(ProviderCapability::PlaybackReporting, "playback_reporting");
     add(ProviderCapability::Watchlist, "watchlist");
     add(ProviderCapability::HomeSections, "home_sections");
+    add(ProviderCapability::MediaRequests, "media_requests");
     return result;
 }
 }

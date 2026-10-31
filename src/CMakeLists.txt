@@ -191,8 +191,12 @@ qt_add_qml_module(Bloom
         ui/settings/RenameProfileDialog.qml
         ui/settings/ImportMpvConfigDialog.qml
         ui/SearchScreen.qml
+        ui/DiscoverScreen.qml
+        ui/BrowseScreen.qml
+        ui/DiscoveryCard.qml
+        ui/DiscoveryListModel.qml
         ui/MediaSourceSelectionDialog.qml
-        ui/SeerrRequestDialog.qml
+        ui/MediaRequestDialog.qml
         ui/SeerrComboBox.qml
         ui/SourceBadge.qml
         ui/SourceRouter.qml

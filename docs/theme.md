@@ -148,7 +148,7 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 ### Navigation Bar
 `NavigationBar.qml` floats over the top of every signed-in page on its own soft scrim, inset `navBarInsetTop` from the top and aligned to the page gutters. Pages fill the window and reserve no width; non-hero pages start at `pageMarginTop`, hero pages draw under the bar.
 
-Entry order (left to right): Home, Movies, Series, Search, then the utility cluster: Update (only when available), Settings, the space avatar (space picker and sign out), and Exit. Tabs that overflow scroll horizontally.
+Entry order (left to right): Home, Movies, Series, Discover (only while `MediaRequests.discoverAvailable`: a Seerr key, or a Silo server that takes requests from the profile), Search, then the utility cluster: Update (only when available), Settings, the space avatar (space picker and sign out), and Exit. Tabs that overflow scroll horizontally.
 
 Movies and Series appear when the space has a library of that kind. With one library the tab opens it (`libraryRequested`). With several it opens a menu inside the bar's focus scope (not a `Popup`, so the bar keeps focus and stays shown): "All Movies"/"All Series" (`combinedLibraryRequested`, which opens `LibraryScreen` on `combined:movies` or `combined:series`), then each library in the saved order. Merged spaces group the menu by source with one "All …" per source; a combined page never spans sources. In the menu Up/Down move, Enter opens, Esc/Back/Left/Right close it (Left/Right also move along the bar), and Shift+Enter starts reordering a library among libraries of the same kind (Up/Down move it, Enter finishes). Single spaces only; merged spaces keep member order.
 

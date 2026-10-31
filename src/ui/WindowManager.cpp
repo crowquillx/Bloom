@@ -20,7 +20,7 @@
 #include "viewmodels/HomeSectionsViewModel.h"
 #include "network/AuthenticationService.h"
 #include "network/SessionService.h"
-#include "network/SeerrService.h"
+#include "network/MediaRequestService.h"
 #include "providers/ActiveArtworkProvider.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
@@ -142,7 +142,7 @@ void WindowManager::setup(ConfigManager* configManager)
  * @brief Registers all C++ services and objects as named QML context properties.
  *
  * Each service retrieved from ServiceLocator is set on the root QQmlContext so
- * that QML files can reference it by name (e.g. ConfigManager, SeerrService).
+ * that QML files can reference it by name (e.g. ConfigManager, MediaRequests).
  * Also exposes application metadata: appVersion and qtVersion.
  *
  * Must be called after setup() and before load().
@@ -176,7 +176,7 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("SessionService", ServiceLocator::get<SessionService>());
     context->setContextProperty("LibraryService", ServiceLocator::get<LibraryService>());
     context->setContextProperty("PlaybackService", ServiceLocator::get<PlaybackService>());
-    context->setContextProperty("SeerrService", ServiceLocator::get<SeerrService>());
+    context->setContextProperty("MediaRequests", ServiceLocator::get<MediaRequestService>());
     context->setContextProperty("UpdateService", ServiceLocator::get<UpdateService>());
     context->setContextProperty("Workspaces", ServiceLocator::get<WorkspaceController>());
     context->setContextProperty("MergedCatalog", ServiceLocator::get<MergedCatalogService>());

@@ -257,6 +257,7 @@ add_library(BloomProviders STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinPlaybackProvider.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinRequestFactory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloModelMapper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloMediaRequestMapper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloPlaybackProvider.cpp
 )
 add_library(Bloom::Providers ALIAS BloomProviders)
@@ -298,6 +299,7 @@ add_library(BloomNetwork STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/network/NextEpisodeResolver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/PlaybackService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/MediaSegmentProviderService.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/MediaRequestService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/SeerrService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/SessionService.cpp
 )

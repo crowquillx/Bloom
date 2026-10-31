@@ -71,6 +71,19 @@ public:
         case ProviderCatalogOperation::Watchlist:
         case ProviderCatalogOperation::SetWatchlist:
             return unsupported(QStringLiteral("Jellyfin has no watchlist distinct from favorites"));
+        case ProviderCatalogOperation::MediaRequestStatus:
+        case ProviderCatalogOperation::MediaRequestSearch:
+        case ProviderCatalogOperation::MediaRequestDetail:
+        case ProviderCatalogOperation::CreateMediaRequest:
+        case ProviderCatalogOperation::MediaRequestDiscover:
+        case ProviderCatalogOperation::MediaRequestDiscoverSection:
+        case ProviderCatalogOperation::MediaRequestList:
+        case ProviderCatalogOperation::CancelMediaRequest:
+        case ProviderCatalogOperation::SetMediaRequestFollow:
+        case ProviderCatalogOperation::SetWatchlistTitle:
+        case ProviderCatalogOperation::MediaRequestBrowseCategories:
+        case ProviderCatalogOperation::MediaRequestBrowse:
+            return unsupported(QStringLiteral("Jellyfin has no server-side media requests"));
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -863,6 +876,18 @@ private:
         case ProviderCatalogOperation::HomeSections: return QStringLiteral("home sections");
         case ProviderCatalogOperation::Watchlist: return QStringLiteral("watchlist");
         case ProviderCatalogOperation::SetWatchlist: return QStringLiteral("watchlist state");
+        case ProviderCatalogOperation::MediaRequestStatus: return QStringLiteral("request capability");
+        case ProviderCatalogOperation::MediaRequestSearch: return QStringLiteral("request search");
+        case ProviderCatalogOperation::MediaRequestDetail: return QStringLiteral("request detail");
+        case ProviderCatalogOperation::CreateMediaRequest: return QStringLiteral("create request");
+        case ProviderCatalogOperation::MediaRequestDiscover: return QStringLiteral("discover");
+        case ProviderCatalogOperation::MediaRequestDiscoverSection: return QStringLiteral("discover row");
+        case ProviderCatalogOperation::MediaRequestList: return QStringLiteral("request list");
+        case ProviderCatalogOperation::CancelMediaRequest: return QStringLiteral("cancel request");
+        case ProviderCatalogOperation::SetMediaRequestFollow: return QStringLiteral("request follow");
+        case ProviderCatalogOperation::SetWatchlistTitle: return QStringLiteral("watchlist title");
+        case ProviderCatalogOperation::MediaRequestBrowseCategories: return QStringLiteral("browse categories");
+        case ProviderCatalogOperation::MediaRequestBrowse: return QStringLiteral("browse");
         }
         return QStringLiteral("catalog");
     }

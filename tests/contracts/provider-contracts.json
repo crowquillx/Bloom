@@ -611,7 +611,7 @@
       "id": "optional.requests",
       "issue": 80,
       "journey": "optional-follow-up",
-      "bloomCaller": "Future media-request surface",
+      "bloomCaller": "Native Silo only (native.requests); Seerr stays an optional external service",
       "method": "N/A",
       "path": "external request service",
       "requestSemantics": ["No provider request route is made by the Bloom catalog contract"],
@@ -748,7 +748,8 @@
       "native.chapters",
       "native.trickplay",
       "native.theme-songs",
-      "native.poster-badges"
+      "native.poster-badges",
+      "native.requests"
     ],
     "requirements": [
       {
@@ -1760,6 +1761,115 @@
         "implementationEvidence": [
           "src/providers/silo/SiloModelMapper.cpp",
           "src/profiles/PosterBadgeService.cpp"
+        ]
+      },
+      {
+        "id": "native.requests",
+        "method": "GET/POST/PUT/DELETE",
+        "path": "/api/v2/requests/status and /api/v2/requests/search and /api/v2/requests/detail/{media_type}/{tmdb_id} and /api/v2/requests and /api/v2/requests/discover and /api/v2/requests/discover/{section} and /api/v2/requests/discover/genres and /api/v2/requests/discover/studios and /api/v2/requests/discover/networks and /api/v2/requests/discover/browse/genre/{slug} and /api/v2/requests/discover/browse/studio/{slug} and /api/v2/requests/discover/browse/network/{slug} and /api/v2/requests/mine and /api/v2/requests/{id}/cancel and /api/v2/requests/follows/{media_type}/{tmdb_id} and /api/v2/watchlist/titles/{media_type}/{tmdb_id}",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/status"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/search"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/detail/{media_type}/{tmdb_id}"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/requests"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/discover"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/discover/{section}"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/discover/genres"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/discover/studios"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/discover/networks"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/discover/browse/genre/{slug}"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/discover/browse/studio/{slug}"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/discover/browse/network/{slug}"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/mine"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/requests/{id}/cancel"
+          },
+          {
+            "method": "PUT",
+            "path": "/api/v2/requests/follows/{media_type}/{tmdb_id}"
+          },
+          {
+            "method": "DELETE",
+            "path": "/api/v2/requests/follows/{media_type}/{tmdb_id}"
+          },
+          {
+            "method": "PUT",
+            "path": "/api/v2/watchlist/titles/{media_type}/{tmdb_id}"
+          },
+          {
+            "method": "DELETE",
+            "path": "/api/v2/watchlist/titles/{media_type}/{tmdb_id}"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "getRequestStatus (FeatureStatus) for the selected profile: Bloom offers requests and Discover only when requests_enabled, allowed, and state available hold, and only while no Seerr API key is configured; follow_supported and watchlist_titles_supported gate following and watchlist titles. Exposed as ProviderCapability::MediaRequests on native Silo only."
+        },
+        "requestSemantics": [
+          "Every request route is profile scoped and carries the selected X-Profile-Id.",
+          "Search sends a percent-encoded q and an optional 1-based page; details use media_type movie or series and the TMDB id.",
+          "createRequest and cancelRequest are declared non_retryable, so neither POST is replayed; the create body carries media_type, tmdb_id and title, plus seasons only when the user picks them.",
+          "Discover reads the row collection, then later pages of one row by its enum key and next_page; browsing lists genres, studios and networks, then pages one by slug with media_type (genres only), sort and page.",
+          "The request list reads the first page of listMyRequests with limit 50.",
+          "Following is natural_idempotent and may be replayed; watchlist title writes are non_retryable because they can request the title."
+        ],
+        "requiredSemantics": [
+          "A title whose availability is available links to its library_content_id and is opened in the library instead of requested.",
+          "RequestMediaState.requestable and reason decide whether the dialog may submit; seasons already available or requested are left out of the season choice.",
+          "Omitting seasons requests every aired season the library lacks, which is the dialog's All Missing Seasons choice.",
+          "Bloom offers withdrawing an active pending or approved request, the viewer's own when read from the title detail.",
+          "Following is offered for an active request made by someone else; watchlisting for titles the library lacks, warning when watchlist_requests also requests them.",
+          "Studios browse movies and networks browse series; genres browse series only when series_supported.",
+          "Poster and backdrop paths are TMDB image paths resolved against the TMDB image CDN."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/providers/silo/SiloMediaRequestMapper.cpp",
+          "src/network/MediaRequestService.cpp"
         ]
       }
     ],

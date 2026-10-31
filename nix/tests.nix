@@ -97,6 +97,7 @@ stdenv.mkDerivation {
       TrackPreferencesManagerTest \
       SimilarItemsRetryTest \
       HomeRowsAndWatchlistTest \
+      MediaRequestServiceTest \
       UpNextRecommendationsViewModelTest \
       UpdateServiceTest
     runHook postBuild

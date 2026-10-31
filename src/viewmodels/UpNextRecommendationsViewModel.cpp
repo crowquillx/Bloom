@@ -2,7 +2,7 @@
 
 #include "core/ServiceLocator.h"
 #include "network/LibraryService.h"
-#include "network/SeerrService.h"
+#include "network/MediaRequestService.h"
 
 #include <QRegularExpression>
 #include <algorithm>
@@ -13,7 +13,7 @@ UpNextRecommendationsViewModel::UpNextRecommendationsViewModel(QObject *parent)
     : QObject(parent)
 {
     m_libraryService = ServiceLocator::tryGet<LibraryService>();
-    m_seerrService = ServiceLocator::tryGet<SeerrService>();
+    m_mediaRequests = ServiceLocator::tryGet<MediaRequestService>();
 
     if (m_libraryService) {
         connect(m_libraryService, &LibraryService::canonicalSimilarItemsLoadedForConnection,
@@ -40,11 +40,11 @@ UpNextRecommendationsViewModel::UpNextRecommendationsViewModel(QObject *parent)
         qWarning() << "UpNextRecommendationsViewModel: LibraryService not available";
     }
 
-    if (m_seerrService) {
-        connect(m_seerrService, &SeerrService::similarResultsLoaded,
-                this, &UpNextRecommendationsViewModel::onSeerrSimilarResultsLoaded);
-        connect(m_seerrService, &SeerrService::similarResultsFailed,
-                this, &UpNextRecommendationsViewModel::onSeerrSimilarResultsFailed);
+    if (m_mediaRequests) {
+        connect(m_mediaRequests, &MediaRequestService::similarResultsLoaded,
+                this, &UpNextRecommendationsViewModel::onRequestSimilarResultsLoaded);
+        connect(m_mediaRequests, &MediaRequestService::similarResultsFailed,
+                this, &UpNextRecommendationsViewModel::onRequestSimilarResultsFailed);
     }
 }
 
@@ -54,7 +54,7 @@ QVariantList UpNextRecommendationsViewModel::items() const
         return m_cachedItems;
     }
 
-    m_cachedItems = mergeRecommendations(m_libraryItems, m_seerrItems, m_limit);
+    m_cachedItems = mergeRecommendations(m_libraryItems, m_requestItems, m_limit);
     m_itemsDirty = false;
     return m_cachedItems;
 }
@@ -81,17 +81,17 @@ void UpNextRecommendationsViewModel::loadForSeries(const QString &seriesId, int 
 
 void UpNextRecommendationsViewModel::clear()
 {
-    const bool hadItems = !m_libraryItems.isEmpty() || !m_seerrItems.isEmpty();
+    const bool hadItems = !m_libraryItems.isEmpty() || !m_requestItems.isEmpty();
     m_connectionId.clear();
     m_seriesId.clear();
     m_limit = 6;
-    m_pendingSeerrTmdbId = -1;
+    m_pendingRequestTmdbId = -1;
     m_seriesDetailsFallbackContext.clear();
     m_libraryItems = {};
-    m_seerrItems = {};
+    m_requestItems = {};
     m_waitingForLibrary = false;
     m_waitingForSeriesDetails = false;
-    m_waitingForSeerr = false;
+    m_waitingForRequests = false;
     m_itemsDirty = true;
     m_cachedItems.clear();
     setLoading(false);
@@ -196,7 +196,7 @@ QVariantList UpNextRecommendationsViewModel::selectUpcomingEpisodes(const QVaria
 }
 
 QVariantList UpNextRecommendationsViewModel::mergeRecommendations(const QVariantList &libraryItems,
-                                                                  const QVariantList &seerrItems,
+                                                                  const QVariantList &requestItems,
                                                                   int limit)
 {
     QVariantList merged;
@@ -227,7 +227,7 @@ QVariantList UpNextRecommendationsViewModel::mergeRecommendations(const QVariant
     };
 
     appendSeries(libraryItems);
-    appendSeries(seerrItems);
+    appendSeries(requestItems);
     return merged;
 }
 
@@ -250,9 +250,9 @@ QString UpNextRecommendationsViewModel::dedupeKey(const QVariantMap &item)
         return QStringLiteral("imdb:%1").arg(imdb);
     }
 
-    const int seerrTmdb = item.value(QStringLiteral("seerrTmdbId"), -1).toInt();
-    if (seerrTmdb > 0) {
-        return QStringLiteral("tmdb:%1").arg(seerrTmdb);
+    const int requestTmdb = item.value(QStringLiteral("requestTmdbId"), -1).toInt();
+    if (requestTmdb > 0) {
+        return QStringLiteral("tmdb:%1").arg(requestTmdb);
     }
 
     const QString title = normalizedTitle(item.value(QStringLiteral("name")).toString());
@@ -297,7 +297,7 @@ void UpNextRecommendationsViewModel::setLoading(bool loading)
 
 void UpNextRecommendationsViewModel::finishProviderIfComplete()
 {
-    if (!m_waitingForLibrary && !m_waitingForSeriesDetails && !m_waitingForSeerr) {
+    if (!m_waitingForLibrary && !m_waitingForSeriesDetails && !m_waitingForRequests) {
         notifyItemsChanged();
         setLoading(false);
     }
@@ -314,23 +314,23 @@ void UpNextRecommendationsViewModel::resetRequestState(const QString &seriesId, 
     m_connectionId = m_libraryService ? m_libraryService->getActiveConnectionId() : QString();
     m_seriesId = seriesId;
     m_limit = qBound(1, limit, 24);
-    m_pendingSeerrTmdbId = -1;
+    m_pendingRequestTmdbId = -1;
     m_seriesDetailsFallbackContext.clear();
     m_libraryItems = {};
-    m_seerrItems = {};
+    m_requestItems = {};
     m_waitingForLibrary = false;
     m_waitingForSeriesDetails = false;
-    m_waitingForSeerr = false;
+    m_waitingForRequests = false;
     m_itemsDirty = true;
     m_cachedItems.clear();
     emit itemsChanged();
 }
 
-void UpNextRecommendationsViewModel::requestSeerrSimilarIfPossible(const QVariantMap &seriesData)
+void UpNextRecommendationsViewModel::requestSimilarTitlesIfPossible(const QVariantMap &seriesData)
 {
     m_waitingForSeriesDetails = false;
 
-    if (!m_seerrService || !m_seerrService->isConfigured()) {
+    if (!m_mediaRequests || !m_mediaRequests->isAvailable()) {
         finishProviderIfComplete();
         return;
     }
@@ -343,9 +343,9 @@ void UpNextRecommendationsViewModel::requestSeerrSimilarIfPossible(const QVarian
         return;
     }
 
-    m_pendingSeerrTmdbId = tmdbId;
-    m_waitingForSeerr = true;
-    m_seerrService->getSimilar(QStringLiteral("tv"), tmdbId, 1);
+    m_pendingRequestTmdbId = tmdbId;
+    m_waitingForRequests = true;
+    m_mediaRequests->getSimilar(QStringLiteral("tv"), tmdbId);
 }
 
 void UpNextRecommendationsViewModel::requestSeriesDetailsFallback()
@@ -406,7 +406,7 @@ void UpNextRecommendationsViewModel::onSeriesDetailsLoaded(const QString &connec
         return;
     }
 
-    requestSeerrSimilarIfPossible(seriesData);
+    requestSimilarTitlesIfPossible(seriesData);
 }
 
 void UpNextRecommendationsViewModel::onSeriesDetailsNotModified(const QString &connectionId,
@@ -442,7 +442,7 @@ void UpNextRecommendationsViewModel::onSeriesDetailsFallbackLoaded(const QString
     }
 
     m_seriesDetailsFallbackContext.clear();
-    requestSeerrSimilarIfPossible(itemData);
+    requestSimilarTitlesIfPossible(itemData);
 }
 
 void UpNextRecommendationsViewModel::onSeriesDetailsFallbackNotModified(const QString &itemId,
@@ -472,33 +472,33 @@ void UpNextRecommendationsViewModel::onSeriesDetailsFallbackFailed(const QString
     finishProviderIfComplete();
 }
 
-void UpNextRecommendationsViewModel::onSeerrSimilarResultsLoaded(const QString &mediaType,
+void UpNextRecommendationsViewModel::onRequestSimilarResultsLoaded(const QString &mediaType,
                                                                  int tmdbId,
-                                                                 const QJsonArray &results)
+                                                                 const QVariantList &results)
 {
-    if (!m_waitingForSeerr
+    if (!m_waitingForRequests
             || mediaType != QStringLiteral("tv")
-            || tmdbId != m_pendingSeerrTmdbId) {
+            || tmdbId != m_pendingRequestTmdbId) {
         return;
     }
 
-    m_seerrItems = results.toVariantList();
-    m_waitingForSeerr = false;
+    m_requestItems = results;
+    m_waitingForRequests = false;
     finishProviderIfComplete();
 }
 
-void UpNextRecommendationsViewModel::onSeerrSimilarResultsFailed(const QString &mediaType,
+void UpNextRecommendationsViewModel::onRequestSimilarResultsFailed(const QString &mediaType,
                                                                  int tmdbId,
                                                                  const QString &error)
 {
-    if (!m_waitingForSeerr
+    if (!m_waitingForRequests
             || mediaType != QStringLiteral("tv")
-            || tmdbId != m_pendingSeerrTmdbId) {
+            || tmdbId != m_pendingRequestTmdbId) {
         return;
     }
 
-    qWarning() << "UpNextRecommendationsViewModel Seerr recommendations failed:" << error;
-    m_seerrItems = {};
-    m_waitingForSeerr = false;
+    qWarning() << "UpNextRecommendationsViewModel request recommendations failed:" << error;
+    m_requestItems = {};
+    m_waitingForRequests = false;
     finishProviderIfComplete();
 }

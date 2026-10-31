@@ -204,6 +204,7 @@ private:
         capabilities |= ProviderCapability::Trickplay;
         capabilities |= ProviderCapability::Watchlist;
         capabilities |= ProviderCapability::HomeSections;
+        capabilities |= ProviderCapability::MediaRequests;
         return capabilities;
     }
 

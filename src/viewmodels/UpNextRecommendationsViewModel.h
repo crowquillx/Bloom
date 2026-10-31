@@ -7,7 +7,7 @@
 #include <QVariantList>
 
 class LibraryService;
-class SeerrService;
+class MediaRequestService;
 
 /**
  * @brief Loads the Up Next screen's supporting rows.
@@ -15,8 +15,9 @@ class SeerrService;
  * With a next episode, `upcomingEpisodes` lists that episode and the ones
  * after it in the same season. Without one, `items` holds TV-series
  * recommendations: local-library similar series first because they are
- * immediately available, then Seerr results as discovery/request options when
- * a TMDB id can be resolved from the source series details.
+ * immediately available, then request results (Seerr, or the Silo server's
+ * own requests) as discovery options when a TMDB id can be resolved from the
+ * source series details.
  */
 class UpNextRecommendationsViewModel : public QObject
 {
@@ -41,7 +42,7 @@ public:
     Q_INVOKABLE void clearUpcomingEpisodes();
 
     static QVariantList mergeRecommendations(const QVariantList &libraryItems,
-                                             const QVariantList &seerrItems,
+                                             const QVariantList &requestItems,
                                              int limit);
     /// Episodes from @p startEpisodeId onward within its season number, in
     /// episode order, skipping missing (virtual) entries. Empty when the start
@@ -76,8 +77,8 @@ private slots:
     void onSeriesDetailsFallbackFailed(const QString &itemId,
                                        const QString &error,
                                        const QString &requestContext);
-    void onSeerrSimilarResultsLoaded(const QString &mediaType, int tmdbId, const QJsonArray &results);
-    void onSeerrSimilarResultsFailed(const QString &mediaType, int tmdbId, const QString &error);
+    void onRequestSimilarResultsLoaded(const QString &mediaType, int tmdbId, const QVariantList &results);
+    void onRequestSimilarResultsFailed(const QString &mediaType, int tmdbId, const QString &error);
     void onSeasonItemsLoaded(const QString &connectionId,
                              const QString &parentId,
                              const QString &queryKey,
@@ -94,25 +95,25 @@ private:
     void setLoading(bool loading);
     void finishProviderIfComplete();
     void resetRequestState(const QString &seriesId, int limit);
-    void requestSeerrSimilarIfPossible(const QVariantMap &seriesData);
+    void requestSimilarTitlesIfPossible(const QVariantMap &seriesData);
     void requestSeriesDetailsFallback();
     bool matchesSeriesDetailsFallback(const QString &itemId, const QString &requestContext) const;
 
     LibraryService *m_libraryService = nullptr;
-    SeerrService *m_seerrService = nullptr;
+    MediaRequestService *m_mediaRequests = nullptr;
     QVariantList m_libraryItems;
-    QVariantList m_seerrItems;
+    QVariantList m_requestItems;
     QString m_connectionId;
     QString m_seriesId;
     QString m_seriesDetailsFallbackContext;
     mutable QVariantList m_cachedItems;
     mutable bool m_itemsDirty = true;
     int m_limit = 6;
-    int m_pendingSeerrTmdbId = -1;
+    int m_pendingRequestTmdbId = -1;
     bool m_loading = false;
     bool m_waitingForLibrary = false;
     bool m_waitingForSeriesDetails = false;
-    bool m_waitingForSeerr = false;
+    bool m_waitingForRequests = false;
 
     QVariantList m_upcomingEpisodes;
     QString m_upcomingConnectionId;

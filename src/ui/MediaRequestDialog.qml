@@ -5,13 +5,16 @@ import QtQuick.Layouts
 import BloomUI
 
 /**
- * SeerrRequestDialog - Modal dialog for submitting a media download request via Seerr.
+ * MediaRequestDialog - Modal dialog for requesting a movie or series.
  *
- * Opens with openForItem(), which populates the dialog from a search-result item and
- * triggers SeerrService.prepareRequest() to load server/profile/root-folder options.
- * While options are loading a BusyIndicator is shown.  Once ready, the user selects
- * a server, quality profile, and root folder.  For TV series an optional per-season
- * selection grid is provided.
+ * Opens with openForItem(), which populates the dialog from a discovery item and
+ * triggers MediaRequests.prepareRequest(). The backend shapes the form:
+ *  - Seerr: the user selects a server, quality profile, and root folder.
+ *  - Silo: the server routes the request, so there is nothing to pick; seasons
+ *    already in the library or requested are left out of the season grid, and
+ *    a title the viewer may not request says why.
+ * While options are loading a BusyIndicator is shown. For TV series an optional
+ * per-season selection grid is provided.
  *
  * On success the dialog displays a status message and auto-closes after 1.5 s via
  * closeTimer.  On error the message is shown in red and the dialog stays open.
@@ -26,9 +29,15 @@ import BloomUI
  *
  * Key properties (internal state):
  *  - mediaType, tmdbId, mediaTitle  Identify the item being requested.
- *  - servers, profiles, rootFolders  Arrays populated by SeerrService.
+ *  - backend                    "seerr" or "silo", from the preparation payload.
+ *  - servers, profiles, rootFolders  Seerr options.
  *  - selectedServerId, selectedProfileId, selectedRootFolderPath  Current selections.
- *  - seasonCount, requestAllSeasons, selectedSeasons  TV-only season selection state.
+ *  - seasonEntries, requestAllSeasons, selectedSeasons  TV-only season selection state.
+ *  - requestable, notRequestableReason  Silo's verdict for the viewer.
+ *  - requestId, canCancelRequest  A request the viewer may withdraw (from the
+ *    request list, or Silo's active request when the viewer made it).
+ *  - followAvailable/following, watchlistAvailable/inWatchlist  Silo's
+ *    follow (notify when available) and watchlist-title actions.
  *  - loadingOptions, submitting, statusText, statusError  UI state flags.
  */
 Dialog {
@@ -45,7 +54,22 @@ Dialog {
     property string mediaType: ""
     property int tmdbId: -1
     property string mediaTitle: ""
-    property int seasonCount: 0
+    property string backend: ""
+    /// Season numbers the user can choose.
+    property var seasonEntries: []
+    /// Seasons left out of the grid because the library has them or they are requested.
+    property var coveredSeasons: []
+    property bool requestable: true
+    property string notRequestableReason: ""
+    property string requestId: ""
+    property bool canCancelRequest: false
+    property bool followAvailable: false
+    property bool following: false
+    property bool watchlistAvailable: false
+    property bool inWatchlist: false
+    property bool watchlistRequests: false
+    /// A follow, watchlist, or withdraw call is in flight.
+    property bool actionBusy: false
 
     property var servers: []
     property var profiles: []
@@ -65,9 +89,16 @@ Dialog {
     property bool statusError: false
 
     readonly property bool isTv: mediaType === "tv"
-    readonly property bool hasValidRequestSelections: selectedServerId >= 0
-                                                   && selectedProfileId >= 0
-                                                   && selectedRootFolderPath.trim().length > 0
+    /// Seerr hands the choice of server, profile, and root folder to the user.
+    readonly property bool needsServiceSelection: backend === "seerr"
+    readonly property bool hasSeasonChoices: isTv && seasonEntries.length > 0
+    readonly property bool canWithdraw: canCancelRequest && requestId !== ""
+    readonly property bool hasExtraActions: !loadingOptions && (followAvailable || watchlistAvailable || canWithdraw)
+    readonly property bool hasValidRequestSelections: needsServiceSelection
+                                                      ? selectedServerId >= 0
+                                                        && selectedProfileId >= 0
+                                                        && selectedRootFolderPath.trim().length > 0
+                                                      : backend === "silo" && requestable
 
     Timer {
         id: closeTimer
@@ -95,8 +126,9 @@ Dialog {
     /**
      * Moves focus to the most appropriate control after the dialog becomes visible.
      *
-     * Routes to serverCombo when options are loaded and available, otherwise falls
-     * back to cancelButton so the user can always dismiss the dialog via keyboard.
+     * Routes to the first option (serverCombo for Seerr, the season choice for a
+     * Silo series), then the Request button, falling back to cancelButton so the
+     * user can always dismiss the dialog via keyboard.
      */
     function focusInitialControl() {
         if (!visible) return
@@ -105,33 +137,123 @@ Dialog {
             cancelButton.forceActiveFocus()
             return
         }
-        if (serverCombo.visible && serverCombo.enabled) {
+        if (needsServiceSelection && serverCombo.visible && serverCombo.enabled) {
             serverCombo.forceActiveFocus()
+        } else if (hasSeasonChoices) {
+            allSeasonsCheck.forceActiveFocus()
+        } else if (requestButton.enabled) {
+            requestButton.forceActiveFocus()
+        } else if (hasExtraActions) {
+            focusExtraAction(0)
         } else {
             cancelButton.forceActiveFocus()
         }
+    }
+
+    /// The follow, watchlist, and withdraw buttons on screen, left to right.
+    function visibleExtraActions() {
+        return [followButton, watchlistButton, withdrawButton].filter(function(button) {
+            return button.visible
+        })
+    }
+
+    function focusExtraAction(index) {
+        var buttons = visibleExtraActions()
+        if (index >= 0 && index < buttons.length)
+            buttons[index].forceActiveFocus()
+    }
+
+    function moveExtraAction(from, delta) {
+        var buttons = visibleExtraActions()
+        focusExtraAction(buttons.indexOf(from) + delta)
+    }
+
+    /// Moves focus from the last option to the extra actions, else the buttons.
+    function focusBelowOptions() {
+        if (hasExtraActions)
+            focusExtraAction(0)
+        else
+            cancelButton.forceActiveFocus()
+    }
+
+    /// Moves focus to the control above the season choice, if any.
+    function focusAboveSeasons() {
+        if (needsServiceSelection)
+            rootFolderCombo.forceActiveFocus()
+    }
+
+    /// Moves focus from the buttons to the extra actions, else the options.
+    function focusAboveButtons() {
+        if (hasExtraActions)
+            focusExtraAction(0)
+        else
+            focusAboveExtras()
+    }
+
+    /// Moves focus from the extra actions to the last option above them.
+    function focusAboveExtras() {
+        if (hasSeasonChoices) {
+            if (!requestAllSeasons && seasonRepeater.count > 0) {
+                var last = seasonRepeater.itemAt(seasonRepeater.count - 1)
+                if (last) {
+                    last.forceActiveFocus()
+                    return
+                }
+            }
+            allSeasonsCheck.forceActiveFocus()
+        } else if (needsServiceSelection) {
+            rootFolderCombo.forceActiveFocus()
+        }
+    }
+
+    /// Why Silo will not take a request for this title.
+    function notRequestableText(reason) {
+        switch (reason) {
+        case "already_requested": return qsTr("This title has already been requested.")
+        case "already_available": return qsTr("This title is already in the library.")
+        default: return qsTr("You can't request this title right now.")
+        }
+    }
+
+    function seasonListText(seasons) {
+        var labels = []
+        for (var i = 0; i < seasons.length; ++i)
+            labels.push(qsTr("S%1").arg(seasons[i]))
+        return labels.join(", ")
     }
 
     /**
      * Resets all state and opens the dialog for the given search-result item.
      *
      * Extracts mediaType, tmdbId, and mediaTitle from itemData then calls
-     * SeerrService.prepareRequest() to populate server/profile/root-folder options
+     * MediaRequests.prepareRequest() to load the backend's options
      * asynchronously.  If itemData is missing required fields the dialog shows an
      * error immediately without making a network call.
      *
-     * @param itemData     A normalised search-result map (must contain seerrMediaType and seerrTmdbId).
+     * @param itemData     A discovery map (must contain requestMediaType and requestTmdbId).
      * @param focusTarget  Optional Item to restore focus to when the dialog closes.
      */
     function openForItem(itemData, focusTarget) {
         closeTimer.stop()
         restoreFocusTarget = focusTarget || null
 
-        mediaType = String(itemData.seerrMediaType || "").toLowerCase()
-        tmdbId = Number(itemData.seerrTmdbId || -1)
+        mediaType = String(itemData.requestMediaType || "").toLowerCase()
+        tmdbId = Number(itemData.requestTmdbId || -1)
         mediaTitle = itemData.name || ""
 
-        seasonCount = 0
+        backend = ""
+        seasonEntries = []
+        coveredSeasons = []
+        requestable = true
+        notRequestableReason = ""
+        requestId = String(itemData.requestId || "")
+        canCancelRequest = !!itemData.canCancel
+        followAvailable = false
+        following = false
+        watchlistAvailable = false
+        inWatchlist = false
+        watchlistRequests = false
+        actionBusy = false
         servers = []
         profiles = []
         rootFolders = []
@@ -148,23 +270,20 @@ Dialog {
         open()
 
         if (tmdbId > 0 && (mediaType === "movie" || mediaType === "tv")) {
-            SeerrService.prepareRequest(mediaType, tmdbId, mediaTitle)
+            MediaRequests.prepareRequest(mediaType, tmdbId, mediaTitle)
         } else {
             loadingOptions = false
-            statusText = qsTr("Invalid Seerr item")
+            statusText = qsTr("Invalid request item")
             statusError = true
         }
     }
 
     /**
-     * Populates selectedSeasons with all season numbers from 1 to seasonCount.
+     * Selects every season in seasonEntries.
      * Called when the dialog opens for a TV item or when "All Seasons" is re-checked.
      */
     function rebuildSeasonSelection() {
-        selectedSeasons = []
-        for (var i = 1; i <= seasonCount; ++i) {
-            selectedSeasons.push(i)
-        }
+        selectedSeasons = seasonEntries.slice()
     }
 
     /**
@@ -213,9 +332,10 @@ Dialog {
     }
 
     /**
-     * Validates selections and calls SeerrService.createRequest() to submit the request.
+     * Validates selections and calls MediaRequests.createRequest() to submit the request.
      *
-     * Validates that a server, profile, and root folder are selected; for TV items with
+     * Validates the backend's selections (Seerr: server, profile, root folder;
+     * Silo: the viewer may request the title); for TV items with
      * per-season selection, also validates that at least one season is chosen.  Sets
      * statusText and statusError on validation failure.  On success, sets submitting=true
      * and waits for the onRequestCreated or onErrorOccurred signal.
@@ -225,7 +345,8 @@ Dialog {
         statusError = false
 
         if (!hasValidRequestSelections) {
-            statusText = qsTr("Please select server/profile/root")
+            statusText = needsServiceSelection ? qsTr("Please select server/profile/root")
+                                               : notRequestableText(notRequestableReason)
             statusError = true
             submitting = false
             return
@@ -237,14 +358,14 @@ Dialog {
             return
         }
 
-        if (mediaType === "tv" && !requestAllSeasons && selectedSeasons.length === 0) {
+        if (hasSeasonChoices && !requestAllSeasons && selectedSeasons.length === 0) {
             statusText = qsTr("Select at least one season")
             statusError = true
             return
         }
 
         submitting = true
-        SeerrService.createRequest(
+        MediaRequests.createRequest(
             mediaType,
             tmdbId,
             requestAllSeasons,
@@ -262,10 +383,10 @@ Dialog {
 
     /** @brief Moves focus forward from rootFolderCombo to the season section (TV) or cancelButton (movies). */
     function focusNextFromRoot() {
-        if (isTv && seasonCount > 0) {
+        if (hasSeasonChoices) {
             allSeasonsCheck.forceActiveFocus()
         } else {
-            cancelButton.forceActiveFocus()
+            focusBelowOptions()
         }
     }
 
@@ -298,7 +419,47 @@ Dialog {
         }
     }
 
-    title: qsTr("Request on Seerr")
+    /**
+     * Fills the form from a Silo title detail: whether the viewer may request
+     * it, and which seasons are still missing from the library and unrequested.
+     */
+    function applySiloPreparation(data) {
+        requestable = !!data.requestable
+        notRequestableReason = data.notRequestableReason || ""
+        // Someone else's active request can be followed.
+        var requestState = data.requestState || ""
+        followAvailable = !!data.followSupported && requestState !== ""
+                          && !data.requestedByViewer && data.requestStatus !== "available"
+        following = !!data.following
+        // Library titles use the library watchlist on their details page.
+        watchlistAvailable = !!data.watchlistTitlesSupported && !(data.libraryItemId || "")
+        inWatchlist = !!data.inWatchlist
+        watchlistRequests = !!data.watchlistRequests
+        if (requestId === "" && data.requestedByViewer && (data.activeRequestId || "") !== "") {
+            requestId = data.activeRequestId
+            canCancelRequest = requestState === "pending" || requestState === "approved"
+        }
+        if (isTv && data.seasonRequestsSupported) {
+            var open = []
+            var covered = []
+            var seasons = data.seasons || []
+            for (var i = 0; i < seasons.length; ++i) {
+                var season = seasons[i]
+                if (season.availability === "available" || season.requested)
+                    covered.push(season.seasonNumber)
+                else
+                    open.push(season.seasonNumber)
+            }
+            seasonEntries = open
+            coveredSeasons = covered
+            rebuildSeasonSelection()
+            requestAllSeasons = true
+        }
+        Qt.callLater(function() { focusInitialControl() })
+    }
+
+    title: MediaRequests.backendName !== "" ? qsTr("Request on %1").arg(MediaRequests.backendName)
+                                            : qsTr("Request")
 
     // Keys cannot attach to the Dialog (a Popup), so content and footer
     // forward to this shared handler instead.
@@ -376,6 +537,11 @@ Dialog {
                     spacing: Theme.spacingMedium
                     visible: !loadingOptions
 
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+                    visible: needsServiceSelection
+
                 Text {
                     text: qsTr("Server")
                     font.pixelSize: Theme.fontSizeSmall
@@ -449,7 +615,7 @@ Dialog {
                     enabled: rootFolders.length > 0
 
                     KeyNavigation.up: profileCombo
-                    KeyNavigation.down: isTv && seasonCount > 0 ? allSeasonsCheck : cancelButton
+                    KeyNavigation.down: hasSeasonChoices ? allSeasonsCheck : null
 
                     onPopupOpenedForKeyboardNav: setKeyboardNavigationMode()
 
@@ -462,23 +628,45 @@ Dialog {
                     onNavigateUpRequested: profileCombo.forceActiveFocus()
                     onNavigateDownRequested: focusNextFromRoot()
                 }
+                }
+
+                Text {
+                    text: notRequestableText(notRequestableReason)
+                    visible: backend === "silo" && !requestable
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
 
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.spacingSmall
-                    visible: isTv && seasonCount > 0
+                    visible: hasSeasonChoices
+
+                    Text {
+                        text: qsTr("Already in the library or requested: %1").arg(seasonListText(coveredSeasons))
+                        visible: coveredSeasons.length > 0
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
 
                     CheckBox {
                         id: allSeasonsCheck
                         focusPolicy: Qt.StrongFocus
                         activeFocusOnTab: true
-                        text: qsTr("All Seasons")
+                        // Silo fills in only the aired seasons the library lacks.
+                        text: backend === "silo" ? qsTr("All Missing Seasons") : qsTr("All Seasons")
                         checked: requestAllSeasons
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
 
-                        KeyNavigation.up: rootFolderCombo
-                        KeyNavigation.down: !allSeasonsCheck.checked && seasonRepeater.count > 0 ? seasonRepeater.itemAt(0) : cancelButton
+                        KeyNavigation.up: needsServiceSelection ? rootFolderCombo : null
+                        KeyNavigation.down: !allSeasonsCheck.checked && seasonRepeater.count > 0 ? seasonRepeater.itemAt(0) : null
 
                         indicator: BloomCheckIndicator { control: allSeasonsCheck }
                         background: Item {
@@ -511,7 +699,7 @@ Dialog {
                         }
 
                         Keys.onDownPressed: function(event) {
-                            if (!allSeasonsCheck.checked && seasonCount > 0 && seasonRepeater.count > 0) {
+                            if (!allSeasonsCheck.checked && seasonRepeater.count > 0) {
                                 var first = seasonRepeater.itemAt(0)
                                 if (first) {
                                     first.forceActiveFocus()
@@ -519,12 +707,12 @@ Dialog {
                                     return
                                 }
                             }
-                            cancelButton.forceActiveFocus()
+                            focusBelowOptions()
                             event.accepted = true
                         }
 
                         Keys.onUpPressed: function(event) {
-                            rootFolderCombo.forceActiveFocus()
+                            focusAboveSeasons()
                             event.accepted = true
                         }
 
@@ -538,7 +726,7 @@ Dialog {
 
                         Repeater {
                             id: seasonRepeater
-                            model: seasonCount
+                            model: seasonEntries
                             onItemAdded: function(index, item) {
                                 syncSeasonChecks()
                             }
@@ -546,7 +734,8 @@ Dialog {
                             CheckBox {
                                 id: seasonCheck
                                 required property int index
-                                readonly property int seasonNumber: index + 1
+                                required property var modelData
+                                readonly property int seasonNumber: Number(modelData)
                                 focusPolicy: Qt.StrongFocus
                                 activeFocusOnTab: true
                                 text: qsTr("S%1").arg(seasonNumber)
@@ -620,7 +809,7 @@ Dialog {
                                             event.accepted = true
                                         }
                                     } else {
-                                        cancelButton.forceActiveFocus()
+                                        focusBelowOptions()
                                         event.accepted = true
                                     }
                                 }
@@ -639,6 +828,90 @@ Dialog {
                     }
                 }
             }
+
+                Text {
+                    text: qsTr("Adding it to your watchlist also requests it.")
+                    visible: !loadingOptions && watchlistAvailable && watchlistRequests && !inWatchlist && requestable
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                // Follow, watchlist, and withdraw: actions besides requesting.
+                Flow {
+                    id: extraActions
+                    Layout.fillWidth: true
+                    spacing: Theme.controlSpacing
+                    visible: hasExtraActions
+
+                    ActionButton {
+                        id: followButton
+                        variant: "secondary"
+                        visible: followAvailable
+                        enabled: !actionBusy
+                        focusPolicy: Qt.StrongFocus
+                        iconGlyph: following ? Icons.check : Icons.schedule
+                        text: following ? qsTr("Notifying You") : qsTr("Notify Me When Available")
+                        onClicked: {
+                            actionBusy = true
+                            statusText = ""
+                            MediaRequests.setFollowing(mediaType, tmdbId, !following)
+                        }
+                        Keys.onLeftPressed: function(event) { moveExtraAction(followButton, -1); event.accepted = true }
+                        Keys.onRightPressed: function(event) { moveExtraAction(followButton, 1); event.accepted = true }
+                        Keys.onUpPressed: function(event) { focusAboveExtras(); event.accepted = true }
+                        Keys.onDownPressed: function(event) { cancelButton.forceActiveFocus(); event.accepted = true }
+                        Keys.onReturnPressed: function(event) { if (enabled) clicked(); event.accepted = true }
+                        Keys.onEnterPressed: function(event) { if (enabled) clicked(); event.accepted = true }
+                        onActiveFocusChanged: if (activeFocus) ensureDialogItemVisible(followButton)
+                    }
+
+                    ActionButton {
+                        id: watchlistButton
+                        variant: "secondary"
+                        visible: watchlistAvailable
+                        enabled: !actionBusy
+                        focusPolicy: Qt.StrongFocus
+                        iconGlyph: inWatchlist ? Icons.bookmark : Icons.bookmarkBorder
+                        text: inWatchlist ? qsTr("On Watchlist") : qsTr("Add to Watchlist")
+                        onClicked: {
+                            actionBusy = true
+                            statusText = ""
+                            MediaRequests.setWatchlisted(mediaType, tmdbId, !inWatchlist)
+                        }
+                        Keys.onLeftPressed: function(event) { moveExtraAction(watchlistButton, -1); event.accepted = true }
+                        Keys.onRightPressed: function(event) { moveExtraAction(watchlistButton, 1); event.accepted = true }
+                        Keys.onUpPressed: function(event) { focusAboveExtras(); event.accepted = true }
+                        Keys.onDownPressed: function(event) { cancelButton.forceActiveFocus(); event.accepted = true }
+                        Keys.onReturnPressed: function(event) { if (enabled) clicked(); event.accepted = true }
+                        Keys.onEnterPressed: function(event) { if (enabled) clicked(); event.accepted = true }
+                        onActiveFocusChanged: if (activeFocus) ensureDialogItemVisible(watchlistButton)
+                    }
+
+                    ActionButton {
+                        id: withdrawButton
+                        variant: "destructive"
+                        visible: canWithdraw
+                        enabled: !actionBusy
+                        focusPolicy: Qt.StrongFocus
+                        iconGlyph: Icons.delete_
+                        text: qsTr("Withdraw Request")
+                        onClicked: {
+                            actionBusy = true
+                            statusText = ""
+                            MediaRequests.cancelRequest(requestId, mediaType, tmdbId)
+                        }
+                        Keys.onLeftPressed: function(event) { moveExtraAction(withdrawButton, -1); event.accepted = true }
+                        Keys.onRightPressed: function(event) { moveExtraAction(withdrawButton, 1); event.accepted = true }
+                        Keys.onUpPressed: function(event) { focusAboveExtras(); event.accepted = true }
+                        Keys.onDownPressed: function(event) { cancelButton.forceActiveFocus(); event.accepted = true }
+                        Keys.onReturnPressed: function(event) { if (enabled) clicked(); event.accepted = true }
+                        Keys.onEnterPressed: function(event) { if (enabled) clicked(); event.accepted = true }
+                        onActiveFocusChanged: if (activeFocus) ensureDialogItemVisible(withdrawButton)
+                    }
+                }
 
                 Text {
                     text: statusText
@@ -678,7 +951,6 @@ Dialog {
                 text: qsTr("Cancel")
                 onClicked: dialog.close()
 
-                KeyNavigation.up: isTv && seasonCount > 0 ? allSeasonsCheck : rootFolderCombo
                 KeyNavigation.right: requestButton
                 KeyNavigation.down: serverCombo.visible ? serverCombo : null
 
@@ -700,19 +972,7 @@ Dialog {
                 }
 
                 Keys.onUpPressed: function(event) {
-                    if (isTv && seasonCount > 0) {
-                        if (!requestAllSeasons && seasonRepeater.count > 0) {
-                            var last = seasonRepeater.itemAt(seasonRepeater.count - 1)
-                            if (last) {
-                                last.forceActiveFocus()
-                                event.accepted = true
-                                return
-                            }
-                        }
-                        allSeasonsCheck.forceActiveFocus()
-                    } else {
-                        rootFolderCombo.forceActiveFocus()
-                    }
+                    focusAboveButtons()
                     event.accepted = true
                 }
             }
@@ -727,7 +987,6 @@ Dialog {
                 enabled: !loadingOptions && !submitting && hasValidRequestSelections
                 onClicked: submitRequest()
 
-                KeyNavigation.up: isTv && seasonCount > 0 ? allSeasonsCheck : rootFolderCombo
                 KeyNavigation.left: cancelButton
                 KeyNavigation.down: serverCombo.visible ? serverCombo : null
 
@@ -753,19 +1012,7 @@ Dialog {
                 }
 
                 Keys.onUpPressed: function(event) {
-                    if (isTv && seasonCount > 0) {
-                        if (!requestAllSeasons && seasonRepeater.count > 0) {
-                            var last = seasonRepeater.itemAt(seasonRepeater.count - 1)
-                            if (last) {
-                                last.forceActiveFocus()
-                                event.accepted = true
-                                return
-                            }
-                        }
-                        allSeasonsCheck.forceActiveFocus()
-                    } else {
-                        rootFolderCombo.forceActiveFocus()
-                    }
+                    focusAboveButtons()
                     event.accepted = true
                 }
             }
@@ -793,7 +1040,7 @@ Dialog {
     }
 
     Connections {
-        target: SeerrService
+        target: MediaRequests
 
         function onRequestPreparationLoaded(prepMediaType, prepTmdbId, data) {
             if (!dialog.visible || prepMediaType !== mediaType || prepTmdbId !== tmdbId) {
@@ -801,6 +1048,12 @@ Dialog {
             }
 
             loadingOptions = false
+            backend = data.backend || ""
+
+            if (backend === "silo") {
+                applySiloPreparation(data)
+                return
+            }
 
             servers = data.servers || []
             profiles = data.profiles || []
@@ -811,7 +1064,10 @@ Dialog {
             selectedRootFolderPath = data.selectedRootFolderPath || ""
 
             if (isTv) {
-                seasonCount = data.seasonCount || 0
+                var entries = []
+                for (var s = 1; s <= (data.seasonCount || 0); ++s)
+                    entries.push(s)
+                seasonEntries = entries
                 rebuildSeasonSelection()
                 requestAllSeasons = true
             }
@@ -866,15 +1122,52 @@ Dialog {
 
             submitting = false
             statusError = false
-            var statusCode = requestData.status || 0
-            if (statusCode === 1) {
+            switch (requestData.requestState || "") {
+            case "pending":
                 statusText = qsTr("Request submitted (pending approval)")
-            } else if (statusCode === 2) {
+                break
+            case "approved":
+            case "processing":
                 statusText = qsTr("Request submitted and approved")
-            } else {
+                break
+            case "available":
+            case "partially_available":
+                statusText = qsTr("Request submitted; it's already partly in the library")
+                break
+            default:
                 statusText = qsTr("Request submitted")
             }
 
+            closeTimer.start()
+        }
+
+        function onFollowingChanged(changedMediaType, changedTmdbId, nowFollowing) {
+            if (!dialog.visible || changedMediaType !== mediaType || changedTmdbId !== tmdbId)
+                return
+            actionBusy = false
+            following = nowFollowing
+            statusError = false
+            statusText = nowFollowing ? qsTr("You'll be notified when it's available.")
+                                      : qsTr("You won't be notified about this title.")
+        }
+
+        function onWatchlistChanged(changedMediaType, changedTmdbId, nowInWatchlist) {
+            if (!dialog.visible || changedMediaType !== mediaType || changedTmdbId !== tmdbId)
+                return
+            actionBusy = false
+            inWatchlist = nowInWatchlist
+            statusError = false
+            statusText = nowInWatchlist ? qsTr("Added to your watchlist.")
+                                        : qsTr("Removed from your watchlist.")
+        }
+
+        function onRequestCancelled(cancelledRequestId, cancelledMediaType, cancelledTmdbId) {
+            if (!dialog.visible || cancelledRequestId !== requestId)
+                return
+            actionBusy = false
+            canCancelRequest = false
+            statusError = false
+            statusText = qsTr("Request withdrawn")
             closeTimer.start()
         }
 
@@ -883,7 +1176,15 @@ Dialog {
                 return
             }
 
-            if (endpoint !== "prepareRequest" && endpoint !== "service/radarr" && endpoint !== "service/sonarr" && endpoint !== "service/details" && endpoint !== "tv/details" && endpoint !== "request") {
+            // An extra action failed: say so and keep the dialog as it was.
+            if (endpoint === "cancel" || endpoint === "follow" || endpoint === "watchlist") {
+                actionBusy = false
+                statusText = error
+                statusError = true
+                return
+            }
+
+            if (endpoint !== "prepareRequest" && endpoint !== "request") {
                 return
             }
 

@@ -205,8 +205,8 @@ FocusScope {
     function activateRecommendation(itemData, focusTarget) {
         if (root.starting) return
         cancelCountdown()
-        if (itemData && itemData.source === "seerr") {
-            seerrRequestDialog.openForItem(itemData, focusTarget)
+        if (itemData && itemData.source === "request") {
+            requestDialog.openForItem(itemData, focusTarget)
             return
         }
         recommendationSelected(itemData)
@@ -674,15 +674,15 @@ FocusScope {
                 delegate: MediaCard {
                     required property var modelData
                     required property int index
-                    readonly property bool isSeerr: modelData.source === "seerr"
+                    readonly property bool isRequest: modelData.source === "request"
 
                     variant: "poster"
-                    artworkSources: [isSeerr ? (modelData.imageUrl || "")
+                    artworkSources: [isRequest ? (modelData.imageUrl || "")
                                              : root.artworkUrlFromRef(modelData.primaryArtwork, 640)]
                     title: modelData.name || ""
                     subtitle: modelData.productionYear ? String(modelData.productionYear) : ""
                     placeholderIcon: Icons.tvShows
-                    item: isSeerr ? null : modelData
+                    item: isRequest ? null : modelData
                     focused: ListView.isCurrentItem && ListView.view.activeFocus
                     onClicked: {
                         recommendationsList.currentIndex = index
@@ -694,8 +694,8 @@ FocusScope {
         }
     }
 
-    SeerrRequestDialog {
-        id: seerrRequestDialog
+    MediaRequestDialog {
+        id: requestDialog
         parent: Overlay.overlay
     }
 }

@@ -1262,6 +1262,72 @@ void LibraryService::setItemWatchlisted(const QString &itemId, bool inWatchlist)
 }
 
 // ============================================================================
+// Server-side media requests
+// ============================================================================
+
+bool LibraryService::supportsMediaRequests() const
+{
+    return m_authService && m_authService->isAuthenticated()
+        && m_authService->supportsCapability(ProviderCapability::MediaRequests);
+}
+
+void LibraryService::sendMediaRequestOperation(ProviderCatalogOperation operation,
+                                               const ProviderCatalogQuery &query,
+                                               MediaRequestHandler onLoaded,
+                                               MediaRequestFailureHandler onFailed)
+{
+    QString operationName;
+    switch (operation) {
+    case ProviderCatalogOperation::MediaRequestStatus:
+        operationName = QStringLiteral("getMediaRequestStatus");
+        break;
+    case ProviderCatalogOperation::MediaRequestSearch:
+        operationName = QStringLiteral("searchMediaRequests");
+        break;
+    case ProviderCatalogOperation::MediaRequestDetail:
+        operationName = QStringLiteral("getMediaRequestDetail");
+        break;
+    case ProviderCatalogOperation::CreateMediaRequest:
+        operationName = QStringLiteral("createMediaRequest");
+        break;
+    case ProviderCatalogOperation::MediaRequestDiscover:
+        operationName = QStringLiteral("getMediaRequestDiscover");
+        break;
+    case ProviderCatalogOperation::MediaRequestDiscoverSection:
+        operationName = QStringLiteral("getMediaRequestDiscoverSection");
+        break;
+    default:
+        if (onFailed) {
+            onFailed(tr("Not a media request operation."));
+        }
+        return;
+    }
+    if (!supportsMediaRequests()) {
+        if (onFailed) {
+            onFailed(tr("This server does not take media requests."));
+        }
+        return;
+    }
+
+    ProviderCatalogQuery requestQuery = query;
+    requestQuery.userId = baseCatalogQuery().userId;
+    sendCatalogRequest(
+        operationName,
+        operation,
+        requestQuery,
+        [onLoaded = std::move(onLoaded)](const ProviderCatalogResponse &response) {
+            if (onLoaded) {
+                onLoaded(response.capabilityMetadata);
+            }
+        },
+        [onFailed = std::move(onFailed)](const NetworkError &error) {
+            if (onFailed) {
+                onFailed(error.userMessage);
+            }
+        });
+}
+
+// ============================================================================
 // Profile-curated Home rows
 // ============================================================================
 

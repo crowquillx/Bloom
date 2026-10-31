@@ -94,6 +94,21 @@ Silo has no series-wide episode route, so `LibraryService::getNextUnplayedEpisod
 
 Conditional playback and theme capability reads return ETags. Bloom sends `If-None-Match` and reuses the cached representation on `304`. The watched, favorite, watchlist, authentication-session revoke, playback, and theme-grant operations Bloom uses do not declare guarded writes. Bloom does not invent `If-Match` for them. A future guarded write must preserve the resource ETag and reconcile `412` after a fresh read.
 
+## Media requests and Discover
+
+Native Silo exposes `ProviderCapability::MediaRequests`. Every request route is profile scoped. Bloom reads `GET /api/v2/requests/status` (`FeatureStatus`) for the selected profile and offers requests only when `requests_enabled`, `allowed`, and `state: available` hold. A configured Seerr API key takes priority, and Bloom then shows none of Silo's request surface. See [media requests](seerr.md).
+
+- Search uses `GET /api/v2/requests/search` with a percent-encoded `q`: `QUrlQuery` would leave `+`, which the server reads as a space. Titles whose `availability` is `available` are left out, because the library shelves show them.
+- `GET /api/v2/requests/detail/{media_type}/{tmdb_id}` supplies the dialog's seasons (`availability`, `requested`), `request.requestable` with its `reason`, and the `recommendations` Bloom shows as similar titles. Bloom maps its `tv` to Silo's `series`.
+- `POST /api/v2/requests` is declared `non_retryable`, so Bloom never replays it. The body carries `media_type`, `tmdb_id`, and the required `title` from the prepared detail, plus `year`, `overview`, and artwork paths. `seasons` is sent only when the user picks seasons. Without it Silo requests every aired season the library lacks.
+- `GET /api/v2/requests/discover` returns the rows with their first page. `GET /api/v2/requests/discover/{section}` pages one row by its enum key; Bloom sends only the six documented keys. When rating backfill consumed more than one provider page, `next_page` gives the next page.
+- Poster and backdrop paths are TMDB image paths. Bloom resolves them against the TMDB image CDN, and request routes never carry the catalog artwork width parameters.
+- A title in the library carries `library_content_id`. Discover opens its details page instead of the request dialog.
+- Browsing lists `GET /api/v2/requests/discover/{genres|studios|networks}` and pages one by slug through `GET /api/v2/requests/discover/browse/{kind}/{slug}` with `sort` and `page`. Only genres take `media_type`: studios are movies and networks are series. A genre browses series when its brand is `series_supported`.
+- The request list reads the first page of `GET /api/v2/requests/mine` (`limit=50`). Bloom offers withdrawing an `active` request in state `pending` or `approved`, through `POST /api/v2/requests/{id}/cancel` with an empty object. `cancelRequest` is `non_retryable`.
+- When `follow_supported`, a title with someone else's active request can be followed with `PUT` and unfollowed with `DELETE /api/v2/requests/follows/{media_type}/{tmdb_id}`. Both are `natural_idempotent`, so Bloom retries them.
+- When `watchlist_titles_supported`, a title the library lacks goes on and off the watchlist through `PUT` / `DELETE /api/v2/watchlist/titles/{media_type}/{tmdb_id}`. These writes are `non_retryable` because adding can request the title (`watchlist_requests`).
+
 ## Playback, themes, and seek previews
 
 - `/api/v2/playback/capabilities` must allow protocol 3, `playback_plan_v3`, and original HTTP delivery. Its `installation_id` is required on start and reports.

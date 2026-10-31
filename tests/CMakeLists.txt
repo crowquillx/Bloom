@@ -57,6 +57,7 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
     ${CMAKE_SOURCE_DIR}/src/network/HttpTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/MediaRequestService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
@@ -1033,6 +1034,25 @@ target_link_libraries(HomeRowsAndWatchlistTest
 
 add_test(NAME HomeRowsAndWatchlistTest COMMAND HomeRowsAndWatchlistTest)
 
+add_executable(MediaRequestServiceTest
+    MediaRequestServiceTest.cpp
+)
+
+target_include_directories(MediaRequestServiceTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(MediaRequestServiceTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME MediaRequestServiceTest COMMAND MediaRequestServiceTest)
+
 add_executable(UpNextRecommendationsViewModelTest
     UpNextRecommendationsViewModelTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/UpNextRecommendationsViewModel.cpp
@@ -1121,6 +1141,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     TrackPreferencesManagerTest
     SimilarItemsRetryTest
     HomeRowsAndWatchlistTest
+    MediaRequestServiceTest
     UpNextRecommendationsViewModelTest
     UpdateServiceTest
 )
@@ -1273,8 +1294,12 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/settings/HomeSettings.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SettingsScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SearchScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/DiscoverScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/BrowseScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/DiscoveryCard.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/DiscoveryListModel.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MediaSourceSelectionDialog.qml
-    ${CMAKE_SOURCE_DIR}/src/ui/SeerrRequestDialog.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/MediaRequestDialog.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SeerrComboBox.qml
     ${CMAKE_SOURCE_DIR}/src/ui/UnwatchedBadge.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MetadataChip.qml
