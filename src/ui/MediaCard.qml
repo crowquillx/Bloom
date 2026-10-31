@@ -9,7 +9,8 @@ import BloomUI
  * variant:
  *   "poster"     2:3 artwork with the title and subtitle in a caption below.
  *   "landscape"  16:9 artwork with the title set on a bottom scrim inside the
- *                art and playback progress along its lower edge.
+ *                art and playback progress along its lower edge. A loaded
+ *                `logoSource` replaces the title text.
  *
  * Sizes default to the Theme card tokens (fixed design units), so a card
  * covers the same fraction of the screen everywhere. Grids may override
@@ -34,6 +35,9 @@ Item {
     property var artworkSources: []
     property string title: ""
     property string subtitle: ""
+    /// Landscape only: title logo drawn in place of the title text. The text
+    /// stays while the logo is missing or fails to load.
+    property string logoSource: ""
     /// Glyph for the placeholder shown while artwork is missing or loading.
     property string placeholderIcon: Icons.movie
     property bool focused: false
@@ -218,10 +222,37 @@ Item {
             anchors.bottomMargin: progress.visible ? -Theme.spacingXSmall : Theme.spacingMedium
             spacing: Math.round(2 * Theme.layoutScale)
 
+            ArtworkLogo {
+                id: titleLogo
+                // fanart.tv ClearArt and TV thumbs share a 16:9 (1000x562)
+                // canvas and are sometimes served as the logo; they carry
+                // characters, not just the title. Title logos are almost never
+                // 16:9, so such an image keeps the text title.
+                readonly property bool notATitleLogo: status === Image.Ready && implicitHeight > 0
+                                                     && Math.abs(implicitWidth / implicitHeight - 16 / 9) < 0.02
+                // Room for the logo is kept while it loads so the card does not
+                // flash the text title first.
+                visible: source.toString() !== "" && status !== Image.Error && !notATitleLogo
+                opacity: status === Image.Ready ? 1 : 0
+                width: Math.round(parent.width * 0.62)
+                height: Math.round(root.artworkHeight * 0.3)
+                source: root.hasCaption ? "" : root.logoSource
+                sourceSize.width: Math.round(width * 2)
+                sourceSize.height: Math.round(height * 2)
+                horizontalAlignment: Image.AlignLeft
+                verticalAlignment: Image.AlignBottom
+                smooth: true
+                mipmap: true
+                Behavior on opacity {
+                    enabled: Theme.uiAnimationsEnabled
+                    NumberAnimation { duration: Theme.durationNormal }
+                }
+            }
+
             Text {
                 width: parent.width
                 text: root.title
-                visible: text !== ""
+                visible: text !== "" && !titleLogo.visible
                 font.pixelSize: Theme.fontSizeBody
                 font.family: Theme.fontPrimary
                 font.weight: Theme.fontWeightHeavy

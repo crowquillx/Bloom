@@ -237,6 +237,27 @@ QByteArray pngBytes(const QSize &size = QSize(8, 8))
     return bytes;
 }
 
+// A portrait image in three horizontal bands: red, green, blue.
+QByteArray bandedPortraitPngBytes(const QSize &size)
+{
+    QImage image(size, QImage::Format_ARGB32_Premultiplied);
+    const int band = size.height() / 3;
+    for (int y = 0; y < size.height(); ++y) {
+        const QColor color = y < band ? QColor(Qt::red)
+            : (y < band * 2 ? QColor(Qt::green) : QColor(Qt::blue));
+        for (int x = 0; x < size.width(); ++x) {
+            image.setPixelColor(x, y, color);
+        }
+    }
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    if (!buffer.open(QIODevice::WriteOnly)) {
+        return {};
+    }
+    QImageWriter writer(&buffer, QByteArrayLiteral("png"));
+    return writer.write(image) ? bytes : QByteArray();
+}
+
 } // namespace
 
 class ArtworkRefreshTest : public QObject
@@ -253,6 +274,7 @@ private slots:
     void signedUrlIsNotPartOfCacheIdentity();
     void identicalRequestsCoalesceAcrossCancellation();
     void existingRoundedVariantIsDiscoveredAsynchronously();
+    void sizedImagesKeepTheirAspectRatio();
     void roundedRequestDoesNotWaitForBusyCacheWorker();
     void revisionRaceRetriesRoundedLookup();
     void failedRoundedRenderReleasesPendingRequest();
@@ -506,6 +528,50 @@ void ArtworkRefreshTest::existingRoundedVariantIsDiscoveredAsynchronously()
              quint64(0));
     QCOMPARE(reopened.requestRoundedImage(identity, 14, 40, 40), generatedUrl);
     QCOMPARE(server.requestTargets.size(), 1);
+}
+
+// A portrait poster on a landscape card is cropped, never stretched: sized
+// decodes keep the source shape (the card crops them), and the pre-rounded
+// variant is the centre of the source at the card's shape.
+void ArtworkRefreshTest::sizedImagesKeepTheirAspectRatio()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {bandedPortraitPngBytes(QSize(400, 800))};
+    QVERIFY(server.start());
+
+    const QSize landscapeCard(160, 90);
+    ImageCacheProvider cache(1);
+    const QString identity = server.url(QStringLiteral("/portrait.png")).toString();
+
+    for (int pass = 0; pass < 2; ++pass) {
+        // The first pass decodes from the network response, the second from disk.
+        std::unique_ptr<QQuickImageResponse> response(
+            cache.requestImageResponse(identity, landscapeCard));
+        QSignalSpy finishedSpy(response.get(), &QQuickImageResponse::finished);
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 3000);
+        QVERIFY2(response->errorString().isEmpty(), qPrintable(response->errorString()));
+        std::unique_ptr<QQuickTextureFactory> factory(response->textureFactory());
+        QVERIFY(factory);
+        const QImage decoded = factory->image();
+        // Covers the card at the source's 1:2 shape.
+        QCOMPARE(decoded.size(), QSize(160, 320));
+    }
+
+    QString roundedUrl;
+    QTRY_VERIFY_WITH_TIMEOUT(
+        !(roundedUrl = cache.requestRoundedImage(
+              identity, 0, landscapeCard.width(), landscapeCard.height())).isEmpty(),
+        3000);
+    const QImage rounded(QUrl(roundedUrl).toLocalFile());
+    QCOMPARE(rounded.size(), landscapeCard);
+    // Stretching would put the red band at the top and blue at the bottom.
+    for (const QPoint &point : {QPoint(80, 2), QPoint(80, 45), QPoint(80, 87)}) {
+        const QColor color = rounded.pixelColor(point);
+        QVERIFY2(color.green() > 200 && color.red() < 40 && color.blue() < 40,
+                 qPrintable(QStringLiteral("pixel %1,%2 is %3")
+                                .arg(point.x()).arg(point.y()).arg(color.name())));
+    }
 }
 
 void ArtworkRefreshTest::roundedRequestDoesNotWaitForBusyCacheWorker()

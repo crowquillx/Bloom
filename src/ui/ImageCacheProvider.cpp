@@ -46,6 +46,18 @@ bool exceedsDecodedLimit(const QSize &size, qint64 maximumBytes)
     return pixels <= 0 || pixels > maximumBytes / 4;
 }
 
+// Scales a source to cover the requested box while keeping its aspect ratio,
+// so cards that crop (PreserveAspectCrop) never show stretched art. Sources
+// smaller than the box keep their size; the scene graph scales them.
+QSize coverSize(const QSize &sourceSize, const QSize &requestedSize)
+{
+    if (!sourceSize.isValid() || sourceSize.isEmpty()) {
+        return requestedSize;
+    }
+    const QSize covered = sourceSize.scaled(requestedSize, Qt::KeepAspectRatioByExpanding);
+    return covered.width() > sourceSize.width() ? sourceSize : covered;
+}
+
 DecodedImage decodeImage(QImageReader &reader,
                          const QSize &requestedSize,
                          qint64 maximumDecodedBytes)
@@ -62,7 +74,7 @@ DecodedImage decodeImage(QImageReader &reader,
                 DecodeFailure::LimitExceeded};
     }
     if (requestedSize.isValid() && !requestedSize.isEmpty()) {
-        reader.setScaledSize(requestedSize);
+        reader.setScaledSize(coverSize(sourceSize, requestedSize));
     }
 
     QElapsedTimer timer;
@@ -223,8 +235,8 @@ private:
             [guard, image = std::move(image), requestedSize]() mutable {
                 QElapsedTimer timer;
                 timer.start();
-                QImage scaled = image.scaled(requestedSize,
-                                             Qt::KeepAspectRatio,
+                QImage scaled = image.scaled(coverSize(image.size(), requestedSize),
+                                             Qt::IgnoreAspectRatio,
                                              Qt::SmoothTransformation);
                 const qint64 latencyMs = timer.elapsed();
                 if (!guard) {
@@ -905,7 +917,9 @@ std::optional<QNetworkRequest> ImageCacheProvider::resolveRequest(const QString 
 
 QString ImageCacheProvider::roundedKey(const QString &url, int radiusPx, const QSize &targetSize) const
 {
-    return QString("%1|rounded|r%2|%3x%4")
+    // "crop": variants made before the centre-crop fix were stretched, so
+    // they must not be served again.
+    return QString("%1|rounded-crop|r%2|%3x%4")
         .arg(url)
         .arg(radiusPx)
         .arg(targetSize.width())
@@ -941,7 +955,15 @@ bool ImageCacheProvider::renderRoundedPng(const QString &sourcePath, int radiusP
     QPainterPath path;
     path.addRoundedRect(QRectF(QPointF(0, 0), QSizeF(outputSize)), clampedRadius, clampedRadius);
     painter.setClipPath(path);
-    painter.drawImage(QRect(QPoint(0, 0), outputSize), src);
+    // Crop the centre of the source to the output shape (PreserveAspectCrop)
+    // rather than stretching it to fit.
+    const QSize sourceSize = src.size();
+    const QSize visibleSize = outputSize.scaled(sourceSize, Qt::KeepAspectRatio);
+    const QRect sourceRect(QPoint((sourceSize.width() - visibleSize.width()) / 2,
+                                  (sourceSize.height() - visibleSize.height()) / 2),
+                           visibleSize);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    painter.drawImage(QRect(QPoint(0, 0), outputSize), src, sourceRect);
     painter.end();
 
     QBuffer buffer(&outData);

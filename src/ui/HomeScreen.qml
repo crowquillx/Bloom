@@ -588,7 +588,11 @@ FocusScope {
         return year ? String(year) : ""
     }
 
-    // Landscape card for Continue Watching / Up Next.
+    // Landscape card for Continue Watching / Up Next. Landscape art first:
+    // thumbs, then the backdrop (Silo has no thumbs on Home cards, and its
+    // episode primary is the portrait season poster), then the primary.
+    // Thumbs usually carry the title art already; a card without one shows
+    // the logo in place of the title text.
     Component {
         id: landscapeCardDelegate
 
@@ -596,13 +600,18 @@ FocusScope {
             id: landscapeCard
             required property var modelData
             required property int index
-            variant: "landscape"
-            artworkSources: [
+            readonly property var thumbSources: [
                 root.artworkUrlFromRef(modelData.seriesThumbArtwork, homeCardImageRequestWidth),
                 root.artworkUrlFromRef(modelData.parentThumbArtwork, homeCardImageRequestWidth),
-                root.artworkUrlFromRef(modelData.thumbArtwork, homeCardImageRequestWidth),
-                root.artworkUrlFromRef(modelData.primaryArtwork, homeCardImageRequestWidth)
+                root.artworkUrlFromRef(modelData.thumbArtwork, homeCardImageRequestWidth)
             ]
+            readonly property bool hasThumb: thumbSources.some(function(url) { return url !== "" })
+            variant: "landscape"
+            artworkSources: thumbSources.concat([
+                root.artworkUrlFromRef(modelData.backdropArtwork, homeCardImageRequestWidth),
+                root.artworkUrlFromRef(modelData.primaryArtwork, homeCardImageRequestWidth)
+            ])
+            logoSource: hasThumb ? "" : root.artworkUrlFromRef(modelData.logoArtwork, homeCardImageRequestWidth)
             title: modelData.seriesName || modelData.name || ""
             subtitle: root.landscapeSubtitle(modelData)
             placeholderIcon: modelData.mediaType === "Movie" ? Icons.movie : Icons.tvShows

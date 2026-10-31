@@ -159,6 +159,13 @@ Cards are always `MediaCard`:
 | `landscape` | `landscapeCardWidth` 456 × 256 (16:9) | Continue Watching, Up Next, episodes, chapters | Title + subtitle on a scrim inside the art, progress along the bottom |
 
 - Cards are separated by `cardGap`.
+- Landscape cards prefer landscape art: series, parent and item thumbs, then
+  the backdrop, and only then the primary image. Art that does not match the
+  card's shape is centre-cropped, never stretched. A card without a thumb
+  passes the title logo as `logoSource`, which replaces the title text above
+  the subtitle; the text returns when the logo is missing or fails to load.
+  A 16:9 "logo" also keeps the text: that is fanart.tv ClearArt or a TV thumb
+  (1000×562 canvas, with characters) that the server filed as the logo.
 - Subtitles follow one format: movies show the year; series show
   `2019 – Present` or `2019 – 2023`; episodes show `S1 E4 · Title`, or
   `S1 E4 · 18 min left` when resuming.
