@@ -12,17 +12,17 @@ FocusScope {
     property int pendingSeasonsGridIndex: -1
     property var pendingReturnState: null
     property bool restorePendingReturnState: false
-    property var seerrRecommendationCacheStore: null
-    property int seerrRecommendationCacheTtlMs: 10 * 60 * 1000
+    property var requestRecommendationCacheStore: null
+    property int requestRecommendationCacheTtlMs: 10 * 60 * 1000
     readonly property bool isRestoringReturnFocus: restoringFocusFromNavigation
                                                  || restoringFocusFromReturnState
                                                  || suppressHeroAutofocus
                                                  || hasPendingReturnStateForCurrentSeries()
 
-    property var seerrRecommendedItems: []
-    property bool seerrRecommendationsLoading: false
-    property string seerrPendingTmdbId: ""
-    property string seerrLoadedTmdbId: ""
+    property var requestRecommendedItems: []
+    property bool requestRecommendationsLoading: false
+    property string requestPendingTmdbId: ""
+    property string requestLoadedTmdbId: ""
 
     readonly property string seriesName: SeriesDetailsViewModel.title
     readonly property string seriesOverview: SeriesDetailsViewModel.overview
@@ -37,8 +37,8 @@ FocusScope {
     readonly property var castAndCrew: SeriesDetailsViewModel.people || []
     readonly property var libraryRecommendations: SeriesDetailsViewModel.similarItems || []
     readonly property bool libraryRecommendationsLoading: SeriesDetailsViewModel.similarItemsLoading
-    readonly property bool seerrConfigured: typeof SeerrService !== "undefined" && SeerrService !== null && SeerrService.configured
-    readonly property string seerrMediaType: "tv" // SeriesDetailsView only issues TV similar-title requests.
+    readonly property bool requestsAvailable: typeof MediaRequests !== "undefined" && MediaRequests !== null && MediaRequests.available
+    readonly property string similarMediaType: "tv" // SeriesDetailsView only issues TV similar-title requests.
     readonly property var externalRatings: SeriesDetailsViewModel.mdbListRatings || ({})
     // Ratings come from MDBList (with an API key) and, for anime, AniList.
     // Mirrors the fetch conditions in SeriesDetailsViewModel.
@@ -82,8 +82,8 @@ FocusScope {
         if (castSection.visible && castList.count > 0) targets.push(castList)
         if (libraryRecommendationsSection.visible && libraryRecommendationsList.count > 0)
             targets.push(libraryRecommendationsList)
-        if (seerrRecommendationsSection.visible && seerrRecommendationsList.count > 0)
-            targets.push(seerrRecommendationsList)
+        if (requestRecommendationsSection.visible && requestRecommendationsList.count > 0)
+            targets.push(requestRecommendationsList)
         return targets
     }
 
@@ -256,8 +256,8 @@ FocusScope {
         if (itemIsDescendant(activeItem, libraryRecommendationsList)) {
             return "libraryRecommendations"
         }
-        if (itemIsDescendant(activeItem, seerrRecommendationsList)) {
-            return "seerrRecommendations"
+        if (itemIsDescendant(activeItem, requestRecommendationsList)) {
+            return "requestRecommendations"
         }
         return "hero"
     }
@@ -275,7 +275,7 @@ FocusScope {
         if (area === "seasons") return Math.max(0, seasonsList.currentIndex)
         if (area === "cast") return Math.max(0, castList.currentIndex)
         if (area === "libraryRecommendations") return Math.max(0, libraryRecommendationsList.currentIndex)
-        if (area === "seerrRecommendations") return Math.max(0, seerrRecommendationsList.currentIndex)
+        if (area === "requestRecommendations") return Math.max(0, requestRecommendationsList.currentIndex)
         return 0
     }
 
@@ -286,8 +286,8 @@ FocusScope {
             focusIndex: currentFocusIndex(),
             seasonsGridIndex: Math.max(0, seasonsList.currentIndex),
             contentY: contentFlickable.contentY,
-            seerrTmdbId: String(tmdbId || seerrLoadedTmdbId || ""),
-            seerrRecommendations: (seerrRecommendedItems || []).slice()
+            requestTmdbId: String(tmdbId || requestLoadedTmdbId || ""),
+            requestRecommendations: (requestRecommendedItems || []).slice()
         }
     }
 
@@ -311,7 +311,7 @@ FocusScope {
             "seasons": seasonsList,
             "cast": castList,
             "libraryRecommendations": libraryRecommendationsList,
-            "seerrRecommendations": seerrRecommendationsList
+            "requestRecommendations": requestRecommendationsList
         }
         const list = lists[area]
         if (list && list.parent.visible && list.count > 0) {
@@ -328,11 +328,11 @@ FocusScope {
             return false
         }
 
-        if (state.seerrRecommendations && state.seerrRecommendations.length > 0) {
-            seerrRecommendedItems = state.seerrRecommendations.slice()
-            seerrLoadedTmdbId = String(state.seerrTmdbId || "")
-            seerrPendingTmdbId = ""
-            seerrRecommendationsLoading = false
+        if (state.requestRecommendations && state.requestRecommendations.length > 0) {
+            requestRecommendedItems = state.requestRecommendations.slice()
+            requestLoadedTmdbId = String(state.requestTmdbId || "")
+            requestPendingTmdbId = ""
+            requestRecommendationsLoading = false
         }
 
         if (state.contentY !== undefined && state.contentY >= 0) {
@@ -344,7 +344,7 @@ FocusScope {
         if (desiredArea === "seasons" && seasonsList.count <= 0) return false
         if (desiredArea === "cast" && castList.count <= 0) return false
         if (desiredArea === "libraryRecommendations" && libraryRecommendations.length <= 0) return false
-        if (desiredArea === "seerrRecommendations" && seerrRecommendedItems.length <= 0) return false
+        if (desiredArea === "requestRecommendations" && requestRecommendedItems.length <= 0) return false
 
         if (restoreFocusToArea(desiredArea, state.focusIndex || 0)) {
             return true
@@ -381,38 +381,43 @@ FocusScope {
         })
     }
 
-    function requestSeerrRecommendations() {
+    // Seerr and Silo answer differently, so each backend has its own entries.
+    function recommendationCacheKey(requestedTmdbId) {
+        return MediaRequests.backend + ":" + requestedTmdbId
+    }
+
+    function loadRequestRecommendations() {
         const requestedTmdbId = String(tmdbId || "")
 
-        if (!seerrConfigured || requestedTmdbId === "" || Number(requestedTmdbId) <= 0) {
-            seerrPendingTmdbId = ""
+        if (!requestsAvailable || requestedTmdbId === "" || Number(requestedTmdbId) <= 0) {
+            requestPendingTmdbId = ""
             return
         }
 
-        if (seerrRecommendationCacheStore) {
-            const cachedEntry = seerrRecommendationCacheStore[requestedTmdbId]
+        if (requestRecommendationCacheStore) {
+            const cachedEntry = requestRecommendationCacheStore[recommendationCacheKey(requestedTmdbId)]
             const now = Date.now()
-            if (cachedEntry && cachedEntry.timestamp && (now - cachedEntry.timestamp) <= seerrRecommendationCacheTtlMs) {
-                seerrRecommendedItems = (cachedEntry.items || []).slice()
-                seerrLoadedTmdbId = requestedTmdbId
-                seerrPendingTmdbId = ""
-                seerrRecommendationsLoading = false
+            if (cachedEntry && cachedEntry.timestamp && (now - cachedEntry.timestamp) <= requestRecommendationCacheTtlMs) {
+                requestRecommendedItems = (cachedEntry.items || []).slice()
+                requestLoadedTmdbId = requestedTmdbId
+                requestPendingTmdbId = ""
+                requestRecommendationsLoading = false
                 return
             }
         }
 
-        if ((seerrRecommendationsLoading && seerrPendingTmdbId === requestedTmdbId)
-                || seerrLoadedTmdbId === requestedTmdbId) {
+        if ((requestRecommendationsLoading && requestPendingTmdbId === requestedTmdbId)
+                || requestLoadedTmdbId === requestedTmdbId) {
             return
         }
 
-        seerrPendingTmdbId = ""
-        seerrLoadedTmdbId = ""
-        seerrRecommendedItems = []
-        seerrRecommendationsLoading = false
-        seerrPendingTmdbId = requestedTmdbId
-        seerrRecommendationsLoading = true
-        SeerrService.getSimilar(seerrMediaType, Number(requestedTmdbId), 1)
+        requestPendingTmdbId = ""
+        requestLoadedTmdbId = ""
+        requestRecommendedItems = []
+        requestRecommendationsLoading = false
+        requestPendingTmdbId = requestedTmdbId
+        requestRecommendationsLoading = true
+        MediaRequests.getSimilar(similarMediaType, Number(requestedTmdbId))
     }
 
     function restorePendingSeasonFocus() {
@@ -467,17 +472,17 @@ FocusScope {
 
     onSeriesIdChanged: {
         if (hasPendingReturnStateForCurrentSeries()
-                && pendingReturnState.seerrRecommendations
-                && pendingReturnState.seerrRecommendations.length > 0) {
-            seerrRecommendedItems = pendingReturnState.seerrRecommendations.slice()
-            seerrRecommendationsLoading = false
-            seerrPendingTmdbId = ""
-            seerrLoadedTmdbId = String(pendingReturnState.seerrTmdbId || "")
+                && pendingReturnState.requestRecommendations
+                && pendingReturnState.requestRecommendations.length > 0) {
+            requestRecommendedItems = pendingReturnState.requestRecommendations.slice()
+            requestRecommendationsLoading = false
+            requestPendingTmdbId = ""
+            requestLoadedTmdbId = String(pendingReturnState.requestTmdbId || "")
         } else {
-            seerrRecommendedItems = []
-            seerrRecommendationsLoading = false
-            seerrPendingTmdbId = ""
-            seerrLoadedTmdbId = ""
+            requestRecommendedItems = []
+            requestRecommendationsLoading = false
+            requestPendingTmdbId = ""
+            requestLoadedTmdbId = ""
         }
 
         if (seriesId !== "") {
@@ -503,7 +508,7 @@ FocusScope {
         Qt.callLater(root.tryRestorePendingReturnState)
     }
 
-    onSeerrRecommendedItemsChanged: {
+    onRequestRecommendedItemsChanged: {
         Qt.callLater(root.tryRestorePendingReturnState)
     }
 
@@ -943,13 +948,13 @@ FocusScope {
             }
 
             ColumnLayout {
-                id: seerrRecommendationsSection
+                id: requestRecommendationsSection
                 Layout.fillWidth: true
                 spacing: Theme.sectionTitleSpacing
-                visible: seerrRecommendedItems.length > 0
+                visible: requestRecommendedItems.length > 0
 
                 SectionHeader {
-                    text: qsTr("Seerr Recommendations")
+                    text: qsTr("More to Request")
                     Layout.leftMargin: Theme.pageMarginX
                     Layout.rightMargin: Theme.pageMarginX
                     Layout.fillWidth: true
@@ -958,10 +963,10 @@ FocusScope {
                 }
 
                 ShelfList {
-                    id: seerrRecommendationsList
+                    id: requestRecommendationsList
                     Layout.fillWidth: true
                     Layout.preferredHeight: implicitHeight
-                    model: seerrRecommendedItems
+                    model: requestRecommendedItems
 
                     delegate: MediaCard {
                         required property var modelData
@@ -970,28 +975,28 @@ FocusScope {
                         artworkSources: [modelData.imageUrl || ""]
                         title: modelData.name || ""
                         subtitle: root.yearOf(modelData)
-                        placeholderIcon: String(modelData.seerrMediaType || "").toLowerCase() === "movie"
+                        placeholderIcon: String(modelData.requestMediaType || "").toLowerCase() === "movie"
                                          ? Icons.movie : Icons.tvShows
                         focused: ListView.isCurrentItem && ListView.view.activeFocus
                         onClicked: {
-                            seerrRecommendationsList.currentIndex = index
-                            seerrRecommendationsList.forceActiveFocus()
-                            seerrRequestDialog.openForItem(modelData, seerrRecommendationsList)
+                            requestRecommendationsList.currentIndex = index
+                            requestRecommendationsList.forceActiveFocus()
+                            requestDialog.openForItem(modelData, requestRecommendationsList)
                         }
                         Accessible.description: qsTr("Request %1").arg(modelData.name || "")
                     }
 
-                    onActiveFocusChanged: if (activeFocus) root.scrollToSection(seerrRecommendationsSection)
-                    Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(seerrRecommendationsList, -1) }
-                    Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(seerrRecommendationsList, 1) }
+                    onActiveFocusChanged: if (activeFocus) root.scrollToSection(requestRecommendationsSection)
+                    Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(requestRecommendationsList, -1) }
+                    Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(requestRecommendationsList, 1) }
                     Keys.onReturnPressed: (event) => {
-                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < seerrRecommendedItems.length)
-                            seerrRequestDialog.openForItem(seerrRecommendedItems[currentIndex], seerrRecommendationsList)
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < requestRecommendedItems.length)
+                            requestDialog.openForItem(requestRecommendedItems[currentIndex], requestRecommendationsList)
                         event.accepted = true
                     }
                     Keys.onEnterPressed: (event) => {
-                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < seerrRecommendedItems.length)
-                            seerrRequestDialog.openForItem(seerrRecommendedItems[currentIndex], seerrRecommendationsList)
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < requestRecommendedItems.length)
+                            requestDialog.openForItem(requestRecommendedItems[currentIndex], requestRecommendationsList)
                         event.accepted = true
                     }
                 }
@@ -1007,8 +1012,8 @@ FocusScope {
         stepPx: Math.round(140 * Theme.layoutScale)
     }
 
-    SeerrRequestDialog {
-        id: seerrRequestDialog
+    MediaRequestDialog {
+        id: requestDialog
         parent: Overlay.overlay
     }
 
@@ -1024,7 +1029,7 @@ FocusScope {
             if (!hasPendingReturnStateForCurrentSeries() && !suppressHeroAutofocus) {
                 focusTimer.start()
             }
-            Qt.callLater(root.requestSeerrRecommendations)
+            Qt.callLater(root.loadRequestRecommendations)
             Qt.callLater(root.tryRestorePendingReturnState)
         }
         function onWatchlistUpdateFailed(message) {
@@ -1042,25 +1047,24 @@ FocusScope {
     }
 
     Connections {
-        target: SeerrService
+        target: MediaRequests
 
-        function onConfiguredChanged() {
-            if (!SeerrService.configured) {
-                seerrPendingTmdbId = ""
-                seerrLoadedTmdbId = ""
-                seerrRecommendedItems = []
-                seerrRecommendationsLoading = false
-                return
-            }
-
-            Qt.callLater(root.requestSeerrRecommendations)
+        // The backend changed (Seerr configured or removed, or the Silo
+        // account's request access): drop the other backend's shelf.
+        function onAvailabilityChanged() {
+            requestPendingTmdbId = ""
+            requestLoadedTmdbId = ""
+            requestRecommendedItems = []
+            requestRecommendationsLoading = false
+            if (MediaRequests.available)
+                Qt.callLater(root.loadRequestRecommendations)
         }
 
         function onSimilarResultsLoaded(mediaType, requestedTmdbId, results) {
             const requestTmdbId = String(requestedTmdbId)
-            if (String(mediaType).toLowerCase() !== seerrMediaType
+            if (String(mediaType).toLowerCase() !== similarMediaType
                     || requestTmdbId !== root.tmdbId
-                    || requestTmdbId !== seerrPendingTmdbId) {
+                    || requestTmdbId !== requestPendingTmdbId) {
                 return
             }
 
@@ -1068,30 +1072,30 @@ FocusScope {
             for (let i = 0; i < results.length; ++i) {
                 mappedResults.push(results[i])
             }
-            seerrRecommendedItems = mappedResults
-            if (root.seerrRecommendationCacheStore) {
-                root.seerrRecommendationCacheStore[requestTmdbId] = {
+            requestRecommendedItems = mappedResults
+            if (root.requestRecommendationCacheStore) {
+                root.requestRecommendationCacheStore[root.recommendationCacheKey(requestTmdbId)] = {
                     timestamp: Date.now(),
                     items: mappedResults.slice()
                 }
             }
-            seerrLoadedTmdbId = requestTmdbId
-            seerrPendingTmdbId = ""
-            seerrRecommendationsLoading = false
+            requestLoadedTmdbId = requestTmdbId
+            requestPendingTmdbId = ""
+            requestRecommendationsLoading = false
             Qt.callLater(root.tryRestorePendingReturnState)
         }
 
         function onSimilarResultsFailed(mediaType, requestedTmdbId, error) {
             const requestTmdbId = String(requestedTmdbId)
-            if (String(mediaType).toLowerCase() !== seerrMediaType
+            if (String(mediaType).toLowerCase() !== similarMediaType
                     || requestTmdbId !== root.tmdbId
-                    || requestTmdbId !== seerrPendingTmdbId) {
+                    || requestTmdbId !== requestPendingTmdbId) {
                 return
             }
 
-            console.warn("[SeriesDetailsView] Seerr similar titles failed:", error)
-            seerrPendingTmdbId = ""
-            seerrRecommendationsLoading = false
+            console.warn("[SeriesDetailsView] Similar titles to request failed:", error)
+            requestPendingTmdbId = ""
+            requestRecommendationsLoading = false
         }
     }
 
@@ -1128,7 +1132,7 @@ FocusScope {
                 focusTimer.start()
             }
             Qt.callLater(root.restorePendingSeasonFocus)
-            Qt.callLater(root.requestSeerrRecommendations)
+            Qt.callLater(root.loadRequestRecommendations)
             Qt.callLater(root.tryRestorePendingReturnState)
         }
     }

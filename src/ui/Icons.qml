@@ -61,6 +61,7 @@ QtObject {
     readonly property string edit: "\ue3c9"
     readonly property string delete_: "\ue872"
     readonly property string search: "\ue8b6"
+    readonly property string explore: "\ue87a"
     readonly property string refresh: "\ue5d5"
     readonly property string moreHoriz: "\ue5d3"
     readonly property string download: "\ue2c4"

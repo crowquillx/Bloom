@@ -82,7 +82,7 @@ FocusScope {
     property bool restoringFocusFromNavigation: false
     property bool restoringFocusFromSeriesDetailsReturn: false
     property bool restoringFocusFromMovieDetailsReturn: false
-    property var _seerrRecommendationCache: ({})
+    property var _requestRecommendationCache: ({})
     /// The navigation bar recedes while the grid (or a detail view) is
     /// scrolled into its content.
     readonly property bool navigationRecessed: contentLoader.item
@@ -635,7 +635,7 @@ FocusScope {
             pendingSeasonsGridIndex: root._pendingSeasonsGridIndex
             pendingReturnState: root._seriesDetailsReturnState
             restorePendingReturnState: root._restoreSeriesDetailsReturnState
-            seerrRecommendationCacheStore: root._seerrRecommendationCache
+            requestRecommendationCacheStore: root._requestRecommendationCache
 
             onReturnStateConsumed: {
                 Qt.callLater(function() {

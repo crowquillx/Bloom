@@ -49,9 +49,19 @@ FocusScope {
     readonly property var leadingItems: [
         { id: "home", icon: Icons.home, label: qsTr("Home") }
     ]
-    readonly property var trailingItems: [
-        { id: "search", icon: Icons.search, label: qsTr("Search") }
-    ]
+    /// Discover appears while requests have a backend: a Seerr key, or a
+    /// Silo server that takes requests from this profile (docs/seerr.md).
+    readonly property bool discoverAvailable: typeof MediaRequests !== "undefined"
+                                              && MediaRequests !== null
+                                              && MediaRequests.discoverAvailable
+    readonly property var trailingItems: discoverAvailable
+        ? [
+            { id: "discover", icon: Icons.explore, label: qsTr("Discover") },
+            { id: "search", icon: Icons.search, label: qsTr("Search") }
+        ]
+        : [
+            { id: "search", icon: Icons.search, label: qsTr("Search") }
+        ]
 
     // Library data and ordering helpers
     property var orderedLibraryItems: []

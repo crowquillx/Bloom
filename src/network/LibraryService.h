@@ -140,6 +140,20 @@ public:
     Q_INVOKABLE virtual void setItemWatchlisted(const QString &itemId, bool inWatchlist);
     Q_INVOKABLE virtual void getThemeSongs(const QString &seriesId);
 
+    // Server-side media requests, for providers with
+    // ProviderCapability::MediaRequests (Silo). The handler receives the
+    // provider's Bloom-shaped result (capabilityMetadata, documented on
+    // SiloMediaRequestMapper::parseResponse). A response for a connection,
+    // account, or profile that is no longer active runs neither handler.
+    // MediaRequestService routes between these operations and Seerr.
+    using MediaRequestHandler = std::function<void(const QVariantMap &)>;
+    using MediaRequestFailureHandler = std::function<void(const QString &)>;
+    virtual bool supportsMediaRequests() const;
+    virtual void sendMediaRequestOperation(ProviderCatalogOperation operation,
+                                           const ProviderCatalogQuery &query,
+                                           MediaRequestHandler onLoaded,
+                                           MediaRequestFailureHandler onFailed);
+
     // The rows the profile curates for its Home page that Bloom does not
     // already show, in the server's layout order: each {sectionId, title,
     // items} with canonical movie, series and episode items. A Watchlist row

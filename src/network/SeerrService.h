@@ -6,12 +6,16 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QUrlQuery>
+#include <functional>
 
 class AuthenticationService;
 class ConfigManager;
 
 /**
  * @brief Service for interacting with a Jellyseerr/Overseerr instance.
+ *
+ * QML reaches it through MediaRequestService, which prefers a configured
+ * Seerr over the active Silo server's own requests.
  *
  * SeerrService provides QML-invokable methods to search for media, fetch
  * similar titles, and submit download requests through a configured Seerr
@@ -101,8 +105,62 @@ public:
                                    int profileId,
                                    const QString &rootFolderPath);
 
+    /**
+     * @brief Loads one page of a discovery row.
+     *
+     * Rows: "trending" (movies and series), "popular_movies",
+     * "upcoming_movies", "popular_series", "upcoming_series". Emits
+     * discoverRowLoaded() with {key, items, page, nextPage, hasMore}, or
+     * discoverRowFailed().
+     */
+    Q_INVOKABLE void getDiscoverRow(const QString &key, int page = 1);
+
+    /**
+     * @brief Loads TMDB's movie and series genres, merged by name.
+     *
+     * Emits genresLoaded() with {name, movieId, tvId} entries (an id is -1
+     * when the genre has no list of that type), or genresFailed().
+     */
+    Q_INVOKABLE void getGenres();
+
+    /**
+     * @brief Loads one page of a genre's movies or series.
+     *
+     * @param browseKey Echoed in the result signals.
+     * @param mediaType "movie" or "tv".
+     * @param sort      "popularity", "vote_average", or "release_date".
+     */
+    Q_INVOKABLE void browseGenre(const QString &browseKey,
+                                 const QString &mediaType,
+                                 int genreId,
+                                 const QString &sort,
+                                 int page = 1);
+
+    /**
+     * @brief Loads the server's most recent requests with their titles.
+     *
+     * The API key acts as its owner, usually an administrator, so the list
+     * covers every user. Emits requestsLoaded() with discovery maps plus
+     * `requestId`, `requestState`, `requestedSeasons`, `createdAt`, and
+     * `canCancel`, or requestsFailed().
+     */
+    Q_INVOKABLE void getRequests(int take = 20);
+
+    /** @brief Deletes a request; emits requestCancelled() or errorOccurred("cancel"). */
+    Q_INVOKABLE void cancelRequest(int requestId);
+
 signals:
     void configuredChanged();
+
+    void discoverRowLoaded(const QString &key, int page, const QJsonObject &row);
+    void discoverRowFailed(const QString &key, int page, const QString &error);
+    void genresLoaded(const QJsonArray &genres);
+    void genresFailed(const QString &error);
+    void browseLoaded(const QString &browseKey, int page, const QJsonObject &row);
+    void browseFailed(const QString &browseKey, int page, const QString &error);
+    void requestsLoaded(const QJsonArray &requests);
+    void requestsFailed(const QString &error);
+    void requestCancelled(int requestId);
 
     /** @brief Emitted when a search() call completes with normalised result items. */
     void searchResultsLoaded(const QString &searchTerm, const QJsonArray &results);
@@ -138,6 +196,19 @@ private:
     ConfigManager *m_configManager;
     bool m_lastConfigured = false;
 
+    using JsonHandler = std::function<void(const QJsonDocument &)>;
+    using ErrorHandler = std::function<void(const QString &)>;
+
+    /// GETs a Seerr endpoint and hands over the parsed body, or an error
+    /// message for a network failure or a body that is not JSON.
+    void getJson(const QString &endpoint, const QUrlQuery &query,
+                 JsonHandler onLoaded, ErrorHandler onFailed);
+
+    /// Maps a paged Seerr result list to {items, page, nextPage, hasMore}.
+    /// Results without a media type take @p fallbackMediaType; people and
+    /// collections are dropped.
+    QJsonObject mapResultPage(const QJsonObject &page, const QString &fallbackMediaType) const;
+
     /** @brief Returns the configured base URL with any trailing slashes stripped. */
     QString normalizedBaseUrl() const;
 
@@ -152,11 +223,12 @@ private:
     bool ensureConfigured(const QString &endpoint);
 
     /**
-     * @brief Normalises a raw Seerr search/similar result object into the shared item map format.
+     * @brief Normalises a raw Seerr search/similar result object into the discovery map.
      *
-     * Sets source="seerr", maps TMDB poster paths to full image URLs, synthesises
-     * a stable itemId of the form "seerr:{mediaType}:{tmdbId}", and copies
-     * seerrMediaInfo when present.
+     * Produces the shape Silo request results share (docs/seerr.md):
+     * source="request", requestBackend="seerr", requestMediaType,
+     * requestTmdbId, requestStatus, TMDB image URLs, and a stable itemId of
+     * the form "request:{mediaType}:{tmdbId}".
      */
     QJsonObject mapSearchResultItem(const QJsonObject &item) const;
 

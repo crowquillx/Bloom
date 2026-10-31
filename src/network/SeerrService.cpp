@@ -3,8 +3,10 @@
 #include "AuthenticationService.h"
 #include "../utils/ConfigManager.h"
 
+#include <QDate>
 #include <QJsonDocument>
 #include <QJsonValue>
+#include <memory>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QUrl>
@@ -67,6 +69,8 @@ QNetworkRequest SeerrService::createRequest(const QString &endpoint, const QUrlQ
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    // Seerr calls bypass HttpTransport; bound each one here.
+    request.setTransferTimeout(20000);
 
     if (m_configManager) {
         request.setRawHeader("X-Api-Key", m_configManager->getSeerrApiKey().toUtf8());
@@ -90,63 +94,68 @@ bool SeerrService::ensureConfigured(const QString &endpoint)
     return true;
 }
 
+namespace {
+// Seerr's MediaStatus as Bloom's request status token.
+QString seerrRequestStatus(const QJsonObject &mediaInfo)
+{
+    switch (mediaInfo.value("status").toInt()) {
+    case 2: return QStringLiteral("pending");
+    case 3: return QStringLiteral("processing");
+    case 4: return QStringLiteral("partial");
+    case 5: return QStringLiteral("available");
+    case 6: return QStringLiteral("deleted");
+    default: return QString();
+    }
+}
+
+QString tmdbImageUrl(const QString &path, const char *size)
+{
+    if (path.isEmpty()) {
+        return QString();
+    }
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+        return path;
+    }
+    return QStringLiteral("https://image.tmdb.org/t/p/%1%2").arg(QLatin1String(size), path);
+}
+} // namespace
+
 /**
- * @brief Converts a raw Seerr API result object into the normalised item map used by UI delegates.
+ * @brief Converts a raw Seerr API result object into the discovery map shared with Silo.
  *
- * Poster paths that are relative (not already a full URL) are expanded to the TMDB
- * image CDN at w342 resolution. A synthetic "seerr:{type}:{tmdbId}" itemId lets
- * delegates key on local-library and discovery items consistently.
+ * Relative poster and backdrop paths are expanded to the TMDB image CDN. A
+ * synthetic "request:{type}:{tmdbId}" itemId lets delegates key on
+ * local-library and discovery items consistently.
  */
 QJsonObject SeerrService::mapSearchResultItem(const QJsonObject &item) const
 {
     const QString mediaType = item.value("mediaType").toString().toLower();
     const QString posterPath = item.value("posterPath").toString();
-    QString imageUrl;
-    if (!posterPath.isEmpty()) {
-        if (posterPath.startsWith("http://") || posterPath.startsWith("https://")) {
-            imageUrl = posterPath;
-        } else {
-            imageUrl = QStringLiteral("https://image.tmdb.org/t/p/w342%1").arg(posterPath);
-        }
-    }
+    const QString backdropPath = item.value("backdropPath").toString();
 
     QJsonObject mapped;
-    mapped["source"] = "seerr";
-    mapped["seerrMediaType"] = mediaType;
-    mapped["seerrTmdbId"] = item.value("id").toInt();
+    mapped["source"] = "request";
+    mapped["requestBackend"] = "seerr";
+    mapped["requestMediaType"] = mediaType;
+    mapped["requestTmdbId"] = item.value("id").toInt();
     mapped["posterPath"] = posterPath;
-    mapped["imageUrl"] = imageUrl;
-    mapped["backdropPath"] = item.value("backdropPath").toString();
+    mapped["imageUrl"] = tmdbImageUrl(posterPath, "w342");
+    mapped["backdropPath"] = backdropPath;
+    mapped["backdropUrl"] = tmdbImageUrl(backdropPath, "w1280");
     mapped["overview"] = item.value("overview").toString();
+    mapped["requestStatus"] = seerrRequestStatus(item.value("mediaInfo").toObject());
 
-    if (mediaType == "movie") {
-        mapped["mediaType"] = "Movie";
-        mapped["name"] = item.value("title").toString();
+    const bool isMovie = mediaType == "movie";
+    mapped["mediaType"] = isMovie ? "Movie" : "Series";
+    mapped["name"] = item.value(isMovie ? "title" : "name").toString();
+    const QString date = item.value(isMovie ? "releaseDate" : "firstAirDate").toString();
+    bool ok = false;
+    const int year = date.section('-', 0, 0).toInt(&ok);
+    if (ok) mapped["productionYear"] = year;
 
-        const QString releaseDate = item.value("releaseDate").toString();
-        const QString yearToken = releaseDate.section('-', 0, 0);
-        bool ok = false;
-        const int year = yearToken.toInt(&ok);
-        if (ok) mapped["productionYear"] = year;
-    } else {
-        mapped["mediaType"] = "Series";
-        mapped["name"] = item.value("name").toString();
-
-        const QString firstAirDate = item.value("firstAirDate").toString();
-        const QString yearToken = firstAirDate.section('-', 0, 0);
-        bool ok = false;
-        const int year = yearToken.toInt(&ok);
-        if (ok) mapped["productionYear"] = year;
-    }
-
-    mapped["itemId"] = QString("seerr:%1:%2")
+    mapped["itemId"] = QString("request:%1:%2")
         .arg(mediaType)
-        .arg(mapped.value("seerrTmdbId").toInt());
-
-    const QJsonObject mediaInfo = item.value("mediaInfo").toObject();
-    if (!mediaInfo.isEmpty()) {
-        mapped["seerrMediaInfo"] = mediaInfo;
-    }
+        .arg(mapped.value("requestTmdbId").toInt());
 
     return mapped;
 }
@@ -478,5 +487,328 @@ void SeerrService::createRequest(const QString &mediaType,
         }
 
         emit requestCreated(normalizedMediaType, tmdbId, doc.object());
+    });
+}
+
+// ============================================================================
+// Discovery, genres, and the request list
+// ============================================================================
+
+namespace {
+// Seerr's MediaRequest status (1 pending, 2 approved, 3 declined, 4 failed,
+// 5 completed) and its media's availability, as Bloom's request state.
+QString seerrRequestState(int requestStatus, int mediaStatus)
+{
+    if (mediaStatus == 5 || requestStatus == 5) return QStringLiteral("available");
+    if (mediaStatus == 4) return QStringLiteral("partially_available");
+    switch (requestStatus) {
+    case 1: return QStringLiteral("pending");
+    case 2: return mediaStatus == 3 ? QStringLiteral("processing") : QStringLiteral("approved");
+    case 3: return QStringLiteral("declined");
+    case 4: return QStringLiteral("failed");
+    default: return QString();
+    }
+}
+
+QString discoverEndpoint(const QString &key, QUrlQuery &query, QString *fallbackMediaType)
+{
+    if (key == QStringLiteral("trending")) {
+        query.addQueryItem("mediaType", "all");
+        query.addQueryItem("timeWindow", "week");
+        return QStringLiteral("discover/trending");
+    }
+    if (key == QStringLiteral("popular_movies")) {
+        *fallbackMediaType = QStringLiteral("movie");
+        query.addQueryItem("sortBy", "popularity.desc");
+        return QStringLiteral("discover/movies");
+    }
+    if (key == QStringLiteral("upcoming_movies")) {
+        *fallbackMediaType = QStringLiteral("movie");
+        return QStringLiteral("discover/movies/upcoming");
+    }
+    if (key == QStringLiteral("popular_series")) {
+        *fallbackMediaType = QStringLiteral("tv");
+        query.addQueryItem("sortBy", "popularity.desc");
+        return QStringLiteral("discover/tv");
+    }
+    if (key == QStringLiteral("upcoming_series")) {
+        *fallbackMediaType = QStringLiteral("tv");
+        return QStringLiteral("discover/tv/upcoming");
+    }
+    return QString();
+}
+} // namespace
+
+void SeerrService::getJson(const QString &endpoint, const QUrlQuery &query,
+                           JsonHandler onLoaded, ErrorHandler onFailed)
+{
+    if (!m_authService || !m_authService->networkManager()) {
+        onFailed(tr("Network service unavailable"));
+        return;
+    }
+    if (!isConfigured()) {
+        onFailed(tr("Seerr URL or API key is not configured"));
+        return;
+    }
+    QNetworkReply *reply = m_authService->networkManager()->get(createRequest(endpoint, query));
+    connect(reply, &QNetworkReply::finished, this,
+            [reply, onLoaded = std::move(onLoaded), onFailed = std::move(onFailed)]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            onFailed(reply->errorString());
+            return;
+        }
+        const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
+        if (document.isNull()) {
+            onFailed(tr("Invalid Seerr response"));
+            return;
+        }
+        onLoaded(document);
+    });
+}
+
+QJsonObject SeerrService::mapResultPage(const QJsonObject &page, const QString &fallbackMediaType) const
+{
+    QJsonArray items;
+    for (const QJsonValue &value : page.value("results").toArray()) {
+        QJsonObject item = value.toObject();
+        QString mediaType = item.value("mediaType").toString().toLower();
+        if (mediaType.isEmpty()) {
+            mediaType = fallbackMediaType;
+        }
+        if (mediaType != "movie" && mediaType != "tv") {
+            continue;
+        }
+        item["mediaType"] = mediaType;
+        items.append(mapSearchResultItem(item));
+    }
+    const int current = qMax(1, page.value("page").toInt(1));
+    const int totalPages = page.value("totalPages").toInt();
+    return QJsonObject{
+        {"items", items},
+        {"page", current},
+        {"nextPage", current + 1},
+        {"hasMore", current < totalPages},
+    };
+}
+
+void SeerrService::getDiscoverRow(const QString &key, int page)
+{
+    QUrlQuery query;
+    QString fallbackMediaType;
+    const QString endpoint = discoverEndpoint(key, query, &fallbackMediaType);
+    if (endpoint.isEmpty()) {
+        emit discoverRowFailed(key, page, tr("Unknown Seerr discovery row"));
+        return;
+    }
+    query.addQueryItem("page", QString::number(qMax(1, page)));
+    getJson(endpoint, query,
+        [this, key, page, fallbackMediaType](const QJsonDocument &document) {
+            if (!document.isObject() || !document.object().value("results").isArray()) {
+                emit discoverRowFailed(key, page, tr("Invalid Seerr discovery response"));
+                return;
+            }
+            QJsonObject row = mapResultPage(document.object(), fallbackMediaType);
+            row["key"] = key;
+            emit discoverRowLoaded(key, page, row);
+        },
+        [this, key, page](const QString &error) {
+            emit discoverRowFailed(key, page, tr("Seerr discovery failed: %1").arg(error));
+        });
+}
+
+void SeerrService::getGenres()
+{
+    struct State {
+        QJsonArray movie;
+        QJsonArray tv;
+        int pending = 2;
+        bool failed = false;
+    };
+    auto state = std::make_shared<State>();
+    const auto finish = [this, state]() {
+        if (--state->pending > 0) {
+            return;
+        }
+        if (state->failed && state->movie.isEmpty() && state->tv.isEmpty()) {
+            emit genresFailed(tr("Failed loading Seerr genres"));
+            return;
+        }
+        // One entry per name, keeping TMDB's order with movie genres first.
+        QJsonArray merged;
+        QHash<QString, qsizetype> byName;
+        const auto add = [&merged, &byName](const QJsonArray &genres, const char *idKey) {
+            for (const QJsonValue &value : genres) {
+                const QJsonObject genre = value.toObject();
+                const QString name = genre.value("name").toString();
+                const int id = genre.value("id").toInt(-1);
+                if (name.isEmpty() || id < 0) {
+                    continue;
+                }
+                const auto existing = byName.constFind(name);
+                if (existing == byName.cend()) {
+                    byName.insert(name, merged.size());
+                    QJsonObject entry{{"name", name}, {"movieId", -1}, {"tvId", -1}};
+                    entry[QLatin1String(idKey)] = id;
+                    merged.append(entry);
+                } else {
+                    QJsonObject entry = merged.at(*existing).toObject();
+                    entry[QLatin1String(idKey)] = id;
+                    merged[*existing] = entry;
+                }
+            }
+        };
+        add(state->movie, "movieId");
+        add(state->tv, "tvId");
+        emit genresLoaded(merged);
+    };
+    for (const bool movie : {true, false}) {
+        getJson(movie ? QStringLiteral("genres/movie") : QStringLiteral("genres/tv"), QUrlQuery(),
+            [state, movie, finish](const QJsonDocument &document) {
+                (movie ? state->movie : state->tv) = document.array();
+                finish();
+            },
+            [state, finish](const QString &) {
+                state->failed = true;
+                finish();
+            });
+    }
+}
+
+void SeerrService::browseGenre(const QString &browseKey,
+                               const QString &mediaType,
+                               int genreId,
+                               const QString &sort,
+                               int page)
+{
+    const QString type = mediaType.trimmed().toLower();
+    if (genreId < 0 || (type != "movie" && type != "tv")) {
+        emit browseFailed(browseKey, page, tr("Invalid genre"));
+        return;
+    }
+    const bool movie = type == "movie";
+    QUrlQuery query;
+    query.addQueryItem("genre", QString::number(genreId));
+    query.addQueryItem("page", QString::number(qMax(1, page)));
+    const QString today = QDate::currentDate().toString(Qt::ISODate);
+    if (sort == QStringLiteral("vote_average")) {
+        query.addQueryItem("sortBy", "vote_average.desc");
+        // Without a floor, barely rated titles top the list.
+        query.addQueryItem("voteCountGte", "200");
+    } else if (sort == QStringLiteral("release_date")) {
+        query.addQueryItem("sortBy", movie ? "primary_release_date.desc" : "first_air_date.desc");
+        query.addQueryItem(movie ? "primaryReleaseDateLte" : "firstAirDateLte", today);
+    } else {
+        query.addQueryItem("sortBy", "popularity.desc");
+    }
+    getJson(movie ? QStringLiteral("discover/movies") : QStringLiteral("discover/tv"), query,
+        [this, browseKey, page, type](const QJsonDocument &document) {
+            if (!document.isObject() || !document.object().value("results").isArray()) {
+                emit browseFailed(browseKey, page, tr("Invalid Seerr discovery response"));
+                return;
+            }
+            emit browseLoaded(browseKey, page, mapResultPage(document.object(), type));
+        },
+        [this, browseKey, page](const QString &error) {
+            emit browseFailed(browseKey, page, tr("Seerr discovery failed: %1").arg(error));
+        });
+}
+
+void SeerrService::getRequests(int take)
+{
+    QUrlQuery query;
+    query.addQueryItem("take", QString::number(qBound(1, take, 50)));
+    query.addQueryItem("skip", "0");
+    query.addQueryItem("filter", "all");
+    query.addQueryItem("sort", "added");
+    getJson(QStringLiteral("request"), query,
+        [this](const QJsonDocument &document) {
+            if (!document.isObject() || !document.object().value("results").isArray()) {
+                emit requestsFailed(tr("Invalid Seerr request list"));
+                return;
+            }
+            const QJsonArray requests = document.object().value("results").toArray();
+            if (requests.isEmpty()) {
+                emit requestsLoaded({});
+                return;
+            }
+            // Request entries carry no title or artwork: read each title.
+            struct State {
+                QList<QJsonObject> items;
+                int pending = 0;
+            };
+            auto state = std::make_shared<State>();
+            state->items.resize(requests.size());
+            state->pending = int(requests.size());
+            const auto finish = [this, state]() {
+                if (--state->pending > 0) {
+                    return;
+                }
+                QJsonArray items;
+                for (const QJsonObject &item : std::as_const(state->items)) {
+                    if (!item.isEmpty()) {
+                        items.append(item);
+                    }
+                }
+                emit requestsLoaded(items);
+            };
+            for (qsizetype index = 0; index < requests.size(); ++index) {
+                const QJsonObject request = requests.at(index).toObject();
+                const QJsonObject media = request.value("media").toObject();
+                const QString mediaType = media.value("mediaType").toString().toLower();
+                const int tmdbId = media.value("tmdbId").toInt();
+                if ((mediaType != "movie" && mediaType != "tv") || tmdbId <= 0) {
+                    finish();
+                    continue;
+                }
+                getJson(QStringLiteral("%1/%2").arg(mediaType).arg(tmdbId), QUrlQuery(),
+                    [this, state, index, request, media, mediaType, finish](const QJsonDocument &document) {
+                        QJsonObject details = document.object();
+                        details["mediaType"] = mediaType;
+                        QJsonObject item = mapSearchResultItem(details);
+                        const int requestStatus = request.value("status").toInt();
+                        const QString requestState = seerrRequestState(
+                            requestStatus, media.value("status").toInt());
+                        QJsonArray seasons;
+                        for (const QJsonValue &season : request.value("seasons").toArray()) {
+                            seasons.append(season.toObject().value("seasonNumber").toInt());
+                        }
+                        item["requestId"] = QString::number(request.value("id").toInt());
+                        item["requestState"] = requestState;
+                        item["requestStatus"] = requestState == "partially_available"
+                            ? QStringLiteral("partial") : requestState;
+                        item["requestedSeasons"] = seasons;
+                        item["createdAt"] = request.value("createdAt").toString();
+                        // Seerr lets requesters remove only pending requests.
+                        item["canCancel"] = requestStatus == 1;
+                        state->items[index] = item;
+                        finish();
+                    },
+                    [finish](const QString &) { finish(); });
+            }
+        },
+        [this](const QString &error) {
+            emit requestsFailed(tr("Failed loading Seerr requests: %1").arg(error));
+        });
+}
+
+void SeerrService::cancelRequest(int requestId)
+{
+    if (requestId <= 0) {
+        emit errorOccurred("cancel", tr("Invalid request"));
+        return;
+    }
+    if (!ensureConfigured("cancel")) {
+        return;
+    }
+    QNetworkReply *reply = m_authService->networkManager()->deleteResource(
+        createRequest(QStringLiteral("request/%1").arg(requestId)));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestId]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit errorOccurred("cancel", tr("Failed to cancel the Seerr request: %1").arg(reply->errorString()));
+            return;
+        }
+        emit requestCancelled(requestId);
     });
 }

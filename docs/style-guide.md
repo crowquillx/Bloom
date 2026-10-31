@@ -63,7 +63,7 @@ the shell's `NavigationBar` floating above it.
 | Archetype | Pages | Stage | Header | Body |
 |-----------|-------|-------|--------|------|
 | **Hero** | Home, movie/series/season/episode details, Up Next | `mode: "hero"`, the subject's backdrop | Hero block | Shelves below the hero |
-| **Browse** | Library grids, Search, collections | `mode: "ambient"`, optionally the focused item's backdrop | `PageHeader` + toolbar | Poster grid or shelves |
+| **Browse** | Library grids, Search, Discover and its Browse pages, collections | `mode: "ambient"`, optionally the focused item's backdrop | `PageHeader` + toolbar | Poster grid or shelves |
 | **Panel** | Settings, Active Sessions, account pages | `mode: "ambient"`, no art | `PageHeader` | Category list + content column of rows |
 
 Only hero pages carry a hero. Browse and panel pages do not invent one; they
@@ -72,8 +72,8 @@ get their warmth from the stage.
 ## Navigation bar
 
 `NavigationBar.qml` is owned by `Main.qml`. Left to right: brand, page tabs
-(Home, Movies, Series, Search), and a utility cluster (update when available,
-Settings, space avatar, power). Keep the tab row short: a new destination
+(Home, Movies, Series, Discover when requests have a backend, Search),
+and a utility cluster (update when available, Settings, space avatar, power). Keep the tab row short: a new destination
 earns a tab only if it is a top-level way to browse, and libraries never get
 their own tabs.
 

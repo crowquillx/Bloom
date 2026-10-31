@@ -32,6 +32,7 @@ Key services
 - `PlaybackService` — Millisecond-based playback reporting transport, stream info, media segments, trickplay URLs and info.
 - `MediaSegmentProviderService` — Fetches and normalizes external intro/recap/credits/preview markers from configured providers; used by `PlaybackService` after server segment lookup.
 - `SeerrService` — Seerr/Jellyseerr search integration, request-option loading, request submission, and similar-title provider endpoints.
+- `MediaRequestService` — QML `MediaRequests`: routes search, similar titles, request preparation, submission and withdrawal, the request list, Discover rows, and browsing to Seerr when a Seerr key is configured, otherwise to the active Silo server's requests when its capability document allows the profile; Silo adds following and watchlist titles. See [media requests](seerr.md).
 - `PlayerController` — Orchestrates playback using `IPlayerBackend` and services; owns `TrickplayProcessor`.
 - `TrickplayProcessor` — Uses `AuthenticationService` (network) + `PlaybackService` (tile URLs) to build trickplay binaries.
 - `LocalSeekPreview` — Owned by `PlayerController`. Uses the selected canonical playback descriptor to generate the frames the seek filmstrip shows, on demand and paced, through the isolated `bloom-seek-preview` helper when server trickplay is unavailable or disabled. See [seek previews](seek-previews.md).
@@ -54,6 +55,7 @@ Key services
 6. MediaSegmentProviderService — depends on AuthenticationService + ConfigManager.
 7. PlaybackService — depends on AuthenticationService + ConfigManager + MediaSegmentProviderService.
 8. SeerrService — depends on AuthenticationService + ConfigManager.
+8.1. MediaRequestService — depends on AuthenticationService, LibraryService, and SeerrService; registered right after SeerrService in production and test mode.
 9. TrackPreferencesManager — depends on ConfigManager for the active connection scope and loads versioned track preference state.
 10. PlayerController — depends on IPlayerBackend, ConfigManager, TrackPreferencesManager, DisplayManager, PlaybackService, LibraryService, AuthenticationService; provider-aware recovery refreshes through the selected `IPlaybackProvider` rather than assuming Jellyfin endpoints.
 11. TrickplayProcessor — created by PlayerController; uses AuthenticationService + PlaybackService. Native Silo has no trickplay contract at the pinned revision, so the capability remains unavailable.

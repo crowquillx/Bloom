@@ -1549,6 +1549,10 @@ Window {
                         // Navigate to search screen
                         pushSearchScreen()
                         break
+                    case "discover":
+                        saveHomeFocusState()
+                        pushDiscoverScreen()
+                        break
                     case "settings":
                         saveHomeFocusState()
                         // Navigate to settings screen
@@ -1654,45 +1658,65 @@ Window {
         updateNavigationSelection()
     }
     
+    // Search and Discover open library titles on their details pages.
+    function connectDetailNavigation(screen) {
+        // Connect navigateToMovie signal - show movie details view
+        screen.navigateToMovie.connect(function(movieData) {
+            playPointerSelectSound()
+            const libraryId = movieData.parentId || ""
+            stackView.push("LibraryScreen.qml", {
+                currentParentId: libraryId,
+                currentLibraryId: libraryId,
+                currentLibraryName: "",
+                currentMovieData: movieData,
+                showMovieDetails: true,
+                preferStackPopOnDirectBack: true
+            })
+        })
+
+        // Connect navigateToSeries signal - show series details view
+        screen.navigateToSeries.connect(function(seriesId) {
+            playPointerSelectSound()
+            stackView.push("LibraryScreen.qml", {
+                currentParentId: "",
+                currentLibraryId: "",
+                currentLibraryName: "",
+                currentSeriesId: seriesId,
+                showSeriesDetails: true,
+                preferStackPopOnDirectBack: true
+            })
+            // Load series details, seasons, and next episode
+            LibraryService.getSeriesDetails(seriesId)
+            LibraryService.getSeasons(seriesId)
+            LibraryService.getNextUnplayedEpisode(seriesId)
+        })
+    }
+
     // Function to push search screen and wire up signals
     function pushSearchScreen() {
         playPointerSelectSound()
         var searchScreen = stackView.push("SearchScreen.qml")
-        if (searchScreen) {
-            // Connect navigateToMovie signal - show movie details view
-            searchScreen.navigateToMovie.connect(function(movieData) {
+        if (searchScreen)
+            connectDetailNavigation(searchScreen)
+        updateNavigationSelection()
+    }
+
+    function pushDiscoverScreen() {
+        playPointerSelectSound()
+        var discoverScreen = stackView.push("DiscoverScreen.qml")
+        if (discoverScreen) {
+            connectDetailNavigation(discoverScreen)
+            discoverScreen.browseRequested.connect(function(category) {
                 playPointerSelectSound()
-                const libraryId = movieData.parentId || ""
-                stackView.push("LibraryScreen.qml", {
-                    currentParentId: libraryId,
-                    currentLibraryId: libraryId,
-                    currentLibraryName: "",
-                    currentMovieData: movieData,
-                    showMovieDetails: true,
-                    preferStackPopOnDirectBack: true
-                })
-            })
-            
-            // Connect navigateToSeries signal - show series details view
-            searchScreen.navigateToSeries.connect(function(seriesId) {
-                playPointerSelectSound()
-                stackView.push("LibraryScreen.qml", {
-                    currentParentId: "",
-                    currentLibraryId: "",
-                    currentLibraryName: "",
-                    currentSeriesId: seriesId,
-                    showSeriesDetails: true,
-                    preferStackPopOnDirectBack: true
-                })
-                // Load series details, seasons, and next episode
-                LibraryService.getSeriesDetails(seriesId)
-                LibraryService.getSeasons(seriesId)
-                LibraryService.getNextUnplayedEpisode(seriesId)
+                var browseScreen = stackView.push("BrowseScreen.qml", { category: category })
+                if (browseScreen)
+                    connectDetailNavigation(browseScreen)
+                updateNavigationSelection()
             })
         }
         updateNavigationSelection()
     }
-    
+
     // ========================================
     // Toast Notification
     // ========================================
@@ -1916,8 +1940,8 @@ Window {
                         console.warn("[Main] Up Next: Ignoring recommendation with missing id")
                         return
                     }
-                    if (recommendedSeriesId.indexOf("seerr:") === 0) {
-                        console.warn("[Main] Up Next: Ignoring Seerr recommendation that bypassed dialog")
+                    if (recommendedSeriesId.indexOf("request:") === 0) {
+                        console.warn("[Main] Up Next: Ignoring request recommendation that bypassed dialog")
                         return
                     }
 

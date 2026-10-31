@@ -40,7 +40,10 @@ enum class ProviderCapability {
     // A per-profile watchlist distinct from favorites.
     Watchlist = 1 << 11,
     // Server-curated Home rows for the selected profile.
-    HomeSections = 1 << 12
+    HomeSections = 1 << 12,
+    // Server-side media requests and request discovery. The viewer's
+    // request capability document still gates every use.
+    MediaRequests = 1 << 13
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

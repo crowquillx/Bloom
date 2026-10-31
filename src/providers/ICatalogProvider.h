@@ -42,6 +42,27 @@ enum class ProviderCatalogOperation {
     // The profile's watchlist, and adding or removing one item.
     Watchlist,
     SetWatchlist,
+    // Server-side media requests (Silo): the viewer's request capability,
+    // a title search, one title's request detail, submitting a request,
+    // and the discovery rows. Responses carry Bloom-shaped maps in
+    // capabilityMetadata, so request wire DTOs stay in the provider.
+    MediaRequestStatus,
+    MediaRequestSearch,
+    MediaRequestDetail,
+    CreateMediaRequest,
+    MediaRequestDiscover,
+    MediaRequestDiscoverSection,
+    // The viewer's own requests, cancelling one (itemId), following a
+    // requested title, and keeping a title the library lacks on the
+    // watchlist (stateValue adds or removes).
+    MediaRequestList,
+    CancelMediaRequest,
+    SetMediaRequestFollow,
+    SetWatchlistTitle,
+    // The genres, studios, or networks to browse (browseKind), and one
+    // page of a browsed genre, studio, or network.
+    MediaRequestBrowseCategories,
+    MediaRequestBrowse,
 };
 
 enum class ProviderHttpMethod {
@@ -92,6 +113,21 @@ struct ProviderCatalogQuery {
     QStringList includeItemTypes;
     QStringList fields;
     QString filterFacet;
+
+    // Media requests: "movie" or "tv", the TMDB id, a 1-based provider page,
+    // a discovery row key, the seasons to request (empty: the provider's
+    // default), and the title's discovery map for the request body.
+    QString requestMediaType;
+    qint64 tmdbId = 0;
+    int page = 0;
+    QString sectionKey;
+    QList<int> requestSeasons;
+    QVariantMap requestMedia;
+    // Browsing: "genre", "studio", or "network", the provider's id for it,
+    // and "popularity", "vote_average", or "release_date".
+    QString browseKind;
+    QString browseId;
+    QString browseSort;
 
     ProviderCatalogTriState watched = ProviderCatalogTriState::Any;
     ProviderCatalogTriState favorite = ProviderCatalogTriState::Any;

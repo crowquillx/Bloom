@@ -89,7 +89,7 @@ class UpNextRecommendationsViewModelTest : public QObject
 
 private slots:
     void cleanup();
-    void libraryResultsAppearBeforeSeerrResults();
+    void libraryResultsAppearBeforeRequestResults();
     void nonSeriesResultsAreFiltered();
     void duplicateTitlesCollapseToJellyfinItem();
     void resultCountIsCapped();
@@ -108,20 +108,20 @@ void UpNextRecommendationsViewModelTest::cleanup()
     ServiceLocator::clear();
 }
 
-void UpNextRecommendationsViewModelTest::libraryResultsAppearBeforeSeerrResults()
+void UpNextRecommendationsViewModelTest::libraryResultsAppearBeforeRequestResults()
 {
     const QVariantList library{
         QVariantMap{{"itemId", "library-1"}, {"mediaType", "Series"}, {"name", "Local First"}}
     };
     const QVariantList seerr{
-        QVariantMap{{"itemId", "seerr:tv:2"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"mediaType", "Series"}, {"name", "Discovery Second"}}
+        QVariantMap{{"itemId", "request:tv:2"}, {"source", "request"}, {"requestMediaType", "tv"}, {"mediaType", "Series"}, {"name", "Discovery Second"}}
     };
 
     const QVariantList merged = UpNextRecommendationsViewModel::mergeRecommendations(library, seerr, 6);
 
     QCOMPARE(merged.size(), 2);
     QCOMPARE(merged.at(0).toMap().value("itemId").toString(), QStringLiteral("library-1"));
-    QCOMPARE(merged.at(1).toMap().value("itemId").toString(), QStringLiteral("seerr:tv:2"));
+    QCOMPARE(merged.at(1).toMap().value("itemId").toString(), QStringLiteral("request:tv:2"));
 }
 
 void UpNextRecommendationsViewModelTest::nonSeriesResultsAreFiltered()
@@ -131,15 +131,15 @@ void UpNextRecommendationsViewModelTest::nonSeriesResultsAreFiltered()
         QVariantMap{{"itemId", "series-1"}, {"mediaType", "Series"}, {"name", "A Series"}}
     };
     const QVariantList seerr{
-        QVariantMap{{"itemId", "seerr:movie:1"}, {"source", "seerr"}, {"seerrMediaType", "movie"}, {"mediaType", "Movie"}, {"name", "A Seerr Movie"}},
-        QVariantMap{{"itemId", "seerr:tv:1"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"mediaType", "Series"}, {"name", "A Seerr Series"}}
+        QVariantMap{{"itemId", "request:movie:1"}, {"source", "request"}, {"requestMediaType", "movie"}, {"mediaType", "Movie"}, {"name", "A Seerr Movie"}},
+        QVariantMap{{"itemId", "request:tv:1"}, {"source", "request"}, {"requestMediaType", "tv"}, {"mediaType", "Series"}, {"name", "A Seerr Series"}}
     };
 
     const QVariantList merged = UpNextRecommendationsViewModel::mergeRecommendations(library, seerr, 6);
 
     QCOMPARE(merged.size(), 2);
     QCOMPARE(merged.at(0).toMap().value("itemId").toString(), QStringLiteral("series-1"));
-    QCOMPARE(merged.at(1).toMap().value("itemId").toString(), QStringLiteral("seerr:tv:1"));
+    QCOMPARE(merged.at(1).toMap().value("itemId").toString(), QStringLiteral("request:tv:1"));
 }
 
 void UpNextRecommendationsViewModelTest::duplicateTitlesCollapseToJellyfinItem()
@@ -148,7 +148,7 @@ void UpNextRecommendationsViewModelTest::duplicateTitlesCollapseToJellyfinItem()
         QVariantMap{{"itemId", "library-1"}, {"mediaType", "Series"}, {"name", "Same Show"}, {"productionYear", 2020}}
     };
     const QVariantList seerr{
-        QVariantMap{{"itemId", "seerr:tv:10"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"mediaType", "Series"}, {"name", "Same Show!"}, {"productionYear", 2020}}
+        QVariantMap{{"itemId", "request:tv:10"}, {"source", "request"}, {"requestMediaType", "tv"}, {"mediaType", "Series"}, {"name", "Same Show!"}, {"productionYear", 2020}}
     };
 
     const QVariantList merged = UpNextRecommendationsViewModel::mergeRecommendations(library, seerr, 6);

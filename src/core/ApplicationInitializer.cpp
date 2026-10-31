@@ -19,6 +19,7 @@
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
 #include "network/MediaSegmentProviderService.h"
+#include "network/MediaRequestService.h"
 #include "network/SeerrService.h"
 #include "utils/InputModeManager.h"
 #include "utils/InputBindingManager.h"
@@ -197,6 +198,9 @@ void ApplicationInitializer::registerServices()
         // 3.3 SeerrService - Third-party search/request integration
         m_seerrService = std::make_unique<SeerrService>(m_mockAuthService.get(), m_configManager.get());
         ServiceLocator::registerService<SeerrService>(m_seerrService.get());
+        m_mediaRequestService = std::make_unique<MediaRequestService>(
+            m_mockAuthService.get(), m_mockLibraryService.get(), m_seerrService.get(), m_configManager.get());
+        ServiceLocator::registerService<MediaRequestService>(m_mediaRequestService.get());
         
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(
@@ -255,6 +259,11 @@ void ApplicationInitializer::registerServices()
         // 3.4 SeerrService - Depends on AuthenticationService + ConfigManager
         m_seerrService = std::make_unique<SeerrService>(m_authService.get(), m_configManager.get());
         ServiceLocator::registerService<SeerrService>(m_seerrService.get());
+
+        // 3.5 MediaRequestService - Routes requests to Seerr or the Silo server
+        m_mediaRequestService = std::make_unique<MediaRequestService>(
+            m_authService.get(), m_libraryService.get(), m_seerrService.get(), m_configManager.get());
+        ServiceLocator::registerService<MediaRequestService>(m_mediaRequestService.get());
         
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(

@@ -8,7 +8,7 @@ import BloomUI
  *
  * Browse archetype (docs/style-guide.md): an ambient stage that picks up the
  * focused result's backdrop, a PageHeader, a large search field, then results
- * as poster shelves (Shows, Movies, Seerr). Before a search, a shelf of random
+ * as poster shelves (Shows, Movies, Requests). Before a search, a shelf of random
  * suggestions from the active library.
  *
  * Keys: the field is the first focus. Down moves into the first shelf, Up and
@@ -33,11 +33,11 @@ FocusScope {
     property var suggestions: []
     property var movieResults: []
     property var seriesResults: []
-    property var seerrResults: []
-    readonly property bool isSearching: waitingForLibrarySearch || waitingForSeerrSearch
+    property var requestResults: []
+    readonly property bool isSearching: waitingForLibrarySearch || waitingForRequestSearch
     property bool hasSearched: false
     property bool waitingForLibrarySearch: false
-    property bool waitingForSeerrSearch: false
+    property bool waitingForRequestSearch: false
     property bool librarySearchFailed: false
     property string librarySearchError: ""
     property string pendingLibraryConnectionId: ""
@@ -75,8 +75,8 @@ FocusScope {
     function openResult(item, list) {
         if (!item)
             return
-        if (item.source === "seerr") {
-            seerrRequestDialog.openForItem(item, list)
+        if (item.source === "request") {
+            requestDialog.openForItem(item, list)
         } else if (item.mediaType === "Series") {
             openSeries(item)
         } else if (item.mediaType === "Movie") {
@@ -117,25 +117,25 @@ FocusScope {
         if (normalizedSearchTerm.length > 0) {
             root.startLibrarySearch(normalizedSearchTerm)
 
-            if (SeerrService.isConfigured()) {
-                waitingForSeerrSearch = true
-                seerrResults = []
-                SeerrService.search(normalizedSearchTerm)
+            if (MediaRequests.available) {
+                waitingForRequestSearch = true
+                requestResults = []
+                MediaRequests.search(normalizedSearchTerm)
             } else {
-                waitingForSeerrSearch = false
-                seerrResults = []
+                waitingForRequestSearch = false
+                requestResults = []
             }
         } else {
             hasSearched = false
             waitingForLibrarySearch = false
-            waitingForSeerrSearch = false
+            waitingForRequestSearch = false
             librarySearchFailed = false
             librarySearchError = ""
             pendingLibraryConnectionId = ""
             pendingLibrarySearchTerm = ""
             movieResults = []
             seriesResults = []
-            seerrResults = []
+            requestResults = []
             stageDebounce.stop()
             stageSource = ""
         }
@@ -164,29 +164,16 @@ FocusScope {
         return d.getFullYear()
     }
 
-    function seerrStatusLabel(item) {
-        var status = item && item.seerrMediaInfo && item.seerrMediaInfo.status
-                     ? item.seerrMediaInfo.status : 0
-        switch (status) {
-        case 2: return qsTr("Pending")
-        case 3: return qsTr("Processing")
-        case 4: return qsTr("Partial")
-        case 5: return qsTr("Available")
-        case 6: return qsTr("Deleted")
-        default: return ""
-        }
-    }
-
     // Style-guide subtitles: movies show the year, series their run
-    // ("2019 – Present" or "2019 – 2023"). Seerr results add their status.
+    // ("2019 – Present" or "2019 – 2023"). Request results add their status.
     function resultSubtitle(item) {
         if (!item)
             return ""
         var parts = []
-        if (item.source === "seerr") {
+        if (item.source === "request") {
             if (item.productionYear)
                 parts.push(String(item.productionYear))
-            var status = seerrStatusLabel(item)
+            var status = MediaRequests.statusLabel(item.requestStatus)
             if (status !== "")
                 parts.push(status)
             return parts.join("  ·  ")
@@ -205,9 +192,10 @@ FocusScope {
     }
 
     function showBackdropFor(item) {
-        // Seerr results carry no library backdrop; fall back to the glow.
-        pendingStageSource = item && item.source !== "seerr"
-                             ? artworkUrlFromRef(item.backdropArtwork, 1920) : ""
+        // Request results carry a TMDB backdrop instead of library artwork.
+        pendingStageSource = !item ? ""
+                             : item.source === "request" ? (item.backdropUrl || "")
+                             : artworkUrlFromRef(item.backdropArtwork, 1920)
         stageDebounce.restart()
     }
 
@@ -225,7 +213,7 @@ FocusScope {
     // Shelves in focus order (visible, non-empty ones only).
     function shelfLists() {
         var lists = []
-        var candidates = [suggestionsList, seriesList, moviesList, seerrList]
+        var candidates = [suggestionsList, seriesList, moviesList, requestList]
         for (var i = 0; i < candidates.length; i++) {
             var list = candidates[i]
             if (list.parent && list.parent.visible && list.count > 0)
@@ -437,23 +425,30 @@ FocusScope {
     }
 
     Connections {
-        target: SeerrService
+        target: MediaRequests
 
         function onSearchResultsLoaded(term, results) {
             if (term === root.searchTerm.trim()) {
-                root.waitingForSeerrSearch = false
+                root.waitingForRequestSearch = false
 
                 var copy = []
                 for (var i = 0; i < results.length; i++)
                     copy.push(results[i])
-                root.seerrResults = copy
+                root.requestResults = copy
             }
         }
 
         function onErrorOccurred(endpoint, error) {
             if (endpoint === "search") {
-                root.waitingForSeerrSearch = false
+                root.waitingForRequestSearch = false
             }
+        }
+
+        // Seerr was configured or removed, or the Silo account changed:
+        // search the backend that now serves requests.
+        function onAvailabilityChanged() {
+            if (root.hasSearched || root.waitingForLibrarySearch)
+                root.runSearchNow()
         }
     }
 
@@ -479,22 +474,22 @@ FocusScope {
             id: resultCard
             required property var modelData
             required property int index
-            readonly property bool isSeerr: modelData.source === "seerr"
+            readonly property bool isRequest: modelData.source === "request"
             variant: "poster"
             artworkSources: [
-                resultCard.isSeerr ? (modelData.imageUrl || "")
+                resultCard.isRequest ? (modelData.imageUrl || "")
                                    : root.artworkUrlFromRef(modelData.primaryArtwork, root.posterRequestWidth)
             ]
             title: modelData.name || ""
             subtitle: root.resultSubtitle(modelData)
             placeholderIcon: modelData.mediaType === "Series" ? Icons.tvShows : Icons.movie
-            item: resultCard.isSeerr ? null : modelData
-            showWatchState: !resultCard.isSeerr
+            item: resultCard.isRequest ? null : modelData
+            showWatchState: !resultCard.isRequest
                             && (modelData.mediaType === "Series"
                                 || (modelData.mediaType === "Movie" && !!modelData.watched))
             unplayedCount: modelData.mediaType === "Series" ? (modelData.unplayedItemCount || 0) : 0
             watched: !!modelData.watched
-            sourceLabel: resultCard.isSeerr ? "" : (modelData.sourceLabel || "")
+            sourceLabel: resultCard.isRequest ? "" : (modelData.sourceLabel || "")
             focused: ListView.isCurrentItem && ListView.view.activeFocus
             onFocusedChanged: if (focused) root.showBackdropFor(modelData)
             onClicked: {
@@ -503,8 +498,8 @@ FocusScope {
                 list.forceActiveFocus()
                 root.openResult(modelData, list)
             }
-            Accessible.description: resultCard.isSeerr
-                                    ? qsTr("Request %1 with Seerr").arg(modelData.name || "")
+            Accessible.description: resultCard.isRequest
+                                    ? qsTr("Request %1 with %2").arg(modelData.name || "").arg(MediaRequests.backendName)
                                     : qsTr("Details for %1").arg(modelData.name || "")
         }
     }
@@ -721,7 +716,7 @@ FocusScope {
                 message: qsTr("Nothing in your libraries matches “%1”.").arg(root.searchTerm.trim())
                 visible: root.hasSearched && !root.waitingForLibrarySearch && !root.librarySearchFailed
                          && root.libraryResultCount === 0
-                         && root.seerrResults.length === 0 && !root.waitingForSeerrSearch
+                         && root.requestResults.length === 0 && !root.waitingForRequestSearch
             }
 
             StateMessage {
@@ -874,11 +869,11 @@ FocusScope {
             }
 
             ColumnLayout {
-                id: seerrSection
+                id: requestSection
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.sectionSpacing
                 spacing: Theme.sectionTitleSpacing
-                visible: root.hasSearched && root.seerrResults.length > 0
+                visible: root.hasSearched && root.requestResults.length > 0
                 opacity: visible ? 1 : 0
 
                 Behavior on opacity {
@@ -887,8 +882,8 @@ FocusScope {
                 }
 
                 SectionHeader {
-                    text: qsTr("Request with Seerr")
-                    detail: String(root.seerrResults.length)
+                    text: qsTr("Request with %1").arg(MediaRequests.backendName)
+                    detail: String(root.requestResults.length)
                     Layout.leftMargin: Theme.pageMarginX
                     Layout.rightMargin: Theme.pageMarginX
                     Layout.fillWidth: true
@@ -897,39 +892,39 @@ FocusScope {
                 }
 
                 ShelfList {
-                    id: seerrList
+                    id: requestList
                     Layout.fillWidth: true
                     Layout.preferredHeight: implicitHeight
-                    model: root.seerrResults
+                    model: root.requestResults
                     delegate: resultCardDelegate
-                    Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(seerrList, -1) }
-                    Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(seerrList, 1) }
+                    Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(requestList, -1) }
+                    Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(requestList, 1) }
                     Keys.onReturnPressed: function(event) {
-                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.seerrResults.length)
-                            root.openResult(root.seerrResults[currentIndex], seerrList)
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.requestResults.length)
+                            root.openResult(root.requestResults[currentIndex], requestList)
                         event.accepted = true
                     }
                     Keys.onEnterPressed: function(event) {
-                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.seerrResults.length)
-                            root.openResult(root.seerrResults[currentIndex], seerrList)
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.requestResults.length)
+                            root.openResult(root.requestResults[currentIndex], requestList)
                         event.accepted = true
                     }
                     onActiveFocusChanged: {
                         if (activeFocus) {
-                            root.lastFocusTarget = seerrList
-                            root.scrollToSection(seerrSection)
+                            root.lastFocusTarget = requestList
+                            root.scrollToSection(requestSection)
                         }
                     }
                 }
             }
 
-            // Seerr answers after the library; say so while it is pending.
+            // Requests answer after the library; say so while they are pending.
             RowLayout {
                 Layout.leftMargin: Theme.pageMarginX
                 Layout.rightMargin: Theme.pageMarginX
                 Layout.topMargin: Theme.sectionSpacing
                 spacing: Theme.spacingMedium
-                visible: root.hasSearched && root.waitingForSeerrSearch
+                visible: root.hasSearched && root.waitingForRequestSearch
 
                 BusyIndicator {
                     Layout.preferredWidth: Math.round(40 * Theme.layoutScale)
@@ -938,7 +933,7 @@ FocusScope {
                 }
 
                 Text {
-                    text: qsTr("Searching Seerr…")
+                    text: qsTr("Searching %1…").arg(MediaRequests.backendName)
                     font.pixelSize: Theme.fontSizeBody
                     font.family: Theme.fontPrimary
                     color: Theme.textSecondary
@@ -956,8 +951,8 @@ FocusScope {
         stepPx: Math.round(120 * Theme.layoutScale)
     }
 
-    SeerrRequestDialog {
-        id: seerrRequestDialog
+    MediaRequestDialog {
+        id: requestDialog
         parent: Overlay.overlay
     }
 }
