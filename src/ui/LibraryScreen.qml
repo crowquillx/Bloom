@@ -65,6 +65,8 @@ FocusScope {
     
     // Episode View properties
     property var currentEpisodeData: null
+    // Season number of an episode opened without a season id (Silo Home cards).
+    property int pendingEpisodeSeasonNumber: -1
     property string initialEpisodeId: ""  // Episode ID to highlight when navigating from Next Up
     
     // Pending track indices from post-playback navigation
@@ -2326,11 +2328,23 @@ FocusScope {
         initialEpisodeId = episodeData.itemId || ""
 
         // Extract seasonId from episode data so the view initializes with the correct season.
+        // Silo Home cards carry no season id, and their parentId falls back to the
+        // series; such episodes resolve their season by number once seasons load.
+        pendingEpisodeSeasonNumber = -1
         if (episodeData) {
-            const extractedSeasonId = episodeData.seasonId || episodeData.parentId || ""
-            if (extractedSeasonId && currentSeasonId !== extractedSeasonId) {
-                console.log("[Library] Using seasonId from episode data:", extractedSeasonId)
-                currentSeasonId = extractedSeasonId
+            const episodeSeriesId = episodeData.seriesId || currentSeriesId
+            var extractedSeasonId = episodeData.seasonId || ""
+            if (!extractedSeasonId && episodeData.parentId && episodeData.parentId !== episodeSeriesId)
+                extractedSeasonId = episodeData.parentId
+            if (extractedSeasonId) {
+                if (currentSeasonId !== extractedSeasonId) {
+                    console.log("[Library] Using seasonId from episode data:", extractedSeasonId)
+                    currentSeasonId = extractedSeasonId
+                }
+            } else if (episodeData.parentIndexNumber !== undefined && episodeData.parentIndexNumber >= 0) {
+                currentSeasonId = ""
+                pendingEpisodeSeasonNumber = episodeData.parentIndexNumber
+                resolvePendingEpisodeSeason()
             }
         }
 
@@ -2352,6 +2366,24 @@ FocusScope {
                 contentLoader.item.forceActiveFocus()
             }
         })
+    }
+
+    // Selects the season numbered pendingEpisodeSeasonNumber once the current
+    // series' seasons are loaded.
+    function resolvePendingEpisodeSeason() {
+        if (pendingEpisodeSeasonNumber < 0 || !currentSeriesId
+                || SeriesDetailsViewModel.seriesId !== currentSeriesId) {
+            return
+        }
+        for (let i = 0; i < SeriesDetailsViewModel.seasonsModel.rowCount(); ++i) {
+            const season = SeriesDetailsViewModel.seasonsModel.getItem(i)
+            if (season && season.itemId && season.indexNumber === pendingEpisodeSeasonNumber) {
+                console.log("[Library] Resolved season", pendingEpisodeSeasonNumber, "for episode:", season.itemId)
+                pendingEpisodeSeasonNumber = -1
+                currentSeasonId = season.itemId
+                return
+            }
+        }
     }
 
     function showSeriesDetailsFromSeasonView(episodeId) {
@@ -2675,6 +2707,7 @@ FocusScope {
                 seasons.push(SeriesDetailsViewModel.seasonsModel.getItem(index))
             }
             currentSeriesSeasons = seasons
+            resolvePendingEpisodeSeason()
         }
     }
 
