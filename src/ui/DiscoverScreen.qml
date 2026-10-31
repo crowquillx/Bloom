@@ -291,7 +291,7 @@ FocusScope {
         id: scrollAnimation
         target: contentFlickable
         property: "contentY"
-        duration: Theme.durationLong
+        duration: Theme.uiAnimationsEnabled ? Theme.durationLong : 0
         easing.type: Easing.OutCubic
     }
 
