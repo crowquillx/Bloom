@@ -36,8 +36,8 @@ constexpr int kRandomSampleWindow = 100;
 constexpr int kServerPingTimeoutMs = 10000;
 
 // Cards per Home row Bloom reads: the Watchlist row Home adds when the
-// profile's layout has none, and each of the profile's rows when the server
-// accepts a cap (Silo's own rows default to 100).
+// profile's layout has none, and each of the profile's Home and library rows
+// when the server accepts a cap (Silo's own rows default to 100).
 constexpr int kHomeRowCardLimit = 20;
 // Bloom names that row; it is not a server section.
 const QString kHomeWatchlistRowId = QStringLiteral("bloom:watchlist");
@@ -261,6 +261,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         }
         m_airingCalendarReads.clear();
         m_airingCalendars.clear();
+        m_letterIndexRetry.clear();
     };
     connect(m_authService, &AuthenticationService::authenticationStepChanged,
             this, [this, invalidateRequests]() {
@@ -631,27 +632,11 @@ void LibraryService::getSeasonEpisodes(const QString &seasonId, bool useCacheVal
     getItems(query);
 }
 
-void LibraryService::getItems(const LibraryItemQuery &query)
+ProviderCatalogQuery LibraryService::providerItemsQuery(const LibraryItemQuery &query) const
 {
-    const QString parentId = query.parentId;
-    const QString queryKey = query.requestKey.isEmpty() ? query.cacheKey() : query.requestKey;
-    const QString connectionId = activeConnectionId(m_authService);
-
     ProviderCatalogQuery providerQuery = baseCatalogQuery();
     providerQuery.parentId = query.parentId;
     providerQuery.startIndex = query.startIndex;
-    const QString datasetKey = query.datasetKey();
-    if (query.startIndex == 0 || !m_pageCursorEpochs.contains(datasetKey)) {
-        if (m_pageCursorEpochs.size() >= 128 && !m_pageCursorEpochs.contains(datasetKey)) {
-            m_pageCursors.clear();
-            m_pageCursorEpochs.clear();
-        }
-        m_pageCursorEpochs.insert(datasetKey, ++m_nextCursorEpoch);
-        m_pageCursors.remove(datasetKey);
-    }
-    const quint64 cursorEpoch = m_pageCursorEpochs.value(datasetKey);
-    providerQuery.cursor = m_pageCursors.value(datasetKey).value(query.startIndex);
-    providerQuery.windowCursor = m_pageCursors.value(datasetKey).value(0);
     providerQuery.limit = query.limit;
     providerQuery.searchTerm = query.searchTerm;
     providerQuery.genres = query.genres;
@@ -670,6 +655,28 @@ void LibraryService::getItems(const LibraryItemQuery &query)
     providerQuery.recursive = query.recursive;
     providerQuery.includeHeavyFields = query.includeHeavyFields;
     providerQuery.useCacheValidation = query.useCacheValidation;
+    return providerQuery;
+}
+
+void LibraryService::getItems(const LibraryItemQuery &query)
+{
+    const QString parentId = query.parentId;
+    const QString queryKey = query.requestKey.isEmpty() ? query.cacheKey() : query.requestKey;
+    const QString connectionId = activeConnectionId(m_authService);
+
+    ProviderCatalogQuery providerQuery = providerItemsQuery(query);
+    const QString datasetKey = query.datasetKey();
+    if (query.startIndex == 0 || !m_pageCursorEpochs.contains(datasetKey)) {
+        if (m_pageCursorEpochs.size() >= 128 && !m_pageCursorEpochs.contains(datasetKey)) {
+            m_pageCursors.clear();
+            m_pageCursorEpochs.clear();
+        }
+        m_pageCursorEpochs.insert(datasetKey, ++m_nextCursorEpoch);
+        m_pageCursors.remove(datasetKey);
+    }
+    const quint64 cursorEpoch = m_pageCursorEpochs.value(datasetKey);
+    providerQuery.cursor = m_pageCursors.value(datasetKey).value(query.startIndex);
+    providerQuery.windowCursor = m_pageCursors.value(datasetKey).value(0);
 
     sendCatalogRequest(
         QStringLiteral("getItems"),
@@ -1813,39 +1820,51 @@ void LibraryService::getHomeSections()
     }
 
     // Silo caps each row's cards only when its Home capabilities report the
-    // largest cap it accepts; older servers reject item_limit. They are read
-    // once per connection. Next Up reads the layout separately and uncapped,
-    // so no resume card is dropped.
+    // largest cap it accepts; older servers reject item_limit. Next Up reads
+    // the layout separately and uncapped, so no resume card is dropped.
+    withSectionItemLimit(
+        connectionId,
+        [this, connectionId, generation] {
+            return generation == m_homeSectionsGeneration
+                && activeConnectionId(m_authService) == connectionId;
+        },
+        [this, connectionId, generation](int itemLimitMax) {
+            readHomeSections(connectionId, generation, itemLimitMax);
+        });
+}
+
+void LibraryService::withSectionItemLimit(const QString &connectionId,
+                                          std::function<bool()> isCurrent,
+                                          std::function<void(int)> proceed)
+{
+    // The Home capabilities are read once per connection; the cap applies to
+    // library section reads too.
     const auto itemLimitMax = m_homeSectionItemLimitMax.constFind(connectionId);
     if (itemLimitMax != m_homeSectionItemLimitMax.cend()) {
-        readHomeSections(connectionId, generation, *itemLimitMax);
+        proceed(*itemLimitMax);
         return;
     }
-    const auto isCurrent = [this, connectionId, generation] {
-        return generation == m_homeSectionsGeneration
-            && activeConnectionId(m_authService) == connectionId;
-    };
     sendCatalogRequest(
         QStringLiteral("getHomeCapabilities"),
         ProviderCatalogOperation::HomeCapabilities,
         baseCatalogQuery(),
-        [this, connectionId, generation, isCurrent](const ProviderCatalogResponse &capabilities) {
+        [this, connectionId, isCurrent, proceed](const ProviderCatalogResponse &capabilities) {
             const int limitMax = capabilities.capabilityMetadata
                 .value(QStringLiteral("sectionItemLimitMax")).toInt();
             m_homeSectionItemLimitMax.insert(connectionId, limitMax);
             if (isCurrent()) {
-                readHomeSections(connectionId, generation, limitMax);
+                proceed(limitMax);
             }
         },
-        [this, connectionId, generation, isCurrent](const NetworkError &error) {
+        [this, connectionId, isCurrent, proceed](const NetworkError &error) {
             // A server without the route has no cap, which is remembered so
-            // each Home load does not pay the read again. Other failures read
-            // the rows uncapped and ask again next time.
+            // each load does not pay the read again. Other failures read the
+            // rows uncapped and ask again next time.
             if (error.httpStatus == 404 || error.httpStatus == 405 || error.httpStatus == 501) {
                 m_homeSectionItemLimitMax.insert(connectionId, 0);
             }
             if (isCurrent()) {
-                readHomeSections(connectionId, generation, 0);
+                proceed(0);
             }
         });
 }
@@ -1999,6 +2018,206 @@ void LibraryService::publishHomeSectionsWithFavorites(const QString &connectionI
                 // The profile's rows still show without favorites.
                 emit canonicalHomeSectionsLoaded(connectionId, rows);
             }
+        });
+}
+
+bool LibraryService::supportsLibrarySections() const
+{
+    return m_authService && m_authService->isAuthenticated()
+        && m_authService->supportsCapability(ProviderCapability::LibrarySections);
+}
+
+void LibraryService::getLibrarySections(const QString &libraryId)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    const quint64 generation = ++m_librarySectionsGeneration;
+    if (!supportsLibrarySections() || libraryId.trimmed().isEmpty()) {
+        // Providers without curated library rows (Jellyfin) have none.
+        emit canonicalLibrarySectionsLoaded(connectionId, libraryId, {});
+        return;
+    }
+    withSectionItemLimit(
+        connectionId,
+        [this, connectionId, generation] {
+            return generation == m_librarySectionsGeneration
+                && activeConnectionId(m_authService) == connectionId;
+        },
+        [this, connectionId, libraryId, generation](int itemLimitMax) {
+            readLibrarySections(connectionId, libraryId, generation, itemLimitMax);
+        });
+}
+
+void LibraryService::readLibrarySections(const QString &connectionId,
+                                         const QString &libraryId,
+                                         quint64 generation,
+                                         int itemLimitMax)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.parentId = libraryId;
+    if (itemLimitMax > 0) {
+        query.limit = qMin(kHomeRowCardLimit, itemLimitMax);
+    }
+    sendCatalogRequest(
+        QStringLiteral("getLibrarySections"),
+        ProviderCatalogOperation::LibrarySections,
+        query,
+        [this, connectionId, libraryId, generation](const ProviderCatalogResponse &response) {
+            if (generation != m_librarySectionsGeneration) {
+                return;
+            }
+            QVariantList rows;
+            for (const QJsonValue &value : response.rawItems) {
+                const QJsonObject row = value.toObject();
+                const QVariantList items = m_authService->mapMediaItems(
+                    row.value(QStringLiteral("items")).toArray(), connectionId);
+                if (items.isEmpty()) {
+                    continue;
+                }
+                rows.append(QVariantMap{
+                    {QStringLiteral("sectionId"), row.value(QStringLiteral("id")).toString()},
+                    {QStringLiteral("title"), row.value(QStringLiteral("title")).toString()},
+                    {QStringLiteral("sectionType"),
+                     row.value(QStringLiteral("section_type")).toString()},
+                    {QStringLiteral("featured"), row.value(QStringLiteral("featured")).toBool()},
+                    {QStringLiteral("totalCount"),
+                     row.value(QStringLiteral("total_count")).toInt()},
+                    {QStringLiteral("hasMore"), row.value(QStringLiteral("has_more")).toBool()},
+                    {QStringLiteral("items"), items}});
+            }
+            emit canonicalLibrarySectionsLoaded(connectionId, libraryId, rows);
+        },
+        [this, connectionId, libraryId, generation, itemLimitMax](const NetworkError &error) {
+            if (generation != m_librarySectionsGeneration) {
+                return;
+            }
+            // A remembered cap the server now rejects is dropped, and the
+            // rows are read once more without it (as on Home).
+            if (itemLimitMax > 0 && (error.httpStatus == 400 || error.httpStatus == 422)) {
+                m_homeSectionItemLimitMax.insert(connectionId, 0);
+                if (activeConnectionId(m_authService) == connectionId) {
+                    readLibrarySections(connectionId, libraryId, generation, 0);
+                    return;
+                }
+            }
+            emit canonicalLibrarySectionsFailed(connectionId, libraryId, error.userMessage);
+        });
+}
+
+void LibraryService::getLibrarySectionItems(const QString &libraryId, const QString &sectionId)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    if (!supportsLibrarySections()) {
+        emit canonicalLibrarySectionItemsFailed(
+            connectionId, libraryId, sectionId,
+            tr("The active provider has no library rows."));
+        return;
+    }
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.parentId = libraryId;
+    query.itemId = sectionId;
+    sendCatalogRequest(
+        QStringLiteral("getLibrarySectionItems"),
+        ProviderCatalogOperation::LibrarySectionItems,
+        query,
+        [this, connectionId, libraryId, sectionId](const ProviderCatalogResponse &response) {
+            emit canonicalLibrarySectionItemsLoaded(
+                connectionId, libraryId, sectionId,
+                m_authService->mapMediaItems(response.rawItems, connectionId));
+        },
+        [this, connectionId, libraryId, sectionId](const NetworkError &error) {
+            emit canonicalLibrarySectionItemsFailed(
+                connectionId, libraryId, sectionId, error.userMessage);
+        });
+}
+
+void LibraryService::getLibraryLetters(const LibraryItemQuery &query)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    const QString requestKey = query.requestKey;
+    const ICatalogProvider *provider = m_authService && m_authService->isAuthenticated()
+        ? m_authService->catalogProvider() : nullptr;
+    ProviderCatalogQuery providerQuery = providerItemsQuery(query);
+    providerQuery.startIndex = 0;
+    providerQuery.limit = 0;
+    providerQuery.useCacheValidation = false;
+    if (!provider) {
+        emit libraryLettersFailed(connectionId, requestKey, tr("Not authenticated"));
+        return;
+    }
+    const ProviderCatalogRequest lettersRequest
+        = provider->createRequest(ProviderCatalogOperation::LibraryLetters, providerQuery);
+    if (!lettersRequest.supported) {
+        emit libraryLettersFailed(connectionId, requestKey, lettersRequest.unsupportedReason);
+        return;
+    }
+    // Providers that need no capability read (Jellyfin) build the index
+    // from the list itself.
+    if (!provider->createRequest(ProviderCatalogOperation::CatalogSearchCapabilities,
+                                 baseCatalogQuery()).supported) {
+        readLibraryLetters(connectionId, providerQuery, requestKey);
+        return;
+    }
+    const auto known = m_letterIndexAvailable.constFind(connectionId);
+    if (known != m_letterIndexAvailable.cend()) {
+        if (*known) {
+            readLibraryLetters(connectionId, providerQuery, requestKey);
+        } else {
+            emit libraryLettersFailed(connectionId, requestKey,
+                                      tr("The server has no letter index."));
+        }
+        return;
+    }
+    // A failed read is not repeated on every library load.
+    const auto retry = m_letterIndexRetry.constFind(connectionId);
+    if (retry != m_letterIndexRetry.cend() && !retry->hasExpired()) {
+        emit libraryLettersFailed(connectionId, requestKey,
+                                  tr("The server's letter index is unavailable."));
+        return;
+    }
+    m_letterIndexRetry.remove(connectionId);
+    sendCatalogRequest(
+        QStringLiteral("getCatalogSearchCapabilities"),
+        ProviderCatalogOperation::CatalogSearchCapabilities,
+        baseCatalogQuery(),
+        [this, connectionId, providerQuery, requestKey](const ProviderCatalogResponse &response) {
+            const bool available
+                = response.capabilityMetadata.value(QStringLiteral("letterIndex")).toBool();
+            m_letterIndexAvailable.insert(connectionId, available);
+            if (activeConnectionId(m_authService) != connectionId) {
+                return;
+            }
+            if (available) {
+                readLibraryLetters(connectionId, providerQuery, requestKey);
+            } else {
+                emit libraryLettersFailed(connectionId, requestKey,
+                                          tr("The server has no letter index."));
+            }
+        },
+        [this, connectionId, requestKey](const NetworkError &error) {
+            // A server without the route has no index; that is remembered.
+            if (error.httpStatus == 404 || error.httpStatus == 405 || error.httpStatus == 501) {
+                m_letterIndexAvailable.insert(connectionId, false);
+            } else {
+                m_letterIndexRetry.insert(connectionId,
+                                          QDeadlineTimer(LetterIndexCapabilityRetryMs));
+            }
+            emit libraryLettersFailed(connectionId, requestKey, error.userMessage);
+        });
+}
+
+void LibraryService::readLibraryLetters(const QString &connectionId,
+                                        const ProviderCatalogQuery &providerQuery,
+                                        const QString &requestKey)
+{
+    sendCatalogRequest(
+        QStringLiteral("getLibraryLetters"),
+        ProviderCatalogOperation::LibraryLetters,
+        providerQuery,
+        [this, connectionId, requestKey](const ProviderCatalogResponse &response) {
+            emit libraryLettersLoaded(connectionId, requestKey, response.capabilityMetadata);
+        },
+        [this, connectionId, requestKey](const NetworkError &error) {
+            emit libraryLettersFailed(connectionId, requestKey, error.userMessage);
         });
 }
 

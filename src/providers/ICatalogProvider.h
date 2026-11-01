@@ -95,6 +95,24 @@ enum class ProviderCatalogOperation {
     PersonItems,
     PersonSearch,
     PersonSearchCapability,
+    // The rows a profile curates for one library (parentId), in layout
+    // order (Silo, ProviderCapability::LibrarySections). limit caps each
+    // row's cards (item_limit). rawItems holds one object per row with `id`,
+    // `title`, `section_type`, `featured`, `total_count`, `has_more` and
+    // wire `items` reduced to movie and series cards; empty rows are gone.
+    LibrarySections,
+    // One library row's cards (parentId library, itemId section), as many
+    // as the row holds; rawItems holds the movie and series cards.
+    LibrarySectionItems,
+    // The catalog search capability document (Silo). capabilityMetadata
+    // carries `letterIndex`: LibraryLetters is available. Providers whose
+    // LibraryLetters needs no capability report this unsupported.
+    CatalogSearchCapabilities,
+    // Where each letter starts in a title-ordered library query with the
+    // query's filters (the A-Z rail). capabilityMetadata carries the
+    // LetterIndex map (`total`, `letters`, `runs`). Unsupported for other
+    // sorts, and on Silo with a search term.
+    LibraryLetters,
 };
 
 enum class ProviderHttpMethod {

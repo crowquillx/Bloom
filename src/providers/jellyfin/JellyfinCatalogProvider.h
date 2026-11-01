@@ -1,5 +1,6 @@
 #pragma once
 
+#include "models/LetterIndex.h"
 #include "providers/ICatalogProvider.h"
 
 #include <QJsonDocument>
@@ -105,6 +106,13 @@ public:
         case ProviderCatalogOperation::PersonSearchCapability:
             return unsupported(QStringLiteral(
                 "Jellyfin people search needs no capability read"));
+        case ProviderCatalogOperation::LibrarySections:
+        case ProviderCatalogOperation::LibrarySectionItems:
+            return unsupported(QStringLiteral("Jellyfin has no profile-curated library rows"));
+        case ProviderCatalogOperation::CatalogSearchCapabilities:
+            return unsupported(QStringLiteral("Jellyfin's letter index needs no capability read"));
+        case ProviderCatalogOperation::LibraryLetters:
+            return lettersRequest(query);
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -219,6 +227,30 @@ public:
         }
 
         response.rawItems = root.value(QStringLiteral("Items")).toArray();
+        if (operation == ProviderCatalogOperation::LibraryLetters) {
+            // The whole title-ordered list, so each title's position is its
+            // index here; the sort name is what Jellyfin orders by.
+            const int total = root.value(QStringLiteral("TotalRecordCount"))
+                                  .toInt(static_cast<int>(response.rawItems.size()));
+            if (response.rawItems.size() < total) {
+                response.error = QStringLiteral("Jellyfin answered part of the list; no letter index");
+                response.rawItems = {};
+                return response;
+            }
+            QStringList sortKeys;
+            sortKeys.reserve(response.rawItems.size());
+            for (const QJsonValue &value : std::as_const(response.rawItems)) {
+                const QJsonObject item = value.toObject();
+                const QString sortName = item.value(QStringLiteral("SortName")).toString();
+                sortKeys.append(sortName.isEmpty()
+                                    ? item.value(QStringLiteral("Name")).toString() : sortName);
+            }
+            response.capabilityMetadata = LetterIndex::fromSortKeys(sortKeys);
+            response.total = static_cast<int>(sortKeys.size());
+            response.rawItems = {};
+            response.valid = true;
+            return response;
+        }
         response.total = root.value(QStringLiteral("TotalRecordCount"))
                              .toInt(response.rawItems.size());
         const int startIndex = root.value(QStringLiteral("StartIndex")).toInt();
@@ -523,6 +555,37 @@ private:
         if (query.useCacheValidation) {
             applyCacheHeaders(request, query);
         }
+        return request;
+    }
+
+    // Jellyfin has no letter index, and NameLessThan compares only the first
+    // character of SortName or Name (so "The Matrix" counts under T, not M),
+    // which cannot locate a letter in SortName order. The index is built
+    // from the sort names of the whole filtered list instead: the library
+    // query without paging, images or user data, and only SortName. A
+    // server that pages anyway (Silo's compatibility listener defaults to
+    // 24) answers fewer items than its total, and has no index.
+    static ProviderCatalogRequest lettersRequest(const ProviderCatalogQuery &query)
+    {
+        if (query.sortBy != QStringLiteral("title")) {
+            return unsupported(QStringLiteral("The letter index counts title order only"));
+        }
+        ProviderCatalogQuery titles = query;
+        titles.startIndex = 0;
+        titles.limit = 0;
+        titles.fields = {QStringLiteral("SortName")};
+        titles.useCacheValidation = false;
+        ProviderCatalogRequest request = itemsRequest(titles);
+        if (!request.supported) {
+            return request;
+        }
+        QUrl url(request.relativeEndpoint);
+        QUrlQuery parameters(url);
+        parameters.removeAllQueryItems(QStringLiteral("EnableImageTypes"));
+        parameters.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("false"));
+        parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("false"));
+        url.setQuery(parameters);
+        request.relativeEndpoint = url.toString(QUrl::FullyEncoded);
         return request;
     }
 
@@ -1082,6 +1145,10 @@ private:
         case ProviderCatalogOperation::PersonItems: return QStringLiteral("person items");
         case ProviderCatalogOperation::PersonSearch: return QStringLiteral("people search");
         case ProviderCatalogOperation::PersonSearchCapability: return QStringLiteral("people search capability");
+        case ProviderCatalogOperation::LibrarySections: return QStringLiteral("library sections");
+        case ProviderCatalogOperation::LibrarySectionItems: return QStringLiteral("library section items");
+        case ProviderCatalogOperation::CatalogSearchCapabilities: return QStringLiteral("search capabilities");
+        case ProviderCatalogOperation::LibraryLetters: return QStringLiteral("letter index");
         }
         return QStringLiteral("catalog");
     }

@@ -28,6 +28,33 @@ QVariantList canonicalItems(std::initializer_list<const char *> itemIds)
     return items;
 }
 
+QVariantList numberedItems(int first, int count)
+{
+    QVariantList items;
+    for (int index = first; index < first + count; ++index) {
+        items.append(canonicalItem(QStringLiteral("item-%1").arg(index)));
+    }
+    return items;
+}
+
+// A to Z over a 1,000-title list: A at 0, M at 600, Z at 990.
+QVariantMap thousandTitleIndex()
+{
+    const auto letter = [](const char *name, int count, int position) {
+        return QVariantMap{{QStringLiteral("letter"), QString::fromLatin1(name)},
+                           {QStringLiteral("count"), count},
+                           {QStringLiteral("position"), position}};
+    };
+    const auto run = [](const char *name, int position) {
+        return QVariantMap{{QStringLiteral("letter"), QString::fromLatin1(name)},
+                           {QStringLiteral("position"), position}};
+    };
+    return {{QStringLiteral("total"), 1000},
+            {QStringLiteral("letters"), QVariantList{letter("A", 600, 0), letter("M", 390, 600),
+                                                     letter("Z", 10, 990)}},
+            {QStringLiteral("runs"), QVariantList{run("A", 0), run("M", 600), run("Z", 990)}}};
+}
+
 class ControlledLibraryService final : public LibraryService
 {
 public:
@@ -59,6 +86,23 @@ public:
     void getViewsForRequest(const QString &requestKey) override
     {
         viewRequests.append(requestKey);
+    }
+
+    void getLibraryLetters(const LibraryItemQuery &query) override
+    {
+        letterRequests.append(query);
+    }
+
+    void succeedLetters(int requestIndex, const QVariantMap &index)
+    {
+        emit libraryLettersLoaded(
+            getActiveConnectionId(), letterRequests.at(requestIndex).requestKey, index);
+    }
+
+    void failLetters(int requestIndex, const QString &error)
+    {
+        emit libraryLettersFailed(
+            getActiveConnectionId(), letterRequests.at(requestIndex).requestKey, error);
     }
 
     void getFilterOptionsForRequest(
@@ -147,6 +191,7 @@ public:
     }
 
     QList<LibraryItemQuery> itemRequests;
+    QList<LibraryItemQuery> letterRequests;
     QList<QString> viewRequests;
     QList<FilterRequest> filterRequests;
     ProviderLibraryQueryCapabilities queryCapabilities;
@@ -185,6 +230,10 @@ private slots:
     void duplicatePageDoesNotEnterMemoryCache();
     void isolatedOffsetPageIsNotCachedAsDatasetStart();
     void memoryCacheIsBounded();
+    void letterIndexFollowsTitleOrder();
+    void letterJumpSeeksAndFillsPlaceholders();
+    void seekAnswersAroundPagesInFlight();
+    void failedWindowLeavesPlaceholdersToRetry();
 
 private:
     std::unique_ptr<QTemporaryDir> m_cacheDir;
@@ -886,6 +935,193 @@ void LibraryViewModelCanonicalTest::memoryCacheIsBounded()
             <= LibraryViewModel::kMemoryCacheMaxBytes);
     QCOMPARE(viewModel.s_libraryCache.size(),
              viewModel.s_libraryCacheLru.size());
+}
+
+void LibraryViewModelCanonicalTest::letterIndexFollowsTitleOrder()
+{
+    LibraryViewModel viewModel;
+    QSignalSpy indexSpy(&viewModel, &LibraryViewModel::letterIndexChanged);
+
+    // Library order: no index, no request.
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 200);
+    QVERIFY(m_libraryService->letterRequests.isEmpty());
+    QVERIFY(viewModel.letterIndex().isEmpty());
+
+    // Title order asks for the index of the same query.
+    viewModel.setSortBy(QStringLiteral("title"));
+    viewModel.setFavoriteFilter(QStringLiteral("favorite"));
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 200);
+    QCOMPARE(m_libraryService->letterRequests.size(), 1);
+    const LibraryItemQuery request = m_libraryService->letterRequests.first();
+    QCOMPARE(request.sortBy, QStringLiteral("title"));
+    QCOMPARE(request.parentId, QStringLiteral("library"));
+    QCOMPARE(request.favorite, LibraryItemQuery::TriState::Yes);
+    QCOMPARE(request.datasetKey(), m_libraryService->itemRequests.last().datasetKey());
+    m_libraryService->succeedLetters(0, thousandTitleIndex());
+    QCOMPARE(viewModel.letterIndex().size(), 3);
+    QCOMPARE(indexSpy.count(), 1);
+    QCOMPARE(viewModel.letterAtPosition(0), QStringLiteral("A"));
+    QCOMPARE(viewModel.letterAtPosition(750), QStringLiteral("M"));
+    QCOMPARE(viewModel.letterAtPosition(995), QStringLiteral("Z"));
+
+    // A late answer for a replaced query is dropped; the new query's index
+    // is shown once it arrives, and a failure falls back to none.
+    viewModel.setFavoriteFilter(QStringLiteral("any"));
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 200);
+    QCOMPARE(m_libraryService->letterRequests.size(), 2);
+    QVERIFY(viewModel.letterIndex().isEmpty());
+    m_libraryService->succeedLetters(0, thousandTitleIndex());
+    QVERIFY(viewModel.letterIndex().isEmpty());
+    m_libraryService->failLetters(1, QStringLiteral("no index"));
+    QVERIFY(viewModel.letterIndex().isEmpty());
+
+    // The index is kept per query: coming back to it shows it at once.
+    viewModel.setFavoriteFilter(QStringLiteral("favorite"));
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 200);
+    QCOMPARE(viewModel.letterIndex().size(), 3);
+    QCOMPARE(m_libraryService->letterRequests.size(), 2);
+
+    // Series children (no paging) and combined pages have no index.
+    viewModel.loadLibrary(QStringLiteral("series-1"), QString(), 0, 0);
+    QVERIFY(viewModel.letterIndex().isEmpty());
+    viewModel.loadCombinedLibraries({QStringLiteral("a"), QStringLiteral("b")},
+                                    QStringLiteral("movies"), 200);
+    QVERIFY(viewModel.letterIndex().isEmpty());
+    QCOMPARE(m_libraryService->letterRequests.size(), 2);
+}
+
+void LibraryViewModelCanonicalTest::letterJumpSeeksAndFillsPlaceholders()
+{
+    LibraryViewModel viewModel;
+    viewModel.setSortBy(QStringLiteral("title"));
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 200);
+    m_libraryService->succeedItem(0, numberedItems(0, 200), 1000);
+    m_libraryService->succeedLetters(0, thousandTitleIndex());
+    QCOMPARE(viewModel.rowCount(), 200);
+
+    QSignalSpy ready(&viewModel, &LibraryViewModel::positionReady);
+    QVERIFY(!viewModel.jumpToLetter(QStringLiteral("Q")));
+
+    // A loaded letter answers at once.
+    QVERIFY(viewModel.jumpToLetter(QStringLiteral("A")));
+    QCOMPARE(ready.count(), 1);
+    QCOMPARE(ready.takeFirst().at(0).toInt(), 0);
+    QCOMPARE(m_libraryService->itemRequests.size(), 1);
+
+    // M is past the loaded rows: the rows up to its window become
+    // placeholders and the window is read at M's position.
+    QVERIFY(viewModel.jumpToLetter(QStringLiteral("M")));
+    QCOMPARE(ready.count(), 0);
+    QCOMPARE(viewModel.rowCount(), 700);
+    QVERIFY(viewModel.getItem(200).value(QStringLiteral("bloomPlaceholder")).toBool());
+    QVERIFY(viewModel.data(viewModel.index(650), LibraryViewModel::NameRole).toString().isEmpty());
+    QCOMPARE(m_libraryService->itemRequests.size(), 2);
+    LibraryItemQuery window = m_libraryService->itemRequests.last();
+    QCOMPARE(window.startIndex, 600);
+    QCOMPARE(window.limit, 100);
+    QCOMPARE(window.sortBy, QStringLiteral("title"));
+    // The same position again waits for the same window.
+    viewModel.seekToPosition(600);
+    QCOMPARE(m_libraryService->itemRequests.size(), 2);
+    m_libraryService->succeedItem(1, numberedItems(600, 100), 1000);
+    QCOMPARE(ready.count(), 1);
+    QCOMPARE(ready.takeFirst().at(0).toInt(), 600);
+    QCOMPARE(viewModel.getItem(600).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("item-600"));
+    QCOMPARE(viewModel.rowCount(), 700);
+
+    // Scrolling up from M reads the placeholder rows above it, upward.
+    viewModel.ensureLoaded(599);
+    QCOMPARE(m_libraryService->itemRequests.size(), 3);
+    window = m_libraryService->itemRequests.last();
+    QCOMPARE(window.startIndex, 500);
+    QCOMPARE(window.limit, 100);
+    viewModel.ensureLoaded(550);
+    QCOMPARE(m_libraryService->itemRequests.size(), 3);
+    // A loaded row needs nothing.
+    viewModel.ensureLoaded(650);
+    QCOMPARE(m_libraryService->itemRequests.size(), 3);
+    m_libraryService->succeedItem(2, numberedItems(500, 100), 1000);
+    QCOMPARE(viewModel.getItem(500).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("item-500"));
+    QCOMPARE(viewModel.getItem(599).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("item-599"));
+    QVERIFY(viewModel.getItem(499).value(QStringLiteral("bloomPlaceholder")).toBool());
+
+    // Paging on continues after M's window.
+    viewModel.loadMore(50);
+    QCOMPARE(m_libraryService->itemRequests.last().startIndex, 700);
+    m_libraryService->succeedItem(3, numberedItems(700, 50), 1000);
+    QCOMPARE(viewModel.rowCount(), 750);
+
+    // Z at 990: the window reaches the end of the list.
+    QVERIFY(viewModel.jumpToLetter(QStringLiteral("Z")));
+    QCOMPARE(viewModel.rowCount(), 1000);
+    QCOMPARE(m_libraryService->itemRequests.last().startIndex, 990);
+    QCOMPARE(m_libraryService->itemRequests.last().limit, 10);
+}
+
+void LibraryViewModelCanonicalTest::seekAnswersAroundPagesInFlight()
+{
+    LibraryViewModel viewModel;
+    viewModel.setSortBy(QStringLiteral("title"));
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 200);
+    m_libraryService->succeedItem(0, numberedItems(0, 200), 1000);
+    m_libraryService->succeedLetters(0, thousandTitleIndex());
+
+    // A page in flight when the jump adds placeholders fills its own rows.
+    viewModel.loadMore(50);
+    QCOMPARE(m_libraryService->itemRequests.last().startIndex, 200);
+    QSignalSpy ready(&viewModel, &LibraryViewModel::positionReady);
+    QVERIFY(viewModel.jumpToLetter(QStringLiteral("M")));
+    QCOMPARE(viewModel.rowCount(), 700);
+    m_libraryService->succeedItem(1, numberedItems(200, 50), 1000);
+    QCOMPARE(viewModel.rowCount(), 700);
+    QCOMPARE(viewModel.getItem(249).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("item-249"));
+    QVERIFY(viewModel.getItem(250).value(QStringLiteral("bloomPlaceholder")).toBool());
+
+    // The list shrank since the index was read: the window answers fewer
+    // rows and the placeholders past the new end go.
+    m_libraryService->succeedItem(2, numberedItems(600, 40), 640);
+    QCOMPARE(viewModel.rowCount(), 640);
+    QCOMPARE(viewModel.totalRecordCount(), 640);
+    QCOMPARE(ready.count(), 1);
+    QCOMPARE(ready.first().at(0).toInt(), 600);
+
+    // A new query drops the jump and its placeholders.
+    viewModel.setSortOrder(QStringLiteral("descending"));
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 200);
+    const int initial = static_cast<int>(m_libraryService->itemRequests.size()) - 1;
+    m_libraryService->succeedItem(initial, numberedItems(0, 200), 1000);
+    QCOMPARE(viewModel.rowCount(), 200);
+    QVERIFY(!viewModel.getItem(199).value(QStringLiteral("bloomPlaceholder")).toBool());
+}
+
+void LibraryViewModelCanonicalTest::failedWindowLeavesPlaceholdersToRetry()
+{
+    LibraryViewModel viewModel;
+    viewModel.setSortBy(QStringLiteral("title"));
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 200);
+    m_libraryService->succeedItem(0, numberedItems(0, 200), 1000);
+    m_libraryService->succeedLetters(0, thousandTitleIndex());
+
+    QSignalSpy ready(&viewModel, &LibraryViewModel::positionReady);
+    QVERIFY(viewModel.jumpToLetter(QStringLiteral("M")));
+    m_libraryService->failItem(1, QStringLiteral("offline"));
+    QCOMPARE(ready.count(), 0);
+    QCOMPARE(viewModel.rowCount(), 700);
+    QVERIFY(viewModel.getItem(600).value(QStringLiteral("bloomPlaceholder")).toBool());
+    QVERIFY(!viewModel.hasError());
+    // Showing the rows again reads them again.
+    viewModel.ensureLoaded(600);
+    QCOMPARE(m_libraryService->itemRequests.size(), 3);
+    QCOMPARE(m_libraryService->itemRequests.last().startIndex, 501);
+    QCOMPARE(m_libraryService->itemRequests.last().limit, 100);
+    m_libraryService->succeedItem(2, numberedItems(501, 100), 1000);
+    QCOMPARE(viewModel.getItem(600).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("item-600"));
+    QCOMPARE(ready.count(), 0);
 }
 
 QTEST_MAIN(LibraryViewModelCanonicalTest)

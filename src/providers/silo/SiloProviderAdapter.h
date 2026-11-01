@@ -224,6 +224,7 @@ private:
         capabilities |= ProviderCapability::Trickplay;
         capabilities |= ProviderCapability::Watchlist;
         capabilities |= ProviderCapability::HomeSections;
+        capabilities |= ProviderCapability::LibrarySections;
         capabilities |= ProviderCapability::MediaRequests;
         capabilities |= ProviderCapability::NotInterested;
         capabilities |= ProviderCapability::AiringCalendar;

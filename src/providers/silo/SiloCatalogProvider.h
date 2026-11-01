@@ -423,6 +423,32 @@ private:
         }
         case ProviderCatalogOperation::PersonSearchCapability:
             return get(QStringLiteral("/api/v2/catalog/search/capabilities"));
+        case ProviderCatalogOperation::LibrarySections: {
+            if (query.limit < 0) {
+                return unsupported(QStringLiteral("Silo library sections need a positive card limit"));
+            }
+            ProviderCatalogRequest request = getWithContentId(
+                QStringLiteral("/api/v2/library/%1/sections"), query.parentId);
+            // Only servers whose Home capabilities report
+            // section_item_limit_max accept item_limit.
+            if (request.supported && query.limit > 0) {
+                QUrlQuery parameters;
+                parameters.addQueryItem(QStringLiteral("item_limit"),
+                                        QString::number(qMin(query.limit, 100)));
+                request.relativeEndpoint = endpointWithQuery(request.relativeEndpoint, parameters);
+            }
+            return request;
+        }
+        case ProviderCatalogOperation::LibrarySectionItems:
+            if (query.parentId.trimmed().isEmpty() || query.itemId.trimmed().isEmpty()) {
+                return unsupported(QStringLiteral("Silo section items need a library and a section"));
+            }
+            return get(QStringLiteral("/api/v2/library/%1/sections/%2/items")
+                           .arg(encodedId(query.parentId), encodedId(query.itemId)));
+        case ProviderCatalogOperation::CatalogSearchCapabilities:
+            return get(QStringLiteral("/api/v2/catalog/search/capabilities"));
+        case ProviderCatalogOperation::LibraryLetters:
+            return createLettersRequest(query);
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -559,6 +585,60 @@ public:
             response.valid = true;
             return response;
         }
+        if (operation == ProviderCatalogOperation::LibrarySections) {
+            ProviderCatalogResponse response;
+            const QJsonValue sections
+                = QJsonDocument::fromJson(body).object().value(QStringLiteral("sections"));
+            if (!sections.isArray()) {
+                response.error = QStringLiteral("Invalid Silo library sections response");
+                return response;
+            }
+            response.rawItems = curatedLibraryRows(sections.toArray());
+            response.total = static_cast<int>(response.rawItems.size());
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::LibrarySectionItems) {
+            ProviderCatalogResponse response;
+            const QJsonObject section = QJsonDocument::fromJson(body).object();
+            if (!section.value(QStringLiteral("items")).isArray()) {
+                response.error = QStringLiteral("Invalid Silo library section response");
+                return response;
+            }
+            response.rawItems = titleCards(section.value(QStringLiteral("items")).toArray());
+            response.total = static_cast<int>(response.rawItems.size());
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::CatalogSearchCapabilities) {
+            ProviderCatalogResponse response;
+            const QJsonObject object = QJsonDocument::fromJson(body).object();
+            if (!object.value(QStringLiteral("state")).isString()) {
+                response.error = QStringLiteral("Invalid Silo catalog search capabilities response");
+                return response;
+            }
+            // Absent on servers before the letter index.
+            response.capabilityMetadata.insert(
+                QStringLiteral("letterIndex"),
+                object.value(QStringLiteral("state")).toString() == QStringLiteral("available")
+                    && object.value(QStringLiteral("allowed")).toBool()
+                    && object.value(QStringLiteral("letter_index")).toBool());
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::LibraryLetters) {
+            ProviderCatalogResponse response;
+            const QJsonObject object = QJsonDocument::fromJson(body).object();
+            if (!object.value(QStringLiteral("letters")).isArray()
+                || !object.value(QStringLiteral("runs")).isArray()) {
+                response.error = QStringLiteral("Invalid Silo letter index response");
+                return response;
+            }
+            response.capabilityMetadata = letterIndex(object);
+            response.total = response.capabilityMetadata.value(QStringLiteral("total")).toInt();
+            response.valid = true;
+            return response;
+        }
         if (operation == ProviderCatalogOperation::Watchlist) {
             ProviderCatalogResponse response
                 = SiloModelMapper::catalogResponse(operation, body, responseHeaders);
@@ -673,6 +753,8 @@ private:
         case ProviderCatalogOperation::HomeSections:
         case ProviderCatalogOperation::Watchlist:
         case ProviderCatalogOperation::PersonItems:
+        case ProviderCatalogOperation::LibrarySections:
+        case ProviderCatalogOperation::LibrarySectionItems:
             return true;
         default:
             return false;
@@ -740,6 +822,97 @@ private:
             cards.append(item);
         }
         return cards;
+    }
+
+    // Movie and series cards only, once each, in their order: the titles a
+    // library page shows (LibraryKinds).
+    static QJsonArray titleCards(const QJsonArray &items)
+    {
+        QJsonArray cards;
+        QSet<QString> seen;
+        for (const QJsonValue &value : items) {
+            const QJsonObject item = value.toObject();
+            const QString type = item.value(QStringLiteral("type")).toString().toLower();
+            const QString contentId = item.value(QStringLiteral("content_id")).toString();
+            if ((type != QStringLiteral("movie") && type != QStringLiteral("series"))
+                || contentId.isEmpty() || seen.contains(contentId)) {
+                continue;
+            }
+            seen.insert(contentId);
+            cards.append(item);
+        }
+        return cards;
+    }
+
+    // A library's rows in layout order, each reduced to movie and series
+    // cards, without rows that end up empty. A row has more cards when the
+    // server says so or counts more than it sent.
+    static QJsonArray curatedLibraryRows(const QJsonArray &sections)
+    {
+        QJsonArray rows;
+        QSet<QString> seenIds;
+        for (const QJsonValue &sectionValue : sections) {
+            const QJsonObject section = sectionValue.toObject();
+            const QString id = section.value(QStringLiteral("id")).toString();
+            if (id.isEmpty() || seenIds.contains(id)) {
+                continue;
+            }
+            const QJsonArray items = section.value(QStringLiteral("items")).toArray();
+            const QJsonArray cards = titleCards(items);
+            if (cards.isEmpty()) {
+                continue;
+            }
+            seenIds.insert(id);
+            const int totalCount = section.value(QStringLiteral("total_count")).toInt();
+            rows.append(QJsonObject{
+                {QStringLiteral("id"), id},
+                {QStringLiteral("section_type"),
+                 section.value(QStringLiteral("section_type")).toString()},
+                {QStringLiteral("title"), section.value(QStringLiteral("title")).toString()},
+                {QStringLiteral("featured"), section.value(QStringLiteral("featured")).toBool()},
+                {QStringLiteral("total_count"), totalCount},
+                {QStringLiteral("has_more"),
+                 section.value(QStringLiteral("has_more")).toBool()
+                     || totalCount > items.size()},
+                {QStringLiteral("items"), cards}});
+        }
+        return rows;
+    }
+
+    // queryCatalogLetters as a LetterIndex map: letters with titles and
+    // runs in list order, malformed entries dropped.
+    static QVariantMap letterIndex(const QJsonObject &object)
+    {
+        QVariantList letters;
+        for (const QJsonValue &value : object.value(QStringLiteral("letters")).toArray()) {
+            const QJsonObject entry = value.toObject();
+            const QString letter = entry.value(QStringLiteral("letter")).toString();
+            const int count = entry.value(QStringLiteral("count")).toInt();
+            const int position = entry.value(QStringLiteral("position")).toInt(-1);
+            if (letter.isEmpty() || count <= 0 || position < 0) {
+                continue;
+            }
+            letters.append(QVariantMap{{QStringLiteral("letter"), letter},
+                                       {QStringLiteral("count"), count},
+                                       {QStringLiteral("position"), position}});
+        }
+        QVariantList runs;
+        int previousPosition = -1;
+        for (const QJsonValue &value : object.value(QStringLiteral("runs")).toArray()) {
+            const QJsonObject run = value.toObject();
+            const QString letter = run.value(QStringLiteral("letter")).toString();
+            const int position = run.value(QStringLiteral("position")).toInt(-1);
+            // Runs are in list order; LetterIndex::letterAt searches them.
+            if (letter.isEmpty() || position <= previousPosition) {
+                continue;
+            }
+            previousPosition = position;
+            runs.append(QVariantMap{{QStringLiteral("letter"), letter},
+                                    {QStringLiteral("position"), position}});
+        }
+        return {{QStringLiteral("total"), qMax(0, object.value(QStringLiteral("total")).toInt())},
+                {QStringLiteral("letters"), letters},
+                {QStringLiteral("runs"), runs}};
     }
 
     // Section types whose cards Bloom's own Home already shows: Continue
@@ -1347,6 +1520,49 @@ private:
         }
         appendLimit(parameters, query.limit);
         return get(endpointWithQuery(QStringLiteral("/api/v2/catalog"), parameters));
+    }
+
+    // The letter index of the library query the grid pages: the same scope
+    // and rule groups, always in title order. The index takes no search
+    // text, so a search has no rail.
+    static ProviderCatalogRequest createLettersRequest(const ProviderCatalogQuery &query)
+    {
+        const QString error = validationError(query);
+        if (!error.isEmpty()) {
+            return unsupported(error);
+        }
+        if (normalizedSort(query.sortBy).value_or(QString()) != QStringLiteral("title")) {
+            return unsupported(QStringLiteral("Silo's letter index counts title order only"));
+        }
+        if (!query.searchTerm.trimmed().isEmpty()) {
+            return unsupported(QStringLiteral("Silo's letter index takes no search text"));
+        }
+        if (query.recursive && !isFlatLibraryTitleQuery(query)) {
+            return unsupported(QStringLiteral(
+                "Silo catalog does not expose a recursive-scope switch"));
+        }
+        QJsonObject body{{QStringLiteral("match"), QStringLiteral("all")}};
+        const QJsonArray groups = groupsForPost(query);
+        if (!groups.isEmpty()) {
+            body.insert(QStringLiteral("groups"), groups);
+        }
+        if (!query.parentId.trimmed().isEmpty()) {
+            body.insert(QStringLiteral("library_id"), query.parentId.trimmed());
+        }
+        if (query.sortOrder.trimmed().compare(QStringLiteral("descending"), Qt::CaseInsensitive)
+            == 0) {
+            body.insert(QStringLiteral("order"), QStringLiteral("desc"));
+        }
+        ProviderCatalogRequest request;
+        request.method = ProviderHttpMethod::Post;
+        // A read-only query, declared natural_idempotent.
+        request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
+        request.relativeEndpoint = QStringLiteral("/api/v2/catalog/letters");
+        request.body = QJsonDocument(body).toJson(QJsonDocument::Compact);
+        request.extraHeaders.insert(QByteArrayLiteral("Content-Type"),
+                                    QByteArrayLiteral("application/json"));
+        request.supported = true;
+        return request;
     }
 
     static ProviderCatalogRequest createFilterOptionsRequest(

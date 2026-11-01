@@ -75,6 +75,8 @@ qt_add_executable(Bloom
     viewmodels/PersonViewModel.h
     viewmodels/PersonViewModel.cpp
     ui/PersonViewModelRegistration.h
+    viewmodels/LibrarySectionsViewModel.h
+    viewmodels/LibrarySectionsViewModel.cpp
     ui/UiSoundController.h
     ui/UiSoundController.cpp
     ui/ScreensaverController.h

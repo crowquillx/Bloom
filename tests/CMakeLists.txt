@@ -1110,6 +1110,34 @@ target_link_libraries(PersonViewModelTest
 
 add_test(NAME PersonViewModelTest COMMAND PersonViewModelTest)
 
+add_executable(LibrarySectionsViewModelTest
+    LibrarySectionsViewModelTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/LibrarySectionsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(LibrarySectionsViewModelTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(LibrarySectionsViewModelTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME LibrarySectionsViewModelTest COMMAND LibrarySectionsViewModelTest)
+
 add_executable(MediaRequestServiceTest
     MediaRequestServiceTest.cpp
 )
@@ -1219,6 +1247,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     SimilarItemsRetryTest
     HomeRowsAndWatchlistTest
     PersonViewModelTest
+    LibrarySectionsViewModelTest
     MediaRequestServiceTest
     UpNextRecommendationsViewModelTest
     UpdateServiceTest
@@ -1327,6 +1356,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/viewmodels/MovieDetailsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/UpNextRecommendationsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/HomeSectionsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/LibrarySectionsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
     # Test mode sources
     ${CMAKE_SOURCE_DIR}/src/test/TestModeController.cpp

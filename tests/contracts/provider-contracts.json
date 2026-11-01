@@ -77,6 +77,7 @@
     "catalog.home-favorites",
     "catalog.search",
     "catalog.filters",
+    "catalog.letters",
     "artwork.standard",
     "artwork.chapter",
     "playback.info",
@@ -294,6 +295,19 @@
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Control for filter facet names and item query semantics."},
         "silo-8044eb8-compat": {"outcome": "partial", "evidence": "Genres are backed, Items/Filters and Studios are empty stubs; Silo expects genre IDs while Bloom sends names."}
+      }
+    },
+    {
+      "id": "catalog.letters",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getLibraryLetters",
+      "method": "GET",
+      "path": "/Items",
+      "requestSemantics": ["The library query's filters with SortBy=SortName and its SortOrder are sent with Fields=SortName, EnableImages=false and EnableUserData=false and no StartIndex or Limit", "NameLessThan is not used: Jellyfin compares only the first character of SortName or Name, so it cannot locate a letter in SortName order"],
+      "requiredSemantics": ["Items is the whole title-ordered list, so an item's index is its list position", "SortName is the key Jellyfin orders by; an answer with fewer Items than TotalRecordCount yields no letter index"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "GetItems without Limit answers every match; Fields=SortName, EnableImages and EnableUserData are current parameters in the pinned OpenAPI."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "The compatibility item query defaults Limit to 24 (internal/jellycompat/query.go), so its answer is shorter than TotalRecordCount and Bloom keeps the loaded-rows rail; its item DTO carries SortName."}
       }
     },
     {
@@ -828,6 +842,7 @@
       "native.catalog.libraries",
       "native.catalog.page",
       "native.catalog.query",
+      "native.catalog.letters",
       "native.catalog.detail",
       "native.catalog.people",
       "native.catalog.hierarchy",
@@ -837,6 +852,7 @@
       "native.state.not-interested",
       "native.home.sections",
       "native.home.calendar",
+      "native.library.sections",
       "native.artwork.refetch",
       "native.playback.capability",
       "native.playback.start-v3",
@@ -1261,6 +1277,44 @@
         "liveProbe": true
       },
       {
+        "id": "native.catalog.letters",
+        "method": "GET/POST",
+        "path": "/api/v2/catalog/search/capabilities and /api/v2/catalog/letters",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/catalog/search/capabilities"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/catalog/letters"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "getCatalogSearchCapabilities reports letter_index; read once per connection, and a failed read is not repeated for five minutes."
+        },
+        "requestSemantics": [
+          "queryCatalogLetters is a read-only natural_idempotent POST, so the transport may replay it.",
+          "The body carries the library query's library_id, match all and rule groups, and order desc only for descending title order; no search text, cursor or limit.",
+          "Requested only for title order; other sorts and searches keep the loaded-rows rail."
+        ],
+        "requiredSemantics": [
+          "letters lists each letter with titles in list order, with count and the zero-based position of its first title.",
+          "runs cover the whole result in list order and tell which letter a position is under.",
+          "A position is sent as seek, with the window cursor, to queryCatalogItems to load that window."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/network/LibraryService.cpp",
+          "src/viewmodels/LibraryViewModel.cpp"
+        ]
+      },
+      {
         "id": "native.catalog.detail",
         "issue": 78,
         "method": "GET",
@@ -1585,6 +1639,44 @@
           "src/providers/silo/SiloCatalogProvider.h",
           "src/providers/silo/SiloModelMapper.cpp",
           "src/network/LibraryService.cpp"
+        ]
+      },
+      {
+        "id": "native.library.sections",
+        "method": "GET",
+        "path": "/api/v2/library/{id}/sections and /api/v2/library/{id}/sections/{section_id}/items",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/library/{id}/sections"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/library/{id}/sections/{section_id}/items"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operations; Bloom exposes them as ProviderCapability::LibrarySections on native Silo only."
+        },
+        "requestSemantics": [
+          "Profile-scoped read of one library's rows with their cards; the library ID is an opaque string path segment.",
+          "item_limit (at most 20) is sent only when getHomeCapabilities reports section_item_limit_max, from the capability read Home caches per connection.",
+          "A row's remaining cards come from getLibrarySectionItems for that section ID, read once when focus nears the row's end."
+        ],
+        "requiredSemantics": [
+          "Rows arrive in display order with id, section_type, title, featured, total_count and items.",
+          "Only movie and series cards are kept, once each per row; rows left empty are dropped.",
+          "A row has more cards when has_more is true or total_count exceeds the cards sent."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/network/LibraryService.cpp",
+          "src/viewmodels/LibrarySectionsViewModel.cpp"
         ]
       },
       {
