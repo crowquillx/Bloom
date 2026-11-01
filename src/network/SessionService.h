@@ -26,6 +26,7 @@ class SessionService : public QObject
     Q_PROPERTY(bool authenticationSessionMode READ authenticationSessionMode NOTIFY sessionTypeChanged)
     Q_PROPERTY(QString sessionTypeLabel READ sessionTypeLabel NOTIFY sessionTypeChanged)
     Q_PROPERTY(QString sessionTypeDescription READ sessionTypeDescription NOTIFY sessionTypeChanged)
+    Q_PROPERTY(bool canRevokeOtherSessions READ canRevokeOtherSessions NOTIFY canRevokeOtherSessionsChanged)
 
 public:
     explicit SessionService(AuthenticationService *authService, QObject *parent = nullptr);
@@ -38,6 +39,14 @@ public:
     bool authenticationSessionMode() const;
     QString sessionTypeLabel() const;
     QString sessionTypeDescription() const;
+    /**
+     * @brief Whether the account may revoke sessions of other devices.
+     *
+     * Jellyfin device removal requires a server administrator, so it is false
+     * for a Jellyfin account reported as a non-administrator. Unknown
+     * privileges keep the action available; the server still enforces it.
+     */
+    bool canRevokeOtherSessions() const;
 
     /**
      * @brief Fetch provider-supported authentication or playback sessions.
@@ -78,6 +87,7 @@ signals:
     void errorStringChanged();
     void currentSessionIdChanged();
     void sessionTypeChanged();
+    void canRevokeOtherSessionsChanged();
     void selfSessionRevoked();  // Current device was logged out
 
 private slots:

@@ -763,6 +763,7 @@ void AuthenticationService::handleAuthenticationResult(
     if (!authentication.username.isEmpty()) {
         m_username = authentication.username;
     }
+    setAccountIsAdministrator(authentication.isAdministrator);
 
     ServerConnection connection;
     if (m_configManager) {
@@ -1850,6 +1851,8 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
     m_accessToken = accessToken;
     setAccessTokenLifetime(-1);
     m_username = username;
+    // Session validation reports the account's current privileges.
+    setAccountIsAdministrator(std::nullopt);
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
     updateAuthenticationStep(QStringLiteral("credentials"));
@@ -1928,6 +1931,15 @@ void AuthenticationService::seedSession(const QString &serverUrl,
     updateAuthenticationStep(QStringLiteral("authenticated"));
     emit serverUrlChanged();
     emit userIdChanged();
+}
+
+void AuthenticationService::setAccountIsAdministrator(std::optional<bool> isAdministrator)
+{
+    if (m_accountIsAdministrator == isAdministrator) {
+        return;
+    }
+    m_accountIsAdministrator = isAdministrator;
+    emit accountPrivilegesChanged();
 }
 
 void AuthenticationService::logout()
@@ -2114,6 +2126,7 @@ void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
     m_profileToken.clear();
     m_userId.clear();
     m_username.clear();
+    setAccountIsAdministrator(std::nullopt);
     m_pendingProfileId.clear();
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
@@ -2236,10 +2249,12 @@ void AuthenticationService::validateAccessToken(std::function<void(SessionValidi
                 QNetworkRequest::HttpStatusCodeAttribute).toInt();
             const ProviderAuthenticationResult identity =
                 m_providerAuthenticator->parseSessionValidationResponse(reply->readAll());
-            complete(statusCode >= 200 && statusCode < 300
-                             && identity.accountId == m_userId
-                         ? SessionValidity::Valid
-                         : SessionValidity::Invalid);
+            const bool valid = statusCode >= 200 && statusCode < 300
+                && identity.accountId == m_userId;
+            if (valid) {
+                setAccountIsAdministrator(identity.isAdministrator);
+            }
+            complete(valid ? SessionValidity::Valid : SessionValidity::Invalid);
         },
         [complete](const NetworkError &error) {
             complete(error.httpStatus == 401 || error.httpStatus == 403

@@ -11,7 +11,9 @@ import BloomUI
  * page actions on its baseline row, then a column of rows. Each row shows the
  * device, its client and activity, and a Revoke control on the right edge;
  * Return on a focused row revokes it. Up from the list returns to the header
- * actions; Up from the header reaches the navigation bar.
+ * actions; Up from the header reaches the navigation bar. When the account may
+ * not revoke other devices (a Jellyfin non-administrator), rows carry no
+ * Revoke control and a note under the header explains why.
  */
 FocusScope {
     id: root
@@ -65,6 +67,7 @@ FocusScope {
     readonly property bool authenticationMode: sessionService
         && sessionService.authenticationSessionMode
     readonly property bool loading: !!(sessionService && sessionService.isLoading)
+    readonly property bool canRevokeOthers: !!(sessionService && sessionService.canRevokeOtherSessions)
     readonly property string errorText: sessionService ? sessionService.errorString : ""
     readonly property int sessionCount: sessionsList.count
 
@@ -177,7 +180,7 @@ FocusScope {
                     : qsTr("Revoke All Other Playback Sessions")
                 enabled: root.sessionService && !root.sessionService.isLoading
                     && root.sessionService.sessions.length > 1
-                visible: !root.authenticationMode
+                visible: !root.authenticationMode && root.canRevokeOthers
                 Layout.preferredHeight: Theme.buttonHeightMedium
                 onClicked: {
                     if (root.sessionService) root.sessionService.revokeAllOtherSessions()
@@ -187,6 +190,36 @@ FocusScope {
 
                 KeyNavigation.left: refreshButton
                 KeyNavigation.down: sessionsList.count > 0 ? sessionsList : null
+            }
+        }
+
+        // Why rows have no Revoke control. Not focusable: it only explains.
+        RowLayout {
+            id: revokeRestrictionNote
+            Layout.fillWidth: true
+            visible: !root.authenticationMode && !root.canRevokeOthers && root.sessionService !== null
+            spacing: Theme.spacingSmall
+            Accessible.role: Accessible.StaticText
+            Accessible.name: revokeRestrictionText.text
+
+            Text {
+                Layout.alignment: Qt.AlignTop
+                text: Icons.info
+                font.family: Theme.fontIcon
+                font.pixelSize: Theme.fontSizeBody
+                color: Theme.textSecondary
+                Accessible.ignored: true
+            }
+
+            Text {
+                id: revokeRestrictionText
+                Layout.fillWidth: true
+                text: qsTr("Only a server administrator can sign out other devices. To sign out this device, use Sign Out in Settings › About & Account.")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSizeSmall
+                font.family: Theme.fontPrimary
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
             }
         }
 
@@ -236,7 +269,8 @@ FocusScope {
                         ? !!modelData.isCurrent
                         : modelData.id === (root.sessionService ? root.sessionService.currentSessionId : "")
                     property bool highlighted: ListView.isCurrentItem && sessionsList.activeFocus
-                    readonly property bool canRevoke: !isCurrent || root.authenticationMode
+                    readonly property bool canRevoke: root.authenticationMode
+                        || (!isCurrent && root.canRevokeOthers)
                     function requestRevoke() {
                         if (canRevoke && revokeButton.enabled && root.sessionService) {
                             root.rememberListFocus()

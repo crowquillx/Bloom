@@ -2,6 +2,17 @@
 
 A live gate passes only when the required behavior is observed. Source inspection, a unit test, and a successful HTTP status do not establish a platform runtime pass. `UNAVAILABLE` and `NOT RUN` are not automated passes.
 
+## Jellyfin device name and session revoke, 2026-11-01 UTC
+
+The Jellyfin `MediaBrowser` header sends the machine hostname as `Device` instead of `Desktop`. Active Sessions hides Revoke for Jellyfin accounts that are not administrators, because `DELETE /Devices` requires an administrator (see [provider compatibility](provider-compatibility.md)). No Jellyfin server was available.
+
+| Gate | Result | Evidence or procedure |
+| --- | --- | --- |
+| Automated checks | PASS | `./scripts/dev-build.sh --tests` passed. Local CTest passed 51/51. That includes the new `SessionServiceTest` (8 cases: the administrator flag read during session validation, no device deletion for non-administrators, the admin `DELETE /Devices?id=` path, the `403` explanation, sign-out clearing the flag, Silo unchanged) and the new `ProviderTransportTest` device-name escaping rows. `VisualRegressionTest` skips locally. |
+| Live device name | NOT RUN / UNAVAILABLE | Sign in to Jellyfin, open the dashboard's Devices page, and check that Bloom's entry shows the machine hostname. Sign out and back in: it must still be one entry with the same device ID, not a new one. |
+| Live non-administrator revoke | NOT RUN / UNAVAILABLE | Sign in as a non-administrator, open Settings › About & Account › Active Sessions, and check that no row has Revoke, Revoke All is gone, and the note explains why. Back, Refresh and the list must still work with only the keyboard or the D-pad. |
+| Live administrator revoke | NOT RUN / UNAVAILABLE | Sign in as an administrator with a second device signed in. Revoke that device's row: the row must go away, and the other device must be signed out. |
+
 ## Packaging and CI fixes, 2026-10-30 UTC
 
 The deb moves to `/opt/bloom`, the Linux executable is named `bloom` by CMake, the Flatpak gains `--device=input`, the PKGBUILD becomes `bloom-jellyfin-git`, the NSIS installer changes its install, upgrade, and uninstall behavior, and stable tags run the Windows test suite (see [build](build.md) and [Windows build](WINDOWS-BUILD.md)). The host had no Nix, container engine, Windows, or Arch system.

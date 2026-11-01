@@ -121,6 +121,12 @@ public:
     QString getUserId() const { return m_userId; }
     QString getAccessToken() const { return m_accessToken; }
     QString getUsername() const { return m_username; }
+    /// Whether the signed-in account administers its server, as reported at
+    /// sign-in or session validation. Absent when the provider does not say.
+    std::optional<bool> accountIsAdministrator() const { return m_accountIsAdministrator; }
+    /// The server refused an administrator-only action (403): the account
+    /// has lost those rights since sign-in.
+    void markAccountNotAdministrator() { setAccountIsAdministrator(false); }
     const IPlaybackProvider *playbackProvider() const;
     const ICatalogProvider *catalogProvider() const;
     ProviderKind activeProviderKind() const;
@@ -223,6 +229,7 @@ signals:
     void authenticationStepChanged();
     void signInOptionsChanged();
     void deviceSignInChanged();
+    void accountPrivilegesChanged();
 
 protected:
     void seedSession(const QString &serverUrl,
@@ -231,6 +238,7 @@ protected:
                      const QString &username = QString());
 
 private:
+    void setAccountIsAdministrator(std::optional<bool> isAdministrator);
     std::unique_ptr<HttpTransport> m_ownedTransport;
     std::unique_ptr<IProviderAdapter> m_ownedProviderAdapter;
     QList<IProviderAdapter *> m_providerAdapters;
@@ -250,6 +258,7 @@ private:
     QString m_profileToken;
     QString m_userId;
     QString m_username;
+    std::optional<bool> m_accountIsAdministrator;
     QString m_providerSelection = QStringLiteral("auto");
     QString m_authenticationStep = QStringLiteral("credentials");
     QString m_pendingProfileId;

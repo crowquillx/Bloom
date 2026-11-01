@@ -3,6 +3,17 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+namespace {
+// UserDto.Policy.IsAdministrator gates admin-only routes such as
+// DELETE /Devices. A missing policy leaves the capability unknown.
+std::optional<bool> administratorFlag(const QJsonObject &user)
+{
+    const QJsonValue value = user.value(QStringLiteral("Policy")).toObject()
+                                 .value(QStringLiteral("IsAdministrator"));
+    return value.isBool() ? std::optional<bool>(value.toBool()) : std::nullopt;
+}
+}
+
 ProviderAuthenticationRequest JellyfinAuthenticator::createLoginRequest(
     const QString &username,
     const QString &password) const
@@ -31,6 +42,7 @@ ProviderAuthenticationResult JellyfinAuthenticator::parseLoginResponse(
     result.accessToken = root.value(QStringLiteral("AccessToken")).toString();
     result.accountId = user.value(QStringLiteral("Id")).toString();
     result.username = user.value(QStringLiteral("Name")).toString();
+    result.isAdministrator = administratorFlag(user);
     return result;
 }
 
@@ -43,5 +55,6 @@ ProviderAuthenticationResult JellyfinAuthenticator::parseSessionValidationRespon
     ProviderAuthenticationResult result;
     result.accountId = user.value(QStringLiteral("Id")).toString();
     result.username = user.value(QStringLiteral("Name")).toString();
+    result.isAdministrator = administratorFlag(user);
     return result;
 }

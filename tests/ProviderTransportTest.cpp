@@ -138,6 +138,8 @@ private slots:
     void jellyfinAdapterExposesProviderBoundaries();
     void jellyfinRequestFactoryBuildsHeaderWithAndWithoutToken();
     void jellyfinRequestFactoryNormalizesUrlAndRedactsSecrets();
+    void jellyfinRequestFactorySendsEscapedDeviceName_data();
+    void jellyfinRequestFactorySendsEscapedDeviceName();
     void jellyfinAuthenticatorOwnsLoginAndValidationWireContract();
     void transportRetriesTransientFailures();
     void transportRetriesRetryableHttpStatuses_data();
@@ -192,6 +194,55 @@ void ProviderTransportTest::jellyfinRequestFactoryBuildsHeaderWithAndWithoutToke
     QVERIFY(!authenticated.hasRawHeader("X-Profile-Token"));
 }
 
+void ProviderTransportTest::jellyfinRequestFactorySendsEscapedDeviceName_data()
+{
+    QTest::addColumn<QString>("deviceName");
+    QTest::addColumn<QByteArray>("expected");
+
+    QTest::newRow("hostname") << QStringLiteral("living-room-htpc")
+                              << QByteArray("Device=\"living-room-htpc\"");
+    // Jellyfin URL-decodes header values, so separators, quotes, spaces and
+    // non-ASCII text are percent-encoded instead of breaking the header.
+    QTest::newRow("separators") << QStringLiteral("Den \"TV\", 2%")
+                                << QByteArray("Device=\"Den%20%22TV%22%2C%202%25\"");
+    QTest::newRow("non-ascii") << QStringLiteral("Wohnzimmer-Fernseher-\u00e4")
+                               << QByteArray("Device=\"Wohnzimmer-Fernseher-%C3%A4\"");
+    QTest::newRow("control-characters") << QStringLiteral("htpc\r\nX-Injected: 1")
+                                        << QByteArray("Device=\"htpcX-Injected%3A%201\"");
+    QTest::newRow("empty") << QString() << QByteArray("Device=\"Bloom%20Device\"");
+    // Jellyfin URL-decodes values, where a raw '+' would become a space.
+    QTest::newRow("plus-and-equals") << QStringLiteral("a+b=c")
+                                     << QByteArray("Device=\"a%2Bb%3Dc\"");
+    // A cut at the limit never splits a surrogate pair.
+    QTest::newRow("emoji-at-limit")
+        << QString(63, QLatin1Char('a')) + QString::fromUtf8("\xF0\x9F\x93\xBA")
+        << QByteArray("Device=\"") + QByteArray(63, 'a') + "\"";
+    QTest::newRow("whitespace") << QStringLiteral("  \t ")
+                                << QByteArray("Device=\"Bloom%20Device\"");
+    QTest::newRow("long") << QString(80, QLatin1Char('a'))
+                          << QByteArray("Device=\"") + QByteArray(64, 'a') + "\"";
+}
+
+void ProviderTransportTest::jellyfinRequestFactorySendsEscapedDeviceName()
+{
+    QFETCH(QString, deviceName);
+    QFETCH(QByteArray, expected);
+
+    JellyfinRequestFactory factory;
+    ProviderRequestContext context;
+    context.baseUrl = QStringLiteral("https://media.example.test");
+    context.deviceId = QStringLiteral("device-1");
+    context.deviceName = deviceName;
+
+    const QByteArray header =
+        factory.createRequest(context, QStringLiteral("/System/Info")).rawHeader("Authorization");
+    QVERIFY2(header.contains(expected), header.constData());
+    QVERIFY(!header.contains("Device=\"Desktop\""));
+    QVERIFY(header.contains("DeviceId=\"device-1\""));
+    QVERIFY(!header.contains('\r'));
+    QVERIFY(!header.contains('\n'));
+}
+
 void ProviderTransportTest::jellyfinRequestFactoryNormalizesUrlAndRedactsSecrets()
 {
     JellyfinRequestFactory factory;
@@ -231,6 +282,11 @@ void ProviderTransportTest::jellyfinAuthenticatorOwnsLoginAndValidationWireContr
     QCOMPARE(result.accessToken, QStringLiteral("token-1"));
     QCOMPARE(result.accountId, QStringLiteral("user-1"));
     QCOMPARE(result.username, QStringLiteral("Alice"));
+    QVERIFY(!result.isAdministrator.has_value());
+
+    const ProviderAuthenticationResult admin = authenticator.parseLoginResponse(QByteArrayLiteral(
+        R"({"AccessToken":"token-1","User":{"Id":"user-1","Policy":{"IsAdministrator":true}}})"));
+    QCOMPARE(admin.isAdministrator, std::optional<bool>(true));
 
     // Session restore accepts the stored token only when /Users/{id} echoes
     // the same account, so the bare UserDto must yield its Id.
@@ -238,6 +294,12 @@ void ProviderTransportTest::jellyfinAuthenticatorOwnsLoginAndValidationWireContr
         QByteArrayLiteral(R"({"Id":"user-1","Name":"Alice"})"));
     QCOMPARE(identity.accountId, QStringLiteral("user-1"));
     QCOMPARE(identity.username, QStringLiteral("Alice"));
+    QVERIFY(!identity.isAdministrator.has_value());
+    // UserDto.Policy.IsAdministrator decides admin-only actions such as
+    // removing another device.
+    QCOMPARE(authenticator.parseSessionValidationResponse(QByteArrayLiteral(
+                 R"({"Id":"user-1","Policy":{"IsAdministrator":false}})")).isAdministrator,
+             std::optional<bool>(false));
     QVERIFY(authenticator.parseSessionValidationResponse(
                 QByteArrayLiteral("not-json")).accountId.isEmpty());
 
