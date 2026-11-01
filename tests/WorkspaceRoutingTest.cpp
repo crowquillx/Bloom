@@ -1343,12 +1343,15 @@ void WorkspaceRoutingTest::unreachableServerAtStartupKeepsCredentials()
         QList<IProviderAdapter *>{m_adapter.get(), m_siloAdapter.get()});
     QSignalSpy loginError(&restarted, &AuthenticationService::loginError);
     restarted.initialize(m_config.get());
-    QTRY_VERIFY(!restarted.isRestoringSession());
+    // isRestoringSession clears once the saved sign-in is read; the failed
+    // validation is reported later, so wait for the error itself.
+    QTRY_COMPARE(loginError.count(), 1);
+    QVERIFY(!restarted.isRestoringSession());
     QVERIFY(!restarted.isAuthenticated());
-    QCOMPARE(loginError.count(), 1);
 
     const ServerConnection alice = *m_config->getConnection(QStringLiteral("alice"));
     QTest::qWait(50);
+    QCOMPARE(loginError.count(), 1);
     QCOMPARE(credentials().read(alice, CredentialKind::AccessToken),
              QStringLiteral("token-alice"));
     QCOMPARE(m_config->getActiveConnection()->connectionId, QStringLiteral("alice"));
