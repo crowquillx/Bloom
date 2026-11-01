@@ -1386,8 +1386,13 @@ void LibraryService::getHomeSections()
                 readHomeSections(connectionId, generation, limitMax);
             }
         },
-        [this, connectionId, generation, isCurrent](const NetworkError &) {
-            // Read the rows uncapped; the next load asks again.
+        [this, connectionId, generation, isCurrent](const NetworkError &error) {
+            // A server without the route has no cap, which is remembered so
+            // each Home load does not pay the read again. Other failures read
+            // the rows uncapped and ask again next time.
+            if (error.httpStatus == 404 || error.httpStatus == 405 || error.httpStatus == 501) {
+                m_homeSectionItemLimitMax.insert(connectionId, 0);
+            }
             if (isCurrent()) {
                 readHomeSections(connectionId, generation, 0);
             }
@@ -1467,10 +1472,21 @@ void LibraryService::readHomeSections(const QString &connectionId,
                     }
                 });
         },
-        [this, connectionId, generation](const NetworkError &error) {
-            if (generation == m_homeSectionsGeneration) {
-                emit canonicalHomeSectionsFailed(connectionId, error.userMessage);
+        [this, connectionId, generation, itemLimitMax](const NetworkError &error) {
+            if (generation != m_homeSectionsGeneration) {
+                return;
             }
+            // A remembered cap can outlive the server that reported it (a
+            // rollback or reconfiguration). If the capped read is rejected,
+            // forget the cap and read once without it.
+            if (itemLimitMax > 0 && (error.httpStatus == 400 || error.httpStatus == 422)) {
+                m_homeSectionItemLimitMax.insert(connectionId, 0);
+                if (activeConnectionId(m_authService) == connectionId) {
+                    readHomeSections(connectionId, generation, 0);
+                    return;
+                }
+            }
+            emit canonicalHomeSectionsFailed(connectionId, error.userMessage);
         });
 }
 

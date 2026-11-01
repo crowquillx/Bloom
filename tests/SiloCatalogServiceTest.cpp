@@ -749,7 +749,7 @@ void SiloCatalogServiceTest::episodeCardsMapParentArtwork()
         {QStringLiteral("backdrop_url_expires_at"), QStringLiteral("2026-11-01T00:00:00Z")},
         {QStringLiteral("series_poster_url"), QStringLiteral("https://cdn.test/series-p.webp?sig=c")},
         {QStringLiteral("series_poster_thumbhash"), QStringLiteral("series-poster-hash")},
-        {QStringLiteral("season_poster_url"), QStringLiteral("https://cdn.test/season-1.webp?sig=d")},
+        {QStringLiteral("season_poster_url"), QStringLiteral("https://cdn.test/season-1-poster.webp?sig=d")},
         {QStringLiteral("season_poster_thumbhash"), QStringLiteral("season-poster-hash")},
         {QStringLiteral("series_backdrop_url"), QStringLiteral("https://cdn.test/series-b.webp?sig=e")},
         {QStringLiteral("series_backdrop_thumbhash"), QStringLiteral("series-backdrop-hash")}};
@@ -768,7 +768,9 @@ void SiloCatalogServiceTest::episodeCardsMapParentArtwork()
     QCOMPARE(seasonPoster.value(QStringLiteral("itemId")).toString(), QStringLiteral("episode:1"));
     QCOMPARE(seasonPoster.value(QStringLiteral("kind")).toString(), QStringLiteral("primary"));
     QCOMPARE(seasonPoster.value(QStringLiteral("tag")).toString(),
-             ref(mapped, QStringLiteral("primaryArtwork")).value(QStringLiteral("tag")).toString());
+             SiloModelMapper::artworkTag(QStringLiteral("https://cdn.test/season-1-poster.webp")));
+    QVERIFY(seasonPoster.value(QStringLiteral("tag")).toString()
+            != ref(mapped, QStringLiteral("primaryArtwork")).value(QStringLiteral("tag")).toString());
 
     const QVariantMap backdrop = ref(mapped, QStringLiteral("backdropArtwork"));
     QCOMPARE(backdrop.value(QStringLiteral("itemId")).toString(), QStringLiteral("series:1"));
@@ -1922,7 +1924,7 @@ void SiloCatalogServiceTest::homeSectionsCapRowsOnlyWhenTheServerAcceptsIt()
         LibraryService service(&auth);
         QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
         manager.responses = {
-            {404, QByteArrayLiteral(R"({"type":"about:blank","title":"Not Found","status":404})"), false},
+            {403, QByteArrayLiteral(R"({"type":"about:blank","title":"Forbidden","status":403})"), false},
             {200, curatedHomeLayout(true), false},
             {200, homeCapabilities(true), false},
             {200, curatedHomeLayout(true), false}};
@@ -1933,6 +1935,43 @@ void SiloCatalogServiceTest::homeSectionsCapRowsOnlyWhenTheServerAcceptsIt()
         QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
         QCOMPARE(layoutReads(first), (QStringList{capabilities, layout, capabilities,
                                                   layout + QStringLiteral("=20")}));
+    }
+
+    // A server without the capabilities route has no cap; that is remembered.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+        manager.responses = {
+            {404, QByteArrayLiteral(R"({"type":"about:blank","title":"Not Found","status":404})"), false},
+            {200, curatedHomeLayout(true), false},
+            {200, curatedHomeLayout(true), false}};
+        const qsizetype first = manager.requests.size();
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+        QCOMPARE(layoutReads(first), (QStringList{capabilities, layout, layout}));
+    }
+
+    // A remembered cap the server now rejects is dropped, and the rows are
+    // read once more without it.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+        QSignalSpy failed(&service, &LibraryService::canonicalHomeSectionsFailed);
+        manager.responses = {
+            {200, homeCapabilities(true), false},
+            {400, QByteArrayLiteral(R"({"type":"about:blank","title":"Bad Request","status":400})"), false},
+            {200, curatedHomeLayout(true), false},
+            {200, curatedHomeLayout(true), false}};
+        const qsizetype first = manager.requests.size();
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        QCOMPARE(failed.count(), 0);
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+        QCOMPARE(layoutReads(first), (QStringList{capabilities, layout + QStringLiteral("=20"),
+                                                  layout, layout}));
     }
 }
 
