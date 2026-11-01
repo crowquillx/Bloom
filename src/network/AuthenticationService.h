@@ -415,7 +415,20 @@ private:
     void clearAccountStateInternal(bool removeCredentials, bool emitLogout);
     void handleUnauthorized(bool deferLogout);
     // Fire-and-forget CallerLogout with credentials captured before they are
-    // discarded. Never retried, never awaited, failures only logged.
+    // discarded. Never retried, never awaited, failures only logged. When the
+    // access token has expired (401) and a refresh token is given, the token
+    // is refreshed once and the logout sent once more with it; the rotated
+    // tokens are dropped.
     void sendServerLogout(IProviderAdapter *adapter,
-                          const std::optional<ProviderRequestContext> &context);
+                          const std::optional<ProviderRequestContext> &context,
+                          const QString &refreshToken = QString(),
+                          const QString &connectionId = QString());
+    void postServerLogout(IProviderAdapter *adapter,
+                          const ProviderRequestContext &context,
+                          const QString &refreshToken);
+    // Jellyfin ends every server session of a device on logout, and all of
+    // Bloom's connections share one device ID, so a Jellyfin logout would
+    // also end another account's session on the same server.
+    [[nodiscard]] bool sharesJellyfinDeviceSession(const QString &connectionId,
+                                                   const QString &baseUrl) const;
 };

@@ -440,6 +440,8 @@ private slots:
     void signOutFinishesWhenServerIsDown();
     void expiredSessionSignOutSkipsServerLogout();
     void siloSignOutUsesNativeLogoutRoute();
+    void siloSignOutRefreshesAnExpiredTokenFirst();
+    void removingSiloMemberEndsItsSession();
     void switchingSpacesNeverEndsServerSessions();
 
 private:
@@ -724,12 +726,10 @@ void WorkspaceRoutingTest::removingConnectionAffectsOnlyThatAccount()
     m_servers->requests.clear();
     QVERIFY(m_workspaces->removeConnection(QStringLiteral("bob")));
     QVERIFY(!m_config->getConnection(QStringLiteral("bob")).has_value());
-    // bob's pooled session is ended on the server; alice's on the same
-    // server is not.
-    QCOMPARE(m_servers->logouts().size(), 1);
-    QCOMPARE(m_servers->logouts().constFirst().token, QStringLiteral("token-bob"));
-    QCOMPARE(m_servers->logouts().constFirst().operation, QNetworkAccessManager::PostOperation);
-    QVERIFY(!m_servers->accountsByToken.contains(QStringLiteral("token-bob")));
+    // Jellyfin ends every session of a device on logout, and alice's live
+    // session on the same server shares Bloom's device ID, so bob's pooled
+    // session is left to expire instead.
+    QCOMPARE(m_servers->logouts().size(), 0);
     QVERIFY(m_servers->accountsByToken.contains(QStringLiteral("token-alice")));
     QVERIFY(!m_auth->hasSessionForConnection(QStringLiteral("bob")));
     QTRY_COMPARE(credentials().read(connection(QStringLiteral("bob"), QStringLiteral("media.test"),
@@ -749,7 +749,13 @@ void WorkspaceRoutingTest::removingConnectionAffectsOnlyThatAccount()
 
     // dave is in no space, so no tokens are loaded to end its session with.
     QVERIFY(m_workspaces->removeConnection(QStringLiteral("dave")));
-    QCOMPARE(m_servers->logouts().size(), 1);
+    QCOMPARE(m_servers->logouts().size(), 0);
+
+    // carol, a pooled member on another server, is logged out.
+    QVERIFY(m_workspaces->removeConnection(QStringLiteral("carol")));
+    QTRY_COMPARE(m_servers->logouts().size(), 1);
+    QCOMPARE(m_servers->logouts().constFirst().host, QStringLiteral("other.test"));
+    QCOMPARE(m_servers->logouts().constFirst().token, QStringLiteral("token-carol"));
 }
 
 void WorkspaceRoutingTest::pooledMemberArtworkUsesOwnServerAndToken()
@@ -1600,6 +1606,52 @@ void WorkspaceRoutingTest::siloSignOutUsesNativeLogoutRoute()
     QCOMPARE(request.host, QStringLiteral("silo.test"));
     QCOMPARE(request.path, QStringLiteral("/api/v2/auth/logout"));
     QCOMPARE(request.token, QStringLiteral("erin-a1"));
+}
+
+void WorkspaceRoutingTest::siloSignOutRefreshesAnExpiredTokenFirst()
+{
+    QVERIFY(!createSiloMergedWorkspace().isEmpty());
+    QTRY_VERIFY(m_auth->hasSessionForConnection(QStringLiteral("erin")));
+    QSignalSpy ready(m_workspaces.get(), &WorkspaceController::routeReady);
+    QVERIFY(!m_workspaces->routeTo(QStringLiteral("erin")));
+    QTRY_COMPARE(ready.count(), 1);
+
+    // The access token expired while Bloom sat idle; the refresh token works.
+    const Account erin = m_servers->accountsByToken.take(QStringLiteral("erin-a1"));
+    m_servers->accountsByToken.insert(QStringLiteral("erin-old"), erin);
+    m_servers->accessTokenByRefreshToken.insert(QStringLiteral("erin-r1"),
+                                                QStringLiteral("erin-old"));
+
+    m_servers->requests.clear();
+    m_auth->logout();
+    QVERIFY(!m_auth->isAuthenticated());
+    // Refused, refreshed once, then sent once more with the new token, which
+    // ends the server session.
+    QTRY_COMPARE(m_servers->logouts().size(), 2);
+    QCOMPARE(m_servers->logouts().at(0).token, QStringLiteral("erin-a1"));
+    QVERIFY(m_servers->logouts().at(1).token.startsWith(QStringLiteral("access-r")));
+    QVERIFY(!m_servers->accountsByToken.contains(m_servers->logouts().at(1).token));
+    QTest::qWait(50);
+    QCOMPARE(m_servers->logouts().size(), 2);
+    // The rotated tokens are never stored.
+    QTRY_COMPARE(credentials().read(*m_config->getConnection(QStringLiteral("erin")),
+                                    CredentialKind::AccessToken),
+                 QString());
+}
+
+void WorkspaceRoutingTest::removingSiloMemberEndsItsSession()
+{
+    const QString household = createSiloMergedWorkspace();
+    QVERIFY(!household.isEmpty());
+    QTRY_VERIFY(m_auth->hasSessionForConnection(QStringLiteral("erin")));
+
+    m_servers->requests.clear();
+    QVERIFY(m_workspaces->removeConnection(QStringLiteral("erin")));
+    QTRY_COMPARE(m_servers->logouts().size(), 1);
+    QCOMPARE(m_servers->logouts().constFirst().path, QStringLiteral("/api/v2/auth/logout"));
+    QCOMPARE(m_servers->logouts().constFirst().token, QStringLiteral("erin-a1"));
+    QVERIFY(!m_servers->accountsByToken.contains(QStringLiteral("erin-a1")));
+    QVERIFY(m_servers->accountsByToken.contains(QStringLiteral("token-alice")));
 }
 
 void WorkspaceRoutingTest::switchingSpacesNeverEndsServerSessions()

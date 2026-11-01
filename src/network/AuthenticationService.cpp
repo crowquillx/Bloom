@@ -1195,10 +1195,12 @@ void AuthenticationService::removeStoredCredentials(const ServerConnection &conn
     }
     // Only a pooled member has its tokens in memory; a connection outside the
     // active space would need a keyring read first, so it is not logged out.
-    if (connection.connectionId != activeConnectionId()
-        && m_sessionPool->credentials(connection.connectionId).has_value()) {
-        sendServerLogout(providerForKind(connection.providerKind),
-                         requestContextForConnection(connection.connectionId));
+    if (connection.connectionId != activeConnectionId()) {
+        if (const auto credentials = m_sessionPool->credentials(connection.connectionId)) {
+            sendServerLogout(providerForKind(connection.providerKind),
+                             requestContextForConnection(connection.connectionId),
+                             credentials->refreshToken, connection.connectionId);
+        }
     }
     m_sessionPool->forget(connection.connectionId);
     if (m_secretStore) {
@@ -1932,21 +1934,25 @@ void AuthenticationService::logout()
 {
     // A session the server already refused has nothing left to revoke.
     if (!m_accessToken.isEmpty() && !m_sessionExpiredEmitted && !m_sessionExpiredPending) {
-        sendServerLogout(m_providerAdapter, requestContext(true));
+        sendServerLogout(m_providerAdapter, requestContext(true), m_refreshToken,
+                         activeConnectionId());
     }
     clearAccountStateInternal(true, true);
 }
 
 void AuthenticationService::sendServerLogout(
-    IProviderAdapter *adapter, const std::optional<ProviderRequestContext> &context)
+    IProviderAdapter *adapter, const std::optional<ProviderRequestContext> &context,
+    const QString &refreshToken, const QString &connectionId)
 {
     if (!adapter || !adapter->requestFactory() || !context.has_value()
         || context->baseUrl.isEmpty() || context->accessToken.isEmpty()
         || !networkManager()) {
         return;
     }
-    const auto endpoint = adapter->endpointFor(ProviderRoute::CallerLogout);
-    if (!endpoint.has_value()) {
+    if (adapter->providerKind() == ProviderKind::Jellyfin
+        && sharesJellyfinDeviceSession(connectionId, context->baseUrl)) {
+        qCInfo(lcAuth) << "Skipping server logout: another account on this Jellyfin server"
+                          " shares the device session";
         return;
     }
     if (!m_logoutTransport) {
@@ -1955,11 +1961,22 @@ void AuthenticationService::sendServerLogout(
             return url.toString(QUrl::RemoveQuery | QUrl::RemoveUserInfo);
         });
     }
+    postServerLogout(adapter, *context, refreshToken);
+}
+
+void AuthenticationService::postServerLogout(IProviderAdapter *adapter,
+                                             const ProviderRequestContext &context,
+                                             const QString &refreshToken)
+{
+    const auto endpoint = adapter->endpointFor(ProviderRoute::CallerLogout);
+    if (!endpoint.has_value()) {
+        return;
+    }
     // Built now: the caller discards these credentials right after this call.
     const QNetworkRequest request =
-        adapter->requestFactory()->createRequest(*context, *endpoint);
+        adapter->requestFactory()->createRequest(context, *endpoint);
     // A mutation without an idempotency mechanism: never replayed, and a 401
-    // never triggers a refresh for a session that is being thrown away.
+    // never goes through the live session's refresh, which is being cleared.
     HttpRequestOptions options;
     options.retrySafety = RetrySafety::Never;
     options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
@@ -1969,11 +1986,75 @@ void AuthenticationService::sendServerLogout(
         *endpoint,
         [this, request]() { return networkManager()->post(request, QByteArray()); },
         [](QNetworkReply *) { qCDebug(lcAuth) << "Server session logged out"; },
-        [](const NetworkError &error) {
-            qCInfo(lcAuth) << "Server logout failed; local sign-out continues: HTTP"
-                           << error.httpStatus << "network error" << error.networkErrorCode;
+        [this, adapter, context, refreshToken](const NetworkError &error) {
+            const IProviderAuthenticator *authenticator = adapter->authenticator();
+            const auto refresh = error.httpStatus == 401 && !refreshToken.isEmpty() && authenticator
+                ? authenticator->createRefreshRequest(refreshToken)
+                : std::nullopt;
+            if (!refresh.has_value() || !refresh->isValid() || !networkManager()) {
+                qCInfo(lcAuth) << "Server logout failed; local sign-out continues: HTTP"
+                               << error.httpStatus << "network error" << error.networkErrorCode;
+                return;
+            }
+            // The access token expired while idle. Refresh once with the
+            // captured refresh token and log that session out; the rotated
+            // tokens are never stored.
+            ProviderRequestContext refreshContext = context;
+            refreshContext.accessToken.clear();
+            refreshContext.profileId.clear();
+            refreshContext.profileToken.clear();
+            const QNetworkRequest refreshRequest =
+                adapter->requestFactory()->createRequest(refreshContext, refresh->endpoint);
+            HttpRequestOptions refreshOptions;
+            refreshOptions.retrySafety = RetrySafety::Never;
+            refreshOptions.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
+            refreshOptions.attemptTimeoutMs = kServerLogoutTimeoutMs;
+            m_logoutTransport->sendWithRetry(
+                this,
+                refresh->endpoint,
+                [this, refreshRequest, body = refresh->body]() {
+                    return networkManager()->post(refreshRequest, body);
+                },
+                [this, adapter, context, authenticator](QNetworkReply *reply) {
+                    const ProviderAuthenticationResult renewed =
+                        authenticator->parseRefreshResponse(reply->readAll());
+                    if (!renewed.isValidRefresh()) {
+                        qCInfo(lcAuth) << "Server logout: refresh answer unreadable";
+                        return;
+                    }
+                    ProviderRequestContext renewedContext = context;
+                    renewedContext.accessToken = renewed.accessToken;
+                    postServerLogout(adapter, renewedContext, QString());
+                },
+                [](const NetworkError &refreshError) {
+                    qCInfo(lcAuth) << "Server logout: refresh failed: HTTP"
+                                   << refreshError.httpStatus << "network error"
+                                   << refreshError.networkErrorCode;
+                },
+                refreshOptions);
         },
         options);
+}
+
+bool AuthenticationService::sharesJellyfinDeviceSession(const QString &connectionId,
+                                                         const QString &baseUrl) const
+{
+    if (!m_configManager) {
+        return false;
+    }
+    const QString server = normalizeUrl(baseUrl);
+    for (const ServerConnection &other : m_configManager->getConnections()) {
+        if (other.connectionId == connectionId || other.providerKind != ProviderKind::Jellyfin
+            || normalizeUrl(other.baseUrl) != server) {
+            continue;
+        }
+        // Only a session Bloom is holding open can be hurt.
+        const bool live = other.connectionId == activeConnectionId() && !m_accessToken.isEmpty();
+        if (live || m_sessionPool->credentials(other.connectionId).has_value()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void AuthenticationService::clearAccountState()

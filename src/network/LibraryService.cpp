@@ -26,7 +26,7 @@ namespace {
 // selection; the Silo catalog caps GET pages Bloom sends at 100.
 constexpr int kRandomSampleWindow = 100;
 
-// Playback recovery pings every 5 seconds; one ping never outlives two.
+// One recovery ping attempt; the recovery timer restarts only after an answer.
 constexpr int kServerPingTimeoutMs = 10000;
 
 // Cards per Home row Bloom reads: the Watchlist row Home adds when the

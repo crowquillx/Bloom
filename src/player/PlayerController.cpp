@@ -4405,9 +4405,10 @@ void PlayerController::onRecoveryTick()
         return;
     }
     // A session change cancels the shared transport without an answer; keep
-    // pinging instead of stalling recovery.
+    // pinging instead of stalling recovery. A newer ping already in flight
+    // (recovery restarted before this one was deleted) keeps the chain.
     connect(ping, &QObject::destroyed, this, [this, answered]() {
-        if (!*answered && m_isRecovering && !m_recoveryTimer->isActive()) {
+        if (!*answered && m_isRecovering && !m_recoveryTimer->isActive() && !m_recoveryPing) {
             m_recoveryTimer->start(kRecoveryPingIntervalMs);
         }
     });
