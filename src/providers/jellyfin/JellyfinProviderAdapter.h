@@ -17,6 +17,13 @@ public:
     const IProviderRequestFactory *requestFactory() const override { return &m_requestFactory; }
     const IPlaybackProvider *playbackProvider() const override { return &m_playbackProvider; }
     const ICatalogProvider *catalogProvider() const override { return &m_catalogProvider; }
+    bool supportsCapability(ProviderCapability capability) const override
+    {
+        // Jellyfin's Next Up takes rewatching and a last-watched cutoff, and
+        // its resume list is a separate read.
+        return capability == ProviderCapability::NextUpOptions
+            || capability == ProviderCapability::ResumeItems;
+    }
     std::optional<QString> endpointFor(
         ProviderRoute route, const ProviderRouteContext &context) const override
     {

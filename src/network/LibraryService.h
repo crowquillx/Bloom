@@ -16,6 +16,7 @@
 #include "providers/ICatalogProvider.h"
 
 class AuthenticationService;
+class ConfigManager;
 class HttpTransport;
 class HttpRequestHandle;
 
@@ -111,8 +112,20 @@ public:
         bool recursive,
         const QString &requestKey);
     
-    // Next up episodes
+    // Home's Continue Watching and Next Up items as one list
+    // (canonicalNextUpLoaded). Providers with ProviderCapability::ResumeItems
+    // (Jellyfin) add their resume list, so in-progress movies appear too,
+    // and the list is ordered by ContinueWatching::combine. Other providers
+    // (Silo) answer one list in the server's order.
     Q_INVOKABLE virtual void getNextUp();
+    // Whether the active provider honors the Next Up options
+    // (ConfigManager::nextUpRewatching and nextUpCutoffDays).
+    Q_INVOKABLE virtual bool supportsNextUpOptions() const;
+    // Next Up options from the saved settings, applied to a Next Up query.
+    // Providers without ProviderCapability::NextUpOptions ignore them.
+    static void applyNextUpOptions(ProviderCatalogQuery &query,
+                                   const ConfigManager *config,
+                                   const QDate &today);
     
     // Latest media for a library
     Q_INVOKABLE virtual void getLatestMedia(const QString &parentId);
@@ -168,9 +181,15 @@ public:
     // already show, in the server's layout order: each {sectionId, title,
     // items} with canonical movie, series and episode items. A Watchlist row
     // comes first when the layout has none and the watchlist is not empty.
-    // Providers without ProviderCapability::HomeSections answer no rows.
+    // Providers without ProviderCapability::Watchlist (Jellyfin) get a
+    // Favorites row instead, when ConfigManager::homeFavoritesRowEnabled is
+    // on and a favorite movie or series exists. Providers without
+    // ProviderCapability::HomeSections answer no other rows.
     // A newer call supersedes an older one.
     Q_INVOKABLE virtual void getHomeSections();
+    // Whether Home can show the Favorites row for the active provider (it
+    // has no watchlist), whatever the setting.
+    Q_INVOKABLE virtual bool supportsHomeFavoritesRow() const;
     
     // Search. Libraries in excludedLibraryIds are left out: the remaining
     // libraries are searched one by one and their results interleaved.
@@ -380,12 +399,19 @@ private:
     // The profile's Home rows, each capped at itemLimitMax cards when it
     // is positive.
     void readHomeSections(const QString &connectionId, quint64 generation, int itemLimitMax);
+    // Adds the Favorites row ahead of rows and publishes them, when Home
+    // shows one for this provider.
+    void publishHomeSectionsWithFavorites(const QString &connectionId,
+                                          quint64 generation,
+                                          const QVariantList &rows);
 
     QSet<QString> m_inFlightChapterRequests;
     QList<QPointer<HttpRequestHandle>> m_catalogRequests;
     quint64 m_requestGeneration = 0;
     quint64 m_heroRequestGeneration = 0;
     quint64 m_homeSectionsGeneration = 0;
+    // Newest Next Up refresh; an older one must not publish after it.
+    quint64 m_nextUpGeneration = 0;
     /// Per connection, the largest per-row card cap its Home layout read
     /// accepts (0 when it accepts none), once its capabilities were read.
     QHash<QString, int> m_homeSectionItemLimitMax;

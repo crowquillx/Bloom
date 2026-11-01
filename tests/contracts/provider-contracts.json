@@ -73,6 +73,8 @@
     "catalog.details",
     "catalog.latest",
     "catalog.next-up",
+    "catalog.resume",
+    "catalog.home-favorites",
     "catalog.search",
     "catalog.filters",
     "artwork.standard",
@@ -232,11 +234,37 @@
       "bloomCaller": "LibraryService::getNextUp",
       "method": "GET",
       "path": "/Shows/NextUp",
-      "requestSemantics": ["UserId, Limit and rich episode Fields are requested"],
+      "requestSemantics": ["UserId, Limit=20 and rich episode Fields are requested", "EnableResumable=true keeps part-watched episodes, so they still show when catalog.resume fails; the resume copy wins the dedupe", "EnableRewatching=true and an ISO NextUpDateCutoff are sent only when the viewer turns the Next Up options on"],
       "requiredSemantics": ["Items are playable episodes", "UserData.PlaybackPositionTicks distinguishes Bloom's continue-watching rail"],
       "expectations": {
-        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard Next Up contract."},
-        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Next Up repository and profile watch state are wired."}
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard Next Up contract; EnableResumable, EnableRewatching and NextUpDateCutoff are current GetNextUp parameters in the pinned OpenAPI."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Next Up repository and profile watch state are wired; enableResumable (default false there, so Bloom sends it) and an RFC 3339 nextUpDateCutoff are honored."}
+      }
+    },
+    {
+      "id": "catalog.resume",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getNextUp and MergedCatalogService::getNextUp",
+      "method": "GET",
+      "path": "/UserItems/Resume",
+      "requestSemantics": ["UserId, Limit=20, IncludeItemTypes=Movie,Episode, MediaTypes=Video and the Next Up card Fields are requested"],
+      "requiredSemantics": ["Items are part-watched movies and episodes ordered by UserData.LastPlayedDate, newest first", "UserData.PlaybackPositionTicks is positive so the items join Bloom's continue-watching rail"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard GetResumeItems contract in the pinned OpenAPI."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "GET /UserItems/Resume is registered beside /Users/{userId}/Items/Resume (internal/jellycompat/router.go) and served by the resume handler."}
+      }
+    },
+    {
+      "id": "catalog.home-favorites",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getHomeSections",
+      "method": "GET",
+      "path": "/Items",
+      "requestSemantics": ["IsFavorite=true, IncludeItemTypes=Movie,Series, Recursive=true, SortBy=DatePlayed,SortName, SortOrder=Descending,Ascending (one order per key) and Limit=20 are requested"],
+      "requiredSemantics": ["Items are the viewer's favorite movies and series", "Recently played favorites come first"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard item query with the IsFavorite filter."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "IsFavorite, type filters and paging are implemented. Only the first SortBy key is honored and DatePlayed maps to created_at, so favorites come newest-added first; any SortOrder other than a lone Ascending reads as descending."}
       }
     },
     {

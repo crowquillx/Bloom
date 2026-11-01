@@ -2791,6 +2791,81 @@ void ConfigManager::writeHeroBannerObject(const QJsonObject &heroBanner)
     save();
 }
 
+QJsonObject ConfigManager::readHomeObject() const
+{
+    const QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    return settings.value(QStringLiteral("ui")).toObject()
+        .value(QStringLiteral("home")).toObject();
+}
+
+void ConfigManager::writeHomeObject(const QJsonObject &home)
+{
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject ui = settings.value(QStringLiteral("ui")).toObject();
+    ui[QStringLiteral("home")] = home;
+    settings[QStringLiteral("ui")] = ui;
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+}
+
+int ConfigManager::normalizeNextUpCutoffDays(int days)
+{
+    if (days <= 0) {
+        return 0;
+    }
+    int nearest = 0;
+    for (const int choice : {30, 90, 180, 365}) {
+        if (qAbs(choice - days) < qAbs(nearest - days)) {
+            nearest = choice;
+        }
+    }
+    return nearest;
+}
+
+void ConfigManager::setNextUpRewatching(bool enabled)
+{
+    if (enabled == getNextUpRewatching()) return;
+    QJsonObject home = readHomeObject();
+    home[QStringLiteral("next_up_rewatching")] = enabled;
+    writeHomeObject(home);
+    emit nextUpRewatchingChanged();
+}
+
+bool ConfigManager::getNextUpRewatching() const
+{
+    return readHomeObject().value(QStringLiteral("next_up_rewatching")).toBool(false);
+}
+
+void ConfigManager::setNextUpCutoffDays(int days)
+{
+    const int normalized = normalizeNextUpCutoffDays(days);
+    if (normalized == getNextUpCutoffDays()) return;
+    QJsonObject home = readHomeObject();
+    home[QStringLiteral("next_up_cutoff_days")] = normalized;
+    writeHomeObject(home);
+    emit nextUpCutoffDaysChanged();
+}
+
+int ConfigManager::getNextUpCutoffDays() const
+{
+    return normalizeNextUpCutoffDays(
+        readHomeObject().value(QStringLiteral("next_up_cutoff_days")).toInt(0));
+}
+
+void ConfigManager::setHomeFavoritesRowEnabled(bool enabled)
+{
+    if (enabled == getHomeFavoritesRowEnabled()) return;
+    QJsonObject home = readHomeObject();
+    home[QStringLiteral("favorites_row_enabled")] = enabled;
+    writeHomeObject(home);
+    emit homeFavoritesRowEnabledChanged();
+}
+
+bool ConfigManager::getHomeFavoritesRowEnabled() const
+{
+    return readHomeObject().value(QStringLiteral("favorites_row_enabled")).toBool(true);
+}
+
 void ConfigManager::setHeroBannerEnabled(bool enabled)
 {
     if (enabled == getHeroBannerEnabled()) return;

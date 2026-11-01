@@ -9,7 +9,8 @@
 class LibraryService;
 
 /**
- * @brief The Home rows a Silo profile curates, below Bloom's own shelves.
+ * @brief The Home rows a Silo profile curates, below Bloom's own shelves,
+ * and the Favorites row Home shows for providers without a watchlist.
  *
  * One list row per server row, in the server's layout order, with the roles
  * `sectionId`, `title` and `items` (canonical camelCase item maps).
@@ -21,7 +22,8 @@ class LibraryService;
  * - Answers for another connection than the newest request are ignored.
  * - A refresh that keeps the same rows in the same order updates their
  *   titles and items in place, so the shelves keep their delegates.
- * - A successful watchlist change refreshes rows already loaded.
+ * - A successful watchlist change refreshes rows already loaded, and so
+ *   does a favorite change when the provider has the Favorites row.
  *
  * Merged spaces show no curated rows: Home calls `clear()` instead.
  */
@@ -56,10 +58,13 @@ private slots:
     void onSectionsLoaded(const QString &connectionId, const QVariantList &sections);
     void onSectionsFailed(const QString &connectionId, const QString &error);
     void onWatchlistStatusChanged(const QString &itemId, bool inWatchlist);
+    void onFavoriteStatusChanged(const QString &itemId, bool isFavorite);
 
 private:
     void connectService();
     void applyRows(const QVariantList &rows);
+    /// Refreshes rows loaded or loading for the live connection.
+    void refreshLoadedRows();
     static QString sectionIdOf(const QVariant &row);
 
     LibraryService *m_libraryService = nullptr;

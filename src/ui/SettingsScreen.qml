@@ -134,6 +134,9 @@ FocusScope {
         function onHeroBannerLibraryIdsChanged() { root.scheduleSettingsSavedToast() }
         function onHeroBannerLogoPlacementChanged() { root.scheduleSettingsSavedToast() }
         function onHeroBannerInfoPlacementChanged() { root.scheduleSettingsSavedToast() }
+        function onNextUpRewatchingChanged() { root.scheduleSettingsSavedToast() }
+        function onNextUpCutoffDaysChanged() { root.scheduleSettingsSavedToast() }
+        function onHomeFavoritesRowEnabledChanged() { root.scheduleSettingsSavedToast() }
         function onScreensaverEnabledChanged() { root.scheduleSettingsSavedToast() }
         function onScreensaverModeChanged() { root.scheduleSettingsSavedToast() }
         function onScreensaverTimeoutSecondsChanged() { root.scheduleSettingsSavedToast() }

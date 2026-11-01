@@ -101,6 +101,7 @@ stdenv.mkDerivation {
       UpNextRecommendationsViewModelTest \
       SessionServiceTest \
       JellyfinQuickConnectTest \
+      ContinueWatchingTest \
       UpdateServiceTest
     runHook postBuild
   '';

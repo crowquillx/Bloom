@@ -43,7 +43,13 @@ enum class ProviderCapability {
     HomeSections = 1 << 12,
     // Server-side media requests and request discovery. The viewer's
     // request capability document still gates every use.
-    MediaRequests = 1 << 13
+    MediaRequests = 1 << 13,
+    // Next Up honors ProviderCatalogQuery::nextUpRewatching and
+    // nextUpCutoff (Jellyfin). Silo applies its own server rules.
+    NextUpOptions = 1 << 14,
+    // ProviderCatalogOperation::ResumeItems lists in-progress movies and
+    // episodes beside Next Up (Jellyfin).
+    ResumeItems = 1 << 15
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

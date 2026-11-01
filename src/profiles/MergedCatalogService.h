@@ -162,4 +162,6 @@ private:
     QHash<QString, QStringList> m_unsupportedLibraryIds;
     bool m_viewsLoading = false;
     quint64 m_epoch = 0;
+    // Newest Next Up fan-out; an older one must not publish after it.
+    quint64 m_nextUpGeneration = 0;
 };
