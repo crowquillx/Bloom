@@ -938,6 +938,8 @@ private:
         QString seriesId;
         QString seasonId;
         QString libraryId;
+        Bloom::PlaybackPolicy::PlaybackContentKind contentKind =
+            Bloom::PlaybackPolicy::PlaybackContentKind::Feature;
         QString mediaSourceId;
         QString playSessionId;
         QVariantMap mediaSource;

@@ -517,6 +517,7 @@ void PlaybackPolicyTest::extrasPlayAloneWithoutTouchingTheParent()
     QVERIFY(feature.allowsNextEpisode);
     QVERIFY(feature.allowsUpNext);
     QVERIFY(feature.persistsTrackPreferences);
+    QVERIFY(feature.persistsSubtitleDelay);
 
     // An extra starts at zero, drops the series context, never leads into
     // the next episode or Up Next, and saves no track choices.
@@ -527,6 +528,7 @@ void PlaybackPolicyTest::extrasPlayAloneWithoutTouchingTheParent()
     QVERIFY(!extra.allowsNextEpisode);
     QVERIFY(!extra.allowsUpNext);
     QVERIFY(!extra.persistsTrackPreferences);
+    QVERIFY(!extra.persistsSubtitleDelay);
 }
 
 void PlaybackPolicyTest::evaluatesCompletionAndPrefetchThresholds()

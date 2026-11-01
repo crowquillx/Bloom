@@ -385,10 +385,11 @@ Playback overlay metadata
 Playing extras
 - Detail pages play a local extra (trailer, featurette, deleted scene, ...) with an ordinary `PlayerController::requestPlayback` whose request carries `contentKind: "extra"` and the extra's own `itemId`. Playback info, descriptors, version choice, and reporting go through the normal provider path. See [canonical models](canonical-models.md#local-extras).
 - `PlayerPolicy::playbackContentRules(PlaybackContentKind::Extra)` (Qt Core only, no I/O) decides what an extra may touch. The controller applies it when the request arrives and keeps the kind for the playing item:
-  - it starts at the beginning: the request's start position is dropped, so the parent's resume point is never used;
+  - it starts at the beginning: the request's start position is dropped, so the parent's resume point is never used. A retry, recovery, or version switch of a playing extra carries `contentKind` (and `RecoveryContext` keeps it) plus `continuesSession: true`, so it stays an extra and continues where it was;
   - its series and season are dropped, so there is no season track scope, no previous/next episode controls, and no autoplay series;
   - it never prefetches or resolves a next episode and never opens Up Next or autoplays, even past the completion threshold;
-  - audio and subtitle picks during it are not saved for any scope, so nothing is written back to the server's track preferences.
+  - audio and subtitle picks during it are not saved for any scope, so nothing is written back to the server's track preferences;
+  - it starts with no subtitle delay, and subtitle timing changed during it is not saved for any scope. (Audio delay is a global setting, not per scope.)
 - Reporting names only the extra. Start, progress, and stop carry the extra's own ID, and Bloom never calls the watched endpoint at a threshold, so the parent movie or series is never marked watched and its resume position and Continue Watching entry are untouched.
 - What the server keeps for the extra itself:
   - Jellyfin extras are ordinary items with their own user data, so Jellyfin records their position and played state on the extra's ID. Bloom does not read it: extras always start from the beginning and the shelf shows no progress. Jellyfin's resume and Next Up queries list library items, not extras owned by a movie or series; this is expected but not live-validated.

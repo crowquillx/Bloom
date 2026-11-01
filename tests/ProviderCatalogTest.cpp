@@ -1243,16 +1243,24 @@ void ProviderCatalogTest::siloExtrasMapFromCatalogItemDetail()
     QCOMPARE(teaser.value(QStringLiteral("durationMs")).toLongLong(), 0LL);
     QVERIFY(!teaser.contains(QStringLiteral("primaryArtwork")));
 
-    // Cards carry no extras key; a detail without extras carries an empty one.
-    QVERIFY(!adapter.mapMediaItem(QJsonObject{{QStringLiteral("content_id"), QStringLiteral("movie-1")}},
-                                  QStringLiteral("silo"))
-                 .contains(QStringLiteral("extras")));
-    const QVariantMap noExtras = adapter.mapMediaItem(
-        QJsonObject{{QStringLiteral("content_id"), QStringLiteral("movie-1")},
-                    {QStringLiteral("extras"), QJsonArray{}}},
+    // Cards carry no extras key.
+    const QVariantList cards = adapter.mapMediaItems(
+        QJsonArray{QJsonObject{{QStringLiteral("content_id"), QStringLiteral("movie-1")},
+                               {QStringLiteral("type"), QStringLiteral("movie")}}},
         QStringLiteral("silo"));
-    QVERIFY(noExtras.contains(QStringLiteral("extras")));
-    QVERIFY(noExtras.value(QStringLiteral("extras")).toList().isEmpty());
+    QCOMPARE(cards.size(), 1);
+    QVERIFY(!cards.first().toMap().contains(QStringLiteral("extras")));
+    // A detail always carries the key, empty when Silo sends an empty list
+    // or (as it does when there are none) omits `extras`, so the fresh
+    // detail replaces extras cached from an earlier one.
+    for (const QJsonObject &wire : {
+             QJsonObject{{QStringLiteral("content_id"), QStringLiteral("movie-1")},
+                         {QStringLiteral("extras"), QJsonArray{}}},
+             QJsonObject{{QStringLiteral("content_id"), QStringLiteral("movie-1")}}}) {
+        const QVariantMap noExtras = adapter.mapMediaItem(wire, QStringLiteral("silo"));
+        QVERIFY(noExtras.contains(QStringLiteral("extras")));
+        QVERIFY(noExtras.value(QStringLiteral("extras")).toList().isEmpty());
+    }
 }
 
 void ProviderCatalogTest::preferredTrailerPrefersTrailerThenTeaser()

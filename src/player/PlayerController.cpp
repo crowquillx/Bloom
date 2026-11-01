@@ -1680,6 +1680,7 @@ bool PlayerController::stashRecoveryContextForCurrentPlayback()
     m_recoveryContext.seriesId = m_currentSeriesId;
     m_recoveryContext.seasonId = m_currentSeasonId;
     m_recoveryContext.libraryId = m_currentLibraryId;
+    m_recoveryContext.contentKind = m_currentContentKind;
     m_recoveryContext.mediaSourceId = m_mediaSourceId;
     m_recoveryContext.playSessionId = QString(); // avoid stale session
     m_recoveryContext.mediaSource = m_activeMediaSource;
@@ -2681,7 +2682,9 @@ void PlayerController::requestPlayback(const QVariantMap &request)
         pending.seriesId.clear();
         pending.seasonId.clear();
     }
-    if (!contentRules.resumesFromRequestedPosition) {
+    // A retry, recovery or version switch continues the extra where it was.
+    if (!contentRules.resumesFromRequestedPosition
+        && !request.value(QStringLiteral("continuesSession")).toBool()) {
         pending.startPositionMs = 0;
     }
     pending.allowVersionPrompt = request.value(QStringLiteral("allowVersionPrompt"), true).toBool();
@@ -4090,7 +4093,10 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_shouldAutoplay = false;
         m_contentFramerate = framerate;
         emit subtitleDelayStepChanged();
-        const int scopedSubtitleDelayMs = subtitleDelayForScope(seasonId, itemId, seriesId.isEmpty());
+        const int scopedSubtitleDelayMs =
+            PlayerPolicy::playbackContentRules(requestedContentKind).persistsSubtitleDelay
+            ? subtitleDelayForScope(seasonId, itemId, seriesId.isEmpty())
+            : 0;
         if (m_subtitleDelayMs != scopedSubtitleDelayMs) {
             m_subtitleDelayMs = scopedSubtitleDelayMs;
             emit subtitleDelayChanged();
@@ -4324,7 +4330,10 @@ void PlayerController::retry()
                 {QStringLiteral("preferredSubtitleIndex"), m_selectedSubtitleTrack},
                 {QStringLiteral("isMovie"), m_currentSeriesId.isEmpty()},
                 {QStringLiteral("allowVersionPrompt"), false},
-                {QStringLiteral("useAffinityFallback"), true}
+                {QStringLiteral("useAffinityFallback"), true},
+                {QStringLiteral("contentKind"),
+                 PlayerPolicy::playbackContentKindName(m_currentContentKind)},
+                {QStringLiteral("continuesSession"), true}
             });
             return;
         }
@@ -4461,7 +4470,9 @@ void PlayerController::resumeFromRecoveryContext()
         {QStringLiteral("preferredSubtitleIndex"), context.subtitleStreamIndex},
         {QStringLiteral("isMovie"), context.seriesId.isEmpty()},
         {QStringLiteral("allowVersionPrompt"), false},
-        {QStringLiteral("useAffinityFallback"), true}
+        {QStringLiteral("useAffinityFallback"), true},
+        {QStringLiteral("contentKind"), PlayerPolicy::playbackContentKindName(context.contentKind)},
+        {QStringLiteral("continuesSession"), true}
     });
 }
 
@@ -4913,7 +4924,9 @@ void PlayerController::switchPlaybackVersion(const QString &mediaSourceId)
         {QStringLiteral("overlayLogoUrl"), m_overlayLogoUrl},
         {QStringLiteral("isMovie"), m_currentSeriesId.isEmpty()},
         {QStringLiteral("allowVersionPrompt"), false},
-        {QStringLiteral("mediaSourceId"), mediaSourceId}
+        {QStringLiteral("mediaSourceId"), mediaSourceId},
+        {QStringLiteral("contentKind"), PlayerPolicy::playbackContentKindName(m_currentContentKind)},
+        {QStringLiteral("continuesSession"), true}
     });
 }
 
@@ -5923,6 +5936,9 @@ void PlayerController::applySubtitleDelay()
 
 void PlayerController::persistSubtitleDelayForCurrentScope(int delayMs)
 {
+    if (!PlayerPolicy::playbackContentRules(m_currentContentKind).persistsSubtitleDelay) {
+        return;
+    }
     if (!m_currentSeasonId.isEmpty()) {
         updateSeasonPreference(m_currentSeasonId, [delayMs](ScopedTrackPreferences &preferences) {
             preferences.subtitleDelayMs = delayMs;

@@ -1411,7 +1411,8 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         }
     }
     result[QStringLiteral("artworkThumbhashes")] = thumbhashes;
-    // Only a catalog item detail carries extras; cards leave the key out.
+    // Only a catalog item detail carries extras (see mediaDetail()); cards
+    // leave the key out.
     if (wireItem.value(QStringLiteral("extras")).isArray()) {
         result[QStringLiteral("extras")] =
             extras(wireItem.value(QStringLiteral("extras")).toArray(), connectionId, itemId);
@@ -1432,6 +1433,16 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
     }
     if (!artworkExpiresAt.isEmpty()) {
         result[QStringLiteral("artworkExpiresAt")] = artworkExpiresAt;
+    }
+    return result;
+}
+
+QVariantMap SiloModelMapper::mediaDetail(const QJsonObject &wireItem,
+                                         const QString &connectionId)
+{
+    QVariantMap result = mediaItem(wireItem, connectionId);
+    if (!result.contains(QStringLiteral("extras"))) {
+        result.insert(QStringLiteral("extras"), QVariantList{});
     }
     return result;
 }

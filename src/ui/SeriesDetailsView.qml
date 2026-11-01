@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Effects
 
 import BloomUI
+import "ExtrasUtils.js" as ExtrasUtils
 
 FocusScope {
     id: root
@@ -37,6 +38,7 @@ FocusScope {
     readonly property var castAndCrew: SeriesDetailsViewModel.people || []
     // Local extras; Play Trailer shows only when one of them is a trailer.
     readonly property var extras: SeriesDetailsViewModel.extras || []
+    readonly property bool extrasLoading: SeriesDetailsViewModel.extrasLoading
     readonly property var trailer: SeriesDetailsViewModel.trailer || ({})
     readonly property bool hasTrailer: !!(trailer && trailer.itemId)
     readonly property int extraCardImageWidth: Math.round(Theme.landscapeCardWidth * Math.max(2, Screen.devicePixelRatio))
@@ -156,54 +158,8 @@ FocusScope {
         }
     }
 
-    function extraKindLabel(kind) {
-        switch (kind) {
-        case "trailer": return qsTr("Trailer")
-        case "teaser": return qsTr("Teaser")
-        case "featurette": return qsTr("Featurette")
-        case "clip": return qsTr("Clip")
-        case "behindTheScenes": return qsTr("Behind the Scenes")
-        case "bloopers": return qsTr("Bloopers")
-        case "deletedScene": return qsTr("Deleted Scene")
-        case "interview": return qsTr("Interview")
-        case "scene": return qsTr("Scene")
-        case "short": return qsTr("Short")
-        default: return qsTr("Extra")
-        }
-    }
-
-    function extraTitle(extra) {
-        return extra && extra.name ? extra.name : extraKindLabel(extra ? extra.extraKind : "")
-    }
-
-    function formatExtraDuration(ms) {
-        const total = Math.max(0, Math.floor((ms || 0) / 1000))
-        const hours = Math.floor(total / 3600)
-        const minutes = Math.floor((total % 3600) / 60)
-        const seconds = total % 60
-        function pad(value) { return value < 10 ? "0" + value : "" + value }
-        return hours > 0 ? hours + ":" + pad(minutes) + ":" + pad(seconds)
-                         : minutes + ":" + pad(seconds)
-    }
-
-    // "Trailer · 2:31"; the kind is left out when it is already the title.
-    function extraSubtitle(extra) {
-        if (!extra) {
-            return ""
-        }
-        const parts = []
-        if (extra.name) {
-            parts.push(extraKindLabel(extra.extraKind))
-        }
-        if (extra.durationMs > 0) {
-            parts.push(formatExtraDuration(extra.durationMs))
-        }
-        return parts.join(" · ")
-    }
-
-    // Extras play on their own: from the start, without the series' Up Next,
-    // episode navigation or track choices (PlayerPolicy content rules). In a
-    // merged space the owning connection goes live first.
+    // Extras play on their own (ExtrasUtils.playbackRequest). In a merged
+    // space the owning connection goes live first.
     function playExtra(extra, restoreFocusTarget) {
         if (!extra || !extra.itemId) {
             return
@@ -212,22 +168,8 @@ FocusScope {
             extraReturnFocusTarget = restoreFocusTarget || trailerButton
             extraReturnFocusPending = true
             extraReturnFocusActivated = false
-            root.extraPlayRequested({
-                itemId: extra.itemId,
-                contentKind: "extra",
-                startPositionMs: 0,
-                seriesId: "",
-                seasonId: "",
-                overlayTitle: seriesName || qsTr("Now Playing"),
-                overlaySubtitle: extraTitle(extra),
-                overlayBackdropUrl: backdropUrl,
-                overlayLogoUrl: logoUrl,
-                preferredAudioIndex: -2,
-                preferredSubtitleIndex: -2,
-                isMovie: true,
-                allowVersionPrompt: false,
-                restoreFocusTarget: extraReturnFocusTarget
-            })
+            root.extraPlayRequested(ExtrasUtils.playbackRequest(extra, seriesName, backdropUrl, logoUrl,
+                                                                extraReturnFocusTarget))
         })
     }
 
@@ -458,7 +400,8 @@ FocusScope {
 
         const desiredArea = state.focusArea || "hero"
         if (desiredArea === "seasons" && seasonsList.count <= 0) return false
-        if (desiredArea === "extras" && extrasList.count <= 0) return false
+        // Extras arrive after the detail (Jellyfin); wait while they can.
+        if (desiredArea === "extras" && extrasList.count <= 0 && (isLoading || extrasLoading)) return false
         if (desiredArea === "cast" && castList.count <= 0) return false
         if (desiredArea === "libraryRecommendations" && libraryRecommendations.length <= 0) return false
         if (desiredArea === "requestRecommendations" && requestRecommendedItems.length <= 0) return false
@@ -626,6 +569,14 @@ FocusScope {
     }
 
     onRequestRecommendedItemsChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onExtrasChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onExtrasLoadingChanged: {
         Qt.callLater(root.tryRestorePendingReturnState)
     }
 
@@ -1038,8 +989,8 @@ FocusScope {
                         artworkSources: [modelData.primaryArtwork && modelData.primaryArtwork.itemId
                                          ? LibraryService.getCachedArtworkUrlFromRef(modelData.primaryArtwork, root.extraCardImageWidth)
                                          : ""]
-                        title: root.extraTitle(modelData)
-                        subtitle: root.extraSubtitle(modelData)
+                        title: ExtrasUtils.title(modelData)
+                        subtitle: ExtrasUtils.subtitle(modelData)
                         placeholderIcon: Icons.movie
                         focused: ListView.isCurrentItem && ListView.view.activeFocus
                         onClicked: {
@@ -1047,7 +998,7 @@ FocusScope {
                             extrasList.forceActiveFocus()
                             root.playExtra(modelData, extrasList)
                         }
-                        Accessible.description: qsTr("Play %1").arg(root.extraTitle(modelData))
+                        Accessible.description: qsTr("Play %1").arg(ExtrasUtils.title(modelData))
                     }
 
                     onActiveFocusChanged: if (activeFocus) root.scrollToSection(extrasSection)

@@ -209,6 +209,8 @@ private slots:
     void homeSectionsServiceReportsFailure();
     void watchlistWritesReportSuccessAndFailure();
     void jellyfinHasNoWatchlistOrCuratedRows();
+    void jellyfinItemExtrasPutTrailersFirstAndFlagPartialAnswers();
+    void siloItemExtrasAnswerEmptyWithoutRequests();
 };
 
 void SiloCatalogServiceTest::theIntroDbV4Requests_data()
@@ -2199,6 +2201,102 @@ void SiloCatalogServiceTest::jellyfinHasNoWatchlistOrCuratedRows()
     service.getHomeSections();
     QCOMPARE(loaded.count(), 1);
     QVERIFY(loaded.first().at(1).toList().isEmpty());
+    QVERIFY(manager.requests.isEmpty());
+}
+
+// LibraryService::getItemExtras reads LocalTrailers and SpecialFeatures,
+// puts trailers first whatever order the answers arrive in, drops an extra
+// both list, and flags an answer with one failed read as incomplete.
+void SiloCatalogServiceTest::jellyfinItemExtrasPutTrailersFirstAndFlagPartialAnswers()
+{
+    JellyfinProviderAdapter jellyfin;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    ExposedAuthenticationService auth(&transport, &jellyfin);
+    auth.replaceAccount(QStringLiteral("user-1"), QStringLiteral("token-1"));
+    LibraryService service(&auth);
+    QSignalSpy loaded(&service, &LibraryService::canonicalItemExtrasLoaded);
+    QSignalSpy failed(&service, &LibraryService::canonicalItemExtrasFailed);
+
+    const QByteArray trailers = QJsonDocument(QJsonArray{
+        QJsonObject{{QStringLiteral("Id"), QStringLiteral("trailer-1")},
+                    {QStringLiteral("Name"), QStringLiteral("Trailer")},
+                    {QStringLiteral("Type"), QStringLiteral("Trailer")}}}).toJson();
+    const QByteArray features = QJsonDocument(QJsonArray{
+        QJsonObject{{QStringLiteral("Id"), QStringLiteral("featurette-1")},
+                    {QStringLiteral("Name"), QStringLiteral("Making Of")},
+                    {QStringLiteral("ExtraType"), QStringLiteral("Featurette")}},
+        // Jellyfin lists a local trailer among the special features too.
+        QJsonObject{{QStringLiteral("Id"), QStringLiteral("trailer-1")},
+                    {QStringLiteral("Name"), QStringLiteral("Trailer")},
+                    {QStringLiteral("ExtraType"), QStringLiteral("Trailer")}}}).toJson();
+    const QByteArray notFound =
+        QByteArrayLiteral(R"({"type":"about:blank","title":"Not Found","status":404})");
+
+    const auto extraIds = [](const QVariantList &extras) {
+        QStringList ids;
+        for (const QVariant &extra : extras) {
+            ids.append(extra.toMap().value(QStringLiteral("itemId")).toString());
+        }
+        return ids;
+    };
+
+    // Both reads succeed; special features answer first.
+    manager.responses = {{200, trailers, true}, {200, features, true}};
+    service.getItemExtras(QStringLiteral("movie-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(manager.replies.size(), 2, 1000);
+    QVERIFY(manager.requests.at(0).request.url().path().endsWith(
+        QStringLiteral("/Items/movie-1/LocalTrailers")));
+    QVERIFY(manager.requests.at(1).request.url().path().endsWith(
+        QStringLiteral("/Items/movie-1/SpecialFeatures")));
+    manager.replies.at(1)->complete();
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(loaded.count(), 0);
+    manager.replies.at(0)->complete();
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    QCOMPARE(loaded.first().at(1).toString(), QStringLiteral("movie-1"));
+    QCOMPARE(extraIds(loaded.first().at(2).toList()),
+             (QStringList{QStringLiteral("trailer-1"), QStringLiteral("featurette-1")}));
+    QVERIFY(loaded.first().at(3).toBool());
+
+    // The trailer read fails: what arrived is published, flagged incomplete.
+    loaded.clear();
+    manager.responses = {{404, notFound, false}, {200, features, false}};
+    service.getItemExtras(QStringLiteral("movie-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    QCOMPARE(extraIds(loaded.first().at(2).toList()),
+             (QStringList{QStringLiteral("featurette-1"), QStringLiteral("trailer-1")}));
+    QVERIFY(!loaded.first().at(3).toBool());
+    QCOMPARE(failed.count(), 0);
+
+    // Both reads fail: a failure, not an empty list.
+    loaded.clear();
+    manager.responses = {{404, notFound, false}, {404, notFound, false}};
+    service.getItemExtras(QStringLiteral("movie-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+    QCOMPARE(failed.first().at(1).toString(), QStringLiteral("movie-1"));
+    QCOMPARE(loaded.count(), 0);
+}
+
+// Silo details carry their extras, so getItemExtras answers an empty,
+// complete list without a request.
+void SiloCatalogServiceTest::siloItemExtrasAnswerEmptyWithoutRequests()
+{
+    SiloProviderAdapter silo;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    ExposedAuthenticationService auth(&transport, &silo);
+    auth.replaceAccount(QStringLiteral("account-1"), QStringLiteral("token-1"));
+    LibraryService service(&auth);
+    QSignalSpy loaded(&service, &LibraryService::canonicalItemExtrasLoaded);
+    QSignalSpy failed(&service, &LibraryService::canonicalItemExtrasFailed);
+
+    service.getItemExtras(QStringLiteral("movie-1"));
+    QCOMPARE(loaded.count(), 1);
+    QCOMPARE(loaded.first().at(1).toString(), QStringLiteral("movie-1"));
+    QVERIFY(loaded.first().at(2).toList().isEmpty());
+    QVERIFY(loaded.first().at(3).toBool());
+    QCOMPARE(failed.count(), 0);
     QVERIFY(manager.requests.isEmpty());
 }
 

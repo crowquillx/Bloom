@@ -71,7 +71,8 @@ public:
     QVariantMap mapMediaItem(const QJsonObject &wireItem,
                              const QString &connectionId) const override
     {
-        return SiloModelMapper::mediaItem(wireItem, connectionId);
+        // A single item is always a catalog item detail.
+        return SiloModelMapper::mediaDetail(wireItem, connectionId);
     }
 
     QVariantList mapMediaItems(const QJsonArray &wireItems,

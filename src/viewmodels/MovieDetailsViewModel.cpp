@@ -464,6 +464,7 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     if (extrasChangedOnClear) {
         emit extrasChanged();
     }
+    notifyExtrasLoading();
     emit premiereDateChanged();
     if (!preserveArtwork) {
         emit mdbListRatingsChanged();
@@ -611,11 +612,13 @@ void MovieDetailsViewModel::onSimilarItemsFailed(const QString &connectionId,
 
 void MovieDetailsViewModel::onExtrasLoaded(const QString &connectionId,
                                            const QString &itemId,
-                                           const QVariantList &extras)
+                                           const QVariantList &extras,
+                                           bool complete)
 {
-    if (itemId == m_movieId && m_extras.applyLoaded(connectionId, itemId, extras)) {
+    if (itemId == m_movieId && m_extras.applyLoaded(connectionId, itemId, extras, complete)) {
         emit extrasChanged();
     }
+    notifyExtrasLoading();
 }
 
 void MovieDetailsViewModel::onExtrasFailed(const QString &connectionId,
@@ -627,6 +630,15 @@ void MovieDetailsViewModel::onExtrasFailed(const QString &connectionId,
     }
     qCWarning(lcViewModels) << "MovieDetailsViewModel extras error:" << error;
     m_extras.applyFailed(connectionId, itemId);
+    notifyExtrasLoading();
+}
+
+void MovieDetailsViewModel::notifyExtrasLoading()
+{
+    if (m_extras.loading() != m_extrasLoadingNotified) {
+        m_extrasLoadingNotified = m_extras.loading();
+        emit extrasLoadingChanged();
+    }
 }
 
 void MovieDetailsViewModel::onMovieChaptersLoaded(const QString &connectionId,
@@ -752,6 +764,7 @@ void MovieDetailsViewModel::updateMovieMetadata(const QVariantMap &data)
     if (extras.changed) {
         emit extrasChanged();
     }
+    notifyExtrasLoading();
     if (extras.request && m_libraryService) {
         m_libraryService->getItemExtras(m_movieId);
     }

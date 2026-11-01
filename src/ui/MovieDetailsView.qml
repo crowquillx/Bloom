@@ -5,6 +5,7 @@ import QtQuick.Effects
 
 import BloomUI
 import "TrackUtils.js" as TrackUtils
+import "ExtrasUtils.js" as ExtrasUtils
 
 FocusScope {
     id: root
@@ -41,6 +42,7 @@ FocusScope {
     }
     // Local extras; Play Trailer shows only when one of them is a trailer.
     readonly property var extras: MovieDetailsViewModel.extras || []
+    readonly property bool extrasLoading: MovieDetailsViewModel.extrasLoading
     readonly property var trailer: MovieDetailsViewModel.trailer || ({})
     readonly property bool hasTrailer: !!(trailer && trailer.itemId)
     readonly property int extraCardImageWidth: Math.round(Theme.landscapeCardWidth * Math.max(2, Screen.devicePixelRatio))
@@ -291,44 +293,8 @@ FocusScope {
         root.playRequested(buildPlaybackRequest(startPositionMs, lastPlaybackRestoreFocusTarget))
     }
 
-    function extraKindLabel(kind) {
-        switch (kind) {
-        case "trailer": return qsTr("Trailer")
-        case "teaser": return qsTr("Teaser")
-        case "featurette": return qsTr("Featurette")
-        case "clip": return qsTr("Clip")
-        case "behindTheScenes": return qsTr("Behind the Scenes")
-        case "bloopers": return qsTr("Bloopers")
-        case "deletedScene": return qsTr("Deleted Scene")
-        case "interview": return qsTr("Interview")
-        case "scene": return qsTr("Scene")
-        case "short": return qsTr("Short")
-        default: return qsTr("Extra")
-        }
-    }
-
-    function extraTitle(extra) {
-        return extra && extra.name ? extra.name : extraKindLabel(extra ? extra.extraKind : "")
-    }
-
-    // "Trailer · 2:31"; the kind is left out when it is already the title.
-    function extraSubtitle(extra) {
-        if (!extra) {
-            return ""
-        }
-        const parts = []
-        if (extra.name) {
-            parts.push(extraKindLabel(extra.extraKind))
-        }
-        if (extra.durationMs > 0) {
-            parts.push(formatChapterTime(extra.durationMs / 1000))
-        }
-        return parts.join(" · ")
-    }
-
-    // Extras play on their own: from the start, without the movie's resume
-    // point, track choices or Up Next (PlayerPolicy content rules). In a
-    // merged space the owning connection goes live first.
+    // Extras play on their own (ExtrasUtils.playbackRequest). In a merged
+    // space the owning connection goes live first.
     function playExtra(extra, restoreFocusTarget) {
         if (!extra || !extra.itemId) {
             return
@@ -338,22 +304,8 @@ FocusScope {
             lastPlaybackRestoreFocusTarget = restoreFocusTarget || trailerButton
             playbackReturnFocusPending = true
             playbackReturnFocusActivated = false
-            root.playRequested({
-                itemId: extra.itemId,
-                contentKind: "extra",
-                startPositionMs: 0,
-                seriesId: "",
-                seasonId: "",
-                overlayTitle: movieName || qsTr("Now Playing"),
-                overlaySubtitle: extraTitle(extra),
-                overlayBackdropUrl: backdropUrl,
-                overlayLogoUrl: logoUrl,
-                preferredAudioIndex: -2,
-                preferredSubtitleIndex: -2,
-                isMovie: true,
-                allowVersionPrompt: false,
-                restoreFocusTarget: lastPlaybackRestoreFocusTarget
-            })
+            root.playRequested(ExtrasUtils.playbackRequest(extra, movieName, backdropUrl, logoUrl,
+                                                           lastPlaybackRestoreFocusTarget))
         })
     }
 
@@ -561,6 +513,10 @@ FocusScope {
             return false
         }
         if (desiredArea === "libraryRecommendations" && !recsReady && !castReady && (recsPending || castPending)) {
+            return false
+        }
+        // Extras arrive after the detail (Jellyfin); wait while they can.
+        if (desiredArea === "extras" && extrasList.count <= 0 && (isLoading || extrasLoading)) {
             return false
         }
 
@@ -811,6 +767,14 @@ FocusScope {
     }
 
     onChaptersLoadingChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onExtrasChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onExtrasLoadingChanged: {
         Qt.callLater(root.tryRestorePendingReturnState)
     }
 
@@ -1183,8 +1147,8 @@ FocusScope {
                         required property int index
                         variant: "landscape"
                         artworkSources: [root.artworkUrlFromRef(modelData.primaryArtwork, root.extraCardImageWidth)]
-                        title: root.extraTitle(modelData)
-                        subtitle: root.extraSubtitle(modelData)
+                        title: ExtrasUtils.title(modelData)
+                        subtitle: ExtrasUtils.subtitle(modelData)
                         placeholderIcon: Icons.movie
                         focused: ListView.isCurrentItem && ListView.view.activeFocus
                         onClicked: {
@@ -1192,7 +1156,7 @@ FocusScope {
                             extrasList.forceActiveFocus()
                             root.playExtra(modelData, extrasList)
                         }
-                        Accessible.description: qsTr("Play %1").arg(root.extraTitle(modelData))
+                        Accessible.description: qsTr("Play %1").arg(ExtrasUtils.title(modelData))
                     }
 
                     onActiveFocusChanged: if (activeFocus) root.scrollToSection(extrasSection)

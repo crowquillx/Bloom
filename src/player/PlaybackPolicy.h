@@ -161,7 +161,9 @@ enum class PlaybackContentKind {
 /// to the parent either.
 struct PlaybackContentRules
 {
-    /// Start at the request's position. Extras always start at the beginning.
+    /// Start at the request's position. Extras always start at the beginning,
+    /// except when a retry, recovery or version switch continues the same
+    /// session (the request then carries "continuesSession").
     bool resumesFromRequestedPosition = true;
     /// Keep the request's series and season. Without them an extra has no
     /// season track scope, adjacent-episode controls, or autoplay series.
@@ -173,6 +175,9 @@ struct PlaybackContentRules
     /// In-playback audio and subtitle picks are saved for the scope (and
     /// may be written back to the server).
     bool persistsTrackPreferences = true;
+    /// The scope's saved subtitle delay applies at start, and in-playback
+    /// subtitle timing changes are saved for the scope.
+    bool persistsSubtitleDelay = true;
 };
 
 /// "extra" means Extra; anything else, including empty, means Feature.

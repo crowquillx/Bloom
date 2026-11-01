@@ -11,8 +11,9 @@
 // The extras shelf of one movie or series detail page. A canonical detail
 // that carries `extras` (Silo) supplies them directly; otherwise the view
 // model asks LibraryService::getItemExtras (Jellyfin) and hands the answer
-// back here. Only answers for the current connection and item apply, and a
-// small in-memory cache keeps a return visit from re-fetching.
+// back here. Only answers for the current connection and item apply. A small
+// in-memory cache shows a return visit's shelf at once while a background
+// request refreshes it; partial answers are never cached.
 class ItemExtrasState
 {
 public:
@@ -32,21 +33,22 @@ public:
         const bool sameItem = connectionId == m_connectionId && itemId == m_itemId;
         m_connectionId = connectionId;
         m_itemId = itemId;
+        if (!sameItem) {
+            m_pending = false;
+        }
         if (item.contains(QStringLiteral("extras"))) {
             m_pending = false;
             result.changed = apply(item.value(QStringLiteral("extras")).toList());
             remember();
             return result;
         }
+        // A cached shelf shows at once and is refreshed in the background,
+        // so extras added or removed on the server since show up.
         const auto cached = m_cache.constFind(cacheKey());
         if (cached != m_cache.constEnd()) {
-            m_pending = false;
             result.changed = apply(*cached);
-            return result;
-        }
-        if (!sameItem) {
+        } else if (!sameItem) {
             result.changed = apply({});
-            m_pending = false;
         }
         if (!m_pending) {
             m_pending = true;
@@ -55,15 +57,22 @@ public:
         return result;
     }
 
-    // A getItemExtras answer; true when the shelf changed.
-    bool applyLoaded(const QString &connectionId, const QString &itemId, const QVariantList &extras)
+    // A getItemExtras answer; true when the shelf changed. A partial answer
+    // (one provider request failed) shows but is not cached, so a later load
+    // asks again for the full list.
+    bool applyLoaded(const QString &connectionId,
+                     const QString &itemId,
+                     const QVariantList &extras,
+                     bool complete = true)
     {
         if (connectionId != m_connectionId || itemId != m_itemId) {
             return false;
         }
         m_pending = false;
         const bool changed = apply(extras);
-        remember();
+        if (complete) {
+            remember();
+        }
         return changed;
     }
 
@@ -85,6 +94,8 @@ public:
     }
 
     QVariantList extras() const { return m_extras; }
+    // A getItemExtras answer for the current item is still expected.
+    bool loading() const { return m_pending; }
     QVariantMap trailer() const { return Bloom::MediaExtras::preferredTrailer(m_extras); }
 
 private:

@@ -185,6 +185,8 @@ absent when there are no extras. Activating a card plays the extra. When one
 of the extras is a trailer (or else a teaser), the hero adds a secondary
 "Play Trailer" button right after the primary action. Both return focus to
 themselves when the extra ends. Remote (YouTube) trailers are never shown.
+Labels and the playback request come from `src/ui/ExtrasUtils.js`, shared by
+both pages.
 
 ## Grids
 

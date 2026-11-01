@@ -612,6 +612,7 @@ private slots:
     void switchPlaybackVersionKeepsQueuedResumePosition();
     void multipartPlaybackPublishesNoVersions();
     void extraPlaybackStaysOffTheParentTimeline();
+    void extraKindSurvivesRetryRecoveryAndVersionSwitch();
     void expiringSessionsDeferLaterMultipartSegments();
     void pausedPlaybackSendsMinuteHeartbeat();
     void inPlaceReloadKeepsHeadersPlaylistAndOrigins();
@@ -3173,6 +3174,118 @@ void PlayerControllerAutoplayContextTest::extraPlaybackStaysOffTheParentTimeline
     controller.persistAudioPreferenceForCurrentScope(2);
     QVERIFY(!trackPrefs.getMoviePreferences(QStringLiteral("extra-1")).isEmpty());
     trackPrefs.clearMoviePreferences(QStringLiteral("extra-1"));
+}
+
+void PlayerControllerAutoplayContextTest::extraKindSurvivesRetryRecoveryAndVersionSwitch()
+{
+    using Bloom::PlaybackPolicy::PlaybackContentKind;
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+    authService.restoreSession(QStringLiteral("https://example.invalid"),
+                               QStringLiteral("user-1"),
+                               QStringLiteral("token-1"));
+
+    // A subtitle delay saved under the extra's ID (from before the rule) is
+    // not applied when the extra starts.
+    ScopedTrackPreferences stale;
+    stale.subtitleDelayMs = 500;
+    trackPrefs.setMoviePreferences(QStringLiteral("extra-1"), stale);
+
+    // The kind travels request -> descriptor -> playUrl and is consumed.
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("extra-1")},
+        {QStringLiteral("contentKind"), QStringLiteral("extra")},
+        {QStringLiteral("startPositionMs"), 60000},
+        {QStringLiteral("isMovie"), true},
+        {QStringLiteral("allowVersionPrompt"), false}
+    });
+    const MediaSourceInfo versionA = buildMediaSourceInfo(
+        QStringLiteral("source-1080p"), QStringLiteral("1080p"),
+        QStringLiteral("/extras/trailer-1080p.mkv"), {});
+    const MediaSourceInfo versionB = buildMediaSourceInfo(
+        QStringLiteral("source-4k"), QStringLiteral("4K"),
+        QStringLiteral("/extras/trailer-4k.mkv"), {});
+    const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
+    emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("extra-1"),
+                                                      buildPlaybackInfo({versionA, versionB}),
+                                                      requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("extra-1"), QVariantList{}, requestId);
+
+    QVERIFY(!backend.lastStartUrl.isEmpty());
+    QCOMPARE(controller.m_currentItemId, QStringLiteral("extra-1"));
+    QCOMPARE(controller.m_currentContentKind, PlaybackContentKind::Extra);
+    QCOMPARE(controller.m_nextContentKind, PlaybackContentKind::Feature);
+    QCOMPARE(controller.m_startPositionMs, 0LL);
+    QCOMPARE(controller.m_subtitleDelayMs, 0);
+    trackPrefs.clearMoviePreferences(QStringLiteral("extra-1"));
+
+    // Subtitle timing changed during an extra is not saved.
+    controller.m_playbackState = PlayerController::Playing;
+    controller.setSubtitleDelayMs(250);
+    QCOMPARE(controller.m_subtitleDelayMs, 250);
+    QVERIFY(trackPrefs.getMoviePreferences(QStringLiteral("extra-1")).isEmpty());
+
+    // A version switch keeps the kind and continues at the current position.
+    QString otherId;
+    for (const QVariant &value : controller.playbackVersions()) {
+        const QVariantMap version = value.toMap();
+        if (!version.value(QStringLiteral("selected")).toBool()) {
+            otherId = version.value(QStringLiteral("id")).toString();
+        }
+    }
+    QVERIFY(!otherId.isEmpty());
+    controller.m_currentPosition = 42.5;
+    controller.m_pendingPlaybackRequests.clear();
+    controller.switchPlaybackVersion(otherId);
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    auto pending = controller.m_pendingPlaybackRequests.constBegin().value();
+    QCOMPARE(pending.contentKind, PlaybackContentKind::Extra);
+    QCOMPARE(pending.startPositionMs, qint64(42500));
+    controller.m_pendingPlaybackRequests.clear();
+
+    // A plain retry keeps the kind and the position.
+    controller.m_playbackState = PlayerController::Error;
+    controller.m_currentPosition = 12.0;
+    controller.m_segmentRelativePosition = 12.0;
+    controller.retry();
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    pending = controller.m_pendingPlaybackRequests.constBegin().value();
+    QCOMPARE(pending.itemId, QStringLiteral("extra-1"));
+    QCOMPARE(pending.contentKind, PlaybackContentKind::Extra);
+    QCOMPARE(pending.startPositionMs, qint64(12000));
+    controller.m_pendingPlaybackRequests.clear();
+
+    // A dropped stream records the kind in the recovery context, and the
+    // recovered request keeps it.
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_segmentRelativePosition = 5.75;
+    controller.onProcessError(QStringLiteral("recoverable-stream-ended-prematurely: [error][ffmpeg] http: Stream ends prematurely"));
+    QVERIFY(controller.m_recoveryContext.valid);
+    QCOMPARE(controller.m_recoveryContext.contentKind, PlaybackContentKind::Extra);
+    controller.m_pendingPlaybackRequests.clear();
+    controller.m_playbackState = PlayerController::Error;
+    controller.resumeFromRecoveryContext();
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    pending = controller.m_pendingPlaybackRequests.constBegin().value();
+    QCOMPARE(pending.contentKind, PlaybackContentKind::Extra);
+    QCOMPARE(pending.startPositionMs, qint64(5750));
+
+    // A feature retry stays a feature.
+    controller.m_pendingPlaybackRequests.clear();
+    controller.m_currentContentKind = PlaybackContentKind::Feature;
+    controller.m_recoveryContext = {};
+    controller.m_playbackState = PlayerController::Error;
+    controller.retry();
+    QCOMPARE(controller.m_pendingPlaybackRequests.constBegin().value().contentKind,
+             PlaybackContentKind::Feature);
+    controller.m_pendingPlaybackRequests.clear();
 }
 
 void PlayerControllerAutoplayContextTest::multipartPlaybackPublishesNoVersions()

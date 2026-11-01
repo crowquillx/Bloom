@@ -318,9 +318,13 @@ signals:
     void canonicalSimilarItemsFailedForConnection(const QString &connectionId,
                                                   const QString &itemId,
                                                   const QString &error);
+    // `complete` is false when one of several provider requests failed:
+    // `extras` is then only what arrived and must not be cached as the
+    // item's full list.
     void canonicalItemExtrasLoaded(const QString &connectionId,
                                    const QString &itemId,
-                                   const QVariantList &extras);
+                                   const QVariantList &extras,
+                                   bool complete);
     void canonicalItemExtrasFailed(const QString &connectionId,
                                    const QString &itemId,
                                    const QString &error);

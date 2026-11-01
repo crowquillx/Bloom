@@ -81,9 +81,12 @@ public:
     {
         emit canonicalSeriesDetailsLoaded(connectionId, seriesId, data);
     }
-    void loadExtras(const QString &forConnection, const QString &itemId, const QVariantList &extras)
+    void loadExtras(const QString &forConnection,
+                    const QString &itemId,
+                    const QVariantList &extras,
+                    bool complete = true)
     {
-        emit canonicalItemExtrasLoaded(forConnection, itemId, extras);
+        emit canonicalItemExtrasLoaded(forConnection, itemId, extras, complete);
     }
     void failExtras(const QString &forConnection, const QString &itemId)
     {
@@ -538,6 +541,7 @@ void HomeRowsAndWatchlistTest::movieExtrasComeFromServiceWhenDetailHasNone()
     QCOMPARE(m_service->extrasRequests, QStringList{QStringLiteral("movie-extras-1")});
     QVERIFY(vm.extras().isEmpty());
     QVERIFY(vm.trailer().isEmpty());
+    QVERIFY(vm.extrasLoading());
 
     // Refreshed details do not ask twice while the answer is pending.
     m_service->loadMovie(QStringLiteral("movie-extras-1"),
@@ -553,26 +557,55 @@ void HomeRowsAndWatchlistTest::movieExtrasComeFromServiceWhenDetailHasNone()
 
     m_service->loadExtras(scope, QStringLiteral("movie-extras-1"), extras);
     QCOMPARE(vm.extras().size(), 2);
+    QVERIFY(!vm.extrasLoading());
     QCOMPARE(vm.trailer().value(QStringLiteral("itemId")).toString(), QStringLiteral("trailer-1"));
     QCOMPARE(changed.count(), 1);
 
-    // Clearing for another movie drops the shelf; coming back reuses it.
+    // Clearing for another movie drops the shelf; coming back shows the
+    // cached shelf at once and refreshes it once in the background.
     vm.clear();
     QVERIFY(vm.extras().isEmpty());
     vm.loadMovieDetails(QStringLiteral("movie-extras-1"));
     QCOMPARE(vm.extras().size(), 2);
-    QCOMPARE(m_service->extrasRequests.size(), 1);
+    QCOMPARE(m_service->extrasRequests.size(), 2);
+    m_service->loadMovie(QStringLiteral("movie-extras-1"),
+                         detail(QStringLiteral("movie-extras-1"), QStringLiteral("Movie"), false));
+    QCOMPARE(m_service->extrasRequests.size(), 2);
+    // An extra removed on the server disappears with the refresh.
+    m_service->loadExtras(scope, QStringLiteral("movie-extras-1"),
+                          {extra(QStringLiteral("featurette-1"), QStringLiteral("featurette"))});
+    QCOMPARE(vm.extras().size(), 1);
+    QVERIFY(vm.trailer().isEmpty());
 
     // A failed answer keeps the shelf empty and lets a later load ask again.
     vm.loadMovieDetails(QStringLiteral("movie-extras-2"));
     m_service->loadMovie(QStringLiteral("movie-extras-2"),
                          detail(QStringLiteral("movie-extras-2"), QStringLiteral("Movie"), false));
-    QCOMPARE(m_service->extrasRequests.size(), 2);
+    QCOMPARE(m_service->extrasRequests.size(), 3);
     m_service->failExtras(scope, QStringLiteral("movie-extras-2"));
     QVERIFY(vm.extras().isEmpty());
+    QVERIFY(!vm.extrasLoading());
     m_service->loadMovie(QStringLiteral("movie-extras-2"),
                          detail(QStringLiteral("movie-extras-2"), QStringLiteral("Movie"), false));
-    QCOMPARE(m_service->extrasRequests.size(), 3);
+    QCOMPARE(m_service->extrasRequests.size(), 4);
+
+    // A partial answer (the trailer read failed) shows but is not cached:
+    // the next visit starts empty and asks again, and the full answer then
+    // brings Play Trailer.
+    const QVariantList partial{extra(QStringLiteral("featurette-2"), QStringLiteral("featurette"))};
+    m_service->loadExtras(scope, QStringLiteral("movie-extras-2"), partial, false);
+    QCOMPARE(vm.extras().size(), 1);
+    QVERIFY(vm.trailer().isEmpty());
+    vm.clear();
+    vm.loadMovieDetails(QStringLiteral("movie-extras-2"));
+    m_service->loadMovie(QStringLiteral("movie-extras-2"),
+                         detail(QStringLiteral("movie-extras-2"), QStringLiteral("Movie"), false));
+    QVERIFY(vm.extras().isEmpty());
+    QCOMPARE(m_service->extrasRequests.size(), 5);
+    m_service->loadExtras(scope, QStringLiteral("movie-extras-2"),
+                          {extra(QStringLiteral("trailer-2"), QStringLiteral("trailer")),
+                           extra(QStringLiteral("featurette-2"), QStringLiteral("featurette"))});
+    QCOMPARE(vm.trailer().value(QStringLiteral("itemId")).toString(), QStringLiteral("trailer-2"));
 }
 
 // Silo details list their extras; nothing else is requested.

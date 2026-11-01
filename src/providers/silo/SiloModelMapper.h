@@ -41,6 +41,11 @@ public:
                                       const QString &itemId);
     static QVariantMap mediaItem(const QJsonObject &wireItem,
                                  const QString &connectionId);
+    /// A catalog item detail: mediaItem() plus an `extras` list that is
+    /// always present. Silo omits `extras` when the item has none, so an
+    /// empty list here replaces extras cached from an earlier detail.
+    static QVariantMap mediaDetail(const QJsonObject &wireItem,
+                                   const QString &connectionId);
     static QVariantList mediaItems(const QJsonArray &wireItems,
                                    const QString &connectionId);
     /// The token-free tag of a signed artwork URL: a hash of its path, which

@@ -1145,7 +1145,7 @@ void LibraryService::getItemExtras(const QString &itemId)
         }
     }
     if (operations.isEmpty()) {
-        emit canonicalItemExtrasLoaded(connectionId, itemId, {});
+        emit canonicalItemExtrasLoaded(connectionId, itemId, {}, true);
         return;
     }
 
@@ -1177,7 +1177,9 @@ void LibraryService::getItemExtras(const QString &itemId)
                 }
             }
         }
-        emit canonicalItemExtrasLoaded(connectionId, itemId, extras);
+        // A partial answer still shows what arrived, flagged so it is not
+        // cached in place of the full list.
+        emit canonicalItemExtrasLoaded(connectionId, itemId, extras, state->failures == 0);
     };
     for (qsizetype index = 0; index < operations.size(); ++index) {
         sendCatalogRequest(

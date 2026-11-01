@@ -1078,6 +1078,7 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     if (m_extras.clear()) {
         emit extrasChanged();
     }
+    notifyExtrasLoading();
     m_seasonCount = 0;
     m_seriesData = QJsonObject();
 
@@ -1304,11 +1305,13 @@ void SeriesDetailsViewModel::onSeriesDetailsLoaded(const QString &connectionId,
 
 void SeriesDetailsViewModel::onExtrasLoaded(const QString &connectionId,
                                             const QString &itemId,
-                                            const QVariantList &extras)
+                                            const QVariantList &extras,
+                                            bool complete)
 {
-    if (itemId == m_seriesId && m_extras.applyLoaded(connectionId, itemId, extras)) {
+    if (itemId == m_seriesId && m_extras.applyLoaded(connectionId, itemId, extras, complete)) {
         emit extrasChanged();
     }
+    notifyExtrasLoading();
 }
 
 void SeriesDetailsViewModel::onExtrasFailed(const QString &connectionId,
@@ -1320,6 +1323,15 @@ void SeriesDetailsViewModel::onExtrasFailed(const QString &connectionId,
     }
     qCWarning(lcViewModels) << "SeriesDetailsViewModel extras error:" << error;
     m_extras.applyFailed(connectionId, itemId);
+    notifyExtrasLoading();
+}
+
+void SeriesDetailsViewModel::notifyExtrasLoading()
+{
+    if (m_extras.loading() != m_extrasLoadingNotified) {
+        m_extrasLoadingNotified = m_extras.loading();
+        emit extrasLoadingChanged();
+    }
 }
 
 void SeriesDetailsViewModel::onSeriesDetailsNotModified(const QString &connectionId,
@@ -1820,6 +1832,7 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QVariantMap &data)
     if (extras.changed) {
         emit extrasChanged();
     }
+    notifyExtrasLoading();
     if (extras.request && m_libraryService) {
         m_libraryService->getItemExtras(m_seriesId);
     }

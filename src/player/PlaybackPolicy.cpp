@@ -769,6 +769,7 @@ PlaybackContentRules playbackContentRules(PlaybackContentKind kind)
         rules.allowsNextEpisode = false;
         rules.allowsUpNext = false;
         rules.persistsTrackPreferences = false;
+        rules.persistsSubtitleDelay = false;
     }
     return rules;
 }

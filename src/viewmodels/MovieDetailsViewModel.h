@@ -56,6 +56,9 @@ class MovieDetailsViewModel : public BaseViewModel
     // starts (empty when the movie has no local trailer).
     Q_PROPERTY(QVariantList extras READ extras NOTIFY extrasChanged)
     Q_PROPERTY(QVariantMap trailer READ trailer NOTIFY extrasChanged)
+    // True while a requested extras answer is outstanding, so a return
+    // state that targets the Extras shelf can wait for it.
+    Q_PROPERTY(bool extrasLoading READ extrasLoading NOTIFY extrasLoadingChanged)
     Q_PROPERTY(QDateTime premiereDate READ premiereDate NOTIFY premiereDateChanged)
 
     // MDBList Ratings
@@ -89,6 +92,7 @@ public:
     bool similarItemsLoading() const { return m_similarItemsLoading; }
     QVariantList extras() const { return m_extras.extras(); }
     QVariantMap trailer() const { return m_extras.trailer(); }
+    bool extrasLoading() const { return m_extras.loading(); }
     QDateTime premiereDate() const { return m_premiereDate; }
 
     // Property accessors - MDBList
@@ -172,6 +176,7 @@ signals:
     void similarItemsChanged();
     void similarItemsLoadingChanged();
     void extrasChanged();
+    void extrasLoadingChanged();
     void premiereDateChanged();
     void mdbListRatingsChanged();
 
@@ -189,7 +194,8 @@ private slots:
                               const QString &error);
     void onExtrasLoaded(const QString &connectionId,
                         const QString &itemId,
-                        const QVariantList &extras);
+                        const QVariantList &extras,
+                        bool complete);
     void onExtrasFailed(const QString &connectionId,
                         const QString &itemId,
                         const QString &error);
@@ -242,6 +248,8 @@ private:
     bool m_similarItemsLoading = false;
     QString m_similarItemsRequestConnectionId;
     ItemExtrasState m_extras;
+    bool m_extrasLoadingNotified = false;
+    void notifyExtrasLoading();
     QDateTime m_premiereDate;
 
     QJsonObject m_movieData;
