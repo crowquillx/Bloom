@@ -1993,6 +1993,10 @@
             "path": "/api/v2/watch/{id}"
           },
           {
+            "method": "GET",
+            "path": "/api/v2/audio-prefs/{series_id}"
+          },
+          {
             "method": "PUT",
             "path": "/api/v2/audio-prefs/{series_id}"
           },
@@ -2007,23 +2011,27 @@
           "discovery": "Pinned v2 operations."
         },
         "requestSemantics": [
-          "Profile-scoped writes of an audio or subtitle pick the user makes on an episode, sent best-effort after the pick is saved locally; Bloom's automatic selections are never written.",
+          "Profile-scoped writes of an audio or subtitle pick the user makes, sent best-effort after the pick is saved locally and, for a pick that needs a new stream, only once the server delivers it; Bloom's automatic selections are never written.",
+          "{series_id} is the content the preference belongs to: the owning series of an episode, or the movie's own content ID (Silo keys movie preferences by the movie, internal/catalog/detail.go).",
+          "getAudioPreference is a safe read sent only when a version's effective_audio_track_index equals Silo's no-preference pick: a stored row (200) makes that track the profile's choice, 404 leaves it as no preference, and any other failure keeps the watch response's reading.",
           "audio_track_index is the zero-based ordinal in the version's audio_tracks; subtitle_track_index is Silo's combined subtitle ordinal (external files, then embedded streams) or -1 for off.",
           "Both PUTs are natural_idempotent and replace the stored preference, so a lost response may be replayed."
         ],
         "requiredSemantics": [
-          "WatchFileVersion.effective_audio_track_index is an ordinal into audio_tracks; Silo resolves it even without a preference, so only a track other than Silo's no-preference pick counts as the server's choice.",
+          "WatchFileVersion.effective_audio_track_index is an ordinal into audio_tracks; Silo resolves it even without a preference, so a track equal to Silo's no-preference pick counts as the server's choice only when getAudioPreference finds a stored row.",
           "effective_subtitle_mode, effective_subtitle_language, effective_show_forced_subtitles and effective_subtitle_track_signature are present only when the profile stored them.",
           "A local season or movie pick always beats the server's preference."
         ],
         "evidenceSources": [
           "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
           "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/catalog/detail.go",
-          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/api/handlers/subtitle_prefs.go"
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/api/handlers/subtitle_prefs.go",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/apiv2/preferences.go"
         ],
         "implementationEvidence": [
           "src/providers/silo/SiloModelMapper.cpp",
           "src/providers/silo/SiloPlaybackProvider.cpp",
+          "src/network/PlaybackService.cpp",
           "src/player/PlaybackPolicy.cpp",
           "src/player/PlayerController.cpp"
         ]

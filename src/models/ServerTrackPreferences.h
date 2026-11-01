@@ -35,6 +35,10 @@ struct ServerTrackPreferences
 {
     /// The server's chosen audio track as Bloom's source stream index.
     int audioStreamIndex = -1;
+    /// The track the server resolves for the file even without a preference
+    /// (Silo always names one). It becomes audioStreamIndex once the server
+    /// confirms it stores a preference; the media source map never carries it.
+    int resolvedAudioStreamIndex = -1;
     /// Preferred audio language (a BCP 47 tag or ISO 639 code).
     QString audioLanguage;
     /// With an audio language, the file's default track still wins

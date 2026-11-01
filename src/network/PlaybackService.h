@@ -131,19 +131,32 @@ public:
 
     /// Remembers a track the user picked on the server so other devices
     /// follow (Silo only). Best-effort: a failure is only logged and never
-    /// touches the local choice. Writes for the same series and kind are sent
-    /// one at a time; while one is in flight only the newest waiting write is
-    /// kept, and a server or account switch drops it.
+    /// touches the local choice. Writes for the same content and kind are
+    /// sent one at a time; while one is in flight only the newest waiting
+    /// write is kept. A write picked under another account, profile or
+    /// server than the current one is dropped.
     virtual void writeTrackPreference(const TrackPreferenceWrite &write);
+    /// The server, account and profile a track preference write goes to;
+    /// empty when signed out.
+    virtual QString trackPreferenceWriteIdentity() const;
     /// The account's own language defaults on each source that carries no
     /// server preferences of its own (Jellyfin UserConfiguration).
     PlaybackInfoResponse withAccountPlaybackDefaults(PlaybackInfoResponse info) const;
+    /// Whether the server stores a track preference for the item (Silo
+    /// getAudioPreference), applied to `response` before `done` runs.
+    void readTrackPreference(const IPlaybackProvider *provider,
+                             const PlaybackInfoRequest &request,
+                             const PlaybackInfoResponse &response,
+                             std::function<void(const PlaybackInfoResponse &)> done);
 
     /// True when the active provider expires sessions that are started but
     /// not yet streamed (see IPlaybackProvider::queuedSessionsExpire).
     virtual bool queuedPlaybackSessionsExpire() const;
 
 signals:
+    // The account, profile or server track preference writes go to may have
+    // changed; writes picked under another one must be dropped.
+    void trackPreferenceIdentityChanged();
     // Playback info with media streams for track selection
     void playbackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
     void playbackDescriptorLoadedForRequest(const QString &itemId,

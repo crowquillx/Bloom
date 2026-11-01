@@ -1484,7 +1484,8 @@ FocusScope {
                     onTriggered: {
                         selectedAudioIndex = modelData.index
                         if (root.movieId) {
-                            PlayerController.setExplicitMovieAudioPreference(root.movieId, selectedAudioIndex)
+                            PlayerController.chooseMovieAudioTrack(root.movieId, currentMediaSource || ({}),
+                                                                   selectedAudioIndex)
                         }
                         contextMenu.close()
                     }
@@ -1509,7 +1510,8 @@ FocusScope {
                 onTriggered: {
                     selectedSubtitleIndex = -1
                     if (root.movieId) {
-                        PlayerController.setExplicitMovieSubtitlePreference(root.movieId, selectedSubtitleIndex)
+                        PlayerController.chooseMovieSubtitleTrack(root.movieId, currentMediaSource || ({}),
+                                                                  selectedSubtitleIndex)
                     }
                     contextMenu.close()
                 }
@@ -1533,7 +1535,8 @@ FocusScope {
                     onTriggered: {
                         selectedSubtitleIndex = modelData.index
                         if (root.movieId) {
-                            PlayerController.setExplicitMovieSubtitlePreference(root.movieId, selectedSubtitleIndex)
+                            PlayerController.chooseMovieSubtitleTrack(root.movieId, currentMediaSource || ({}),
+                                                                      selectedSubtitleIndex)
                         }
                         contextMenu.close()
                     }

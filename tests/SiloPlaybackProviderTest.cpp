@@ -128,6 +128,7 @@ private slots:
     void mapsWatchStateAndSeconds();
     void mapsServerTrackPreferences();
     void writesTrackPreferencesWithSiloIdentities();
+    void storedAudioPreferenceTrustsTheResolvedTrack();
     void replansAudioWithDurableRequestIdentity();
     void sequencesReportsAndFinalizesStop();
     void isolatesAccountsAndConnections();
@@ -323,6 +324,10 @@ void SiloPlaybackProviderTest::mapsServerTrackPreferences()
         context(), media(), QJsonObject { { "versions", QJsonArray { withUndecodable } } });
     QCOMPARE(parsed.response.mediaSources.first().serverTrackPreferences.audioStreamIndex, -1);
 
+    // The track Silo resolved is kept aside for the stored-preference read.
+    QCOMPARE(parsed.response.mediaSources.first().serverTrackPreferences.resolvedAudioStreamIndex,
+        1);
+
     // A stored language without a mode follows Silo's default mode, auto.
     parsed = provider.parsePlaybackInfoResponse(context(), media(),
         QJsonObject { { "versions", QJsonArray { version(0) } },
@@ -349,7 +354,7 @@ void SiloPlaybackProviderTest::writesTrackPreferencesWithSiloIdentities()
     source["mediaStreams"] = streams;
 
     TrackPreferenceWrite write;
-    write.seriesId = QStringLiteral("series/7");
+    write.contentId = QStringLiteral("series/7");
     write.mediaSource = source;
     write.streamIndex = 0;
     auto request = provider.createTrackPreferenceWriteRequest(write);
@@ -400,8 +405,78 @@ void SiloPlaybackProviderTest::writesTrackPreferencesWithSiloIdentities()
     write.streamIndex = 9;
     QVERIFY(!provider.createTrackPreferenceWriteRequest(write).isValid());
     write.streamIndex = 2;
-    write.seriesId.clear();
+    write.contentId.clear();
     QVERIFY(!provider.createTrackPreferenceWriteRequest(write).isValid());
+
+    // A movie's preference lives under the movie's own content ID.
+    write.contentId = QStringLiteral("movie:heat-1995");
+    request = provider.createTrackPreferenceWriteRequest(write);
+    QCOMPARE(request.endpoint, QStringLiteral("/api/v2/subtitle-prefs/movie%3Aheat-1995"));
+    write.kind = TrackPreferenceWrite::Kind::Audio;
+    write.streamIndex = 0;
+    request = provider.createTrackPreferenceWriteRequest(write);
+    QCOMPARE(request.endpoint, QStringLiteral("/api/v2/audio-prefs/movie%3Aheat-1995"));
+}
+
+void SiloPlaybackProviderTest::storedAudioPreferenceTrustsTheResolvedTrack()
+{
+    SiloPlaybackProvider provider;
+    const QJsonArray audio {
+        QJsonObject { { "codec", "truehd" }, { "language", "en" }, { "default", true } },
+        QJsonObject { { "codec", "aac" }, { "language", "ja" }, { "default", false } } };
+    const auto watch = [&](int effectiveAudio, const QJsonObject &item)
+    {
+        QJsonObject result = item;
+        result["versions"] = QJsonArray { QJsonObject { { "file_id", "file-1" },
+            { "audio_tracks", audio }, { "effective_audio_track_index", effectiveAudio } } };
+        return result;
+    };
+    const QJsonObject episode { { "content_id", "episode-2" }, { "type", "episode" },
+        { "series_id", "series-1" } };
+
+    // On season 1 the user picked the English track, which is also the file's
+    // default. On season 2 (or another device) Silo resolves to it again, and
+    // the watch response alone cannot tell it from no preference.
+    auto parsed = provider.parsePlaybackInfoResponse(context(), media(), watch(0, episode));
+    QVERIFY(parsed.valid);
+    QCOMPARE(parsed.response.trackPreferenceContentId, QStringLiteral("series-1"));
+    QCOMPARE(parsed.response.mediaSources.first().serverTrackPreferences.audioStreamIndex, -1);
+    const PlaybackInfoRequest read = provider.createTrackPreferenceReadRequest(parsed.response);
+    QVERIFY(read.isValid());
+    QCOMPARE(read.method, QStringLiteral("GET"));
+    QCOMPARE(read.endpoint, QStringLiteral("/api/v2/audio-prefs/series-1"));
+
+    // The series has a stored row: the resolved track is the profile's choice.
+    PlaybackInfoResponse stored = parsed.response;
+    provider.applyTrackPreferenceRead(stored, true);
+    QCOMPARE(stored.mediaSources.first().serverTrackPreferences.audioStreamIndex, 0);
+    QCOMPARE(stored.getMediaSourcesVariant()
+                 .first()
+                 .toMap()
+                 .value("serverTrackPreferences")
+                 .toMap()
+                 .value("audioStreamIndex")
+                 .toInt(),
+        0);
+    // No row (404): the file default stays no preference.
+    PlaybackInfoResponse missing = parsed.response;
+    provider.applyTrackPreferenceRead(missing, false);
+    QCOMPARE(missing.mediaSources.first().serverTrackPreferences.audioStreamIndex, -1);
+
+    // A track other than the fallback is the server's choice already (a
+    // profile-wide language), so nothing needs reading.
+    parsed = provider.parsePlaybackInfoResponse(context(), media(), watch(1, episode));
+    QCOMPARE(parsed.response.mediaSources.first().serverTrackPreferences.audioStreamIndex, 1);
+    QVERIFY(!provider.createTrackPreferenceReadRequest(parsed.response).isValid());
+
+    // A movie reads its own row; extras keep none.
+    parsed = provider.parsePlaybackInfoResponse(context(), media(),
+        watch(0, QJsonObject { { "content_id", "movie:heat-1995" }, { "type", "movie" } }));
+    QCOMPARE(provider.createTrackPreferenceReadRequest(parsed.response).endpoint,
+        QStringLiteral("/api/v2/audio-prefs/movie%3Aheat-1995"));
+    parsed = provider.parsePlaybackInfoResponse(context(), media(),
+        watch(0, QJsonObject { { "content_id", "extra-1" }, { "type", "extra" } }));
+    QVERIFY(!provider.createTrackPreferenceReadRequest(parsed.response).isValid());
 }
 
 void SiloPlaybackProviderTest::replansAudioWithDurableRequestIdentity()

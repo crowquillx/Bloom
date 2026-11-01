@@ -154,6 +154,9 @@ struct PlaybackInfoResponse
 public:
     QString playSessionId;
     QList<MediaSourceInfo> mediaSources;
+    // What the server keys this item's track preferences by (Silo: the
+    // series of an episode, or the movie); empty when it keeps none.
+    QString trackPreferenceContentId;
 
     [[nodiscard]] QVariantList getMediaSourcesVariant() const;
 };

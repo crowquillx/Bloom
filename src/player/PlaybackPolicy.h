@@ -108,10 +108,29 @@ struct ServerTrackChoice
     const Bloom::ServerTrackPreferences &server,
     const QString &audioLanguage);
 
+/// A local pick of stream `streamIndex` in `mediaSource`, as saved for its
+/// season or movie: the index plus what the track is (language, forced,
+/// hearing impaired, title, codec, channels). Subtitle index -1 is "off";
+/// any other negative index clears the pick.
+[[nodiscard]] TrackSelectionPreference explicitTrackPreference(const QVariantMap &mediaSource,
+                                                               int streamIndex,
+                                                               bool subtitle);
+/// The stream a saved local pick names in a file (`streams` of one type), or
+/// -1. The saved index wins only while its track is still the picked one;
+/// otherwise the track that best matches the pick does. Language, the forced
+/// flag and (subtitles) signs/songs versus full dialogue must match; title,
+/// hearing impaired, codec and channels rank the rest. A pick saved without what the track was (older
+/// Bloom) resolves by index alone.
+[[nodiscard]] int explicitStreamIndex(const QVariantList &streams,
+                                      const TrackSelectionPreference &preference,
+                                      bool subtitle);
+
 /// Picks the initial audio and subtitle track. For each kind, first match wins:
 ///   1. the request's own override (a pick carried into this request);
 ///   2. the explicit local choice for the season or movie
-///      (TrackPreferencesManager), so a local pick always beats the server;
+///      (TrackPreferencesManager, see explicitStreamIndex), so a local pick
+///      always beats the server; only a file with no matching track falls
+///      through;
 ///   3. the server's preferences (`serverTrackPreferences` on the source),
 ///      unless `useServerPreferences` is off;
 ///   4. Bloom's global defaults (`defaultAudioSelection`,

@@ -160,9 +160,6 @@ QVariantList PlaybackInfoResponse::getMediaSourcesVariant() const
         if (!source.serverTrackPreferences.isEmpty()) {
             sourceMap["serverTrackPreferences"] = source.serverTrackPreferences.toVariantMap();
         }
-        if (!source.serverTrackPreferences.isEmpty()) {
-            sourceMap["serverTrackPreferences"] = source.serverTrackPreferences.toVariantMap();
-        }
         result.append(sourceMap);
     }
     return result;

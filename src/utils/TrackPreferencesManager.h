@@ -21,6 +21,12 @@ struct TrackSelectionPreference
     bool forcedOnly = false;
     bool hearingImpaired = false;
     QString strategy;
+    // With preferredLanguage, forcedOnly and hearingImpaired, what the picked
+    // track was, so the pick finds the same track in a file whose stream
+    // indexes differ. channels is 0 when unknown.
+    QString title;
+    QString codec;
+    int channels = 0;
 
     [[nodiscard]] bool isMeaningful() const
     {
@@ -39,7 +45,10 @@ inline bool operator==(const TrackSelectionPreference &lhs, const TrackSelection
         && lhs.preferredLanguage == rhs.preferredLanguage
         && lhs.forcedOnly == rhs.forcedOnly
         && lhs.hearingImpaired == rhs.hearingImpaired
-        && lhs.strategy == rhs.strategy;
+        && lhs.strategy == rhs.strategy
+        && lhs.title == rhs.title
+        && lhs.codec == rhs.codec
+        && lhs.channels == rhs.channels;
 }
 
 struct ScopedTrackPreferences

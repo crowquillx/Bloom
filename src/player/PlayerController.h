@@ -410,6 +410,11 @@ public:
                                             const QVariantMap &mediaSource, int index);
     Q_INVOKABLE void chooseSeasonSubtitleTrack(const QString &seasonId, const QString &seriesId,
                                                const QVariantMap &mediaSource, int index);
+    // The same for a movie: saved for the movie and written back for it.
+    Q_INVOKABLE void chooseMovieAudioTrack(const QString &movieId, const QVariantMap &mediaSource,
+                                           int index);
+    Q_INVOKABLE void chooseMovieSubtitleTrack(const QString &movieId,
+                                              const QVariantMap &mediaSource, int index);
     Q_INVOKABLE void clearSeasonAudioPreference(const QString &seasonId);
     Q_INVOKABLE void clearSeasonSubtitlePreference(const QString &seasonId);
     Q_INVOKABLE void setExplicitMovieAudioPreference(const QString &movieId, int index);
@@ -829,18 +834,39 @@ private:
     void applySubtitleDelay();
     void persistSubtitleDelayForCurrentScope(int delayMs);
     int subtitleDelayForScope(const QString &seasonId, const QString &itemId, bool isMovie) const;
-    // userChoice is false when a failed stream change restores the previous
-    // track: that is no new pick, so it is saved locally only and cancels a
-    // write-back still waiting for the abandoned pick.
-    void persistAudioPreferenceForCurrentScope(int index, bool userChoice = true);
-    void persistSubtitlePreferenceForCurrentScope(int index, bool userChoice = true);
-    // Writes a user's episode pick back to the server after a short pause, so
-    // browsing through tracks sends only the last one. Skipped when server
-    // preferences are off or the item has no series.
-    void scheduleTrackPreferenceWrite(TrackPreferenceWrite::Kind kind, const QString &seriesId,
-                                      const QVariantMap &mediaSource, int index);
-    void cancelTrackPreferenceWrite(TrackPreferenceWrite::Kind kind);
+    // How a track saved for the current season or movie came about, which
+    // decides its write-back to the server.
+    enum class TrackPick {
+        User,               // a pick that already plays: written after a pause
+        UserAwaitingReplan, // a pick that needs a new stream: written once it plays
+        Restore,            // a refused pick undone: its waiting write is dropped,
+                            // and a write already sent is replaced by this track
+    };
+    void persistAudioPreferenceForCurrentScope(int index, TrackPick pick = TrackPick::User);
+    void persistSubtitlePreferenceForCurrentScope(int index, TrackPick pick = TrackPick::User);
+    void persistTrackPreferenceForCurrentScope(TrackPreferenceWrite::Kind kind, int index,
+                                               TrackPick pick);
+    void saveSeasonTrackPreference(const QString &seasonId, TrackPreferenceWrite::Kind kind,
+                                   const TrackSelectionPreference &preference);
+    void saveMovieTrackPreference(const QString &movieId, TrackPreferenceWrite::Kind kind,
+                                  const TrackSelectionPreference &preference);
+    // Writes a user's pick back to the server for the series (episodes) or
+    // the movie after a short pause, so browsing through tracks sends only
+    // the last one. Skipped when server preferences are off. A write keeps
+    // the account and profile it was picked under and is dropped if either
+    // changes or the setting turns off before it is sent.
+    void scheduleTrackPreferenceWrite(TrackPreferenceWrite::Kind kind, const QString &contentId,
+                                      const QVariantMap &mediaSource, int index,
+                                      bool awaitingReplan = false);
+    void cancelTrackPreferenceWrite(TrackPreferenceWrite::Kind kind, const QString &contentId);
+    void restoreTrackPreferenceWrite(TrackPreferenceWrite::Kind kind, const QString &contentId,
+                                     const QVariantMap &mediaSource, int index);
+    // Writes held for a stream change become due once no change is pending.
+    void releaseHeldTrackPreferenceWrites();
+    void dropHeldTrackPreferenceWrites();
+    void dropStaleTrackPreferenceWrites();
     void flushTrackPreferenceWrites();
+    [[nodiscard]] QString trackPreferenceWriteKey(const TrackPreferenceWrite &write) const;
     void updateSeasonPreference(const QString &seasonId,
                                 std::function<void(ScopedTrackPreferences &preferences)> updater);
     void updateMoviePreference(const QString &movieId,
@@ -889,7 +915,14 @@ private:
     static QString eventToString(Event event);
     [[nodiscard]] bool isRecoverableBackendPlaybackError(const QString &error) const;
     void fallbackToPendingAutoplayPlayback();
-    [[nodiscard]] int pendingAutoplaySubtitleOverrideIndex() const;
+    // The track the finished episode carries into the next one: only an
+    // explicit pick, and only into another season that has no pick of its
+    // own (in the same season the saved pick resolves by itself, which
+    // follows the track when the next file numbers it differently).
+    [[nodiscard]] int pendingAutoplayAudioOverrideIndex(const QString &targetSeasonId) const;
+    [[nodiscard]] int pendingAutoplaySubtitleOverrideIndex(const QString &targetSeasonId) const;
+    [[nodiscard]] bool pendingAutoplayCarriesInto(const QString &targetSeasonId,
+                                                  bool subtitle) const;
     void stopAutoplayPlaybackInfoWait();
     void armAutoplayPlaybackInfoWait();
     static qint64 resumePositionMs(const QVariantMap &item);
@@ -986,7 +1019,16 @@ private:
     QTimer *m_volumePersistTimer;
     QTimer *m_autoplayPlaybackInfoTimeoutTimer;
     QTimer *m_trackPreferenceWriteTimer = nullptr;
-    QList<TrackPreferenceWrite> m_pendingTrackPreferenceWrites;
+    struct PendingTrackPreferenceWrite
+    {
+        TrackPreferenceWrite write;
+        bool awaitingReplan = false;
+    };
+    // At most one per kind and content.
+    QList<PendingTrackPreferenceWrite> m_pendingTrackPreferenceWrites;
+    // The stream index last sent per account, kind and content, so undoing a
+    // pick that already reached the server writes the restored track.
+    QHash<QString, int> m_sentTrackPreferenceIndexes;
 
     // Audio output device hotplug handling
     Bloom::AudioOutputPlan m_audioPlan;
@@ -1117,6 +1159,7 @@ private:
     int m_pendingAutoplayAudioTrack = -1;
     int m_pendingAutoplaySubtitleTrack = -1;
     TrackPreferenceMode m_pendingAutoplaySubtitleMode = TrackPreferenceMode::Unset;
+    TrackPreferenceMode m_pendingAutoplayAudioMode = TrackPreferenceMode::Unset;
     double m_pendingAutoplayFramerate = 0.0;
     bool m_pendingAutoplayIsHDR = false;
     bool m_pendingAutoplayToneMapToSdr = false;

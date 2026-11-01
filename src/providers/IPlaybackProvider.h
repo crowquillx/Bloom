@@ -110,13 +110,18 @@ struct PlaybackReportRequest
     [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
 };
 
-/// A track the user picked on an episode, to remember on the server so other
-/// devices follow. Bloom's automatic selections never become one.
+/// A track the user picked, to remember on the server so other devices
+/// follow. Bloom's automatic selections never become one.
 struct TrackPreferenceWrite
 {
     enum class Kind { Audio, Subtitle };
     Kind kind = Kind::Audio;
-    QString seriesId;
+    // What the preference belongs to: the series of an episode, or the movie.
+    QString contentId;
+    // The account and profile the pick was made under
+    // (PlaybackService::trackPreferenceWriteIdentity); the write is dropped
+    // if they differ when it is sent.
+    QString requestIdentity;
     // The canonical media source the pick was made on.
     QVariantMap mediaSource;
     // Bloom's source stream index; -1 turns subtitles off.
@@ -269,8 +274,26 @@ public:
         return {};
     }
 
+    /// A read that tells whether the server stores a track preference for a
+    /// loaded item, or an invalid request when nothing depends on it.
+    virtual PlaybackInfoRequest createTrackPreferenceReadRequest(
+        const PlaybackInfoResponse &response) const
+    {
+        Q_UNUSED(response)
+        return {};
+    }
+
+    /// Applies that read: `stored` is true when the server answered with a
+    /// stored preference and false when it has none (404).
+    virtual void applyTrackPreferenceRead(PlaybackInfoResponse &response, bool stored) const
+    {
+        Q_UNUSED(response)
+        Q_UNUSED(stored)
+    }
+
     /// The request that remembers a track pick on the server, or an invalid
-    /// one when the provider keeps no writable per-series preference.
+    /// one when the provider keeps no writable per-series or per-movie
+    /// preference.
     virtual TrackPreferenceWriteRequest createTrackPreferenceWriteRequest(
         const TrackPreferenceWrite &write) const
     {

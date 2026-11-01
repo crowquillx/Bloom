@@ -264,26 +264,37 @@ int siloUnpreferredAudioOrdinal(const QJsonArray &audio)
     return candidates.isEmpty() ? -1 : candidates.first();
 }
 
-// Silo resolves every file to an audio track, falling back to the file's
-// default when the profile has no preference. Only a choice that differs from
-// that fallback is the server's own preference; otherwise Bloom's defaults
-// decide. effective_audio_track_index is a zero-based ordinal into
-// audio_tracks, which is also Bloom's audio stream index for Silo.
-int siloPreferredAudioStreamIndex(const QJsonObject &wireVersion, const QJsonArray &audio)
+// The audio track Silo resolves for the file, as Bloom's audio stream index.
+// effective_audio_track_index is a zero-based ordinal into audio_tracks,
+// which is also Bloom's audio stream index for Silo.
+int siloEffectiveAudioStreamIndex(const QJsonObject &wireVersion, const QJsonArray &audio)
 {
     const QJsonValue effective = wireVersion.value(QStringLiteral("effective_audio_track_index"));
     if (!effective.isDouble()) {
         return -1;
     }
     const int ordinal = effective.toInt(-1);
-    if (ordinal < 0 || ordinal >= audio.size() || !audio.at(ordinal).isObject()
-        || ordinal == siloUnpreferredAudioOrdinal(audio)) {
+    if (ordinal < 0 || ordinal >= audio.size() || !audio.at(ordinal).isObject()) {
         return -1;
     }
     const QJsonObject track = audio.at(ordinal).toObject();
     return track.contains(QStringLiteral("index"))
         ? track.value(QStringLiteral("index")).toInt(ordinal)
         : ordinal;
+}
+
+// Silo resolves every file to an audio track, falling back to the file's
+// default when the profile has no preference, and the watch response does not
+// say which. Until the series' or movie's own preference is read
+// (getAudioPreference), only a choice that differs from that fallback counts
+// as the server's (a profile-wide language); otherwise Bloom's defaults decide.
+int siloPreferredAudioStreamIndex(const QJsonObject &wireVersion, const QJsonArray &audio)
+{
+    const QJsonValue effective = wireVersion.value(QStringLiteral("effective_audio_track_index"));
+    if (!effective.isDouble() || effective.toInt(-1) == siloUnpreferredAudioOrdinal(audio)) {
+        return -1;
+    }
+    return siloEffectiveAudioStreamIndex(wireVersion, audio);
 }
 
 // Watch-level subtitle preferences. Silo sends each member only when the
@@ -1126,6 +1137,8 @@ PlaybackInfoResponse SiloModelMapper::playbackInfoFromVersions(const QJsonArray 
         }
         source.serverTrackPreferences.audioStreamIndex =
             siloPreferredAudioStreamIndex(wire, audio);
+        source.serverTrackPreferences.resolvedAudioStreamIndex =
+            siloEffectiveAudioStreamIndex(wire, audio);
         const QString streamUrl = wire.value(QStringLiteral("stream_url")).toString();
         source.directStreamUrl = streamUrl.isEmpty()
             ? wire.value(QStringLiteral("download_url")).toString()
@@ -1145,6 +1158,15 @@ PlaybackInfoResponse SiloModelMapper::playbackInfo(const QJsonObject &wireItem)
         && wireItem.value(QStringLiteral("playback_info")).isObject()) {
         applySiloSubtitlePreferences(
             wireItem.value(QStringLiteral("playback_info")).toObject(), subtitles);
+    }
+    // Silo keys track preferences by the series of an episode and by the
+    // movie itself; extras and other types keep none.
+    const QString seriesId = identityString(wireItem.value(QStringLiteral("series_id")));
+    if (!seriesId.isEmpty()) {
+        response.trackPreferenceContentId = seriesId;
+    } else if (wireItem.value(QStringLiteral("type")).toString() == QStringLiteral("movie")) {
+        response.trackPreferenceContentId =
+            identityString(wireItem.value(QStringLiteral("content_id")));
     }
     for (MediaSourceInfo &source : response.mediaSources) {
         source.serverTrackPreferences.subtitleMode = subtitles.subtitleMode;

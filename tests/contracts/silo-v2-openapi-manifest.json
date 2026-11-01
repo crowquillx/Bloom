@@ -1339,6 +1339,133 @@
     },
     {
       "method": "GET",
+      "path": "/api/v2/audio-prefs/{series_id}",
+      "operationId": "getAudioPreference",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "series_id",
+          "required": true,
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudioPreference"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
       "path": "/api/v2/auth/device/capability",
       "operationId": "getDeviceLoginCapability",
       "parameters": [
@@ -15152,6 +15279,43 @@
         "passthrough_codecs",
         "spatializer_enabled",
         "max_channels"
+      ],
+      "type": "object"
+    },
+    "AudioPreference": {
+      "additionalProperties": false,
+      "properties": {
+        "audio_language": {
+          "pattern": "^(?:[a-z]{2,3}(?:-[0-9A-Za-z]{1,8})*|x(?:-[0-9A-Za-z]{1,8})+)?$",
+          "type": "string"
+        },
+        "audio_track_index": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "profile_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "series_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "track_signature": {
+          "$ref": "#/components/schemas/AudioTrackSignature"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile_id",
+        "series_id",
+        "audio_track_index",
+        "audio_language",
+        "updated_at"
       ],
       "type": "object"
     },

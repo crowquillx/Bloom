@@ -18,6 +18,7 @@
 #include <QStringList>
 #include <QUuid>
 #include <QCryptographicHash>
+#include <optional>
 
 namespace {
 
@@ -119,6 +120,19 @@ PlaybackService::PlaybackService(AuthenticationService *authService,
     , m_mediaSegmentProviderService(mediaSegmentProviderService)
     , m_retryPolicy{3, 1000, true}
 {
+    if (m_authService) {
+        for (const auto signal : {&AuthenticationService::loggedOut,
+                                  &AuthenticationService::sessionExpired,
+                                  &AuthenticationService::userIdChanged,
+                                  &AuthenticationService::serverUrlChanged,
+                                  &AuthenticationService::providerSelectionChanged,
+                                  &AuthenticationService::profilesChanged,
+                                  &AuthenticationService::authSessionsChanged}) {
+            connect(m_authService, signal, this, &PlaybackService::trackPreferenceIdentityChanged);
+        }
+        connect(m_authService, &AuthenticationService::connectionActivated, this,
+                [this](const QString &) { emit trackPreferenceIdentityChanged(); });
+    }
 }
 
 PlaybackService::~PlaybackService() = default;
@@ -814,13 +828,35 @@ void PlaybackService::getPlaybackInfo(const QString &itemId, const QString &requ
                 endRequest(QStringLiteral("info"), itemId, requestContext, generation);
                 return;
             }
-            endRequest(QStringLiteral("info"), itemId, requestContext, generation);
-            const PlaybackInfoResponse withDefaults =
-                withAccountPlaybackDefaults(parsed.response);
-            emit playbackInfoLoaded(itemId, withDefaults);
-            if (!requestContext.isEmpty()) {
-                emit playbackInfoLoadedForRequest(itemId, withDefaults, requestContext);
+            const auto deliver = [this, itemId, requestContext, generation](
+                                     const PlaybackInfoResponse &response) {
+                endRequest(QStringLiteral("info"), itemId, requestContext, generation);
+                const PlaybackInfoResponse withDefaults = withAccountPlaybackDefaults(response);
+                emit playbackInfoLoaded(itemId, withDefaults);
+                if (!requestContext.isEmpty()) {
+                    emit playbackInfoLoadedForRequest(itemId, withDefaults, requestContext);
+                }
+            };
+            ConfigManager *config =
+                m_configManager ? m_configManager : m_authService->configManager();
+            const PlaybackInfoRequest preferenceRead =
+                !config || config->getUseServerTrackPreferences()
+                ? provider->createTrackPreferenceReadRequest(parsed.response)
+                : PlaybackInfoRequest{};
+            if (!preferenceRead.isValid() || !m_transport) {
+                deliver(parsed.response);
+                return;
             }
+            readTrackPreference(provider, preferenceRead, parsed.response,
+                [this, itemId, requestContext, generation, deliver](
+                    const PlaybackInfoResponse &response) {
+                    if (!isCurrentRequest(QStringLiteral("info"), itemId,
+                                          requestContext, generation)) {
+                        endRequest(QStringLiteral("info"), itemId, requestContext, generation);
+                        return;
+                    }
+                    deliver(response);
+                });
         },
         [this, itemId, requestContext, generation](const NetworkError &error) {
             if (isCurrentRequest(QStringLiteral("info"), itemId,
@@ -1504,6 +1540,58 @@ void PlaybackService::handleReportFailure(const IPlaybackProvider *provider,
     emit playbackSessionLost(report.playbackSessionId, loss == PlaybackSessionLoss::Ended);
 }
 
+void PlaybackService::readTrackPreference(
+    const IPlaybackProvider *provider,
+    const PlaybackInfoRequest &request,
+    const PlaybackInfoResponse &response,
+    std::function<void(const PlaybackInfoResponse &)> done)
+{
+    // Playback waits for this read, so any failure other than "no stored
+    // preference" leaves the response as the watch state described it.
+    const auto finish = [this, provider, response, done](std::optional<bool> stored) {
+        PlaybackInfoResponse result = response;
+        if (stored.has_value() && m_authService
+            && m_authService->playbackProvider() == provider) {
+            provider->applyTrackPreferenceRead(result, *stored);
+        }
+        done(result);
+    };
+    HttpRequestOptions options;
+    options.retryPolicy = m_retryPolicy;
+    options.retryPolicy.maxAttempts = qMin(options.retryPolicy.maxAttempts, 2);
+    options.retrySafety = RetrySafety::Idempotent;
+    options.unauthorizedPolicy = UnauthorizedPolicy::DeferSessionExpiry;
+    m_transport->sendWithRetry(
+        this,
+        request.endpoint,
+        [this, request]() -> QNetworkReply * {
+            return sendProviderRequest(request.endpoint, request.method, request.body);
+        },
+        [finish](QNetworkReply *reply) {
+            const int status =
+                reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (status == 404) {
+                finish(false);
+            } else if (reply->error() == QNetworkReply::NoError && status >= 200
+                       && status < 300) {
+                finish(true);
+            } else {
+                finish(std::nullopt);
+            }
+        },
+        [request, finish](const NetworkError &error) {
+            if (error.httpStatus == 404) {
+                finish(false);
+                return;
+            }
+            qCDebug(lcPlayback) << "Could not read the stored track preference"
+                                << "endpoint=" << request.endpoint
+                                << "httpStatus=" << error.httpStatus;
+            finish(std::nullopt);
+        },
+        options);
+}
+
 PlaybackInfoResponse PlaybackService::withAccountPlaybackDefaults(PlaybackInfoResponse info) const
 {
     const std::optional<Bloom::ServerTrackPreferences> defaults =
@@ -1519,6 +1607,16 @@ PlaybackInfoResponse PlaybackService::withAccountPlaybackDefaults(PlaybackInfoRe
     return info;
 }
 
+QString PlaybackService::trackPreferenceWriteIdentity() const
+{
+    const IPlaybackProvider *provider =
+        m_authService ? m_authService->playbackProvider() : nullptr;
+    if (!provider || !m_authService->isAuthenticated()) {
+        return {};
+    }
+    return playbackRequestIdentity(m_authService, m_configManager, providerContext(), provider);
+}
+
 void PlaybackService::writeTrackPreference(const TrackPreferenceWrite &write)
 {
     const IPlaybackProvider *provider =
@@ -1526,16 +1624,19 @@ void PlaybackService::writeTrackPreference(const TrackPreferenceWrite &write)
     if (!provider || !m_transport || !m_authService->isAuthenticated()) {
         return;
     }
+    const QString identity = trackPreferenceWriteIdentity();
+    if (!write.requestIdentity.isEmpty() && write.requestIdentity != identity) {
+        qCInfo(lcPlayback) << "Dropping a track preference picked under another account or profile";
+        return;
+    }
     const TrackPreferenceWriteRequest request = provider->createTrackPreferenceWriteRequest(write);
     if (!request.isValid()) {
         return;
     }
-    const QString identity =
-        playbackRequestIdentity(m_authService, m_configManager, providerContext(), provider);
     const QString key = identity + QChar(0x1f)
         + (write.kind == TrackPreferenceWrite::Kind::Audio ? QStringLiteral("audio")
                                                            : QStringLiteral("subtitle"))
-        + QChar(0x1f) + write.seriesId;
+        + QChar(0x1f) + write.contentId;
     if (m_trackPreferenceWritesInFlight.contains(key)) {
         m_queuedTrackPreferenceWrites.insert(key, write);
         return;

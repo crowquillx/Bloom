@@ -772,13 +772,49 @@ void insertText(QJsonObject &object, const QString &key, const QString &value)
 
 } // namespace
 
+PlaybackInfoRequest SiloPlaybackProvider::createTrackPreferenceReadRequest(
+    const PlaybackInfoResponse &response) const
+{
+    PlaybackInfoRequest request;
+    // The read matters only where the watch response's audio track was set
+    // aside as possibly no preference at all.
+    const bool undecided = std::any_of(response.mediaSources.cbegin(),
+        response.mediaSources.cend(), [](const MediaSourceInfo &source) {
+            const Bloom::ServerTrackPreferences &server = source.serverTrackPreferences;
+            return server.resolvedAudioStreamIndex >= 0
+                && server.resolvedAudioStreamIndex != server.audioStreamIndex;
+        });
+    if (!undecided || response.trackPreferenceContentId.trimmed().isEmpty())
+        return request;
+    // getAudioPreference: the stored row for the series or movie, else 404.
+    request.endpoint = QStringLiteral("/api/v2/audio-prefs/%1")
+                           .arg(QString::fromLatin1(
+                               QUrl::toPercentEncoding(response.trackPreferenceContentId)));
+    return request;
+}
+
+void SiloPlaybackProvider::applyTrackPreferenceRead(
+    PlaybackInfoResponse &response, bool stored) const
+{
+    if (!stored)
+        return;
+    // A stored row makes the resolved track the profile's own choice, even
+    // when it is the file's default track.
+    for (MediaSourceInfo &source : response.mediaSources)
+        if (source.serverTrackPreferences.resolvedAudioStreamIndex >= 0)
+            source.serverTrackPreferences.audioStreamIndex
+                = source.serverTrackPreferences.resolvedAudioStreamIndex;
+}
+
 TrackPreferenceWriteRequest SiloPlaybackProvider::createTrackPreferenceWriteRequest(
     const TrackPreferenceWrite &write) const
 {
     TrackPreferenceWriteRequest request;
-    if (write.seriesId.trimmed().isEmpty())
+    // Silo keys the preference by content: the series for an episode, the
+    // movie itself for a movie.
+    if (write.contentId.trimmed().isEmpty())
         return request;
-    const QString series = QString::fromLatin1(QUrl::toPercentEncoding(write.seriesId));
+    const QString content = QString::fromLatin1(QUrl::toPercentEncoding(write.contentId));
     if (write.kind == TrackPreferenceWrite::Kind::Audio)
     {
         // audio_track_index is the ordinal in the file's audio_tracks.
@@ -806,7 +842,7 @@ TrackPreferenceWriteRequest SiloPlaybackProvider::createTrackPreferenceWriteRequ
             preferenceLanguage(track.value("language").toString()));
         if (!signature.isEmpty())
             request.body.insert(QStringLiteral("track_signature"), signature);
-        request.endpoint = QStringLiteral("/api/v2/audio-prefs/%1").arg(series);
+        request.endpoint = QStringLiteral("/api/v2/audio-prefs/%1").arg(content);
     }
     else
     {
@@ -843,7 +879,7 @@ TrackPreferenceWriteRequest SiloPlaybackProvider::createTrackPreferenceWriteRequ
             insertText(request.body, QStringLiteral("subtitle_language"),
                 preferenceLanguage(language));
         }
-        request.endpoint = QStringLiteral("/api/v2/subtitle-prefs/%1").arg(series);
+        request.endpoint = QStringLiteral("/api/v2/subtitle-prefs/%1").arg(content);
     }
     // updateAudioPreference and updateSubtitlePreference are natural_idempotent.
     request.replaySafe = true;
