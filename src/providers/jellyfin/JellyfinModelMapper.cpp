@@ -1,10 +1,12 @@
 #include "JellyfinModelMapper.h"
 
 #include <QDateTime>
+#include <QUrl>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QUrlQuery>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -211,9 +213,60 @@ MediaStreamInfo JellyfinModelMapper::mediaStream(const QJsonObject &wireStream)
     if (info.isExternal
         && wireStream.value(QStringLiteral("DeliveryMethod")).toString().compare(
                QStringLiteral("External"), Qt::CaseInsensitive) == 0) {
-        info.externalUrl = wireStream.value(QStringLiteral("DeliveryUrl")).toString().trimmed();
+        const QString deliveryUrl = wireStream.value(QStringLiteral("DeliveryUrl")).toString().trimmed();
+        if (wireStream.value(QStringLiteral("IsExternalUrl")).toBool()) {
+            // For non-File sources (for example .strm items) Jellyfin hands
+            // back the stream's Path, which is often a disk path on the
+            // server. Only a web URL is loadable; anything else is left for
+            // the provider's GetSubtitle fallback, which reads it server-side.
+            const QUrl url(deliveryUrl);
+            const QString scheme = url.scheme().toLower();
+            if ((scheme == QStringLiteral("http") || scheme == QStringLiteral("https"))
+                && !url.host().isEmpty()) {
+                info.externalUrl = deliveryUrl;
+            }
+        } else {
+            // Server-relative delivery URLs carry the token of the session
+            // that asked for PlaybackInfo. The playback provider adds the
+            // current one, so the canonical model never holds a credential.
+            info.externalUrl = withoutQueryCredentials(deliveryUrl);
+        }
     }
     return info;
+}
+
+QString JellyfinModelMapper::withoutQueryCredentials(const QString &url)
+{
+    const qsizetype queryStart = url.indexOf(QLatin1Char('?'));
+    if (queryStart < 0) {
+        return url;
+    }
+    qsizetype queryEnd = url.indexOf(QLatin1Char('#'), queryStart);
+    if (queryEnd < 0) {
+        queryEnd = url.size();
+    }
+    static const QLatin1String credentialNames[] = {
+        QLatin1String("ApiKey"), QLatin1String("api_key"),
+        QLatin1String("X-Emby-Token"), QLatin1String("X-MediaBrowser-Token")};
+    QStringList kept;
+    const QStringList items = url.mid(queryStart + 1, queryEnd - queryStart - 1)
+                                  .split(QLatin1Char('&'));
+    for (const QString &item : items) {
+        const QString name = QUrl::fromPercentEncoding(item.section(QLatin1Char('='), 0, 0).toUtf8());
+        const bool isCredential = std::any_of(
+            std::begin(credentialNames), std::end(credentialNames),
+            [&name](QLatin1String credential) {
+                return name.compare(credential, Qt::CaseInsensitive) == 0;
+            });
+        if (!isCredential) {
+            kept.append(item);
+        }
+    }
+    QString result = url.left(queryStart);
+    if (!kept.isEmpty()) {
+        result += QLatin1Char('?') + kept.join(QLatin1Char('&'));
+    }
+    return result + url.mid(queryEnd);
 }
 
 MediaSourceInfo JellyfinModelMapper::mediaSource(const QJsonObject &wireSource)

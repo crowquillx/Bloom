@@ -781,7 +781,8 @@ private:
                                           const QString &displayTitle,
                                           const QString &language,
                                           int sourceStreamIndexHint,
-                                          bool select);
+                                          bool select,
+                                          bool loadInMpv = true);
     QVariantMap buildPlaybackVersionDialogModel(const QString &requestId) const;
     QString buildVersionSubtitle(const QVariantMap &mediaSource) const;
     /**

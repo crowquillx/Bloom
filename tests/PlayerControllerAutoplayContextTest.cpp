@@ -969,7 +969,7 @@ void PlayerControllerAutoplayContextTest::jellyfinDeliveryUrlSubtitleIsAddedToMp
     QCOMPARE(indexes, (QList<int>{2, 3, 4}));
     QVERIFY(!tracks.at(0).toMap().value(QStringLiteral("isExternal")).toBool());
     const QString englishUrl = QStringLiteral(
-        "https://media.example.test/Videos/movie-1/source-1/Subtitles/3/0/Stream.subrip?ApiKey=server-token");
+        "https://media.example.test/Videos/movie-1/source-1/Subtitles/3/0/Stream.subrip?ApiKey=secret-token");
     QCOMPARE(tracks.at(1).toMap().value(QStringLiteral("externalUrl")).toString(), englishUrl);
     QCOMPARE(segment.value(QStringLiteral("subtitleIndex")).toInt(), 3);
     QVERIFY(!segment.value(QStringLiteral("pinsSubtitleTrack")).toBool());
@@ -986,15 +986,10 @@ void PlayerControllerAutoplayContextTest::jellyfinDeliveryUrlSubtitleIsAddedToMp
     controller.m_playbackState = PlayerController::Playing;
     controller.queueActiveSegmentExternalSubtitleTracks();
 
-    // The other sidecar is added first; the selected one is added with select
-    // so it is the subtitle mpv shows.
-    QCOMPARE(backend.variantCommands.size(), 2);
-    const QVariantList alternate = backend.variantCommands.at(0);
-    QCOMPARE(alternate.at(0).toString(), QStringLiteral("sub-add"));
-    QVERIFY(alternate.at(1).toString().contains(QStringLiteral("/Subtitles/4/0/")));
-    QCOMPARE(alternate.at(2).toString(), QStringLiteral("auto"));
-    QCOMPARE(alternate.at(4).toString(), QStringLiteral("fra"));
-    const QVariantList selected = backend.variantCommands.at(1);
+    // Only the selected sidecar is loaded, with select so it is the subtitle
+    // mpv shows. The other one is registered and loaded when chosen.
+    QCOMPARE(backend.variantCommands.size(), 1);
+    const QVariantList selected = backend.variantCommands.at(0);
     QCOMPARE(selected.at(0).toString(), QStringLiteral("sub-add"));
     QCOMPARE(selected.at(1).toString(), englishUrl);
     QCOMPARE(selected.at(2).toString(), QStringLiteral("select"));
@@ -1002,7 +997,36 @@ void PlayerControllerAutoplayContextTest::jellyfinDeliveryUrlSubtitleIsAddedToMp
     QCOMPARE(selected.at(4).toString(), QStringLiteral("eng"));
     QCOMPARE(controller.m_pendingExternalSubtitleIndex, 3);
     QVERIFY(controller.m_externalSubtitleTrackMap.contains(3));
-    QVERIFY(controller.m_externalSubtitleTrackMap.contains(4));
+    QCOMPARE(controller.m_externalSubtitleTrackMap.value(4), -1);
+
+    // mpv reports the selected sidecar's sid, which is recorded.
+    controller.syncBackendSubtitleTrack(2);
+    QCOMPARE(controller.m_externalSubtitleTrackMap.value(3), 2);
+    QCOMPARE(controller.selectedSubtitleTrack(), 3);
+    backend.variantCommands.clear();
+
+    // Choosing the other sidecar loads it once, with select.
+    controller.setSelectedSubtitleTrack(4);
+    QList<QVariantList> subAdds;
+    for (const QVariantList &command : backend.variantCommands) {
+        if (command.value(0).toString() == QStringLiteral("sub-add")) {
+            subAdds.append(command);
+        }
+    }
+    QCOMPARE(subAdds.size(), 1);
+    QVERIFY(subAdds.first().at(1).toString().contains(QStringLiteral("/Subtitles/4/0/")));
+    QCOMPARE(subAdds.first().at(2).toString(), QStringLiteral("select"));
+    QCOMPARE(subAdds.first().at(4).toString(), QStringLiteral("fra"));
+    controller.syncBackendSubtitleTrack(3);
+    QCOMPARE(controller.m_externalSubtitleTrackMap.value(4), 3);
+    QCOMPARE(controller.selectedSubtitleTrack(), 4);
+
+    // Switching back uses the recorded sid instead of fetching the file again.
+    backend.variantCommands.clear();
+    controller.setSelectedSubtitleTrack(3);
+    for (const QVariantList &command : backend.variantCommands) {
+        QVERIFY(command.value(0).toString() != QStringLiteral("sub-add"));
+    }
 }
 
 void PlayerControllerAutoplayContextTest::autoplayRetainsDescriptorForLocalPreviews()
@@ -4664,18 +4688,17 @@ void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntil
     QVERIFY(controller.m_externalSubtitleTrackMap.contains(-1000));
     QVERIFY(controller.m_externalSubtitleTrackMap.contains(-1001));
     QVERIFY(controller.m_pendingExternalSubtitleTracks.isEmpty());
-    QCOMPARE(backend.variantCommands.size(), 2);
+    // Only the selected sidecar is loaded; the alternate is registered for later.
+    QCOMPARE(backend.variantCommands.size(), 1);
     QCOMPARE(backend.variantCommands.at(0).at(0).toString(), QStringLiteral("sub-add"));
     QCOMPARE(backend.variantCommands.at(0).at(1).toString(),
-             QStringLiteral("https://example.invalid/part-2-alternate.vtt"));
-    QCOMPARE(backend.variantCommands.at(0).at(2).toString(), QStringLiteral("auto"));
-    QCOMPARE(backend.variantCommands.at(1).at(1).toString(),
              QStringLiteral("https://example.invalid/part-2-selected.vtt"));
-    QCOMPARE(backend.variantCommands.at(1).at(2).toString(), QStringLiteral("select"));
+    QCOMPARE(backend.variantCommands.at(0).at(2).toString(), QStringLiteral("select"));
+    QCOMPARE(controller.m_externalSubtitleTrackMap.value(-1001), -1);
 
     // Re-emitting the same playlist position must not add duplicate subtitle tracks.
     controller.onPlaylistPositionChanged(1);
-    QCOMPARE(backend.variantCommands.size(), 2);
+    QCOMPARE(backend.variantCommands.size(), 1);
 }
 
 void PlayerControllerAutoplayContextTest::endFileErrorWhileLoadingFailsWithoutTimeout()

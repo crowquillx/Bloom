@@ -193,9 +193,10 @@ not branch the core catalog/playback contract by server version. In particular:
   aliases and the obsolete `deviceProfileId` from provider-supplied stream URLs;
   and
 - external subtitle files use the `DeliveryUrl` that PlaybackInfo returns for
-  the `External` subtitle profiles, kept as the server sent it (`ApiKey` is
-  added only when a same-origin URL has no credential). Without one, Bloom
-  uses the non-obsolete `GetSubtitle` route
+  the `External` subtitle profiles. On the server's origin its credential is
+  replaced by the session's current `ApiKey` and the rest of the query is kept
+  as sent; with `IsExternalUrl` only an http(s) URL is used. Without a usable
+  one, Bloom uses the non-obsolete `GetSubtitle` route
   `/Videos/{itemId}/{mediaSourceId}/Subtitles/{index}/Stream.{format}`.
 
 The checked-in live Jellyfin fixture remains the stable 10.11.10 control. On

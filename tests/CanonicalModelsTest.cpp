@@ -706,17 +706,40 @@ void CanonicalModelsTest::jellyfinExternalSubtitleDeliveryUrlReachesDescriptor()
                     QStringLiteral("https://subs.example.org/remote.vtt?token=foreign"))),
                 wireSubtitle(6, QStringLiteral("ssa"), external),
                 wireSubtitle(7, QStringLiteral("pgssub"), external),
-                wireSubtitle(8, QStringLiteral("srt"), withUrl(QStringLiteral("file:///srv/sub.srt")))
+                wireSubtitle(8, QStringLiteral("srt"), withUrl(QStringLiteral("file:///srv/sub.srt"))),
+                // A .strm item's sidecar: Jellyfin sends the server disk path.
+                wireSubtitle(9, QStringLiteral("subrip"), [&withUrl] {
+                    QJsonObject stream = withUrl(QStringLiteral("/mnt/media/Movie.en.srt"));
+                    stream.insert(QStringLiteral("IsExternalUrl"), true);
+                    return stream;
+                }()),
+                wireSubtitle(10, QStringLiteral("webvtt"), withUrl(
+                    QStringLiteral("/Videos/movie-1/source-1/Subtitles/10/0/Stream.vtt?api_key=old&v=2"))),
+                wireSubtitle(11, QStringLiteral("subrip"), [&withUrl] {
+                    QJsonObject stream = withUrl(QStringLiteral("https://cdn.example.org/m.srt?api_key=cdn"));
+                    stream.insert(QStringLiteral("IsExternalUrl"), true);
+                    return stream;
+                }())
             }}
         }}}
     });
     const QList<MediaStreamInfo> streams = parsed.mediaSources.first().mediaStreams;
-    QCOMPARE(streams.size(), 7);
+    QCOMPARE(streams.size(), 10);
     // Embedded streams keep no sidecar location, even if the server sent one.
     QVERIFY(streams.at(0).externalUrl.isEmpty());
+    // The canonical model never holds the PlaybackInfo session's credential;
+    // the rest of the query is untouched.
+    const QString queryWithoutCredential = QStringLiteral("sig=a%2Bb%3D&x=1+2");
     QCOMPARE(streams.at(1).externalUrl,
-             QStringLiteral("/Videos/movie-1/source-1/Subtitles/3/0/Stream.subrip?") + opaqueQuery);
+             QStringLiteral("/Videos/movie-1/source-1/Subtitles/3/0/Stream.subrip?")
+                 + queryWithoutCredential);
     QVERIFY(streams.at(4).externalUrl.isEmpty());
+    // A server disk path is not a URL mpv can load.
+    QVERIFY(streams.at(7).externalUrl.isEmpty());
+    QCOMPARE(streams.at(8).externalUrl,
+             QStringLiteral("/Videos/movie-1/source-1/Subtitles/10/0/Stream.vtt?v=2"));
+    // An external web URL is used as sent.
+    QCOMPARE(streams.at(9).externalUrl, QStringLiteral("https://cdn.example.org/m.srt?api_key=cdn"));
 
     const QVariantMap source = parsed.getMediaSourcesVariant().first().toMap();
     const QVariantList canonicalStreams = source.value(QStringLiteral("mediaStreams")).toList();
@@ -733,7 +756,7 @@ void CanonicalModelsTest::jellyfinExternalSubtitleDeliveryUrlReachesDescriptor()
     const JellyfinPlaybackProvider provider;
     const Bloom::PlaybackDescriptor descriptor = provider.createDescriptor(
         context, media, source, -1, 3, 0);
-    QCOMPARE(descriptor.subtitleTracks.size(), 7);
+    QCOMPARE(descriptor.subtitleTracks.size(), 10);
     const auto track = [&descriptor](int index) {
         for (const Bloom::PlaybackTrack &candidate : descriptor.subtitleTracks) {
             if (candidate.sourceIndex == index) {
@@ -747,8 +770,8 @@ void CanonicalModelsTest::jellyfinExternalSubtitleDeliveryUrlReachesDescriptor()
     QCOMPARE(track(2).trackId, QStringLiteral("2"));
     QVERIFY(track(2).externalUrl.isEmpty());
 
-    // Server-provided URL: resolved under the base path, query untouched and
-    // no second credential.
+    // Server-provided URL: resolved under the base path, the other query items
+    // untouched, and exactly one credential: the current session's.
     const Bloom::PlaybackTrack delivered = track(3);
     QVERIFY(delivered.isExternal);
     QCOMPARE(delivered.trackId, QStringLiteral("3"));
@@ -757,8 +780,10 @@ void CanonicalModelsTest::jellyfinExternalSubtitleDeliveryUrlReachesDescriptor()
     QCOMPARE(delivered.externalUrl.host(), QStringLiteral("media.example.test"));
     QCOMPARE(delivered.externalUrl.path(),
              QStringLiteral("/base/Videos/movie-1/source-1/Subtitles/3/0/Stream.subrip"));
-    QCOMPARE(delivered.externalUrl.query(QUrl::FullyEncoded), opaqueQuery);
+    QCOMPARE(delivered.externalUrl.query(QUrl::FullyEncoded),
+             queryWithoutCredential + QStringLiteral("&ApiKey=secret-token"));
     QCOMPARE(QUrlQuery(delivered.externalUrl).allQueryItemValues(QStringLiteral("ApiKey")).size(), 1);
+    Q_UNUSED(opaqueQuery);
 
     // Server URL without a credential gains the session's ApiKey.
     const Bloom::PlaybackTrack unsigned_ = track(4);
@@ -779,10 +804,25 @@ void CanonicalModelsTest::jellyfinExternalSubtitleDeliveryUrlReachesDescriptor()
     QCOMPARE(QUrlQuery(track(6).externalUrl).queryItemValue(QStringLiteral("ApiKey")),
              QStringLiteral("secret-token"));
 
-    // Graphical sidecars without a URL, and non-HTTP URLs, stay unselectable.
+    // Graphical sidecars without a URL stay unselectable.
     QVERIFY(track(7).isExternal);
     QVERIFY(track(7).externalUrl.isEmpty());
-    QVERIFY(track(8).externalUrl.isEmpty());
+
+    // A non-HTTP DeliveryUrl, or a server disk path, falls back to GetSubtitle,
+    // which reads the file server-side.
+    QCOMPARE(track(8).externalUrl.path(),
+             QStringLiteral("/base/Videos/movie-1/source-1/Subtitles/8/Stream.srt"));
+    QCOMPARE(track(9).externalUrl.path(),
+             QStringLiteral("/base/Videos/movie-1/source-1/Subtitles/9/Stream.subrip"));
+    QCOMPARE(QUrlQuery(track(9).externalUrl).queryItemValue(QStringLiteral("ApiKey")),
+             QStringLiteral("secret-token"));
+
+    // A legacy credential alias is replaced by ApiKey, as on the stream URL.
+    QCOMPARE(track(10).externalUrl.query(QUrl::FullyEncoded),
+             QStringLiteral("v=2&ApiKey=secret-token"));
+
+    // An external web URL keeps its own query and never gets the token.
+    QCOMPARE(track(11).externalUrl, QUrl(QStringLiteral("https://cdn.example.org/m.srt?api_key=cdn")));
 
     // mpv shows the selected sidecar, so the stream is not asked to burn it in.
     QVERIFY(!QUrlQuery(descriptor.stream.url).hasQueryItem(QStringLiteral("SubtitleStreamIndex")));

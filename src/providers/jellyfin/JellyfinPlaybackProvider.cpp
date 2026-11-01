@@ -61,19 +61,6 @@ bool sameOrigin(const QUrl &left, const QUrl &right)
         && port(left) == port(right);
 }
 
-bool hasQueryCredential(const QUrl &url)
-{
-    for (const auto &item : QUrlQuery(url).queryItems()) {
-        for (const QLatin1String name : {QLatin1String("ApiKey"), QLatin1String("api_key"),
-                 QLatin1String("X-Emby-Token"), QLatin1String("X-MediaBrowser-Token")}) {
-            if (item.first.compare(name, Qt::CaseInsensitive) == 0) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 // Text subtitle formats mpv loads as sidecar files. Jellyfin reports .srt and
 // .vtt files under either name, so both spellings are listed.
 const QStringList &sidecarSubtitleFormats()
@@ -85,9 +72,10 @@ const QStringList &sidecarSubtitleFormats()
 }
 
 // mpv fetches sidecars itself, so the URL has to carry its own credential.
-// The server's DeliveryUrl usually does; its query is kept byte for byte and
-// only gains ApiKey when it reaches the server without one. URLs on another
-// origin never receive the token.
+// On the server's origin any credential already in the query (ApiKey or a
+// legacy alias, which servers reject once legacy authorization is off) is
+// replaced by the current ApiKey; every other query item is kept byte for
+// byte. URLs on another origin never receive the token.
 QUrl externalSubtitleUrl(const PlaybackProviderContext &context,
                          const QString &providerUrl)
 {
@@ -100,10 +88,10 @@ QUrl externalSubtitleUrl(const PlaybackProviderContext &context,
         || url.host().isEmpty()) {
         return {};
     }
-    if (sameOrigin(url, context.serverUrl) && !context.accessToken.isEmpty()
-        && !hasQueryCredential(url)) {
-        QByteArray encoded = url.toEncoded(QUrl::RemoveFragment);
-        encoded += url.hasQuery() ? '&' : '?';
+    if (sameOrigin(url, context.serverUrl) && !context.accessToken.isEmpty()) {
+        QByteArray encoded = JellyfinModelMapper::withoutQueryCredentials(
+            QString::fromLatin1(url.toEncoded(QUrl::RemoveFragment))).toLatin1();
+        encoded += encoded.contains('?') ? '&' : '?';
         encoded += "ApiKey=" + QUrl::toPercentEncoding(context.accessToken);
         url = QUrl::fromEncoded(encoded);
     }
@@ -134,10 +122,11 @@ Bloom::PlaybackTrack mapTrack(const PlaybackProviderContext &context,
         const QString format = track.codec.trimmed().toLower();
         if (!deliveryUrl.isEmpty()) {
             track.externalUrl = externalSubtitleUrl(context, deliveryUrl);
-        } else if (index >= 0 && !media.itemId.isEmpty() && !mediaSourceId.isEmpty()
-                   && sidecarSubtitleFormats().contains(format)) {
-            // Without a DeliveryUrl, GetSubtitle serves the file unchanged
-            // when the requested format is the stream's own codec.
+        }
+        if (track.externalUrl.isEmpty() && index >= 0 && !media.itemId.isEmpty()
+            && !mediaSourceId.isEmpty() && sidecarSubtitleFormats().contains(format)) {
+            // Without a usable DeliveryUrl, GetSubtitle serves the file
+            // unchanged when the requested format is the stream's own codec.
             track.externalUrl = externalSubtitleUrl(
                 context,
                 QStringLiteral("/Videos/%1/%2/Subtitles/%3/Stream.%4")
