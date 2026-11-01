@@ -137,6 +137,7 @@ FocusScope {
         function onNextUpRewatchingChanged() { root.scheduleSettingsSavedToast() }
         function onNextUpCutoffDaysChanged() { root.scheduleSettingsSavedToast() }
         function onHomeFavoritesRowEnabledChanged() { root.scheduleSettingsSavedToast() }
+        function onHomeRecommendationsEnabledChanged() { root.scheduleSettingsSavedToast() }
         function onScreensaverEnabledChanged() { root.scheduleSettingsSavedToast() }
         function onScreensaverModeChanged() { root.scheduleSettingsSavedToast() }
         function onScreensaverTimeoutSecondsChanged() { root.scheduleSettingsSavedToast() }

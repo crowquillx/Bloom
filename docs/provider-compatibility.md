@@ -104,7 +104,7 @@ Home also shows the rows the profile curates in Silo (recommendations, Because Y
 - Without a `watchlist` row in the layout, Home adds a "Watchlist" row first, from the first 20 entries of `GET /api/v2/watchlist` (newest first). An empty watchlist adds no row; a failed read leaves the other rows.
 - Rows show their first page only; there is no "See all", as on Bloom's other Home rows. When `GET /api/v2/home/capabilities` reports `section_item_limit_max`, the read sends `item_limit=20` (or the server's maximum, if smaller), the same size as the Watchlist row. Silo's own rows default to 100 cards. Servers without that field reject `item_limit`, so the read goes uncapped. The capabilities are read once per connection; a failed read loads the rows uncapped and asks again on the next load. Next Up reads the layout separately and never sends `item_limit`, so no resume card is cut.
 
-Rows load in the background with the other Home rows and refresh with them: after playback, on returning to Home after 30 seconds, on a library-visibility change, and after a watchlist or Not interested change. A new Home (sign-in, profile or space switch) starts without rows. Merged spaces keep Bloom's own Home rows only, because a layout belongs to one Silo profile. Jellyfin has no curated layout (`ProviderCapability::HomeSections` is Silo-only); its Home gets a Favorites row instead (see [Jellyfin Home](#jellyfin-home)).
+Rows load in the background with the other Home rows and refresh with them: after playback, on returning to Home after 30 seconds, on a library-visibility change, and after a watchlist or Not interested change. A new Home (sign-in, profile or space switch) starts without rows. Merged spaces keep Bloom's own Home rows only, because a layout belongs to one Silo profile. Jellyfin has no curated layout (`ProviderCapability::HomeSections` is Silo-only); its Home gets a Favorites row and Jellyfin's movie recommendation rows instead (see [Jellyfin Home](#jellyfin-home)).
 
 Library pages offer the rows the profile curates for each library as shelves (`ProviderCapability::LibrarySections`, native Silo only). `LibraryService::getLibrarySections` reads `GET /api/v2/library/{id}/sections` (`listLibrarySections`) with the artwork widths and keeps the rows in the server's order. Every section type is kept, with only movie and series cards (`LibraryKinds`), once each per row; rows left empty are dropped. The read sends `item_limit=20` (or the server's smaller maximum) only when the Home capabilities report `section_item_limit_max`; it shares Home's cached capability read, so a connection reads the capabilities once for both, and a remembered cap the server rejects (`400`/`422`) is dropped and the rows are read once more without it. A row has more cards only when Bloom sent `item_limit`, the row came back with exactly that many items, and its `total_count` is larger (or it says `has_more`, which the pin sends only on Home reads). `total_count` alone is no such claim: it counts the section's whole set, past the section's own `item_limit`, which the items read does not exceed. Its other cards come from `GET /api/v2/library/{id}/sections/{section_id}/items` (`getLibrarySectionItems`), which takes no cap or cursor and answers the whole row, read once when focus nears the row's end. `getLibraryLayout` is not read: the sections read already carries each row's title, type and cards. Jellyfin has no curated library rows and shows only the grid.
 
@@ -341,6 +341,67 @@ both for Continue Watching and Next Up:
   A favorite toggled on a details page refreshes it, as a watchlist change
   refreshes Silo's rows. Merged spaces show no Favorites row, like Silo's
   curated rows.
+- Personalised movie rows follow the Favorites row when
+  `ConfigManager::homeRecommendationsEnabled` is on (the default) and the
+  provider reports `ProviderCapability::MovieRecommendations` (Jellyfin
+  only). `GET /Movies/Recommendations` (`GetMovieRecommendations`,
+  `ProviderCatalogOperation::MovieRecommendations`) is read once for each
+  movie library Home shows. It sends `UserId`, `ParentId`,
+  `CategoryLimit=4`, `ItemLimit=15` and
+  `Fields=Overview,ParentId,PrimaryImageAspectRatio`; the operation has no
+  image or user data switches, and the server adds user data for the user.
+  The answer is a bare `RecommendationDto` array. The adapter keeps each
+  category's `RecommendationType`, `BaselineItemName` and `CategoryId` with
+  its wire `Items`, and `LibraryService` maps the items. Home titles a row
+  by its type: `SimilarToRecentlyPlayed` "Because you watched %1",
+  `SimilarToLikedItem` "More like %1", `HasDirectorFromRecentlyPlayed` and
+  `HasLikedDirector` "Directed by %1", `HasActorFromRecentlyPlayed` and
+  `HasLikedActor` "Starring %1", with the baseline name for `%1`. Only
+  movie cards are kept; a row that repeats an earlier row's type and
+  baseline (from another library) is merged into it, and empty rows are
+  dropped ([view models](viewmodels.md#homesectionsviewmodel)). Each read
+  can fail alone and leaves the other rows; a failed library shows the
+  categories it answered last. Merged spaces show none, like the Favorites
+  row: the rows are per user and per server, and Bloom does not merge them
+  across members.
+- `ParentId` scopes only the seed titles (the played and liked movies).
+  Similar titles and people's films come from every library the user may
+  open, in 10.11 (`MoviesController.GetSimilarTo`, `GetWithDirector`,
+  `GetWithActor`) and in 12.x (`SimilarItemsManager`) alike, so a hidden
+  library's movies can be recommended. Bloom then reads, per shown movie
+  library, `GET /Items` (`GetItems`) with `UserId`, `ParentId`, `Ids` (at
+  most 60 recommended items per read), `Recursive=true`, `Limit`,
+  `EnableImages=false`, `EnableUserData=false` and
+  `EnableTotalRecordCount=false`, and keeps only the items found
+  (`ProviderCatalogOperation::LibraryMembership`). When that read fails,
+  only items an earlier read found in the same libraries stay.
+- Jellyfin 10.11.0 to 10.11.11 build the `SimilarTo*` categories without
+  the baseline (`GetSimilarTo` sets no `SimilarTo = item`, sort or
+  `ParentId`), so every "Because you watched" and "More like" row lists
+  the same arbitrary movies. 10.10 still set it, and jellyfin/jellyfin
+  `97c20e6ac` ("Fix movie recommendations", first in v12.0) fixed it. Bloom
+  reads `GET /System/Info/Public` (`GetPublicSystemInfo`,
+  `ProviderCatalogOperation::ServerInfo`) once per connection and keeps
+  those categories only for `Version` 10.10 and older or 12.0 and newer
+  (`HomeRecommendations::similarRowsWork`). A failed read hides them until
+  it succeeds. As a second guard, a `SimilarTo*` category whose items equal
+  those of a category with another title is dropped. Person rows always
+  stay.
+- The server picks its seeds at random, so Bloom keeps a read per
+  connection, user and set of shown movie libraries for 45 minutes and
+  reads again only on a new Home, after playback, and when the setting is
+  turned on. A favorite change re-reads the Favorites row only.
+- Silo's compatibility listener (pinned `8044eb8`) registers
+  `GET /Movies/Recommendations` but ignores `ParentId` (each library read
+  answers the same rows, which Bloom merges), approximates
+  `RecommendationType`, and puts its whole row label ("Top Rated", "For
+  You") in `BaselineItemName`, so Bloom's titles read oddly there. Its
+  `/System/Info/Public` answers `ProductName` "Jellyfin Server" and the
+  emulated version (12.1.0 by default), so Bloom cannot tell it from
+  Jellyfin and shows these rows there too. Latest Silo (`d31eecb`) scopes
+  `Ids` reads to `ParentId`; the pinned build was not checked. Native Silo
+  reports the operation unsupported; its own recommendation rows come with
+  the Home layout.
 - Silo's Jellyfin compatibility listener (pinned `8044eb8`) serves the same
   reads: it registers `GET /UserItems/Resume`, honors `enableResumable`
   and `nextUpDateCutoff` on Next Up, and filters `IsFavorite`. It honors

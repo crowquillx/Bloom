@@ -17,6 +17,7 @@
 
 #include "Types.h"  // Shared data structs and error helpers
 #include "providers/ICatalogProvider.h"
+#include "models/HomeRecommendations.h"
 
 class AuthenticationService;
 class ConfigManager;
@@ -215,10 +216,21 @@ public:
     // comes first when the layout has none and the watchlist is not empty.
     // Providers without ProviderCapability::Watchlist (Jellyfin) get a
     // Favorites row instead, when ConfigManager::homeFavoritesRowEnabled is
-    // on and a favorite movie or series exists. Providers without
-    // ProviderCapability::HomeSections answer no other rows.
-    // A newer call supersedes an older one.
-    Q_INVOKABLE virtual void getHomeSections();
+    // on and a favorite movie or series exists. Providers with
+    // ProviderCapability::MovieRecommendations (Jellyfin) add their
+    // personalised movie rows for each of movieLibraryIds (the movie
+    // libraries Home shows) last, when
+    // ConfigManager::homeRecommendationsEnabled is on (HomeRecommendations).
+    // Only items in those libraries are kept. The recommendations are
+    // reused for the same libraries for
+    // HomeRecommendations::CacheLifetimeMs unless reloadRecommendations
+    // asks to read them again; a library whose read fails shows what it
+    // answered last. Providers without ProviderCapability::HomeSections
+    // answer no other rows. A failed read leaves the others; only when
+    // every read fails and no row is left does it fail. A newer call
+    // supersedes an older one.
+    Q_INVOKABLE virtual void getHomeSections(const QStringList &movieLibraryIds = {},
+                                             bool reloadRecommendations = false);
     // Whether Home can show the Favorites row for the active provider (it
     // has no watchlist), whatever the setting.
     Q_INVOKABLE virtual bool supportsHomeFavoritesRow() const;
@@ -245,6 +257,9 @@ public:
     // index from the list's sort names. Other sorts, a Silo search, and a
     // server without the index fail with libraryLettersFailed.
     virtual void getLibraryLetters(const LibraryItemQuery &query);
+    // Whether Home can show recommendation rows for the active provider,
+    // whatever the setting.
+    Q_INVOKABLE virtual bool supportsHomeRecommendations() const;
     
     // Search. Libraries in excludedLibraryIds are left out: the remaining
     // libraries are searched one by one and their results interleaved.
@@ -528,9 +543,15 @@ private:
     void withSectionItemLimit(const QString &connectionId,
                               std::function<bool()> isCurrent,
                               std::function<void(int)> proceed);
+    // What getHomeSections was asked for Bloom's own rows.
+    struct HomeRowsRequest {
+        QStringList movieLibraryIds;
+        bool reloadRecommendations = false;
+    };
     // The profile's Home rows, each capped at itemLimitMax cards when it
     // is positive.
-    void readHomeSections(const QString &connectionId, quint64 generation, int itemLimitMax);
+    void readHomeSections(const QString &connectionId, quint64 generation, int itemLimitMax,
+                          const HomeRowsRequest &request);
     void readLibrarySections(const QString &connectionId, const QString &libraryId,
                              quint64 generation, int itemLimitMax);
     // The provider query for a library query, without paging cursors.
@@ -538,11 +559,25 @@ private:
     void readLibraryLetters(const QString &connectionId,
                             const ProviderCatalogQuery &providerQuery,
                             const QString &requestKey);
-    // Adds the Favorites row ahead of rows and publishes them, when Home
-    // shows one for this provider.
-    void publishHomeSectionsWithFavorites(const QString &connectionId,
+    // Adds Bloom's own rows to rows and publishes them: the Favorites row
+    // ahead and the recommendation rows of the request's movie libraries
+    // after, when Home shows them for this provider.
+    void publishHomeSectionsWithBloomRows(const QString &connectionId,
                                           quint64 generation,
-                                          const QVariantList &rows);
+                                          const QVariantList &rows,
+                                          const HomeRowsRequest &request);
+    // Reads the recommendations of libraryIds (and the server version,
+    // once per connection), keeps the items in those libraries, stores
+    // them under cacheKey and reports whether any library answered.
+    void readHomeRecommendations(const QString &connectionId,
+                                 quint64 generation,
+                                 const QString &cacheKey,
+                                 const QString &librarySet,
+                                 const QStringList &libraryIds,
+                                 std::function<void(bool, const QString &)> done);
+    // The stored recommendation rows for libraryIds, in their order.
+    QVariantList homeRecommendationRows(const QString &cacheKey,
+                                        const QStringList &libraryIds) const;
 
     QSet<QString> m_inFlightChapterRequests;
     QList<QPointer<HttpRequestHandle>> m_catalogRequests;
@@ -554,6 +589,21 @@ private:
     /// Per connection, the largest per-row card cap its Home layout read
     /// accepts (0 when it accepts none), once its capabilities were read.
     QHash<QString, int> m_homeSectionItemLimitMax;
+    /// The last recommendation read per connection and user: the shown
+    /// movie libraries it was for (sorted IDs), each library's categories
+    /// (kept when a later read of that library fails), the items found in
+    /// the shown libraries, whether "similar to" rows are real, and when
+    /// it was read (0: read again next time).
+    struct HomeRecommendationCache {
+        QString librarySet;
+        QHash<QString, QList<HomeRecommendations::Category>> categoriesByLibrary;
+        QSet<QString> allowedItemIds;
+        bool similarRowsWork = false;
+        qint64 fetchedAtMs = 0;
+    };
+    QHash<QString, HomeRecommendationCache> m_homeRecommendations;
+    /// Jellyfin PublicSystemInfo.Version per connection, once read.
+    QHash<QString, QString> m_serverVersions;
     // Not interested capability per connection and profile, and the reads
     // in flight with the request generation they were sent in. A read from
     // an older generation was cancelled and no longer blocks a new one.

@@ -2896,6 +2896,20 @@ bool ConfigManager::getHomeFavoritesRowEnabled() const
     return readHomeObject().value(QStringLiteral("favorites_row_enabled")).toBool(true);
 }
 
+void ConfigManager::setHomeRecommendationsEnabled(bool enabled)
+{
+    if (enabled == getHomeRecommendationsEnabled()) return;
+    QJsonObject home = readHomeObject();
+    home[QStringLiteral("recommendations_enabled")] = enabled;
+    writeHomeObject(home);
+    emit homeRecommendationsEnabledChanged();
+}
+
+bool ConfigManager::getHomeRecommendationsEnabled() const
+{
+    return readHomeObject().value(QStringLiteral("recommendations_enabled")).toBool(true);
+}
+
 void ConfigManager::setHeroBannerEnabled(bool enabled)
 {
     if (enabled == getHeroBannerEnabled()) return;

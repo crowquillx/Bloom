@@ -1553,6 +1553,10 @@ add_executable(ContinueWatchingTest ContinueWatchingTest.cpp)
 target_link_libraries(ContinueWatchingTest PRIVATE Bloom::Models Qt6::Test)
 add_test(NAME ContinueWatchingTest COMMAND ContinueWatchingTest)
 
+add_executable(HomeRecommendationsTest HomeRecommendationsTest.cpp)
+target_link_libraries(HomeRecommendationsTest PRIVATE Bloom::Models Qt6::Test)
+add_test(NAME HomeRecommendationsTest COMMAND HomeRecommendationsTest)
+
 add_executable(PosterBadgesTest PosterBadgesTest.cpp)
 target_link_libraries(PosterBadgesTest PRIVATE Bloom::Providers Qt6::Test)
 add_test(NAME PosterBadgesTest COMMAND PosterBadgesTest)

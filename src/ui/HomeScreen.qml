@@ -106,7 +106,7 @@ FocusScope {
     
     /// Refresh dynamic content (Next Up, Recently Added) without reloading libraries
     /// Call this after playback ends to update watch progress indicators
-    function refreshDynamicContent() {
+    function refreshDynamicContent(reloadRecommendations) {
         console.log("HomeScreen: Refreshing dynamic content")
         // Badge choices made in the Silo web app apply on the next refresh.
         PosterBadges.refresh()
@@ -125,8 +125,9 @@ FocusScope {
         for (var i = 0; i < librariesModel.length; i++) {
             LibraryService.getLatestMedia(librariesModel[i].itemId)
         }
-        // The profile's own Silo rows, or Jellyfin's Favorites row.
-        HomeSectionsViewModel.refresh()
+        // The profile's own Silo rows, or Jellyfin's Favorites and
+        // recommendation rows.
+        HomeSectionsViewModel.refresh(reloadRecommendations === true)
     }
 
     /// Reload Continue Watching and Next Up only (a Next Up option changed).
@@ -231,6 +232,11 @@ FocusScope {
     property string lastFocusedSection: ""
     property int lastFocusedIndex: 0
     property real lastContentY: 0  // Remember scroll position
+    // Position of the focused server row, for when a refresh removes it.
+    property int lastFocusedServerRow: 0
+    // Recommendation rows are read once per Home (then after playback and
+    // when their setting is turned on); other refreshes reuse them.
+    property bool recommendationsRequested: false
 
     // First activation lands on the hero. Hero content arrives after the
     // shelves load, so the first shelf holds provisional focus until then; any
@@ -346,6 +352,7 @@ FocusScope {
                 if (focusRow.list && focusRow.list.activeFocus) {
                     section = "serverRow:" + focusRow.sectionId
                     index = focusRow.list.currentIndex
+                    lastFocusedServerRow = j
                 }
             }
         }
@@ -391,13 +398,19 @@ FocusScope {
                 }
             }
         } else if (lastFocusedSection.indexOf("serverRow:") === 0) {
+            // The same row, or when a refresh removed it the row now in its
+            // place (or the last one above), else the last shelf above.
             var sectionId = lastFocusedSection.substring("serverRow:".length)
-            for (var j = 0; j < serverRowsRepeater.count; j++) {
-                var restoreRow = serverRowMeta(serverRowsRepeater.itemAt(j))
-                if (restoreRow.list && restoreRow.sectionId === sectionId) {
-                    targetList = restoreRow.list
-                    targetSection = restoreRow.item
-                    break
+            var rowIndex = HomeSectionsViewModel.restoreRowIndex(sectionId, lastFocusedServerRow)
+            var restoreRow = serverRowMeta(rowIndex >= 0 ? serverRowsRepeater.itemAt(rowIndex) : null)
+            if (restoreRow.list && restoreRow.item.visible) {
+                targetList = restoreRow.list
+                targetSection = restoreRow.item
+            } else {
+                var shelves = shelfLists()
+                if (shelves.length > 0) {
+                    targetList = shelves[shelves.length - 1]
+                    targetSection = targetList.parent
                 }
             }
         }
@@ -954,7 +967,8 @@ FocusScope {
             // Rows the Silo profile curates (recommendations, collections,
             // its watchlist...) that Bloom does not already show, in the
             // server's layout order, or the Favorites row for providers
-            // without a watchlist (Jellyfin). HomeSectionsViewModel picks them.
+            // without a watchlist and the recommendation rows (Jellyfin).
+            // HomeSectionsViewModel picks them.
             ColumnLayout {
                 id: serverRowsSection
                 opacity: root.shelfOpacity
@@ -1263,12 +1277,17 @@ FocusScope {
         librariesError = ""
         var orderedViews = orderLibraries(views)
         librariesModel = orderedViews
+        // Recommendation rows come from the movie libraries shown here.
+        HomeSectionsViewModel.setLibraries(orderedViews)
         heroProvider.rebuild()
         if (orderedViews.length > 0)
             Qt.callLater(root.applyInitialFocus)
 
-        // Next Up and Recently Added for each library
-        refreshDynamicContent()
+        // Next Up and Recently Added for each library. A new Home reads
+        // recommendations; a later views load (libraries shown or hidden)
+        // reuses them for the libraries it keeps.
+        refreshDynamicContent(!recommendationsRequested)
+        recommendationsRequested = true
 
         // Fetch a larger random pool from all available media for backdrop rotation.
         // Merged spaces draw it from the live session's source.
@@ -1475,12 +1494,27 @@ FocusScope {
             if (!root.mergedMode && AuthenticationService.authenticated)
                 HomeSectionsViewModel.refresh()
         }
+        function onHomeRecommendationsEnabledChanged() {
+            if (root.mergedMode || !AuthenticationService.authenticated)
+                return
+            // Off: the rows go at once, whatever the refresh answers. On:
+            // read them from the server.
+            if (!ConfigManager.homeRecommendationsEnabled)
+                HomeSectionsViewModel.removeRecommendationRows()
+            HomeSectionsViewModel.refresh(ConfigManager.homeRecommendationsEnabled)
+        }
     }
 
     Connections {
         target: SidebarSettings
         function onLibraryOrderChanged() {
             librariesModel = orderLibraries(librariesModel)
+            // Recommendation rows follow the library order.
+            if (root.mergedMode)
+                return
+            HomeSectionsViewModel.setLibraries(root.librariesModel)
+            if (AuthenticationService.authenticated)
+                HomeSectionsViewModel.refresh()
         }
     }
     
@@ -1498,7 +1532,8 @@ FocusScope {
         id: refreshTimer
         interval: 500  // 500ms delay for server to process playback report
         repeat: false
-        onTriggered: root.refreshDynamicContent()
+        // Playback changes what the server recommends.
+        onTriggered: root.refreshDynamicContent(true)
     }
 
     Timer {

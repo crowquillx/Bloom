@@ -19,10 +19,12 @@ public:
     const ICatalogProvider *catalogProvider() const override { return &m_catalogProvider; }
     bool supportsCapability(ProviderCapability capability) const override
     {
-        // Jellyfin's Next Up takes rewatching and a last-watched cutoff, and
-        // its resume list is a separate read.
+        // Jellyfin's Next Up takes rewatching and a last-watched cutoff, its
+        // resume list is a separate read, and it recommends movies per
+        // library.
         return capability == ProviderCapability::NextUpOptions
-            || capability == ProviderCapability::ResumeItems;
+            || capability == ProviderCapability::ResumeItems
+            || capability == ProviderCapability::MovieRecommendations;
     }
     std::optional<QString> endpointFor(
         ProviderRoute route, const ProviderRouteContext &context) const override
