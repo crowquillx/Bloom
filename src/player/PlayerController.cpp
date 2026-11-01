@@ -24,6 +24,8 @@
 #include <QDebug>
 #include <QLoggingCategory>
 #include <QMetaObject>
+#include <QMouseEvent>
+#include <QEvent>
 #include <QRectF>
 #include <QUuid>
 #include <QtGlobal>
@@ -183,6 +185,10 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
 
     // Connect to player backend signals
     connectBackendSignals(m_playerBackend);
+
+    m_sleepTimerTickTimer = new QTimer(this);
+    m_sleepTimerTickTimer->setInterval(1000);
+    connect(m_sleepTimerTickTimer, &QTimer::timeout, this, &PlayerController::onSleepTimerTick);
     
     // Connect to LibraryService for autoplay next episode
     connect(m_libraryService, &LibraryService::canonicalNextUnplayedEpisodeLoaded,
@@ -1316,6 +1322,19 @@ void PlayerController::onPauseChanged(bool paused)
         : segment.value(QStringLiteral("itemId")).toString();
     if (reportItemId.isEmpty()) return;
     
+    // Bloom never pauses or resumes on its own while playing, except for the
+    // sleep timer, so these transitions are user input. They are the only
+    // input Bloom can observe from the external mpv window.
+    if (paused && m_playbackState == Playing) {
+        if (std::exchange(m_sleepTimerPauseRequested, false)) {
+            qCDebug(lcPlayback) << "Sleep timer pause applied";
+        } else {
+            notePlaybackUserInput();
+        }
+    } else if (!paused && m_playbackState == Paused) {
+        notePlaybackUserInput();
+    }
+
     if (paused && m_playbackState == Playing) {
         processEvent(Event::Pause);
     } else if (!paused && m_playbackState == Paused) {
@@ -1468,9 +1487,12 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
 
     reportPlaybackStop();
 
+    const bool sleepTimerEndedPlayback = applySleepTimerAtTerminal(reason);
+
     if (reason != TerminalReason::Error) {
         const bool thresholdMet = checkCompletionThresholdAndAutoplay();
         if (thresholdMet && !m_currentSeriesId.isEmpty()
+            && !sleepTimerEndedPlayback
             && PlayerPolicy::playbackContentRules(m_currentContentKind).allowsUpNext) {
             m_shouldAutoplay = true;
             m_waitingForNextEpisodeAtPlaybackEnd = true;
@@ -2066,12 +2088,16 @@ void PlayerController::onNextEpisodeLoaded(const QString &connectionId,
     
     // Always emit navigateToNextEpisode to show the Up Next screen
     // The QML screen will handle autoplay countdown vs manual play
-    bool autoplay = m_config->getAutoplayNextEpisode();
+    const bool configuredAutoplay = m_config->getAutoplayNextEpisode();
+    const bool askStillWatching = configuredAutoplay && shouldAskStillWatchingForUpNext();
+    const bool autoplay = configuredAutoplay && !askStillWatching;
     
     qCDebug(lcPlayback) << "PlayerController: Emitting navigateToNextEpisode signal with autoplay:" 
-             << autoplay << "audio:" << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
+             << autoplay << "stillWatching:" << askStillWatching
+             << "audio:" << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
 
-    emitNavigateToNextEpisodeQueued(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay);
+    emitNavigateToNextEpisodeQueued(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay,
+                                    askStillWatching);
     
     // Note: Don't clear pending autoplay context here - playNextEpisode() needs it
 }
@@ -2651,6 +2677,23 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     if (itemId.isEmpty()) {
         qCWarning(lcPlayback) << "requestPlayback called without itemId";
         return;
+    }
+
+    // A retry, recovery or version switch continues the same playback; any
+    // other request is a new start for the still-watching count and the
+    // sleep timer. Up Next and the episode controls keep a running timer.
+    if (!request.value(QStringLiteral("continuesSession")).toBool()) {
+        m_autoplayChainCount = PlayerPolicy::autoplayChainCountAfterStart(
+            m_autoplayChainCount, request.value(QStringLiteral("startedByAutoplay")).toBool());
+        setStillWatchingPromptActive(false);
+        const bool continuesWatching = request.value(QStringLiteral("continuesWatching")).toBool();
+        const int choice = PlayerPolicy::sleepTimerChoiceForNewPlayback(
+            m_sleepTimerChoice, m_config ? m_config->getSleepTimerDefault() : 0, continuesWatching);
+        armSleepTimer(choice, continuesWatching && choice == m_sleepTimerChoice);
+        qCDebug(lcPlayback) << "Playback start"
+                            << "autoplayChainCount=" << m_autoplayChainCount
+                            << "sleepTimerChoice=" << m_sleepTimerChoice
+                            << "sleepTimerRemainingSeconds=" << m_sleepTimerRemainingSeconds;
     }
 
     // Only keep one pending explicit request at a time.
@@ -3727,7 +3770,8 @@ QString PlayerController::buildVersionSubtitle(const QVariantMap &mediaSource) c
  * @param episodeData Canonical episode model with camelCase fields and millisecond timing.
  * @param seriesId Series identifier associated with the episode (used for playback metadata).
  */
-void PlayerController::playNextEpisode(const QVariantMap &episodeData, const QString &seriesId)
+void PlayerController::playNextEpisode(const QVariantMap &episodeData, const QString &seriesId,
+                                       bool startedByAutoplay)
 {
     const QString episodeId = episodeData.value(QStringLiteral("itemId")).toString();
     const QString episodeName = episodeData.value(QStringLiteral("name")).toString();
@@ -3784,6 +3828,8 @@ void PlayerController::playNextEpisode(const QVariantMap &episodeData, const QSt
     request[QStringLiteral("useAffinityFallback")] = true;
     request[QStringLiteral("preferredAudioIndex")] = m_pendingAutoplayAudioTrack;
     request[QStringLiteral("preferredSubtitleIndex")] = pendingAutoplaySubtitleOverrideIndex();
+    request[QStringLiteral("startedByAutoplay")] = startedByAutoplay;
+    request[QStringLiteral("continuesWatching")] = true;
     requestPlayback(request);
 }
 
@@ -5134,7 +5180,8 @@ void PlayerController::requestAdjacentEpisodePlayback(const QVariantMap &episode
         {QStringLiteral("allowVersionPrompt"), false},
         {QStringLiteral("useAffinityFallback"), true},
         {QStringLiteral("preferredAudioIndex"), m_selectedAudioTrack},
-        {QStringLiteral("preferredSubtitleIndex"), subtitleOverride}
+        {QStringLiteral("preferredSubtitleIndex"), subtitleOverride},
+        {QStringLiteral("continuesWatching"), true}
     });
 }
 
@@ -6447,7 +6494,9 @@ void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
         return;
     }
 
-    const bool autoplay = m_config->getAutoplayNextEpisode();
+    const bool configuredAutoplay = m_config->getAutoplayNextEpisode();
+    const bool askStillWatching = configuredAutoplay && shouldAskStillWatchingForUpNext();
+    const bool autoplay = configuredAutoplay && !askStillWatching;
     const int lastAudioIndex = m_pendingAutoplayAudioTrack;
     const int lastSubtitleIndex = pendingAutoplaySubtitleOverrideIndex();
     const QString prefetchedSeriesId = m_prefetchedNextEpisodeSeriesId;
@@ -6463,7 +6512,8 @@ void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
                                     prefetchedSeriesId,
                                     lastAudioIndex,
                                     lastSubtitleIndex,
-                                    autoplay);
+                                    autoplay,
+                                    askStillWatching);
     clearNextEpisodePrefetchState();
 }
 
@@ -6471,10 +6521,14 @@ void PlayerController::emitNavigateToNextEpisodeQueued(const QVariantMap &episod
                                                        const QString &seriesId,
                                                        int lastAudioIndex,
                                                        int lastSubtitleIndex,
-                                                       bool autoplay)
+                                                       bool autoplay,
+                                                       bool stillWatchingPrompt)
 {
     QMetaObject::invokeMethod(this,
-                              [this, episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay]() {
+                              [this, episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay,
+                               stillWatchingPrompt]() {
+                                  // Main.qml reads the prompt state when it opens Up Next.
+                                  setStillWatchingPromptActive(stillWatchingPrompt);
                                   emit navigateToNextEpisode(episodeData,
                                                              seriesId,
                                                              lastAudioIndex,
@@ -6557,6 +6611,7 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplayToneMapToSdr = false;
     m_pendingAutoplayEpisodeData.clear();
     setAwaitingNextEpisodeResolution(false);
+    setStillWatchingPromptActive(false);
 }
 
 void PlayerController::releaseDeferredPostPlaybackDisplayRestore()
@@ -7935,4 +7990,244 @@ QString PlayerController::buildTrickplayPreviewDataUrl(const QString &binaryPath
     }
 
     return QStringLiteral("data:image/png;base64,%1").arg(QString::fromLatin1(pngBytes.toBase64()));
+}
+
+// ---- Still watching / sleep timer ----
+
+bool PlayerController::eventFilter(QObject *watched, QEvent *event)
+{
+    switch (event->type()) {
+    case QEvent::KeyPress:
+    case QEvent::MouseButtonPress:
+    case QEvent::Wheel:
+    case QEvent::TouchBegin:
+    case QEvent::TabletPress:
+        notePlaybackUserInput();
+        break;
+    case QEvent::MouseMove: {
+        // Scenes resend hover moves under a resting pointer; only a new
+        // position is movement. The first event only records where it is.
+        const QPointF position = static_cast<QMouseEvent *>(event)->globalPosition();
+        if (m_lastPointerPositionKnown && position != m_lastPointerGlobalPosition) {
+            notePlaybackUserInput();
+        }
+        m_lastPointerGlobalPosition = position;
+        m_lastPointerPositionKnown = true;
+        break;
+    }
+    default:
+        break;
+    }
+    return QObject::eventFilter(watched, event);
+}
+
+void PlayerController::notePlaybackUserInput()
+{
+    if (m_autoplayChainCount != PlayerPolicy::autoplayChainCountAfterUserInput()) {
+        qCDebug(lcPlayback) << "User input restarts the still-watching count"
+                            << "previousCount=" << m_autoplayChainCount;
+        m_autoplayChainCount = PlayerPolicy::autoplayChainCountAfterUserInput();
+    }
+    if (m_sleepTimerGraceActive) {
+        cancelSleepTimerGrace();
+    }
+}
+
+bool PlayerController::shouldAskStillWatchingForUpNext() const
+{
+    return PlayerPolicy::shouldAskStillWatching(m_autoplayChainCount,
+                                                m_config->getStillWatchingEpisodeThreshold());
+}
+
+void PlayerController::setStillWatchingPromptActive(bool active)
+{
+    if (m_stillWatchingPromptActive == active) {
+        return;
+    }
+    m_stillWatchingPromptActive = active;
+    emit stillWatchingPromptActiveChanged();
+}
+
+QVariantList PlayerController::sleepTimerChoices() const
+{
+    QVariantList choices;
+    for (const int choice : PlayerPolicy::sleepTimerChoices()) {
+        choices.append(choice);
+    }
+    return choices;
+}
+
+void PlayerController::setSleepTimer(int choice)
+{
+    armSleepTimer(choice, false);
+    qCInfo(lcPlayback) << "Sleep timer set"
+                       << "choice=" << m_sleepTimerChoice
+                       << "remainingSeconds=" << m_sleepTimerRemainingSeconds;
+
+    QString text;
+    switch (PlayerPolicy::sleepTimerKind(m_sleepTimerChoice)) {
+    case PlayerPolicy::SleepTimerKind::Off:
+        text = tr("Sleep timer off");
+        break;
+    case PlayerPolicy::SleepTimerKind::Duration:
+        text = tr("Sleep timer: %1 min").arg(m_sleepTimerChoice);
+        break;
+    case PlayerPolicy::SleepTimerKind::EndOfItem:
+        text = m_currentSeriesId.isEmpty() ? tr("Sleep timer: end of this movie")
+                                           : tr("Sleep timer: end of this episode");
+        break;
+    }
+    showSleepTimerOsd(text, 2000);
+}
+
+void PlayerController::cycleSleepTimer()
+{
+    const QList<int> choices = PlayerPolicy::sleepTimerChoices();
+    const int index = choices.indexOf(m_sleepTimerChoice);
+    setSleepTimer(choices.at((index + 1) % choices.size()));
+}
+
+void PlayerController::armSleepTimer(int choice, bool keepRemaining)
+{
+    m_sleepTimerChoice = PlayerPolicy::normalizeSleepTimerChoice(choice);
+    if (!keepRemaining) {
+        m_sleepTimerRemainingSeconds = PlayerPolicy::sleepTimerDurationSeconds(m_sleepTimerChoice);
+    }
+    m_sleepTimerGraceActive = false;
+    m_sleepTimerGraceRemainingSeconds = 0;
+    m_sleepTimerPauseRequested = false;
+    m_sleepTimerStopRequested = false;
+    updateSleepTimerTickTimer();
+    emit sleepTimerChanged();
+}
+
+void PlayerController::clearSleepTimer()
+{
+    if (m_sleepTimerChoice == PlayerPolicy::kSleepTimerOff && !m_sleepTimerGraceActive
+        && m_sleepTimerRemainingSeconds == 0) {
+        m_sleepTimerPauseRequested = false;
+        m_sleepTimerStopRequested = false;
+        updateSleepTimerTickTimer();
+        return;
+    }
+    armSleepTimer(PlayerPolicy::kSleepTimerOff, false);
+}
+
+void PlayerController::updateSleepTimerTickTimer()
+{
+    const bool needsTick = m_sleepTimerGraceActive
+        || PlayerPolicy::sleepTimerKind(m_sleepTimerChoice) == PlayerPolicy::SleepTimerKind::Duration;
+    if (!needsTick) {
+        m_sleepTimerTickTimer->stop();
+    } else if (!m_sleepTimerTickTimer->isActive()) {
+        m_sleepTimerTickTimer->start();
+    }
+}
+
+void PlayerController::onSleepTimerTick()
+{
+    if (m_sleepTimerGraceActive) {
+        m_sleepTimerGraceRemainingSeconds = std::max(0, m_sleepTimerGraceRemainingSeconds - 1);
+        emit sleepTimerChanged();
+        if (m_sleepTimerGraceRemainingSeconds <= 0) {
+            finishSleepTimerGrace();
+            return;
+        }
+        showSleepTimerOsd(tr("Sleep timer: playback stops in %1 s. Resume to keep watching.")
+                              .arg(m_sleepTimerGraceRemainingSeconds),
+                          1500);
+        return;
+    }
+
+    if (PlayerPolicy::sleepTimerKind(m_sleepTimerChoice) != PlayerPolicy::SleepTimerKind::Duration) {
+        updateSleepTimerTickTimer();
+        return;
+    }
+    // Only playing time counts: pauses, buffering and Up Next do not use it up.
+    if (m_playbackState != Playing) {
+        return;
+    }
+    m_sleepTimerRemainingSeconds = std::max(0, m_sleepTimerRemainingSeconds - 1);
+    emit sleepTimerChanged();
+    if (m_sleepTimerRemainingSeconds <= 0) {
+        fireSleepTimer();
+    }
+}
+
+void PlayerController::fireSleepTimer()
+{
+    qCInfo(lcPlayback) << "Sleep timer fired; pausing for the grace period"
+                       << "itemId=" << m_currentItemId
+                       << "graceSeconds=" << PlayerPolicy::kSleepTimerGraceSeconds;
+    m_sleepTimerGraceActive = true;
+    m_sleepTimerGraceRemainingSeconds = PlayerPolicy::kSleepTimerGraceSeconds;
+    if (m_playbackState == Playing || m_playbackState == Buffering) {
+        m_sleepTimerPauseRequested = true;
+        m_playerBackend->sendCommand({"set", "pause", "yes"});
+    }
+    updateSleepTimerTickTimer();
+    emit sleepTimerChanged();
+    showSleepTimerOsd(tr("Sleep timer: playback stops in %1 s. Resume to keep watching.")
+                          .arg(m_sleepTimerGraceRemainingSeconds),
+                      1500);
+}
+
+void PlayerController::cancelSleepTimerGrace()
+{
+    if (!m_sleepTimerGraceActive) {
+        return;
+    }
+    qCInfo(lcPlayback) << "Sleep timer grace cancelled by user input";
+    clearSleepTimer();
+    showSleepTimerOsd(tr("Sleep timer cancelled"), 2000);
+}
+
+void PlayerController::finishSleepTimerGrace()
+{
+    qCInfo(lcPlayback) << "Sleep timer grace ended; stopping playback"
+                       << "itemId=" << m_currentItemId;
+    clearSleepTimer();
+    m_sleepTimerStopRequested = true;
+    stop();
+    if (!m_terminalTransitionActive) {
+        m_sleepTimerStopRequested = false;
+    }
+}
+
+bool PlayerController::applySleepTimerAtTerminal(TerminalReason reason)
+{
+    const bool stoppedByTimer = std::exchange(m_sleepTimerStopRequested, false);
+    PlayerPolicy::SleepTimerPlaybackEnd end = PlayerPolicy::SleepTimerPlaybackEnd::Failed;
+    if (stoppedByTimer || reason == TerminalReason::Stop) {
+        end = PlayerPolicy::SleepTimerPlaybackEnd::Stopped;
+    } else if (reason == TerminalReason::PlaybackEnd) {
+        end = PlayerPolicy::SleepTimerPlaybackEnd::Finished;
+    }
+
+    const bool firesNow = PlayerPolicy::sleepTimerFiresAtPlaybackEnd(m_sleepTimerChoice, end);
+    if (firesNow) {
+        qCInfo(lcPlayback) << "Sleep timer reached the end of the item; skipping Up Next"
+                           << "itemId=" << m_currentItemId;
+    }
+    if (!PlayerPolicy::sleepTimerSurvivesPlaybackEnd(m_sleepTimerChoice, end)) {
+        clearSleepTimer();
+    } else if (m_sleepTimerGraceActive) {
+        // The paused item is gone; the next playback starts its grace over.
+        m_sleepTimerGraceActive = false;
+        m_sleepTimerGraceRemainingSeconds = 0;
+        m_sleepTimerPauseRequested = false;
+        updateSleepTimerTickTimer();
+        emit sleepTimerChanged();
+    }
+    return stoppedByTimer || firesNow;
+}
+
+void PlayerController::showSleepTimerOsd(const QString &text, int durationMs)
+{
+    // External mpv covers Bloom's window, so the timer speaks through mpv's
+    // OSD there; embedded backends show EmbeddedPlaybackOverlay instead.
+    if (!m_playerBackend || m_playerBackend->supportsEmbeddedVideo() || !m_playerBackend->isRunning()) {
+        return;
+    }
+    m_playerBackend->sendVariantCommand({QStringLiteral("show-text"), text, durationMs});
 }

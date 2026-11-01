@@ -12,6 +12,7 @@
 #include <QVariantMap>
 #include <QVariantList>
 #include <QPointer>
+#include <QPointF>
 #include <QtGlobal>
 #include <functional>
 #include <memory>
@@ -123,6 +124,15 @@ class PlayerController : public QObject
     // and the resolved device / exclusive-mode state. See docs/audio.md.
     Q_PROPERTY(QVariantList audioOutputOptions READ audioOutputOptions NOTIFY audioOutputStatusChanged)
     Q_PROPERTY(QVariantMap audioOutputStatus READ audioOutputStatus NOTIFY audioOutputStatusChanged)
+    // Up Next asks "Still watching?" instead of counting down (see
+    // Bloom::PlaybackPolicy::shouldAskStillWatching).
+    Q_PROPERTY(bool stillWatchingPromptActive READ stillWatchingPromptActive NOTIFY stillWatchingPromptActiveChanged)
+    // Sleep timer: 0 off, -1 end of the current item, otherwise minutes.
+    Q_PROPERTY(int sleepTimerChoice READ sleepTimerChoice NOTIFY sleepTimerChanged)
+    Q_PROPERTY(QVariantList sleepTimerChoices READ sleepTimerChoices CONSTANT)
+    Q_PROPERTY(int sleepTimerRemainingSeconds READ sleepTimerRemainingSeconds NOTIFY sleepTimerChanged)
+    Q_PROPERTY(bool sleepTimerGraceActive READ sleepTimerGraceActive NOTIFY sleepTimerChanged)
+    Q_PROPERTY(int sleepTimerGraceRemainingSeconds READ sleepTimerGraceRemainingSeconds NOTIFY sleepTimerChanged)
 
 public:
     /// Playback states for the state machine
@@ -260,7 +270,10 @@ public:
     /// Play the next episode from the Up Next screen.
     /// @param episodeData Canonical episode model with camelCase fields and millisecond timing.
     /// @param seriesId The series this episode belongs to.
-    Q_INVOKABLE void playNextEpisode(const QVariantMap &episodeData, const QString &seriesId);
+    /// @param startedByAutoplay True when the Up Next countdown ran out; any
+    /// button press (Play, Continue, a card) is a manual start.
+    Q_INVOKABLE void playNextEpisode(const QVariantMap &episodeData, const QString &seriesId,
+                                     bool startedByAutoplay = false);
     /**
      * @brief Clears any stored pending autoplay context.
      *
@@ -299,6 +312,26 @@ public:
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
     Q_INVOKABLE void togglePause();
+
+    // ---- Still watching / sleep timer ----
+    bool stillWatchingPromptActive() const { return m_stillWatchingPromptActive; }
+    int autoplayChainCount() const { return m_autoplayChainCount; }
+    int sleepTimerChoice() const { return m_sleepTimerChoice; }
+    QVariantList sleepTimerChoices() const;
+    int sleepTimerRemainingSeconds() const { return m_sleepTimerRemainingSeconds; }
+    bool sleepTimerGraceActive() const { return m_sleepTimerGraceActive; }
+    int sleepTimerGraceRemainingSeconds() const { return m_sleepTimerGraceRemainingSeconds; }
+    /// User input (key, button, click, wheel, pointer movement, controller
+    /// action, or a pause/resume made in the external mpv window). Restarts
+    /// the "Still watching?" episode count and cancels a sleep-timer grace
+    /// countdown.
+    Q_INVOKABLE void notePlaybackUserInput();
+    /// Arms (or with 0, turns off) the sleep timer for the current playback.
+    Q_INVOKABLE void setSleepTimer(int choice);
+    /// Moves to the next sleep-timer choice (the remote action without a menu).
+    Q_INVOKABLE void cycleSleepTimer();
+    /// Ends the grace countdown and keeps playback paused; the timer is off.
+    Q_INVOKABLE void cancelSleepTimerGrace();
     Q_INVOKABLE void seek(double seconds);
     Q_INVOKABLE void seekRelative(double seconds);
     Q_INVOKABLE void skipIntro();
@@ -418,6 +451,8 @@ signals:
     /// Emitted when playback has stopped (user stop, playback end, or error)
     /// Use this to refresh UI elements that depend on playback state (e.g., watch progress)
     void playbackStopped();
+    void stillWatchingPromptActiveChanged();
+    void sleepTimerChanged();
     
     /// Emitted when autoplay is about to start the next episode
     /// @param episodeName The name of the next episode
@@ -433,6 +468,11 @@ signals:
                                int lastAudioIndex, int lastSubtitleIndex, bool autoplay);
     void playbackVersionSelectionRequested(const QString &requestId, const QVariantMap &dialogModel,
                                            QObject *restoreFocusTarget);
+
+protected:
+    // Installed on the application (ApplicationInitializer) to observe user
+    // input for the still-watching count and the sleep-timer grace period.
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void onProcessStateChanged(bool running);
@@ -526,6 +566,22 @@ private:
         Error
     };
 
+    // ---- Still watching / sleep timer helpers ----
+    void setStillWatchingPromptActive(bool active);
+    /// Whether the Up Next screen about to open asks "Still watching?"
+    /// instead of counting down.
+    bool shouldAskStillWatchingForUpNext() const;
+    void armSleepTimer(int choice, bool keepRemaining);
+    void clearSleepTimer();
+    void onSleepTimerTick();
+    void fireSleepTimer();
+    void finishSleepTimerGrace();
+    void updateSleepTimerTickTimer();
+    /// Sleep-timer bookkeeping for a terminal transition; true when the
+    /// timer ended this playback and Up Next must not open.
+    bool applySleepTimerAtTerminal(TerminalReason reason);
+    void showSleepTimerOsd(const QString &text, int durationMs);
+
     struct PendingPlaybackRequest;
     using HdrPlaybackPolicy = Bloom::PlaybackPolicy::HdrPlaybackPolicy;
     // State machine
@@ -613,7 +669,8 @@ private:
      */
     void stashPendingAutoplayContext();
     void emitNavigateToNextEpisodeQueued(const QVariantMap &episodeData, const QString &seriesId,
-                                         int lastAudioIndex, int lastSubtitleIndex, bool autoplay);
+                                         int lastAudioIndex, int lastSubtitleIndex, bool autoplay,
+                                         bool stillWatchingPrompt = false);
     /**
      * Set whether the controller is currently awaiting resolution of the next-episode decision.
      * @param awaiting `true` when awaiting next-episode resolution, `false` otherwise.
@@ -997,6 +1054,21 @@ private:
     bool m_reportProgressOnNextPositionUpdate = false;
     qint64 m_startPositionMs = 0;
     bool m_shouldAutoplay = false;  // Flag to trigger autoplay on next episode loaded
+    // Episodes the Up Next countdown started in a row without user input.
+    int m_autoplayChainCount = 0;
+    bool m_stillWatchingPromptActive = false;
+    bool m_lastPointerPositionKnown = false;
+    QPointF m_lastPointerGlobalPosition;
+    // Sleep timer. Duration timers count playing time only.
+    int m_sleepTimerChoice = 0;
+    int m_sleepTimerRemainingSeconds = 0;
+    bool m_sleepTimerGraceActive = false;
+    int m_sleepTimerGraceRemainingSeconds = 0;
+    // The pause/stop the timer itself sent; neither counts as user input
+    // nor (for the stop) leads into Up Next.
+    bool m_sleepTimerPauseRequested = false;
+    bool m_sleepTimerStopRequested = false;
+    QTimer *m_sleepTimerTickTimer = nullptr;
     // QML-visible/property-facing flag for waiting on next-episode resolution callbacks.
     bool m_awaitingNextEpisodeResolution = false;
     // Internal playback-end flow gate used to act only on expected post-end next-episode events.

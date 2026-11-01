@@ -43,12 +43,13 @@ Keyboard defaults
 | Volume Panel (`playback.volumePanel`) | Playback | V |
 | Audio Selector (`playback.audioSelector`) | Playback | A |
 | Subtitle Selector (`playback.subtitleSelector`) | Playback | S, T, C |
+| Sleep Timer (`playback.sleepTimer`) | Playback | None |
 | Subtitle Style Override (`playback.subtitleOverride`) | Advanced Playback | K |
 | Deband (`playback.deband`) | Advanced Playback | B |
 | Stats (`playback.stats`) | Advanced Playback | I |
 | Stats Once (`playback.statsOnce`) | Advanced Playback | Shift+I |
 
-- Playback navigation/select/back, previous/next chapter, skip segment, mute, and audio/subtitle cycling have no keyboard default.
+- Playback navigation/select/back, previous/next chapter, skip segment, mute, audio/subtitle cycling, and the sleep timer have no keyboard default. `playback.sleepTimer` opens the Sleep Timer page of the playback settings pop-out; under external mpv, which has no Bloom overlay, it steps through the choices and shows each on mpv's OSD.
 - Fixed playback keys that are not actions: Esc dismisses the playback overlay or stops playback, Return/Enter triggers an active skip prompt or brings up the controls, Left/Right seek 10 seconds (or move overlay focus), Up/Down move overlay focus, and 0-9 open mpv stats pages. Each of these yields to a user binding of the same key in the playback context.
 - F11 and Alt+Enter toggle fullscreen everywhere.
 
@@ -57,6 +58,9 @@ Card actions
 - The menu is a `BloomMenu`: Up/Down move (disabled actions are skipped), Select runs an action, and Back/Esc closes it. Focus starts on the card's first action and returns to the card, or after a removal to the card that took its place (the shelf below if the row emptied). A shelf refresh never takes focus from the open menu, another shelf, or the navigation bar.
 - "Stop watching ‹series›" on a Silo episode asks first in a dialog (Cancel takes focus), because the server drops the whole show from both rows and also on the watch services connected to the profile, such as Trakt.
 - While a removal can be undone, "Undo removal" ends the menu, and the actions key anywhere on Home opens a menu with just that entry. The undo toast names the key ("To undo, press Start and choose Undo removal", from the current `nav.menu` binding: the controller's when one is connected, else the keyboard's), and its timeout waits while the menu or the dialog is open. Picking Undo after it expired says it can no longer be undone. The toast's Undo button is for the pointer and takes no keyboard focus.
+
+Input observed for playback
+- `PlayerController` filters application events to restart the "Still watching?" episode count and to cancel a sleep-timer grace countdown: key presses (including keys synthesized for controller navigation), mouse button presses, wheel, touch and tablet presses, and pointer movement to a new position. Controller playback actions count through `actionTriggeredWithContext`. Under external mpv only a pause or resume in mpv's window is visible to Bloom. See [Still watching? and the sleep timer](playback.md).
 
 Settings UI
 - Settings > Input edits bindings by context and device.

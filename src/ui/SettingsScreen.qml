@@ -100,6 +100,8 @@ FocusScope {
         function onAudioOutputDeviceChanged() { root.scheduleSettingsSavedToast() }
         function onAutoplayNextEpisodeChanged() { root.scheduleSettingsSavedToast() }
         function onAutoplayCountdownSecondsChanged() { root.scheduleSettingsSavedToast() }
+        function onStillWatchingEpisodeThresholdChanged() { root.scheduleSettingsSavedToast() }
+        function onSleepTimerDefaultChanged() { root.scheduleSettingsSavedToast() }
         function onAutoSkipIntroChanged() { root.scheduleSettingsSavedToast() }
         function onAutoSkipOutroChanged() { root.scheduleSettingsSavedToast() }
         function onBackdropRotationIntervalChanged() { root.scheduleSettingsSavedToast() }

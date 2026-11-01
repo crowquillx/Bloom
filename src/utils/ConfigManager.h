@@ -104,6 +104,8 @@ class ConfigManager : public QObject
     Q_PROPERTY(int playbackCacheSizeMB READ getPlaybackCacheSizeMB WRITE setPlaybackCacheSizeMB NOTIFY playbackCacheSizeMBChanged)
     Q_PROPERTY(QString startupBufferingMode READ getStartupBufferingMode WRITE setStartupBufferingMode NOTIFY startupBufferingModeChanged)
     Q_PROPERTY(QString playbackVersionPreference READ getPlaybackVersionPreference WRITE setPlaybackVersionPreference NOTIFY playbackVersionPreferenceChanged)
+    Q_PROPERTY(int stillWatchingEpisodeThreshold READ getStillWatchingEpisodeThreshold WRITE setStillWatchingEpisodeThreshold NOTIFY stillWatchingEpisodeThresholdChanged)
+    Q_PROPERTY(int sleepTimerDefault READ getSleepTimerDefault WRITE setSleepTimerDefault NOTIFY sleepTimerDefaultChanged)
     Q_PROPERTY(bool serverTrickplayEnabled READ getServerTrickplayEnabled WRITE setServerTrickplayEnabled NOTIFY serverTrickplayEnabledChanged)
     Q_PROPERTY(bool localSeekPreviewsEnabled READ getLocalSeekPreviewsEnabled WRITE setLocalSeekPreviewsEnabled NOTIFY localSeekPreviewsEnabledChanged)
     Q_PROPERTY(int backdropRotationInterval READ getBackdropRotationInterval WRITE setBackdropRotationInterval NOTIFY backdropRotationIntervalChanged)
@@ -330,6 +332,14 @@ public:
     QString getStartupBufferingMode() const;
     void setPlaybackVersionPreference(const QString &preference);
     QString getPlaybackVersionPreference() const;
+    // Episodes the Up Next countdown may start in a row without input
+    // before asking "Still watching?": 0 (off) or 2-5, default 3.
+    void setStillWatchingEpisodeThreshold(int episodes);
+    int getStillWatchingEpisodeThreshold() const;
+    // Sleep timer each new playback starts with: 0 (off, default), -1 (end
+    // of the episode or movie), or 15/30/45/60/90 minutes.
+    void setSleepTimerDefault(int choice);
+    int getSleepTimerDefault() const;
     void setServerTrickplayEnabled(bool enabled);
     bool getServerTrickplayEnabled() const;
     void setLocalSeekPreviewsEnabled(bool enabled);
@@ -622,6 +632,8 @@ signals:
     void autoRecoverPlaybackChanged();
     void startupBufferingModeChanged();
     void playbackVersionPreferenceChanged();
+    void stillWatchingEpisodeThresholdChanged();
+    void sleepTimerDefaultChanged();
     void serverTrickplayEnabledChanged();
     void localSeekPreviewsEnabledChanged();
     void libraryStartupBufferingModesChanged();

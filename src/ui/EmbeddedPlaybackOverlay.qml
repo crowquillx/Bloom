@@ -43,8 +43,9 @@ FocusScope {
     property bool chapterMode: false
     property int focusedChapterIndex: -1
 
-    // One settings pop-out holds subtitles, audio, quality and audio output.
-    // Pages: "root", "subtitles", "audio", "quality", "output".
+    // One settings pop-out holds subtitles, audio, quality, audio output and
+    // the sleep timer. Pages: "root", "subtitles", "audio", "quality",
+    // "output", "sleep".
     property bool settingsMenuOpen: false
     property string settingsPage: "root"
     // True when the current page was entered from the root list, so Back
@@ -386,6 +387,7 @@ FocusScope {
         if (page === "audio") return qsTr("Audio Track")
         if (page === "quality") return qsTr("Quality")
         if (page === "output") return qsTr("Audio Output")
+        if (page === "sleep") return qsTr("Sleep Timer")
         return qsTr("Playback Settings")
     }
 
@@ -394,7 +396,34 @@ FocusScope {
         if (page === "audio") return currentAudioLabel()
         if (page === "quality") return currentVersionLabel()
         if (page === "output") return audioOutputSummary()
+        if (page === "sleep") return sleepTimerSummary()
         return ""
+    }
+
+    // ---- Sleep timer ----
+    // Choices come from PlayerController: 0 off, -1 end of item, else minutes.
+    function sleepTimerChoiceLabel(choice) {
+        if (choice === 0) return qsTr("Off")
+        if (choice === -1) {
+            return PlayerController.hasEpisodeNavigation ? qsTr("End of this episode")
+                                                         : qsTr("End of this movie")
+        }
+        return qsTr("%1 min").arg(choice)
+    }
+
+    function formatSleepTimerRemaining(seconds) {
+        var minutes = Math.ceil(Math.max(0, seconds) / 60)
+        return minutes === 1 ? qsTr("1 min left") : qsTr("%1 min left").arg(minutes)
+    }
+
+    function sleepTimerSummary() {
+        var choice = PlayerController.sleepTimerChoice
+        if (choice > 0) return formatSleepTimerRemaining(PlayerController.sleepTimerRemainingSeconds)
+        return sleepTimerChoiceLabel(choice)
+    }
+
+    function openSleepTimerMenu() {
+        openSettingsMenu("sleep")
     }
 
     // Rows shown on the current settings page. Selection flags are resolved
@@ -415,6 +444,9 @@ FocusScope {
         } else if (settingsPage === "output") {
             var outputs = PlayerController.audioOutputOptions
             for (i = 0; i < outputs.length; i++) rows.push({ kind: "output", entry: outputs[i] })
+        } else if (settingsPage === "sleep") {
+            var choices = PlayerController.sleepTimerChoices
+            for (i = 0; i < choices.length; i++) rows.push({ kind: "sleep", choice: choices[i] })
         } else {
             rows.push({ kind: "page", page: "subtitles", icon: Icons.subtitles })
             if (PlayerController.availableAudioTracks.length > 0) {
@@ -424,6 +456,7 @@ FocusScope {
                 rows.push({ kind: "page", page: "quality", icon: Icons.hd })
             }
             rows.push({ kind: "page", page: "output", icon: Icons.speaker })
+            rows.push({ kind: "page", page: "sleep", icon: Icons.bedtime })
         }
         return rows
     }
@@ -438,6 +471,7 @@ FocusScope {
         if (row.kind === "audio") return row.track.index === PlayerController.selectedAudioTrack
         if (row.kind === "version") return row.version.selected === true
         if (row.kind === "output") return row.entry.selected === true
+        if (row.kind === "sleep") return row.choice === PlayerController.sleepTimerChoice
         return false
     }
 
@@ -540,6 +574,9 @@ FocusScope {
             closeSettingsMenu()
         } else if (row.kind === "output") {
             PlayerController.selectAudioOutputDevice(row.entry.id)
+            closeSettingsMenu()
+        } else if (row.kind === "sleep") {
+            PlayerController.setSleepTimer(row.choice)
             closeSettingsMenu()
         } else if (row.kind === "delay") {
             PlayerController.resetSubtitleDelay()
@@ -835,6 +872,10 @@ FocusScope {
         }
         if (actionId === "playback.subtitleSelector") {
             openSubtitleSelector()
+            return true
+        }
+        if (actionId === "playback.sleepTimer") {
+            openSleepTimerMenu()
             return true
         }
         if (actionId === "playback.audioCycle") {
@@ -3000,6 +3041,7 @@ FocusScope {
                                 if (row.kind === "version") return row.version.title || row.version.subtitle || qsTr("Version")
                                 if (row.kind === "output") return root.audioOutputPrimaryLabel(row.entry)
                                 if (row.kind === "delay") return qsTr("Subtitle Delay")
+                                if (row.kind === "sleep") return root.sleepTimerChoiceLabel(row.choice)
                                 return ""
                             }
                             color: settingsRow.kind === "output" && !settingsRow.modelData.entry.available
@@ -3020,6 +3062,10 @@ FocusScope {
                                 if (row.kind === "version") return row.version.title ? (row.version.subtitle || "") : ""
                                 if (row.kind === "output") return root.audioOutputSecondaryLabel(row.entry)
                                 if (row.kind === "page" && row.page === "output") return root.audioOutputDetail()
+                                if (row.kind === "sleep" && row.choice > 0
+                                        && row.choice === PlayerController.sleepTimerChoice) {
+                                    return root.formatSleepTimerRemaining(PlayerController.sleepTimerRemainingSeconds)
+                                }
                                 if (row.kind === "delay") return InputModeManager.pointerActive
                                                                 ? qsTr("%1 ms steps").arg(PlayerController.subtitleDelayStepMs)
                                                                 : qsTr("Left/Right to adjust")
@@ -3160,6 +3206,81 @@ FocusScope {
             function onAudioOutputNotice(message) {
                 root.audioNoticeText = message
                 audioNoticeTimer.restart()
+            }
+        }
+    }
+
+    // Sleep-timer grace countdown. Playback is paused; any key, click,
+    // pointer move or controller input cancels it (PlayerController sees
+    // input through its app event filter), otherwise playback stops.
+    DialogSurface {
+        id: sleepTimerGraceCard
+        objectName: "sleepTimerGraceCard"
+        floating: true
+        z: 1350
+        visible: opacity > 0
+        opacity: root.overlayActive && PlayerController.sleepTimerGraceActive ? 1.0 : 0.0
+        anchors.centerIn: parent
+        width: Math.min(Math.round(620 * Theme.layoutScale), root.width - Math.round(96 * Theme.layoutScale))
+        height: sleepGraceColumn.implicitHeight + 2 * Theme.spacingLarge
+        Accessible.role: Accessible.AlertMessage
+        Accessible.name: sleepGraceTitle.text + ". " + sleepGraceBody.text + ". " + sleepGraceHint.text
+        Behavior on opacity {
+            enabled: Theme.uiAnimationsEnabled
+            NumberAnimation { duration: Theme.durationShort }
+        }
+
+        Column {
+            id: sleepGraceColumn
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Theme.spacingLarge
+            anchors.rightMargin: Theme.spacingLarge
+            spacing: Theme.spacingSmall
+
+            Row {
+                spacing: Theme.spacingSmall
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: Icons.bedtime
+                    font.family: Theme.fontIcon
+                    font.pixelSize: Theme.iconSizeLarge
+                    color: Theme.accentPrimary
+                }
+
+                Text {
+                    id: sleepGraceTitle
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Sleep timer")
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeHeader
+                    font.weight: Theme.fontWeightStrong
+                    color: Theme.textPrimary
+                }
+            }
+
+            Text {
+                id: sleepGraceBody
+                width: parent.width
+                text: PlayerController.sleepTimerGraceRemainingSeconds === 1
+                      ? qsTr("Playback stops in 1 second")
+                      : qsTr("Playback stops in %1 seconds").arg(PlayerController.sleepTimerGraceRemainingSeconds)
+                font.family: Theme.fontPrimary
+                font.pixelSize: Theme.fontSizeMedium
+                color: Theme.textPrimary
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
+                id: sleepGraceHint
+                width: parent.width
+                text: qsTr("Press any button to keep watching")
+                font.family: Theme.fontPrimary
+                font.pixelSize: Theme.fontSizeBody
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
             }
         }
     }

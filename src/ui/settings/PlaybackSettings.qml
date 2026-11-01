@@ -79,6 +79,23 @@ FocusScope {
         ConfigManager.audioPassthroughCodecs = codecs
     }
 
+    // Values are strings because ChoiceComboRow matches them with ===.
+    readonly property var stillWatchingOptions: [
+        { label: qsTr("Off"), value: "0" },
+        { label: qsTr("2 episodes"), value: "2" },
+        { label: qsTr("3 episodes"), value: "3" },
+        { label: qsTr("4 episodes"), value: "4" },
+        { label: qsTr("5 episodes"), value: "5" }
+    ]
+    readonly property var sleepTimerOptions: [
+        { label: qsTr("Off"), value: "0" },
+        { label: qsTr("15 min"), value: "15" },
+        { label: qsTr("30 min"), value: "30" },
+        { label: qsTr("45 min"), value: "45" },
+        { label: qsTr("60 min"), value: "60" },
+        { label: qsTr("90 min"), value: "90" },
+        { label: qsTr("End of episode or movie"), value: "-1" }
+    ]
     readonly property var versionPreferenceOptions: [
         { label: qsTr("Highest Quality"), value: "highest-quality" },
         { label: qsTr("Smallest"), value: "smallest" },
@@ -226,7 +243,7 @@ FocusScope {
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: autoplaySwitch
-                    KeyNavigation.down: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : thresholdSlider
+                    KeyNavigation.down: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : stillWatchingRow.focusItem
 
                     onToggled: function(value) {
                         ConfigManager.mergeContinueWatchingWithNextUp = value
@@ -306,13 +323,57 @@ FocusScope {
                         }
                         Keys.onDownPressed: function(event) {
                             if (!popup.visible) {
-                                thresholdSlider.forceActiveFocus()
+                                stillWatchingRow.focusItem.forceActiveFocus()
                                 event.accepted = true
                             }
                         }
 
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
+                    }
+                }
+
+                ChoiceComboRow {
+                    id: stillWatchingRow
+                    label: qsTr("Ask If I'm Still Watching")
+                    description: qsTr("After this many episodes autoplay in a row with no input, ask before playing the next one")
+                    options: root.stillWatchingOptions
+                    selectedValue: String(ConfigManager.stillWatchingEpisodeThreshold)
+                    upTarget: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : mergeHomeRowsSwitch
+                    downTarget: sleepTimerDefaultRow.focusItem
+
+                    onSelected: function(value) {
+                        ConfigManager.stillWatchingEpisodeThreshold = parseInt(value, 10)
+                    }
+
+                    Connections {
+                        target: ConfigManager
+                        function onStillWatchingEpisodeThresholdChanged() {
+                            stillWatchingRow.selectedValue = String(ConfigManager.stillWatchingEpisodeThreshold)
+                            stillWatchingRow.refreshSelection()
+                        }
+                    }
+                }
+
+                ChoiceComboRow {
+                    id: sleepTimerDefaultRow
+                    label: qsTr("Default Sleep Timer")
+                    description: qsTr("Sleep timer each new playback starts with; change it during playback in Playback Settings")
+                    options: root.sleepTimerOptions
+                    selectedValue: String(ConfigManager.sleepTimerDefault)
+                    upTarget: stillWatchingRow.focusItem
+                    downTarget: thresholdSlider
+
+                    onSelected: function(value) {
+                        ConfigManager.sleepTimerDefault = parseInt(value, 10)
+                    }
+
+                    Connections {
+                        target: ConfigManager
+                        function onSleepTimerDefaultChanged() {
+                            sleepTimerDefaultRow.selectedValue = String(ConfigManager.sleepTimerDefault)
+                            sleepTimerDefaultRow.refreshSelection()
+                        }
                     }
                 }
 
@@ -336,7 +397,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
-                    KeyNavigation.up: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : mergeHomeRowsSwitch
+                    KeyNavigation.up: sleepTimerDefaultRow.focusItem
                     KeyNavigation.down: versionPreferenceRow.focusItem
 
                     onSliderValueChanged: function(newValue) {

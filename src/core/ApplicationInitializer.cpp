@@ -311,6 +311,18 @@ void ApplicationInitializer::registerServices()
     m_inputBindingManager = std::make_unique<InputBindingManager>(m_app, m_configManager.get());
     ServiceLocator::registerService<InputBindingManager>(m_inputBindingManager.get());
 
+    // 5.2 Playback user input: keys, clicks, wheel and pointer movement reach
+    // PlayerController through an app-level filter; controller playback
+    // actions arrive as InputBindingManager actions instead of key events.
+    if (m_app && m_playerController) {
+        PlayerController *playerController = m_playerController.get();
+        m_app->installEventFilter(playerController);
+        QObject::connect(m_inputBindingManager.get(), &InputBindingManager::actionTriggeredWithContext,
+                         playerController, [playerController]() {
+                             playerController->notePlaybackUserInput();
+                         });
+    }
+
     // 5.5 ScreensaverController - Depends on app input, config, playback, and auth
     if (isTestMode) {
         m_screensaverController = std::make_unique<ScreensaverController>(

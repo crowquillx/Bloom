@@ -902,4 +902,84 @@ int skipRangeIndex(const QList<SkipRange> &ranges, qint64 positionMs, qint64 ahe
     return ahead;
 }
 
+QList<int> stillWatchingThresholdChoices()
+{
+    return {0, 2, 3, 4, 5};
+}
+
+int normalizeStillWatchingThreshold(int threshold)
+{
+    if (threshold <= 0) {
+        return 0;
+    }
+    return std::clamp(threshold, 2, 5);
+}
+
+int autoplayChainCountAfterStart(int currentCount, bool startedByAutoplay)
+{
+    return startedByAutoplay ? std::max(0, currentCount) + 1 : 0;
+}
+
+bool shouldAskStillWatching(int chainCount, int threshold)
+{
+    const int normalized = normalizeStillWatchingThreshold(threshold);
+    return normalized > 0 && chainCount >= normalized;
+}
+
+QList<int> sleepTimerChoices()
+{
+    return {kSleepTimerOff, 15, 30, 45, 60, 90, kSleepTimerEndOfItem};
+}
+
+int normalizeSleepTimerChoice(int choice)
+{
+    return sleepTimerChoices().contains(choice) ? choice : kSleepTimerOff;
+}
+
+SleepTimerKind sleepTimerKind(int choice)
+{
+    const int normalized = normalizeSleepTimerChoice(choice);
+    if (normalized == kSleepTimerEndOfItem) {
+        return SleepTimerKind::EndOfItem;
+    }
+    return normalized > 0 ? SleepTimerKind::Duration : SleepTimerKind::Off;
+}
+
+int sleepTimerDurationSeconds(int choice)
+{
+    return sleepTimerKind(choice) == SleepTimerKind::Duration
+        ? normalizeSleepTimerChoice(choice) * 60
+        : 0;
+}
+
+bool sleepTimerSurvivesPlaybackEnd(int choice, SleepTimerPlaybackEnd end)
+{
+    switch (sleepTimerKind(choice)) {
+    case SleepTimerKind::Off:
+        return false;
+    case SleepTimerKind::EndOfItem:
+        // Recovery continues the same item, so its end is still ahead.
+        return end == SleepTimerPlaybackEnd::Failed;
+    case SleepTimerKind::Duration:
+        return end != SleepTimerPlaybackEnd::Stopped;
+    }
+    return false;
+}
+
+bool sleepTimerFiresAtPlaybackEnd(int choice, SleepTimerPlaybackEnd end)
+{
+    return sleepTimerKind(choice) == SleepTimerKind::EndOfItem
+        && end == SleepTimerPlaybackEnd::Finished;
+}
+
+int sleepTimerChoiceForNewPlayback(int currentChoice, int defaultChoice, bool continuesFromUpNext)
+{
+    if (continuesFromUpNext) {
+        return sleepTimerKind(currentChoice) == SleepTimerKind::Duration
+            ? normalizeSleepTimerChoice(currentChoice)
+            : kSleepTimerOff;
+    }
+    return normalizeSleepTimerChoice(defaultChoice);
+}
+
 } // namespace Bloom::PlaybackPolicy

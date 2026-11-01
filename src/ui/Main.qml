@@ -441,6 +441,9 @@ Window {
             PlayerController.toggleMpvStats()
         } else if (actionId === "playback.statsOnce") {
             PlayerController.showMpvStatsOnce()
+        } else if (actionId === "playback.sleepTimer") {
+            // No menu over external mpv: step through the choices on its OSD.
+            PlayerController.cycleSleepTimer()
         }
     }
 
@@ -655,14 +658,16 @@ Window {
     // while the player spins up.
     property var upNextStartScreen: null
 
-    function beginUpNextStart(screen, episode, seriesId) {
+    // `startedByAutoplay` is true only when the Up Next countdown ran out;
+    // it feeds the "Still watching?" episode count.
+    function beginUpNextStart(screen, episode, seriesId, startedByAutoplay) {
         if (upNextStartScreen) {
             return
         }
         upNextStartScreen = screen
         screen.beginStarting(episode)
         upNextStartTimeout.restart()
-        PlayerController.playNextEpisode(episode, seriesId)
+        PlayerController.playNextEpisode(episode, seriesId, startedByAutoplay === true)
     }
 
     function finishUpNextStart() {
@@ -1852,6 +1857,7 @@ Window {
                         hasNextEpisode ? episodeData.seriesName : "(no next episode)",
                         hasNextEpisode ? ("S" + episodeData.parentIndexNumber + "E" + episodeData.indexNumber) : "",
                         "Autoplay:", autoplay,
+                        "Still watching:", PlayerController.stillWatchingPromptActive,
                         "Reuse return screen:", canReuseReturnScreen)
             
             if (!canReuseReturnScreen) {
@@ -1867,7 +1873,8 @@ Window {
                 seriesId: normalizedSeriesId,
                 lastAudioIndex: lastAudioIndex,
                 lastSubtitleIndex: lastSubtitleIndex,
-                autoplay: autoplay
+                autoplay: autoplay,
+                stillWatching: hasNextEpisode && PlayerController.stillWatchingPromptActive
             }, StackView.Immediate)
             
             if (upNextScreen) {
@@ -1879,13 +1886,13 @@ Window {
                 // Play the queued episode, or another one picked from the Up Next row.
                 // Up Next stays on screen until playback covers it (see
                 // beginUpNextStart), so the hop never flashes the page underneath.
-                upNextScreen.playRequested.connect(function() {
+                upNextScreen.playRequested.connect(function(startedByAutoplay) {
                     if (!hasNextEpisode) {
                         console.warn("[Main] Up Next: Ignoring play request without a next episode")
                         return
                     }
-                    console.log("[Main] Up Next: Play requested")
-                    window.beginUpNextStart(upNextScreen, episodeData, normalizedSeriesId)
+                    console.log("[Main] Up Next: Play requested", startedByAutoplay ? "(countdown)" : "")
+                    window.beginUpNextStart(upNextScreen, episodeData, normalizedSeriesId, startedByAutoplay)
                 })
                 upNextScreen.episodeRequested.connect(function(selectedEpisode) {
                     if (!selectedEpisode || !selectedEpisode.itemId) {
