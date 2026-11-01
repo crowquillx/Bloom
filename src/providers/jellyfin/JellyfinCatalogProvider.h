@@ -113,6 +113,8 @@ public:
             return lettersRequest(query, false);
         case ProviderCatalogOperation::LibraryLetterCount:
             return lettersRequest(query, true);
+        case ProviderCatalogOperation::MovieRecommendations:
+            return movieRecommendationsRequest(query);
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -170,6 +172,18 @@ public:
                     response.rawItems.replace(index, trailer);
                 }
             }
+            response.total = response.rawItems.size();
+            response.valid = true;
+            return response;
+        }
+
+        if (operation == ProviderCatalogOperation::MovieRecommendations) {
+            if (!document.isArray()) {
+                response.error = QStringLiteral("Jellyfin %1 response must be an array")
+                                     .arg(operationName(operation));
+                return response;
+            }
+            response.rawItems = recommendationRows(document.array());
             response.total = response.rawItems.size();
             response.valid = true;
             return response;
@@ -810,6 +824,54 @@ private:
                                     .arg(qMax(1, query.limit)));
     }
 
+    // GetMovieRecommendations for one library. It takes no image or user
+    // data switches; the server sends user data for UserId.
+    static ProviderCatalogRequest movieRecommendationsRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, false, QStringLiteral("movie recommendations"));
+        if (!validation.supported) {
+            return validation;
+        }
+        if (query.parentId.isEmpty()) {
+            return unsupported(QStringLiteral("Jellyfin movie recommendations require a library ID"));
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
+        parameters.addQueryItem(QStringLiteral("ParentId"), query.parentId);
+        parameters.addQueryItem(QStringLiteral("CategoryLimit"),
+                                QString::number(qBound(1, query.limit > 0 ? query.limit : 4, 10)));
+        parameters.addQueryItem(
+            QStringLiteral("ItemLimit"),
+            QString::number(qBound(1, query.recommendationItemLimit > 0
+                                          ? query.recommendationItemLimit : 15, 50)));
+        parameters.addQueryItem(QStringLiteral("Fields"),
+                                QStringLiteral("Overview,ParentId,PrimaryImageAspectRatio"));
+        return supportedRequest(
+            endpointWithQuery(QStringLiteral("/Movies/Recommendations"), parameters));
+    }
+
+    // RecommendationDto rows as {recommendationType, baselineItemName,
+    // categoryId, items}; items stay wire BaseItemDto objects.
+    static QJsonArray recommendationRows(const QJsonArray &wireRows)
+    {
+        QJsonArray rows;
+        for (const QJsonValue &value : wireRows) {
+            if (!value.isObject()) {
+                continue;
+            }
+            const QJsonObject wireRow = value.toObject();
+            rows.append(QJsonObject{
+                {QStringLiteral("recommendationType"),
+                 wireRow.value(QStringLiteral("RecommendationType")).toString()},
+                {QStringLiteral("baselineItemName"),
+                 wireRow.value(QStringLiteral("BaselineItemName")).toString()},
+                {QStringLiteral("categoryId"), wireRow.value(QStringLiteral("CategoryId")).toString()},
+                {QStringLiteral("items"), wireRow.value(QStringLiteral("Items")).toArray()}});
+        }
+        return rows;
+    }
+
     // GetSpecialFeatures and GetLocalTrailers both answer a bare
     // BaseItemDto array. Remote trailers (RemoteTrailers) are not extras.
     static ProviderCatalogRequest extrasRequest(const ProviderCatalogQuery &query,
@@ -1167,6 +1229,7 @@ private:
         case ProviderCatalogOperation::CatalogSearchCapabilities: return QStringLiteral("search capabilities");
         case ProviderCatalogOperation::LibraryLetters: return QStringLiteral("letter index");
         case ProviderCatalogOperation::LibraryLetterCount: return QStringLiteral("letter count");
+        case ProviderCatalogOperation::MovieRecommendations: return QStringLiteral("movie recommendations");
         }
         return QStringLiteral("catalog");
     }

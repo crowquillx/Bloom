@@ -128,6 +128,8 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         ("GET", "/UserItems/Resume"): {
             "userId", "limit", "fields", "enableUserData", "enableImageTypes",
             "includeItemTypes", "mediaTypes"},
+        ("GET", "/Movies/Recommendations"): {
+            "userId", "parentId", "fields", "categoryLimit", "itemLimit"},
         ("GET", "/Items/Filters2"): {"userId"},
         ("GET", "/Genres"): {"userId"},
         ("GET", "/Studios"): {"userId"},
@@ -190,6 +192,13 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
     _require(
         "SpecialEpisodeNumbers" in item_fields,
         "Jellyfin ItemFields must include SpecialEpisodeNumbers",
+    )
+    recommendation_types = set(schemas.get("RecommendationType", {}).get("enum", []))
+    _require(
+        recommendation_types == {
+            "SimilarToRecentlyPlayed", "SimilarToLikedItem", "HasDirectorFromRecentlyPlayed",
+            "HasActorFromRecentlyPlayed", "HasLikedDirector", "HasLikedActor"},
+        "Jellyfin RecommendationType values changed; Home recommendation titles cover each one",
     )
     playback_info_properties = schemas.get("PlaybackInfoDto", {}).get("properties", {})
     _require(

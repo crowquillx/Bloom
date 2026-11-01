@@ -1,6 +1,7 @@
 #include "HomeSectionsViewModel.h"
 
 #include "../core/ServiceLocator.h"
+#include "../models/LibraryKinds.h"
 #include "../network/LibraryService.h"
 #include "../utils/BloomLogging.h"
 
@@ -87,7 +88,28 @@ void HomeSectionsViewModel::refresh()
     clearError();
     setLoading(true);
     // May answer synchronously (no curated rows for this provider).
-    m_libraryService->getHomeSections();
+    m_libraryService->getHomeSections(
+        m_librariesConnectionId == connectionId ? m_movieLibraryIds : QStringList());
+}
+
+void HomeSectionsViewModel::setLibraries(const QVariantList &views)
+{
+    m_movieLibraryIds.clear();
+    m_librariesConnectionId = m_libraryService ? m_libraryService->getActiveConnectionId()
+                                               : QString();
+    for (const QVariant &value : views) {
+        const QVariantMap view = value.toMap();
+        QString kind = view.value(QStringLiteral("libraryKind")).toString();
+        if (kind.isEmpty()) {
+            kind = LibraryKinds::kindForCollectionType(
+                view.value(QStringLiteral("collectionType")).toString());
+        }
+        const QString libraryId = view.value(QStringLiteral("itemId")).toString();
+        if (kind == LibraryKinds::Movies && !libraryId.isEmpty()
+            && !m_movieLibraryIds.contains(libraryId)) {
+            m_movieLibraryIds.append(libraryId);
+        }
+    }
 }
 
 void HomeSectionsViewModel::clear()
@@ -95,6 +117,8 @@ void HomeSectionsViewModel::clear()
     m_requestPending = false;
     m_pendingConnectionId.clear();
     m_connectionId.clear();
+    m_movieLibraryIds.clear();
+    m_librariesConnectionId.clear();
     if (!m_rows.isEmpty()) {
         emitModelReset([this]() { m_rows.clear(); });
     }

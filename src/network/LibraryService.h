@@ -215,10 +215,16 @@ public:
     // comes first when the layout has none and the watchlist is not empty.
     // Providers without ProviderCapability::Watchlist (Jellyfin) get a
     // Favorites row instead, when ConfigManager::homeFavoritesRowEnabled is
-    // on and a favorite movie or series exists. Providers without
-    // ProviderCapability::HomeSections answer no other rows.
-    // A newer call supersedes an older one.
-    Q_INVOKABLE virtual void getHomeSections();
+    // on and a favorite movie or series exists. Providers with
+    // ProviderCapability::MovieRecommendations (Jellyfin) add their
+    // personalised movie rows for each of movieLibraryIds (the movie
+    // libraries Home shows) last, when
+    // ConfigManager::homeRecommendationsEnabled is on (HomeRecommendations).
+    // Providers without ProviderCapability::HomeSections answer no other
+    // rows. A failed read leaves the others; only when every read fails
+    // and no row is left does it fail. A newer call supersedes an older
+    // one.
+    Q_INVOKABLE virtual void getHomeSections(const QStringList &movieLibraryIds = {});
     // Whether Home can show the Favorites row for the active provider (it
     // has no watchlist), whatever the setting.
     Q_INVOKABLE virtual bool supportsHomeFavoritesRow() const;
@@ -245,6 +251,9 @@ public:
     // index from the list's sort names. Other sorts, a Silo search, and a
     // server without the index fail with libraryLettersFailed.
     virtual void getLibraryLetters(const LibraryItemQuery &query);
+    // Whether Home can show recommendation rows for the active provider,
+    // whatever the setting.
+    Q_INVOKABLE virtual bool supportsHomeRecommendations() const;
     
     // Search. Libraries in excludedLibraryIds are left out: the remaining
     // libraries are searched one by one and their results interleaved.
@@ -530,7 +539,8 @@ private:
                               std::function<void(int)> proceed);
     // The profile's Home rows, each capped at itemLimitMax cards when it
     // is positive.
-    void readHomeSections(const QString &connectionId, quint64 generation, int itemLimitMax);
+    void readHomeSections(const QString &connectionId, quint64 generation, int itemLimitMax,
+                          const QStringList &movieLibraryIds);
     void readLibrarySections(const QString &connectionId, const QString &libraryId,
                              quint64 generation, int itemLimitMax);
     // The provider query for a library query, without paging cursors.
@@ -538,11 +548,13 @@ private:
     void readLibraryLetters(const QString &connectionId,
                             const ProviderCatalogQuery &providerQuery,
                             const QString &requestKey);
-    // Adds the Favorites row ahead of rows and publishes them, when Home
-    // shows one for this provider.
-    void publishHomeSectionsWithFavorites(const QString &connectionId,
+    // Adds Bloom's own rows to rows and publishes them: the Favorites row
+    // ahead and the recommendation rows of movieLibraryIds after, when
+    // Home shows them for this provider.
+    void publishHomeSectionsWithBloomRows(const QString &connectionId,
                                           quint64 generation,
-                                          const QVariantList &rows);
+                                          const QVariantList &rows,
+                                          const QStringList &movieLibraryIds);
 
     QSet<QString> m_inFlightChapterRequests;
     QList<QPointer<HttpRequestHandle>> m_catalogRequests;

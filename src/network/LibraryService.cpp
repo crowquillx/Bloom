@@ -2,6 +2,7 @@
 #include "AuthenticationService.h"
 #include "HttpTransport.h"
 #include "models/ContinueWatching.h"
+#include "models/HomeRecommendations.h"
 #include "models/LibraryKinds.h"
 #include "LibrarySearchScope.h"
 #include "NextEpisodeResolver.h"
@@ -1809,7 +1810,7 @@ void LibraryService::sendMediaRequestOperation(ProviderCatalogOperation operatio
 // Profile-curated Home rows
 // ============================================================================
 
-void LibraryService::getHomeSections()
+void LibraryService::getHomeSections(const QStringList &movieLibraryIds)
 {
     const QString connectionId = activeConnectionId(m_authService);
     const quint64 generation = ++m_homeSectionsGeneration;
@@ -1819,8 +1820,8 @@ void LibraryService::getHomeSections()
     }
     if (!m_authService->supportsCapability(ProviderCapability::HomeSections)) {
         // Providers without a curated layout (Jellyfin) add no rows besides
-        // Bloom's Favorites row.
-        publishHomeSectionsWithFavorites(connectionId, generation, {});
+        // Bloom's Favorites and recommendation rows.
+        publishHomeSectionsWithBloomRows(connectionId, generation, {}, movieLibraryIds);
         return;
     }
 
@@ -1833,8 +1834,8 @@ void LibraryService::getHomeSections()
             return generation == m_homeSectionsGeneration
                 && activeConnectionId(m_authService) == connectionId;
         },
-        [this, connectionId, generation](int itemLimitMax) {
-            readHomeSections(connectionId, generation, itemLimitMax);
+        [this, connectionId, generation, movieLibraryIds](int itemLimitMax) {
+            readHomeSections(connectionId, generation, itemLimitMax, movieLibraryIds);
         });
 }
 
@@ -1876,7 +1877,8 @@ void LibraryService::withSectionItemLimit(const QString &connectionId,
 
 void LibraryService::readHomeSections(const QString &connectionId,
                                       quint64 generation,
-                                      int itemLimitMax)
+                                      int itemLimitMax,
+                                      const QStringList &movieLibraryIds)
 {
     const auto mapRows = [this, connectionId](const QJsonArray &wireRows) {
         QVariantList rows;
@@ -1904,13 +1906,14 @@ void LibraryService::readHomeSections(const QString &connectionId,
         QStringLiteral("getHomeSections"),
         ProviderCatalogOperation::HomeSections,
         layoutQuery,
-        [this, connectionId, generation, mapRows](const ProviderCatalogResponse &response) {
+        [this, connectionId, generation, mapRows, movieLibraryIds](
+            const ProviderCatalogResponse &response) {
             if (generation != m_homeSectionsGeneration) {
                 return;
             }
             const QVariantList rows = mapRows(response.rawItems);
             if (!m_authService->supportsCapability(ProviderCapability::Watchlist)) {
-                publishHomeSectionsWithFavorites(connectionId, generation, rows);
+                publishHomeSectionsWithBloomRows(connectionId, generation, rows, movieLibraryIds);
                 return;
             }
             const bool layoutHasWatchlist = response.capabilityMetadata
@@ -1950,7 +1953,7 @@ void LibraryService::readHomeSections(const QString &connectionId,
                     }
                 });
         },
-        [this, connectionId, generation, itemLimitMax](const NetworkError &error) {
+        [this, connectionId, generation, itemLimitMax, movieLibraryIds](const NetworkError &error) {
             if (generation != m_homeSectionsGeneration) {
                 return;
             }
@@ -1960,7 +1963,7 @@ void LibraryService::readHomeSections(const QString &connectionId,
             if (itemLimitMax > 0 && (error.httpStatus == 400 || error.httpStatus == 422)) {
                 m_homeSectionItemLimitMax.insert(connectionId, 0);
                 if (activeConnectionId(m_authService) == connectionId) {
-                    readHomeSections(connectionId, generation, 0);
+                    readHomeSections(connectionId, generation, 0, movieLibraryIds);
                     return;
                 }
             }
@@ -1974,56 +1977,131 @@ bool LibraryService::supportsHomeFavoritesRow() const
         && !m_authService->supportsCapability(ProviderCapability::Watchlist);
 }
 
-void LibraryService::publishHomeSectionsWithFavorites(const QString &connectionId,
+bool LibraryService::supportsHomeRecommendations() const
+{
+    return m_authService && m_authService->isAuthenticated()
+        && m_authService->supportsCapability(ProviderCapability::MovieRecommendations);
+}
+
+void LibraryService::publishHomeSectionsWithBloomRows(const QString &connectionId,
                                                       quint64 generation,
-                                                      const QVariantList &rows)
+                                                      const QVariantList &rows,
+                                                      const QStringList &movieLibraryIds)
 {
     const ConfigManager *config = m_authService ? m_authService->configManager() : nullptr;
-    if (!supportsHomeFavoritesRow() || !config || !config->getHomeFavoritesRowEnabled()) {
+    const bool readFavorites = supportsHomeFavoritesRow() && config
+        && config->getHomeFavoritesRowEnabled();
+    QStringList recommendationLibraries;
+    if (supportsHomeRecommendations() && config && config->getHomeRecommendationsEnabled()) {
+        for (const QString &libraryId : movieLibraryIds) {
+            if (!libraryId.isEmpty() && !recommendationLibraries.contains(libraryId)) {
+                recommendationLibraries.append(libraryId);
+            }
+        }
+    }
+    if (!readFavorites && recommendationLibraries.isEmpty()) {
         emit canonicalHomeSectionsLoaded(connectionId, rows);
         return;
     }
 
-    // Favorite movies and series only (LibraryKinds), most recently played
-    // first; never-played favorites follow, ordered by name.
-    ProviderCatalogQuery favoritesQuery = baseCatalogQuery();
-    favoritesQuery.favorite = ProviderCatalogTriState::Yes;
-    favoritesQuery.includeItemTypes = {QStringLiteral("Movie"), QStringLiteral("Series")};
-    favoritesQuery.recursive = true;
-    favoritesQuery.sortBy = QStringLiteral("datePlayed");
-    favoritesQuery.sortOrder = QStringLiteral("descending");
-    favoritesQuery.limit = kHomeRowCardLimit;
-    favoritesQuery.includeHeavyFields = false;
-    sendCatalogRequest(
-        QStringLiteral("getHomeFavorites"),
-        ProviderCatalogOperation::Items,
-        favoritesQuery,
-        [this, connectionId, generation, rows](const ProviderCatalogResponse &response) {
-            if (generation != m_homeSectionsGeneration) {
-                return;
-            }
-            QVariantList withFavorites = rows;
-            const QVariantList items
-                = m_authService->mapMediaItems(response.rawItems, connectionId);
-            if (!items.isEmpty()) {
-                withFavorites.prepend(QVariantMap{
-                    {QStringLiteral("sectionId"), kHomeFavoritesRowId},
-                    {QStringLiteral("title"), tr("Favorites")},
-                    {QStringLiteral("items"), items}});
-            }
-            emit canonicalHomeSectionsLoaded(connectionId, withFavorites);
-        },
-        [this, connectionId, generation, rows](const NetworkError &error) {
-            if (generation != m_homeSectionsGeneration) {
-                return;
-            }
-            if (rows.isEmpty()) {
-                emit canonicalHomeSectionsFailed(connectionId, error.userMessage);
-            } else {
-                // The profile's rows still show without favorites.
-                emit canonicalHomeSectionsLoaded(connectionId, rows);
-            }
-        });
+    // The reads run side by side and publish once, when the last answers.
+    // A failed read leaves the others' rows.
+    struct BloomRowsRead {
+        QVariantList favoritesRow;
+        QList<QList<HomeRecommendations::Category>> categoriesByLibrary;
+        int pending = 0;
+        int succeeded = 0;
+        QString error;
+    };
+    const auto read = std::make_shared<BloomRowsRead>();
+    read->categoriesByLibrary.resize(recommendationLibraries.size());
+    read->pending = (readFavorites ? 1 : 0) + static_cast<int>(recommendationLibraries.size());
+    const auto finish = [this, connectionId, generation, rows, read]() {
+        if (--read->pending > 0 || generation != m_homeSectionsGeneration) {
+            return;
+        }
+        if (read->succeeded == 0 && rows.isEmpty()) {
+            emit canonicalHomeSectionsFailed(connectionId, read->error);
+            return;
+        }
+        // The Favorites row first, then the profile's rows, then the
+        // recommendations.
+        QVariantList published = read->favoritesRow;
+        published.append(rows);
+        published.append(HomeRecommendations::rows(read->categoriesByLibrary));
+        emit canonicalHomeSectionsLoaded(connectionId, published);
+    };
+    const auto fail = [this, generation, read, finish](const NetworkError &error) {
+        if (generation != m_homeSectionsGeneration) {
+            return;
+        }
+        read->error = error.userMessage;
+        finish();
+    };
+
+    if (readFavorites) {
+        // Favorite movies and series only (LibraryKinds), most recently
+        // played first; never-played favorites follow, ordered by name.
+        ProviderCatalogQuery favoritesQuery = baseCatalogQuery();
+        favoritesQuery.favorite = ProviderCatalogTriState::Yes;
+        favoritesQuery.includeItemTypes = {QStringLiteral("Movie"), QStringLiteral("Series")};
+        favoritesQuery.recursive = true;
+        favoritesQuery.sortBy = QStringLiteral("datePlayed");
+        favoritesQuery.sortOrder = QStringLiteral("descending");
+        favoritesQuery.limit = kHomeRowCardLimit;
+        favoritesQuery.includeHeavyFields = false;
+        sendCatalogRequest(
+            QStringLiteral("getHomeFavorites"),
+            ProviderCatalogOperation::Items,
+            favoritesQuery,
+            [this, connectionId, generation, read, finish](const ProviderCatalogResponse &response) {
+                if (generation != m_homeSectionsGeneration) {
+                    return;
+                }
+                ++read->succeeded;
+                const QVariantList items
+                    = m_authService->mapMediaItems(response.rawItems, connectionId);
+                if (!items.isEmpty()) {
+                    read->favoritesRow = {QVariantMap{
+                        {QStringLiteral("sectionId"), kHomeFavoritesRowId},
+                        {QStringLiteral("title"), tr("Favorites")},
+                        {QStringLiteral("items"), items}}};
+                }
+                finish();
+            },
+            fail);
+    }
+
+    // Each movie library Home shows, in its order.
+    for (qsizetype index = 0; index < recommendationLibraries.size(); ++index) {
+        ProviderCatalogQuery recommendationsQuery = baseCatalogQuery();
+        recommendationsQuery.parentId = recommendationLibraries.at(index);
+        recommendationsQuery.limit = HomeRecommendations::CategoriesPerLibrary;
+        recommendationsQuery.recommendationItemLimit = HomeRecommendations::MaxItems;
+        sendCatalogRequest(
+            QStringLiteral("getHomeRecommendations"),
+            ProviderCatalogOperation::MovieRecommendations,
+            recommendationsQuery,
+            [this, connectionId, generation, read, finish, index](
+                const ProviderCatalogResponse &response) {
+                if (generation != m_homeSectionsGeneration) {
+                    return;
+                }
+                ++read->succeeded;
+                QList<HomeRecommendations::Category> categories;
+                for (const QJsonValue &value : response.rawItems) {
+                    const QJsonObject row = value.toObject();
+                    categories.append(HomeRecommendations::Category{
+                        row.value(QStringLiteral("recommendationType")).toString(),
+                        row.value(QStringLiteral("baselineItemName")).toString(),
+                        m_authService->mapMediaItems(
+                            row.value(QStringLiteral("items")).toArray(), connectionId)});
+                }
+                read->categoriesByLibrary[index] = categories;
+                finish();
+            },
+            fail);
+    }
 }
 
 bool LibraryService::supportsLibrarySections() const

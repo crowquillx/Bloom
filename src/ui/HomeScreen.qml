@@ -125,7 +125,8 @@ FocusScope {
         for (var i = 0; i < librariesModel.length; i++) {
             LibraryService.getLatestMedia(librariesModel[i].itemId)
         }
-        // The profile's own Silo rows, or Jellyfin's Favorites row.
+        // The profile's own Silo rows, or Jellyfin's Favorites and
+        // recommendation rows.
         HomeSectionsViewModel.refresh()
     }
 
@@ -954,7 +955,8 @@ FocusScope {
             // Rows the Silo profile curates (recommendations, collections,
             // its watchlist...) that Bloom does not already show, in the
             // server's layout order, or the Favorites row for providers
-            // without a watchlist (Jellyfin). HomeSectionsViewModel picks them.
+            // without a watchlist and the recommendation rows (Jellyfin).
+            // HomeSectionsViewModel picks them.
             ColumnLayout {
                 id: serverRowsSection
                 opacity: root.shelfOpacity
@@ -1263,6 +1265,8 @@ FocusScope {
         librariesError = ""
         var orderedViews = orderLibraries(views)
         librariesModel = orderedViews
+        // Recommendation rows come from the movie libraries shown here.
+        HomeSectionsViewModel.setLibraries(orderedViews)
         heroProvider.rebuild()
         if (orderedViews.length > 0)
             Qt.callLater(root.applyInitialFocus)
@@ -1472,6 +1476,10 @@ FocusScope {
         function onNextUpRewatchingChanged() { root.refreshNextUp() }
         function onNextUpCutoffDaysChanged() { root.refreshNextUp() }
         function onHomeFavoritesRowEnabledChanged() {
+            if (!root.mergedMode && AuthenticationService.authenticated)
+                HomeSectionsViewModel.refresh()
+        }
+        function onHomeRecommendationsEnabledChanged() {
             if (!root.mergedMode && AuthenticationService.authenticated)
                 HomeSectionsViewModel.refresh()
         }

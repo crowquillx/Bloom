@@ -119,6 +119,12 @@ enum class ProviderCatalogOperation {
     // a large library is never downloaded. Silo answers the index itself
     // and reports this unsupported.
     LibraryLetterCount,
+    // The viewer's personalised movie rows in one library (parentId), at
+    // most `limit` rows of at most `recommendationItemLimit` cards
+    // (Jellyfin). rawItems holds one object per row with
+    // `recommendationType`, `baselineItemName`, `categoryId` and wire
+    // `items`, in the server's order.
+    MovieRecommendations,
 };
 
 enum class ProviderHttpMethod {
@@ -152,6 +158,8 @@ struct ProviderCatalogQuery {
 
     int startIndex = 0;
     int limit = 0;
+    // MovieRecommendations: cards per row (limit counts the rows).
+    int recommendationItemLimit = 0;
     std::optional<QString> snapshot;
     QString cursor;
     QString windowCursor;

@@ -272,6 +272,19 @@
       }
     },
     {
+      "id": "catalog.home-recommendations",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getHomeSections",
+      "method": "GET",
+      "path": "/Movies/Recommendations",
+      "requestSemantics": ["UserId, ParentId (one visible movie library per read), CategoryLimit=4, ItemLimit=15 and Fields=Overview,ParentId,PrimaryImageAspectRatio are requested"],
+      "requiredSemantics": ["The answer is a RecommendationDto array whose categories name their RecommendationType and BaselineItemName", "Items are movies from that library the viewer may see, with stable catalog identity", "A failed read leaves the other Home rows"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard GetMovieRecommendations contract in the pinned OpenAPI."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "GET /Movies/Recommendations is registered (internal/jellycompat/router.go) and answers RecommendationDto rows from Silo's recommender, but ParentId is ignored, BaselineItemName carries Silo's whole row label instead of a title or person, and RecommendationType is approximated, so Bloom's row titles read oddly there; Bloom drops the non-movie items."}
+      }
+    },
+    {
       "id": "catalog.search",
       "journey": "catalog",
       "bloomCaller": "LibraryService::search",

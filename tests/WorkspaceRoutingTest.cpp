@@ -154,6 +154,10 @@ struct Account {
     QJsonArray resume;
     int resumeStatus = 200;
     QJsonArray favorites;
+    int favoritesStatus = 200;
+    // GetMovieRecommendations per library (ParentId), with its HTTP status.
+    QHash<QString, QJsonArray> recommendationsByLibrary;
+    QHash<QString, int> recommendationsStatusByLibrary;
     // People search answers in the server's own shape (Jellyfin /Persons
     // items or Silo /api/v2/catalog/people items).
     QJsonArray people;
@@ -192,6 +196,9 @@ public:
     // Holds Next Up replies until a test delivers them.
     bool holdNextUp = false;
     QList<QPointer<FakeReply>> heldNextUps;
+    // Holds movie recommendation replies until a test delivers them.
+    bool holdRecommendations = false;
+    QList<QPointer<FakeReply>> heldRecommendations;
     // Silo poster badge preferences: effective settings and overlay config.
     QByteArray overlaySettings = QByteArrayLiteral(R"({"revision":15,"items":[]})");
     int overlaySettingsStatus = 200;
@@ -355,7 +362,24 @@ protected:
         }
         if (url.path() == QStringLiteral("/Items")
             && query.queryItemValue(QStringLiteral("IsFavorite")) == QStringLiteral("true")) {
-            return new FakeReply(request, 200, itemsEnvelope(account->favorites), this);
+            return new FakeReply(request, account->favoritesStatus,
+                                 account->favoritesStatus == 200 ? itemsEnvelope(account->favorites)
+                                                                 : QByteArray(),
+                                 this);
+        }
+        if (url.path() == QStringLiteral("/Movies/Recommendations")) {
+            const QString parentId = query.queryItemValue(QStringLiteral("ParentId"));
+            const int status = account->recommendationsStatusByLibrary.value(parentId, 200);
+            auto *reply = new FakeReply(
+                request, status,
+                status == 200 ? QJsonDocument(account->recommendationsByLibrary.value(parentId))
+                                    .toJson(QJsonDocument::Compact)
+                              : QByteArray(),
+                this, holdRecommendations);
+            if (holdRecommendations) {
+                heldRecommendations.append(reply);
+            }
+            return reply;
         }
         if (url.path() == QStringLiteral("/Persons")) {
             return new FakeReply(request, 200,
@@ -442,6 +466,25 @@ QJsonObject playable(const QString &id, const QString &type, qint64 positionTick
             {QStringLiteral("Name"), id},
             {QStringLiteral("Type"), type},
             {QStringLiteral("UserData"), userData}};
+}
+
+// A Jellyfin RecommendationDto.
+QJsonObject recommendation(const QString &type, const QString &baseline, const QJsonArray &items)
+{
+    return {{QStringLiteral("RecommendationType"), type},
+            {QStringLiteral("BaselineItemName"), baseline},
+            {QStringLiteral("CategoryId"), type + baseline},
+            {QStringLiteral("Items"), items}};
+}
+
+// The title of each Home row, in order.
+QStringList rowTitles(const QVariantList &rows)
+{
+    QStringList titles;
+    for (const QVariant &row : rows) {
+        titles.append(row.toMap().value(QStringLiteral("title")).toString());
+    }
+    return titles;
 }
 
 // connectionId/itemId of each item, in order.
@@ -535,6 +578,9 @@ private slots:
     void switchingSpacesNeverEndsServerSessions();
     void jellyfinNextUpAddsResumeListAndOptions();
     void jellyfinHomeShowsFavoritesRowBehindItsSetting();
+    void jellyfinHomeAddsRecommendationRowsPerMovieLibrary();
+    void jellyfinHomeRecommendationReadsFailAlone();
+    void jellyfinHomeDropsStaleRecommendationReplies();
     void mergedNextUpAddsEachJellyfinMembersResumeList();
     void olderNextUpRefreshNeverPublishesAfterNewerOne();
 
@@ -2066,6 +2112,179 @@ void WorkspaceRoutingTest::jellyfinHomeShowsFavoritesRowBehindItsSetting()
     QCOMPARE(loaded.count(), 3);
     QVERIFY(loaded.at(2).at(1).toList().isEmpty());
     QVERIFY(m_servers->requests.isEmpty());
+}
+
+void WorkspaceRoutingTest::jellyfinHomeAddsRecommendationRowsPerMovieLibrary()
+{
+    Account &alice = m_servers->accountsByToken[QStringLiteral("token-alice")];
+    alice.favorites = {movie(QStringLiteral("movie-fav"), QStringLiteral("Loved"))};
+    alice.recommendationsByLibrary.insert(QStringLiteral("lib-movies"), QJsonArray{
+        recommendation(QStringLiteral("SimilarToRecentlyPlayed"), QStringLiteral("Heat"),
+                       {movie(QStringLiteral("m1"), QStringLiteral("Thief")),
+                        playable(QStringLiteral("series-1"), QStringLiteral("Series"), 0)}),
+        recommendation(QStringLiteral("HasLikedActor"), QStringLiteral("Al Pacino"), {}),
+    });
+    // The second library recommends from the same title: one row.
+    alice.recommendationsByLibrary.insert(QStringLiteral("lib-films"), QJsonArray{
+        recommendation(QStringLiteral("SimilarToRecentlyPlayed"), QStringLiteral("Heat"),
+                       {movie(QStringLiteral("m1"), QStringLiteral("Thief")),
+                        movie(QStringLiteral("m2"), QStringLiteral("Collateral"))}),
+        recommendation(QStringLiteral("HasLikedDirector"), QStringLiteral("Michael Mann"),
+                       {movie(QStringLiteral("m3"), QStringLiteral("Ali"))}),
+    });
+    alice.recommendationsByLibrary.insert(QStringLiteral("lib-hidden"), QJsonArray{
+        recommendation(QStringLiteral("SimilarToLikedItem"), QStringLiteral("Alien"),
+                       {movie(QStringLiteral("m4"), QStringLiteral("Aliens"))})});
+
+    LibraryService library(m_auth.get());
+    QVERIFY(library.supportsHomeRecommendations());
+    QSignalSpy loaded(&library, &LibraryService::canonicalHomeSectionsLoaded);
+    m_servers->requests.clear();
+    // Home passes the movie libraries it shows; a hidden one is not among them.
+    library.getHomeSections({QStringLiteral("lib-movies"), QStringLiteral("lib-films")});
+    QTRY_COMPARE(loaded.count(), 1);
+    QCOMPARE(loaded.first().at(0).toString(), QStringLiteral("alice"));
+    QVariantList rows = loaded.first().at(1).toList();
+    // Favorites first, recommendations after, movies only, each once.
+    QCOMPARE(rowTitles(rows), (QStringList{QStringLiteral("Favorites"),
+                                           QStringLiteral("Because you watched Heat"),
+                                           QStringLiteral("Directed by Michael Mann")}));
+    QCOMPARE(orderedRefs(rows.at(1).toMap().value(QStringLiteral("items")).toList()),
+             (QStringList{QStringLiteral("alice/m1"), QStringLiteral("alice/m2")}));
+    QCOMPARE(orderedRefs(rows.at(2).toMap().value(QStringLiteral("items")).toList()),
+             QStringList{QStringLiteral("alice/m3")});
+
+    QStringList recommendationLibraries;
+    for (const RecordedRequest &request : std::as_const(m_servers->requests)) {
+        if (request.path != QStringLiteral("/Movies/Recommendations")) {
+            continue;
+        }
+        recommendationLibraries.append(request.parentId);
+        QCOMPARE(request.query.queryItemValue(QStringLiteral("UserId")), QStringLiteral("u-alice"));
+        QCOMPARE(request.query.queryItemValue(QStringLiteral("CategoryLimit")), QStringLiteral("4"));
+        QCOMPARE(request.query.queryItemValue(QStringLiteral("ItemLimit")), QStringLiteral("15"));
+    }
+    QCOMPARE(recommendationLibraries,
+             (QStringList{QStringLiteral("lib-movies"), QStringLiteral("lib-films")}));
+
+    // Without movie libraries there is nothing to read.
+    m_servers->requests.clear();
+    library.getHomeSections();
+    QTRY_COMPARE(loaded.count(), 2);
+    QCOMPARE(rowTitles(loaded.at(1).at(1).toList()), QStringList{QStringLiteral("Favorites")});
+    for (const RecordedRequest &request : std::as_const(m_servers->requests)) {
+        QVERIFY(request.path != QStringLiteral("/Movies/Recommendations"));
+    }
+
+    // Turned off: no recommendation reads; the Favorites row stays.
+    m_config->setHomeRecommendationsEnabled(false);
+    m_servers->requests.clear();
+    library.getHomeSections({QStringLiteral("lib-movies")});
+    QTRY_COMPARE(loaded.count(), 3);
+    QCOMPARE(rowTitles(loaded.at(2).at(1).toList()), QStringList{QStringLiteral("Favorites")});
+    QCOMPARE(m_servers->requests.size(), 1);
+    QCOMPARE(m_servers->requests.constFirst().path, QStringLiteral("/Items"));
+
+    // Both off: no reads at all.
+    m_config->setHomeFavoritesRowEnabled(false);
+    m_servers->requests.clear();
+    library.getHomeSections({QStringLiteral("lib-movies")});
+    QCOMPARE(loaded.count(), 4);
+    QVERIFY(loaded.at(3).at(1).toList().isEmpty());
+    QVERIFY(m_servers->requests.isEmpty());
+}
+
+void WorkspaceRoutingTest::jellyfinHomeRecommendationReadsFailAlone()
+{
+    Account &alice = m_servers->accountsByToken[QStringLiteral("token-alice")];
+    alice.favorites = {movie(QStringLiteral("movie-fav"), QStringLiteral("Loved"))};
+    alice.recommendationsByLibrary.insert(QStringLiteral("lib-movies"), QJsonArray{
+        recommendation(QStringLiteral("SimilarToRecentlyPlayed"), QStringLiteral("Heat"),
+                       {movie(QStringLiteral("m1"), QStringLiteral("Thief"))})});
+    alice.recommendationsByLibrary.insert(QStringLiteral("lib-films"), QJsonArray{
+        recommendation(QStringLiteral("HasLikedActor"), QStringLiteral("Al Pacino"),
+                       {movie(QStringLiteral("m2"), QStringLiteral("Serpico"))})});
+    alice.recommendationsStatusByLibrary.insert(QStringLiteral("lib-films"), 404);
+
+    LibraryService library(m_auth.get());
+    QSignalSpy loaded(&library, &LibraryService::canonicalHomeSectionsLoaded);
+    QSignalSpy failed(&library, &LibraryService::canonicalHomeSectionsFailed);
+    const QStringList libraries{QStringLiteral("lib-movies"), QStringLiteral("lib-films")};
+
+    // One library fails: the other's rows and the Favorites row stay.
+    library.getHomeSections(libraries);
+    QTRY_COMPARE(loaded.count(), 1);
+    QCOMPARE(rowTitles(loaded.first().at(1).toList()),
+             (QStringList{QStringLiteral("Favorites"), QStringLiteral("Because you watched Heat")}));
+
+    // Favorites fail: the recommendations still show.
+    alice.favoritesStatus = 404;
+    library.getHomeSections(libraries);
+    QTRY_COMPARE(loaded.count(), 2);
+    QCOMPARE(rowTitles(loaded.at(1).at(1).toList()),
+             QStringList{QStringLiteral("Because you watched Heat")});
+    QCOMPARE(failed.count(), 0);
+
+    // Every read fails: the read fails, so Home keeps the rows it shows.
+    alice.recommendationsStatusByLibrary.insert(QStringLiteral("lib-movies"), 404);
+    library.getHomeSections(libraries);
+    QTRY_COMPARE(failed.count(), 1);
+    QCOMPARE(failed.first().at(0).toString(), QStringLiteral("alice"));
+    QCOMPARE(loaded.count(), 2);
+}
+
+void WorkspaceRoutingTest::jellyfinHomeDropsStaleRecommendationReplies()
+{
+    Account &alice = m_servers->accountsByToken[QStringLiteral("token-alice")];
+    alice.recommendationsByLibrary.insert(QStringLiteral("lib-movies"), QJsonArray{
+        recommendation(QStringLiteral("SimilarToRecentlyPlayed"), QStringLiteral("Heat"),
+                       {movie(QStringLiteral("m1"), QStringLiteral("Thief"))})});
+    Account &bob = m_servers->accountsByToken[QStringLiteral("token-bob")];
+    bob.recommendationsByLibrary.insert(QStringLiteral("lib-movies"), QJsonArray{
+        recommendation(QStringLiteral("SimilarToLikedItem"), QStringLiteral("Alien"),
+                       {movie(QStringLiteral("m9"), QStringLiteral("Aliens"))})});
+    m_config->setHomeFavoritesRowEnabled(false);
+
+    LibraryService library(m_auth.get());
+    QSignalSpy loaded(&library, &LibraryService::canonicalHomeSectionsLoaded);
+    QSignalSpy failed(&library, &LibraryService::canonicalHomeSectionsFailed);
+    const QStringList libraries{QStringLiteral("lib-movies")};
+
+    // A newer read supersedes one in flight.
+    m_servers->holdRecommendations = true;
+    library.getHomeSections(libraries);
+    QTRY_COMPARE(m_servers->heldRecommendations.size(), 1);
+    library.getHomeSections(libraries);
+    QTRY_COMPARE(m_servers->heldRecommendations.size(), 2);
+    m_servers->heldRecommendations.at(0)->deliver();
+    QTest::qWait(20);
+    QCOMPARE(loaded.count(), 0);
+    m_servers->heldRecommendations.at(1)->deliver();
+    QTRY_COMPARE(loaded.count(), 1);
+    QCOMPARE(rowTitles(loaded.first().at(1).toList()),
+             QStringList{QStringLiteral("Because you watched Heat")});
+
+    // A reply for the account Home left is dropped after the switch.
+    m_servers->heldRecommendations.clear();
+    library.getHomeSections(libraries);
+    QTRY_COMPARE(m_servers->heldRecommendations.size(), 1);
+    m_auth->activateConnection(QStringLiteral("bob"));
+    QTRY_COMPARE(m_auth->activeConnectionId(), QStringLiteral("bob"));
+    QTRY_VERIFY(m_auth->isAuthenticated());
+    library.getHomeSections(libraries);
+    QTRY_COMPARE(m_servers->heldRecommendations.size(), 2);
+    // The transport may already have dropped the old account's request.
+    if (m_servers->heldRecommendations.at(0)) {
+        m_servers->heldRecommendations.at(0)->deliver();
+    }
+    m_servers->heldRecommendations.at(1)->deliver();
+    QTRY_COMPARE(loaded.count(), 2);
+    QTest::qWait(20);
+    QCOMPARE(loaded.count(), 2);
+    QCOMPARE(loaded.at(1).at(0).toString(), QStringLiteral("bob"));
+    QCOMPARE(rowTitles(loaded.at(1).at(1).toList()),
+             QStringList{QStringLiteral("More like Alien")});
+    QCOMPARE(failed.count(), 0);
 }
 
 void WorkspaceRoutingTest::mergedNextUpAddsEachJellyfinMembersResumeList()

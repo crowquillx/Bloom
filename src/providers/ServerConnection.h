@@ -57,7 +57,10 @@ enum class ProviderCapability {
     AiringCalendar = 1 << 17,
     // Profile-curated rows per library (ProviderCatalogOperation::
     // LibrarySections, Silo).
-    LibrarySections = 1 << 18
+    LibrarySections = 1 << 18,
+    // ProviderCatalogOperation::MovieRecommendations: personalised movie
+    // rows per library (Jellyfin).
+    MovieRecommendations = 1 << 19
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

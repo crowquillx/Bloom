@@ -395,6 +395,10 @@ private:
             // In-progress cards come with Next Up from the Home layout.
             return unsupported(QStringLiteral(
                 "Silo folds in-progress items into its Continue Watching section"));
+        case ProviderCatalogOperation::MovieRecommendations:
+            // Recommendation rows come with the profile's Home layout.
+            return unsupported(QStringLiteral(
+                "Silo curates its recommendation rows in the Home layout"));
         case ProviderCatalogOperation::ResolveLibrary:
             return unsupported(QStringLiteral(
                 "Silo catalog resources do not expose an ancestor-to-library resolution route"));

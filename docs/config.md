@@ -64,6 +64,7 @@ Config API sample (high level)
   - `nextUpCutoffDays` (`next_up_cutoff_days`, default 0) hides series not watched in that many days. The choices are 0 (off), 30, 90, 180, and 365; other stored values snap to the nearest choice.
   - Both apply to providers with `ProviderCapability::NextUpOptions` (Jellyfin `EnableRewatching` and `NextUpDateCutoff`). Silo applies its own Next Up rules, so Settings hides them there with a note. A change reloads Next Up.
   - `homeFavoritesRowEnabled` (`favorites_row_enabled`, default true) shows the Favorites row on Home for providers without a watchlist (Jellyfin). Settings hides it for Silo, which shows its watchlist instead. A change reloads the Home rows.
+  - `homeRecommendationsEnabled` (`recommendations_enabled`, default true) shows Jellyfin's personalised movie rows ("Because you watched", "Starring", ...) on Home, below the Favorites row ("Show recommendations on Home"). It applies to providers with `ProviderCapability::MovieRecommendations`; Settings hides it for Silo, whose Home layout carries its own recommendation rows, with a note. Off sends no recommendation read. A change reloads the Home rows.
   - Existing configs without these keys read the defaults; no schema migration is needed.
   See [provider compatibility](provider-compatibility.md#jellyfin-home).
 - `uiSoundsEnabled` / `uiSoundsVolume` keep the remote/keyboard navigation sounds available (default on at level 3) or let you mute them without touching the media volume slider.

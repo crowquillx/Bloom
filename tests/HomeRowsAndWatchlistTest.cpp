@@ -36,7 +36,11 @@ public:
     bool supportsWatchlist() const override { return watchlist; }
     bool supportsHomeFavoritesRow() const override { return !watchlist; }
 
-    void getHomeSections() override { ++homeRequests; }
+    void getHomeSections(const QStringList &movieLibraryIds) override
+    {
+        ++homeRequests;
+        lastMovieLibraryIds = movieLibraryIds;
+    }
     void setItemWatchlisted(const QString &itemId, bool inWatchlist) override
     {
         writes.append({itemId, inWatchlist});
@@ -129,6 +133,7 @@ public:
     QString connectionId = QStringLiteral("connection-1");
     bool watchlist = true;
     int homeRequests = 0;
+    QStringList lastMovieLibraryIds;
     QList<WatchlistWrite> writes;
     bool notInterestedAllowed = false;
     int notInterestedCapabilityReads = 0;
@@ -206,6 +211,7 @@ private slots:
     void homeRowsRefreshAfterFavoriteChangeOnlyWithFavoritesRow();
     void homeRowsRefreshAfterFavoriteChangeDuringFirstRead();
     void homeRowsClearForMergedSpaces();
+    void homeRowsReadRecommendationsFromShownMovieLibraries();
 
     void movieWatchlistToggleIsOptimisticAndRollsBack();
     void movieWatchlistIsHiddenWithoutProviderSupport();
@@ -475,6 +481,46 @@ void HomeRowsAndWatchlistTest::homeRowsClearForMergedSpaces()
     QCOMPARE(model.rowCount(), 0);
     m_service->confirmWatchlist(QStringLiteral("movie:a"), true);
     QCOMPARE(m_service->homeRequests, 1);
+}
+
+void HomeRowsAndWatchlistTest::homeRowsReadRecommendationsFromShownMovieLibraries()
+{
+    m_service->watchlist = false;
+    HomeSectionsViewModel model(m_service);
+    QVariantMap movies{{QStringLiteral("itemId"), QStringLiteral("lib-movies")},
+                       {QStringLiteral("collectionType"), QStringLiteral("movies")}};
+    QVariantMap tagged{{QStringLiteral("itemId"), QStringLiteral("lib-films")},
+                       {QStringLiteral("libraryKind"), QStringLiteral("movies")}};
+    QVariantMap shows{{QStringLiteral("itemId"), QStringLiteral("lib-shows")},
+                      {QStringLiteral("collectionType"), QStringLiteral("tvshows")}};
+    QVariantMap music{{QStringLiteral("itemId"), QStringLiteral("lib-music")},
+                      {QStringLiteral("collectionType"), QStringLiteral("music")}};
+
+    // Before Home's libraries are known, there are none to read.
+    model.refresh();
+    QVERIFY(m_service->lastMovieLibraryIds.isEmpty());
+
+    // Only the movie libraries Home shows, in its order, each once.
+    model.setLibraries({shows, movies, music, tagged, movies});
+    model.refresh();
+    QCOMPARE(m_service->lastMovieLibraryIds,
+             (QStringList{QStringLiteral("lib-movies"), QStringLiteral("lib-films")}));
+    // Later refreshes (a favorite change, the setting) reuse them.
+    m_service->loadRows(QStringLiteral("connection-1"), {});
+    m_service->confirmFavorite(QStringLiteral("movie-1"), true);
+    QCOMPARE(m_service->homeRequests, 3);
+    QCOMPARE(m_service->lastMovieLibraryIds.size(), 2);
+
+    // Libraries of another connection are not read under this one.
+    m_service->connectionId = QStringLiteral("connection-2");
+    model.refresh();
+    QVERIFY(m_service->lastMovieLibraryIds.isEmpty());
+
+    // A new Home (clear) forgets them.
+    m_service->connectionId = QStringLiteral("connection-1");
+    model.clear();
+    model.refresh();
+    QVERIFY(m_service->lastMovieLibraryIds.isEmpty());
 }
 
 void HomeRowsAndWatchlistTest::movieWatchlistToggleIsOptimisticAndRollsBack()

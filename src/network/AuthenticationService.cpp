@@ -69,6 +69,7 @@ QJsonObject capabilitiesObject(ProviderCapabilities capabilities)
     add(ProviderCapability::ResumeItems, "resume_items");
     add(ProviderCapability::NotInterested, "not_interested");
     add(ProviderCapability::AiringCalendar, "airing_calendar");
+    add(ProviderCapability::MovieRecommendations, "movie_recommendations");
     return result;
 }
 }

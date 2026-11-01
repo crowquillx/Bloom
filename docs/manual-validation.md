@@ -2,6 +2,17 @@
 
 A live gate passes only when the required behavior is observed. Source inspection, a unit test, and a successful HTTP status do not establish a platform runtime pass. `UNAVAILABLE` and `NOT RUN` are not automated passes.
 
+## Jellyfin recommendation rows on Home, 2026-11-01 UTC
+
+Jellyfin Home shows personalised movie rows ("Because you watched", "More like", "Directed by", "Starring") below the Favorites row, read per visible movie library from `GET /Movies/Recommendations`, behind Settings › Home › Show recommendations on Home (see [provider compatibility](provider-compatibility.md#jellyfin-home)). No Jellyfin server was available.
+
+| Gate | Result | Evidence or procedure |
+| --- | --- | --- |
+| Automated checks | PASS | `./scripts/dev-build.sh --tests` passed; local CTest passed 56/56. New cases: `HomeRecommendationsTest` (titles per type, server order and stable section IDs, movie-only cards, empty and untitled rows dropped, the same row from two libraries merged, row and card caps), `ProviderCatalogTest` (the request, its parameters and fields against the pinned OpenAPI, the RecommendationType values, parsing, Silo unsupported), `WorkspaceRoutingTest` (one read per movie library Home passes, rows after Favorites, the setting, one failed read leaving the others, every read failing, stale answers after a newer read and after an account switch), `HomeRowsAndWatchlistTest` (only shown movie libraries passed, per connection, forgotten on clear) and `ConfigManagerThemeTest` (default and persistence). Contract validation and the flake QML lint passed. `nix flake check` was not run. |
+| Live rows | NOT RUN / UNAVAILABLE | On a Jellyfin user with watch history and favorites in two movie libraries, Home shows recommendation rows below Favorites with readable titles and only movies. Hide one movie library in the space: its rows go away after Home reloads. Turn the setting off: the rows go away and no `/Movies/Recommendations` request is sent. |
+| Merged space | NOT RUN | In a space with a Jellyfin source, merged Home shows no recommendation rows; the single Jellyfin space shows them, and switching spaces never shows the previous account's rows. |
+| Keyboard and gamepad | NOT RUN | With only arrows or the D-pad, A/Enter and B/Escape: move from Favorites into the recommendation rows and back up, open a movie, press Back, and check focus returns to the same row. In Settings › Home, move from the Favorites row toggle to Show recommendations on Home and back. |
+
 ## Library shelves and whole-library letter jump, 2026-11-01 UTC
 
 Silo library pages offer the profile's curated rows as shelves beside the grid (`listLibrarySections`, `getLibrarySectionItems`), and in title order the A–Z rail covers the whole library: Silo's `queryCatalogLetters` behind the `letter_index` capability, and on Jellyfin the list's sort names (see [provider compatibility](provider-compatibility.md#catalog-and-conditional-requests)). A jump seeks the grid to the letter's first title. No live Silo or Jellyfin server was available.
