@@ -210,6 +210,13 @@ void ProviderTransportTest::jellyfinRequestFactorySendsEscapedDeviceName_data()
     QTest::newRow("control-characters") << QStringLiteral("htpc\r\nX-Injected: 1")
                                         << QByteArray("Device=\"htpcX-Injected%3A%201\"");
     QTest::newRow("empty") << QString() << QByteArray("Device=\"Bloom%20Device\"");
+    // Jellyfin URL-decodes values, where a raw '+' would become a space.
+    QTest::newRow("plus-and-equals") << QStringLiteral("a+b=c")
+                                     << QByteArray("Device=\"a%2Bb%3Dc\"");
+    // A cut at the limit never splits a surrogate pair.
+    QTest::newRow("emoji-at-limit")
+        << QString(63, QLatin1Char('a')) + QString::fromUtf8("\xF0\x9F\x93\xBA")
+        << QByteArray("Device=\"") + QByteArray(63, 'a') + "\"";
     QTest::newRow("whitespace") << QStringLiteral("  \t ")
                                 << QByteArray("Device=\"Bloom%20Device\"");
     QTest::newRow("long") << QString(80, QLatin1Char('a'))

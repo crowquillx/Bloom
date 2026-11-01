@@ -238,6 +238,8 @@ void SessionServiceTest::serverRefusalExplainsAdministratorRequirement()
     QVERIFY(!sessions.isLoading());
     QVERIFY(auth.isAuthenticated());
     QCOMPARE(sessions.sessions().size(), 2);
+    // The server keeps refusing, so the controls hide from now on.
+    QVERIFY(!sessions.canRevokeOtherSessions());
 }
 
 void SessionServiceTest::signOutClearsAdministratorFlag()

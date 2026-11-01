@@ -124,6 +124,9 @@ public:
     /// Whether the signed-in account administers its server, as reported at
     /// sign-in or session validation. Absent when the provider does not say.
     std::optional<bool> accountIsAdministrator() const { return m_accountIsAdministrator; }
+    /// The server refused an administrator-only action (403): the account
+    /// has lost those rights since sign-in.
+    void markAccountNotAdministrator() { setAccountIsAdministrator(false); }
     const IPlaybackProvider *playbackProvider() const;
     const ICatalogProvider *catalogProvider() const;
     ProviderKind activeProviderKind() const;

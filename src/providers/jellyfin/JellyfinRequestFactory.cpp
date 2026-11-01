@@ -39,7 +39,16 @@ QString headerDeviceName(const QString &deviceName)
             cleaned.append(character);
         }
     }
-    cleaned = cleaned.simplified().left(MaxDeviceNameLength).trimmed();
+    cleaned = cleaned.simplified();
+    if (cleaned.size() > MaxDeviceNameLength) {
+        // Never split a surrogate pair (an emoji, for example).
+        qsizetype length = MaxDeviceNameLength;
+        if (cleaned.at(length - 1).isHighSurrogate()) {
+            --length;
+        }
+        cleaned.truncate(length);
+    }
+    cleaned = cleaned.trimmed();
     if (cleaned.isEmpty()) {
         cleaned = QStringLiteral("Bloom Device");
     }

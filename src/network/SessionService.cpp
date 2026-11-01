@@ -307,10 +307,16 @@ bool SessionService::beginSessionRevocation(const QString &sessionId,
         [this, deviceId](const NetworkError &error) {
             finishDeviceRevocation(deviceId);
             // Privileges can change after sign-in; explain a server refusal
-            // instead of showing a bare HTTP error.
-            setErrorString(error.httpStatus == 403
-                               ? revokeRequiresAdministratorMessage()
-                               : error.userMessage);
+            // instead of showing a bare HTTP error, and hide the controls the
+            // server will keep refusing.
+            if (error.httpStatus == 403) {
+                setErrorString(revokeRequiresAdministratorMessage());
+                if (m_authService) {
+                    m_authService->markAccountNotAdministrator();
+                }
+                return;
+            }
+            setErrorString(error.userMessage);
         },
         options);
     return true;
