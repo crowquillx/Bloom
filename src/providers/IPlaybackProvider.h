@@ -284,11 +284,14 @@ public:
     }
 
     /// Applies that read: `stored` is true when the server answered with a
-    /// stored preference and false when it has none (404).
-    virtual void applyTrackPreferenceRead(PlaybackInfoResponse &response, bool stored) const
+    /// stored preference (`storedBody`, the reply body) and false when it has
+    /// none (404).
+    virtual void applyTrackPreferenceRead(PlaybackInfoResponse &response, bool stored,
+                                          const QByteArray &storedBody) const
     {
         Q_UNUSED(response)
         Q_UNUSED(stored)
+        Q_UNUSED(storedBody)
     }
 
     /// The request that remembers a track pick on the server, or an invalid

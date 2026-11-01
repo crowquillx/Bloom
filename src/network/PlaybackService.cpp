@@ -1548,11 +1548,12 @@ void PlaybackService::readTrackPreference(
 {
     // Playback waits for this read, so any failure other than "no stored
     // preference" leaves the response as the watch state described it.
-    const auto finish = [this, provider, response, done](std::optional<bool> stored) {
+    const auto finish = [this, provider, response, done](std::optional<bool> stored,
+                                                          const QByteArray &body) {
         PlaybackInfoResponse result = response;
         if (stored.has_value() && m_authService
             && m_authService->playbackProvider() == provider) {
-            provider->applyTrackPreferenceRead(result, *stored);
+            provider->applyTrackPreferenceRead(result, *stored, body);
         }
         done(result);
     };
@@ -1571,23 +1572,23 @@ void PlaybackService::readTrackPreference(
             const int status =
                 reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (status == 404) {
-                finish(false);
+                finish(false, {});
             } else if (reply->error() == QNetworkReply::NoError && status >= 200
                        && status < 300) {
-                finish(true);
+                finish(true, reply->readAll());
             } else {
-                finish(std::nullopt);
+                finish(std::nullopt, {});
             }
         },
         [request, finish](const NetworkError &error) {
             if (error.httpStatus == 404) {
-                finish(false);
+                finish(false, {});
                 return;
             }
             qCDebug(lcPlayback) << "Could not read the stored track preference"
                                 << "endpoint=" << request.endpoint
                                 << "httpStatus=" << error.httpStatus;
-            finish(std::nullopt);
+            finish(std::nullopt, {});
         },
         options);
 }

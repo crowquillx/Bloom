@@ -35,8 +35,6 @@ FocusScope {
     // ---- Properties set by Main.qml when the screen is pushed ----
     property var episodeData: ({})
     property string seriesId: ""
-    property int lastAudioIndex: -1
-    property int lastSubtitleIndex: -1
     property bool autoplay: false
     // "Still watching?" prompt: replaces the countdown and the season row.
     property bool stillWatching: false

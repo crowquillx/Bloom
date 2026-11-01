@@ -303,8 +303,6 @@ FocusScope {
         var framerate = getVideoFramerate()
         var hdr = isVideoHDR()
         var overlaySubtitle = productionYear > 0 ? String(productionYear) : ""
-        var preferredAudioIndex = playbackInfo ? selectedAudioIndex : -2
-        var preferredSubtitleIndex = playbackInfo ? selectedSubtitleIndex : -2
 
         return {
             itemId: movieId,
@@ -317,8 +315,11 @@ FocusScope {
             overlaySubtitle: overlaySubtitle,
             overlayBackdropUrl: backdropUrl,
             overlayLogoUrl: logoUrl,
-            preferredAudioIndex: preferredAudioIndex,
-            preferredSubtitleIndex: preferredSubtitleIndex,
+            // No index override: the controller resolves the movie's saved
+            // picks against the version that plays, so a pick made in the
+            // player since this page resolved its tracks still holds.
+            preferredAudioIndex: -2,
+            preferredSubtitleIndex: -2,
             isMovie: true,
             allowVersionPrompt: true,
             framerateHint: framerate,

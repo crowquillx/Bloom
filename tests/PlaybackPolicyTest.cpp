@@ -80,6 +80,7 @@ private slots:
     void localPickFollowsShiftedJellyfinIndexes();
     void localPickFollowsShiftedSiloIndexes();
     void localPickWithoutMatchFallsThrough();
+    void localPickKeepsCommentaryAndRegion();
     void serverLanguagePrefersFullDialogue();
     void serverForcedModePrefersSubtitleLanguage();
     void serverPreferencesBeatGlobalDefaults();
@@ -496,6 +497,25 @@ void PlaybackPolicyTest::localPickFollowsShiftedSiloIndexes()
     // Index 4 is now the full track; the forced pick follows to index 5.
     QCOMPARE(resolved.subtitleIndex, 5);
     QCOMPARE(resolved.subtitleSource, QStringLiteral("explicit"));
+
+    // Silo's audio index is the track's place in the file's list. Episode 3
+    // lists English first, which the server names: the Japanese pick moves
+    // to index 1.
+    server.audioStreamIndex = 0;
+    QVariantMap episode3 = mediaSource(
+        QStringLiteral("e3"), QStringLiteral("E3"), QStringLiteral("/media/show/e03.mkv"),
+        {
+            titled(stream(QStringLiteral("Audio"), 0, QStringLiteral("en"), true), {}, "aac", 2),
+            titled(stream(QStringLiteral("Audio"), 1, QStringLiteral("ja")), {}, "aac", 2),
+            titled(stream(QStringLiteral("Subtitle"), 3, QStringLiteral("en"), false, true), {},
+                   "ass"),
+        });
+    episode3.insert(QStringLiteral("serverTrackPreferences"), server.toVariantMap());
+    const auto moved = PlayerPolicy::resolveTrackSelection(
+        episode3, season, QStringLiteral("jellyfin-default"), QStringLiteral("jellyfin-default"));
+    QCOMPARE(moved.audioIndex, 1);
+    QCOMPARE(moved.audioSource, QStringLiteral("explicit"));
+    QCOMPARE(moved.subtitleIndex, 3);
 }
 
 void PlaybackPolicyTest::localPickWithoutMatchFallsThrough()
@@ -546,6 +566,51 @@ void PlaybackPolicyTest::localPickWithoutMatchFallsThrough()
         next, season, QStringLiteral("jellyfin-default"), QStringLiteral("jellyfin-default"));
     QCOMPARE(resolved.audioIndex, 1);
     QCOMPARE(resolved.audioSource, QStringLiteral("explicit"));
+}
+
+void PlaybackPolicyTest::localPickKeepsCommentaryAndRegion()
+{
+    // The main English track was picked; the next file lists a commentary in
+    // English first. Commentary is never the programme's sound.
+    const QVariantMap episode1 = mediaSource(
+        QStringLiteral("e1"), QStringLiteral("E1"), QStringLiteral("/media/movie/a.mkv"),
+        {
+            titled(stream(QStringLiteral("Audio"), 0, QStringLiteral("en")), "Main", "truehd", 8),
+            titled(stream(QStringLiteral("Audio"), 1, QStringLiteral("en")), "Commentary",
+                   "ac3", 2),
+        });
+    const QVariantMap episode2 = mediaSource(
+        QStringLiteral("e2"), QStringLiteral("E2"), QStringLiteral("/media/movie/b.mkv"),
+        {
+            titled(stream(QStringLiteral("Audio"), 0, QStringLiteral("en")),
+                   "Director's Commentary", "truehd", 8),
+            titled(stream(QStringLiteral("Audio"), 1, QStringLiteral("en")), {}, "ac3", 2),
+        });
+    auto resolved = PlayerPolicy::resolveTrackSelection(
+        episode2, picksOn(episode1, 0, -1), QStringLiteral("jellyfin-default"),
+        QStringLiteral("jellyfin-default"));
+    QCOMPARE(resolved.audioIndex, 1);
+    QCOMPARE(resolved.audioSource, QStringLiteral("explicit"));
+    // A picked commentary stays a commentary.
+    resolved = PlayerPolicy::resolveTrackSelection(
+        episode2, picksOn(episode1, 1, -1), QStringLiteral("jellyfin-default"),
+        QStringLiteral("jellyfin-default"));
+    QCOMPARE(resolved.audioIndex, 0);
+
+    // The exact region outranks codec and channels: pt-BR stays pt-BR.
+    const QVariantMap brazil = mediaSource(
+        QStringLiteral("b1"), QStringLiteral("B1"), QStringLiteral("/media/show/b1.mkv"),
+        {titled(stream(QStringLiteral("Audio"), 0, QStringLiteral("pt-BR")), {}, "eac3", 6)});
+    const QVariantMap next = mediaSource(
+        QStringLiteral("b2"), QStringLiteral("B2"), QStringLiteral("/media/show/b2.mkv"),
+        {
+            titled(stream(QStringLiteral("Audio"), 0, QStringLiteral("pt-PT")), {}, "eac3", 6),
+            titled(stream(QStringLiteral("Audio"), 1, QStringLiteral("pt-BR")), {}, "aac", 2),
+        });
+    resolved = PlayerPolicy::resolveTrackSelection(
+        next, picksOn(brazil, 0, -1), QStringLiteral("jellyfin-default"),
+        QStringLiteral("jellyfin-default"));
+    QCOMPARE(resolved.audioIndex, 1);
 }
 
 void PlaybackPolicyTest::serverLanguagePrefersFullDialogue()

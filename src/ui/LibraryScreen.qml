@@ -112,8 +112,9 @@ FocusScope {
     
     // Pending track indices from post-playback navigation
     // When navigating to next episode after playback, these are set to preserve track selection
-    property int pendingAudioTrackIndex: -2
-    property int pendingSubtitleTrackIndex: -2  // -2 means "not set", -1 means "none/disabled"
+    // Up Next: the season whose track picks the next season takes for the
+    // kinds it has none of (see SeriesSeasonEpisodeView).
+    property string pendingCarryTrackPreferencesFromSeasonId: ""
     
     // Movie Details View properties
     property bool showMovieDetails: false
@@ -408,7 +409,7 @@ FocusScope {
         applyFilters("facetGrid")
     }
 
-    function restoreUpNextEpisodeContext(episodeData, fallbackSeriesId, audioIndex, subtitleIndex) {
+    function restoreUpNextEpisodeContext(episodeData, fallbackSeriesId, carryTrackPreferencesFromSeasonId) {
         var itemData = Object.assign({}, episodeData || {})
         var targetSeriesId = fallbackSeriesId || itemData.seriesId || currentSeriesId || ""
         var targetSeasonId = itemData.seasonId || itemData.parentId || currentSeasonId || ""
@@ -419,8 +420,7 @@ FocusScope {
                     "seasonId:", targetSeasonId,
                     "episodeId:", targetEpisodeId)
 
-        pendingAudioTrackIndex = audioIndex
-        pendingSubtitleTrackIndex = subtitleIndex
+        pendingCarryTrackPreferencesFromSeasonId = carryTrackPreferencesFromSeasonId || ""
 
         if (targetSeriesId) {
             currentSeriesId = targetSeriesId
@@ -792,13 +792,8 @@ FocusScope {
             initialSeasonId: root.currentSeasonId
             initialSeasonIndex: root._lastSelectedSeasonIndex
             initialEpisodeId: root.initialEpisodeId
-            pendingAudioTrackIndex: root.pendingAudioTrackIndex
-            pendingSubtitleTrackIndex: root.pendingSubtitleTrackIndex
+            pendingCarryTrackPreferencesFromSeasonId: root.pendingCarryTrackPreferencesFromSeasonId
             screenStackActive: root.StackView.status === StackView.Active
-            onAutoplayOverridesConsumed: {
-                root.pendingAudioTrackIndex = -2
-                root.pendingSubtitleTrackIndex = -2
-            }
             
             onPlayRequested: function(request) {
                 requestPlaybackWithResolvedLibrary(Object.assign({}, request || {}, {

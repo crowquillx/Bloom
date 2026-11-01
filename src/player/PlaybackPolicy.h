@@ -118,9 +118,11 @@ struct ServerTrackChoice
 /// The stream a saved local pick names in a file (`streams` of one type), or
 /// -1. The saved index wins only while its track is still the picked one;
 /// otherwise the track that best matches the pick does. Language, the forced
-/// flag and (subtitles) signs/songs versus full dialogue must match; title,
-/// hearing impaired, codec and channels rank the rest. A pick saved without what the track was (older
-/// Bloom) resolves by index alone.
+/// flag, (subtitles) signs/songs versus full dialogue and (audio) commentary
+/// versus the programme's sound must match; title, then the exact language
+/// tag (pt-BR over pt-PT), hearing impaired, codec and channels rank the
+/// rest. A pick saved without what the track was (older Bloom) resolves by
+/// index alone.
 [[nodiscard]] int explicitStreamIndex(const QVariantList &streams,
                                       const TrackSelectionPreference &preference,
                                       bool subtitle);

@@ -223,6 +223,15 @@ bool isPartialSubtitle(const QVariantMap &stream)
         || partial.match(stream.value(QStringLiteral("displayTitle")).toString()).hasMatch();
 }
 
+// An audio track titled as commentary rather than the programme's sound.
+bool isCommentaryAudio(const QVariantMap &stream)
+{
+    static const QRegularExpression commentary(
+        QStringLiteral("\\bcommentary\\b"), QRegularExpression::CaseInsensitiveOption);
+    return commentary.match(stream.value(QStringLiteral("title")).toString()).hasMatch()
+        || commentary.match(stream.value(QStringLiteral("displayTitle")).toString()).hasMatch();
+}
+
 } // namespace
 
 int languageMatchRank(const QString &candidate, const QString &preferred)
@@ -689,6 +698,8 @@ int explicitStreamIndex(const QVariantList &streams,
     const bool pickedPartial = subtitle
         && isPartialSubtitle(QVariantMap{{QStringLiteral("isForced"), preference.forcedOnly},
                                          {QStringLiteral("title"), preference.title}});
+    const bool pickedCommentary = !subtitle
+        && isCommentaryAudio(QVariantMap{{QStringLiteral("title"), preference.title}});
     int bestIndex = -1;
     // Larger is better, compared in order.
     using Key = std::tuple<bool, bool, bool, bool, bool, bool, int>;
@@ -704,20 +715,21 @@ int explicitStreamIndex(const QVariantList &streams,
         if (rank < 0
             || (subtitle
                 && (stream.value(QStringLiteral("isForced")).toBool() != preference.forcedOnly
-                    || isPartialSubtitle(stream) != pickedPartial))) {
+                    || isPartialSubtitle(stream) != pickedPartial))
+            || (!subtitle && isCommentaryAudio(stream) != pickedCommentary)) {
             continue;
         }
         const int index = stream.value(QStringLiteral("index"), -1).toInt();
         const int channels = stream.value(QStringLiteral("channels")).toInt();
         const Key key{
             sameText(stream.value(QStringLiteral("title")).toString(), preference.title),
+            rank == 0,
             !subtitle
                 || stream.value(QStringLiteral("isHearingImpaired")).toBool()
                     == preference.hearingImpaired,
             preference.codec.isEmpty()
                 || sameText(stream.value(QStringLiteral("codec")).toString(), preference.codec),
             preference.channels <= 0 || channels == preference.channels,
-            rank == 0,
             index == preference.streamIndex,
             -position};
         if (bestIndex < 0 || key > bestKey) {

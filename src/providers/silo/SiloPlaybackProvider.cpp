@@ -4,6 +4,7 @@
 #include "player/AudioPolicy.h"
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QCryptographicHash>
 #include <QUuid>
 
@@ -770,6 +771,51 @@ void insertText(QJsonObject &object, const QString &key, const QString &value)
     }
 }
 
+// The same spoken language, as Silo matches a stored preference: the primary
+// subtag, any case. Tags that name no spoken language never match.
+bool sameSpokenLanguage(const QString &left, const QString &right)
+{
+    const auto primary = [](const QString &language) {
+        return language.trimmed().toLower().section(QRegularExpression(QStringLiteral("[-_]")),
+                                                    0, 0);
+    };
+    const QString base = primary(left);
+    return !preferenceLanguage(left).isEmpty() && !preferenceLanguage(right).isEmpty()
+        && base == primary(right);
+}
+
+bool sameTrackText(const QString &left, const QString &right)
+{
+    return left.trimmed().compare(right.trimmed(), Qt::CaseInsensitive) == 0;
+}
+
+// Whether a stored getAudioPreference row names `track`: its track signature
+// matches the track exactly (Silo's first rule), or its language is the
+// track's (the saved index counts only with a matching language).
+bool storedAudioRowNamesTrack(const MediaStreamInfo &track, const QString &language,
+    const QJsonObject &signature)
+{
+    if (!signature.isEmpty())
+    {
+        // The canonical title falls back to the embedded title when Silo sends
+        // none.
+        const QString title = signature.value(QStringLiteral("title")).toString();
+        const bool titleMatches = sameTrackText(title, track.title)
+            || (title.trimmed().isEmpty() && sameTrackText(track.title, track.embeddedTitle));
+        if (sameSpokenLanguage(signature.value(QStringLiteral("language")).toString(),
+                track.language)
+            && titleMatches
+            && sameTrackText(signature.value(QStringLiteral("embedded_title")).toString(),
+                track.embeddedTitle)
+            && sameTrackText(signature.value(QStringLiteral("codec")).toString(), track.codec)
+            && sameTrackText(signature.value(QStringLiteral("layout")).toString(),
+                track.channelLayout)
+            && signature.value(QStringLiteral("channels")).toInt() == track.channels)
+            return true;
+    }
+    return sameSpokenLanguage(language, track.language);
+}
+
 } // namespace
 
 PlaybackInfoRequest SiloPlaybackProvider::createTrackPreferenceReadRequest(
@@ -794,16 +840,28 @@ PlaybackInfoRequest SiloPlaybackProvider::createTrackPreferenceReadRequest(
 }
 
 void SiloPlaybackProvider::applyTrackPreferenceRead(
-    PlaybackInfoResponse &response, bool stored) const
+    PlaybackInfoResponse &response, bool stored, const QByteArray &storedBody) const
 {
     if (!stored)
         return;
-    // A stored row makes the resolved track the profile's own choice, even
-    // when it is the file's default track.
+    const QJsonObject row = QJsonDocument::fromJson(storedBody).object();
+    const QString language = row.value(QStringLiteral("audio_language")).toString();
+    const QJsonObject signature = row.value(QStringLiteral("track_signature")).toObject();
+    // The stored row makes the resolved track the profile's own choice, even
+    // when it is the file's default track, but only when the row names it.
+    // A file without the picked track resolves past the row (the profile's
+    // language or the default), which says nothing about this pick.
     for (MediaSourceInfo &source : response.mediaSources)
-        if (source.serverTrackPreferences.resolvedAudioStreamIndex >= 0)
-            source.serverTrackPreferences.audioStreamIndex
-                = source.serverTrackPreferences.resolvedAudioStreamIndex;
+    {
+        Bloom::ServerTrackPreferences &server = source.serverTrackPreferences;
+        if (server.resolvedAudioStreamIndex < 0)
+            continue;
+        for (const MediaStreamInfo &stream : source.mediaStreams)
+            if (stream.type == QStringLiteral("Audio")
+                && stream.index == server.resolvedAudioStreamIndex
+                && storedAudioRowNamesTrack(stream, language, signature))
+                server.audioStreamIndex = server.resolvedAudioStreamIndex;
+    }
 }
 
 TrackPreferenceWriteRequest SiloPlaybackProvider::createTrackPreferenceWriteRequest(

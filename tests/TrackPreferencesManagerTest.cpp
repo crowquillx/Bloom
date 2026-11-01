@@ -75,6 +75,7 @@ private slots:
     void v2SchemaLoadsWithoutSubtitleDelay();
     void invalidJsonIsDeleted();
     void v3SchemaRoundTripsExplicitOffAndDelayPreferences();
+    void pickedTrackIdentityRoundTrips();
     void saveWritesVersionedPreferencesFile();
     void identicalRemoteIdsAreIsolatedByConnection();
     void preActivationPreferencesAreAdopted();
@@ -204,6 +205,58 @@ void TrackPreferencesManagerTest::v3SchemaRoundTripsExplicitOffAndDelayPreferenc
     QCOMPARE(moviePrefs.subtitle.mode, TrackPreferenceMode::ExplicitStream);
     QCOMPARE(moviePrefs.subtitle.streamIndex, 7);
     QCOMPARE(moviePrefs.subtitleDelayMs, 250);
+}
+
+void TrackPreferencesManagerTest::pickedTrackIdentityRoundTrips()
+{
+    requireLinuxConfigIsolation();
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigHome configHome(tempDir.path());
+
+    // What a pick was (so it finds the same track in another file) survives
+    // a restart; a pick without it stays index-only.
+    ScopedTrackPreferences picked;
+    picked.audio.mode = TrackPreferenceMode::ExplicitStream;
+    picked.audio.streamIndex = 2;
+    picked.audio.preferredLanguage = QStringLiteral("ja");
+    picked.audio.title = QStringLiteral("Japanese 5.1");
+    picked.audio.codec = QStringLiteral("eac3");
+    picked.audio.channels = 6;
+    picked.subtitle.mode = TrackPreferenceMode::ExplicitStream;
+    picked.subtitle.streamIndex = 5;
+    picked.subtitle.preferredLanguage = QStringLiteral("en");
+    picked.subtitle.title = QStringLiteral("Signs & Songs");
+    picked.subtitle.codec = QStringLiteral("ass");
+    picked.subtitle.forcedOnly = true;
+    picked.subtitle.hearingImpaired = true;
+    ScopedTrackPreferences indexOnly;
+    indexOnly.audio.mode = TrackPreferenceMode::ExplicitStream;
+    indexOnly.audio.streamIndex = 1;
+    {
+        TrackPreferencesManager manager;
+        manager.setSeasonPreferences(QStringLiteral("season-ja"), picked);
+        manager.setMoviePreferences(QStringLiteral("movie-1"), indexOnly);
+        manager.save();
+    }
+
+    TrackPreferencesManager reloaded;
+    QCOMPARE(reloaded.getSeasonPreferences(QStringLiteral("season-ja")), picked);
+    QCOMPARE(reloaded.getMoviePreferences(QStringLiteral("movie-1")), indexOnly);
+
+    QFile file(TrackPreferencesManager::getPreferencesPath());
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonObject movie = QJsonDocument::fromJson(file.readAll())
+                                  .object()
+                                  .value(QStringLiteral("scopes")).toObject()
+                                  .value(QStringLiteral("_local")).toObject()
+                                  .value(QStringLiteral("movies")).toObject()
+                                  .value(QStringLiteral("movie-1")).toObject()
+                                  .value(QStringLiteral("audio")).toObject();
+    QVERIFY(!movie.isEmpty());
+    QVERIFY(!movie.contains(QStringLiteral("title")));
+    QVERIFY(!movie.contains(QStringLiteral("codec")));
+    QVERIFY(!movie.contains(QStringLiteral("channels")));
 }
 
 void TrackPreferencesManagerTest::saveWritesVersionedPreferencesFile()

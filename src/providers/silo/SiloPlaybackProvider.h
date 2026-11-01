@@ -38,7 +38,8 @@ public:
         const TrackPreferenceWrite &write) const override;
     PlaybackInfoRequest createTrackPreferenceReadRequest(
         const PlaybackInfoResponse &response) const override;
-    void applyTrackPreferenceRead(PlaybackInfoResponse &response, bool stored) const override;
+    void applyTrackPreferenceRead(PlaybackInfoResponse &response, bool stored,
+        const QByteArray &storedBody) const override;
     // Silo expires a session after about 45 s without stream reads or progress.
     bool queuedSessionsExpire() const override { return true; }
     PlaybackSessionLoss classifyReportFailure(

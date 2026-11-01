@@ -446,9 +446,12 @@ void SiloPlaybackProviderTest::storedAudioPreferenceTrustsTheResolvedTrack()
     QCOMPARE(read.method, QStringLiteral("GET"));
     QCOMPARE(read.endpoint, QStringLiteral("/api/v2/audio-prefs/series-1"));
 
-    // The series has a stored row: the resolved track is the profile's choice.
+    // The series has a stored row naming that track: the resolved track is
+    // the profile's choice.
+    const auto row = [](const QJsonObject &body) { return QJsonDocument(body).toJson(); };
     PlaybackInfoResponse stored = parsed.response;
-    provider.applyTrackPreferenceRead(stored, true);
+    provider.applyTrackPreferenceRead(stored, true,
+        row(QJsonObject { { "audio_track_index", 0 }, { "audio_language", "en" } }));
     QCOMPARE(stored.mediaSources.first().serverTrackPreferences.audioStreamIndex, 0);
     QCOMPARE(stored.getMediaSourcesVariant()
                  .first()
@@ -460,8 +463,27 @@ void SiloPlaybackProviderTest::storedAudioPreferenceTrustsTheResolvedTrack()
         0);
     // No row (404): the file default stays no preference.
     PlaybackInfoResponse missing = parsed.response;
-    provider.applyTrackPreferenceRead(missing, false);
+    provider.applyTrackPreferenceRead(missing, false, {});
     QCOMPARE(missing.mediaSources.first().serverTrackPreferences.audioStreamIndex, -1);
+
+    // The row picked a track this file lacks (French): Silo resolved past it
+    // to the default, which is no choice of the profile's, so Bloom's own
+    // defaults still decide.
+    PlaybackInfoResponse elsewhere = parsed.response;
+    provider.applyTrackPreferenceRead(elsewhere, true,
+        row(QJsonObject { { "audio_track_index", 0 }, { "audio_language", "fr" },
+            { "track_signature", QJsonObject { { "language", "fr" }, { "codec", "ac3" } } } }));
+    QCOMPARE(elsewhere.mediaSources.first().serverTrackPreferences.audioStreamIndex, -1);
+    // A row without a language counts only by its exact track signature.
+    PlaybackInfoResponse bySignature = parsed.response;
+    provider.applyTrackPreferenceRead(bySignature, true,
+        row(QJsonObject { { "audio_track_index", 3 },
+            { "track_signature", QJsonObject { { "language", "en-US" }, { "codec", "TrueHD" } } } }));
+    QCOMPARE(bySignature.mediaSources.first().serverTrackPreferences.audioStreamIndex, 0);
+    PlaybackInfoResponse indexOnly = parsed.response;
+    provider.applyTrackPreferenceRead(indexOnly, true,
+        row(QJsonObject { { "audio_track_index", 0 } }));
+    QCOMPARE(indexOnly.mediaSources.first().serverTrackPreferences.audioStreamIndex, -1);
 
     // A track other than the fallback is the server's choice already (a
     // profile-wide language), so nothing needs reading.
