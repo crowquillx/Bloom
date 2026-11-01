@@ -368,7 +368,8 @@ void adoptPendingConnectionState(QJsonObject &settings, const QString &connectio
     for (const QString &key : {
              QStringLiteral("library_profiles"),
              QStringLiteral("series_profiles"),
-             QStringLiteral("library_startup_buffering_modes")}) {
+             QStringLiteral("library_startup_buffering_modes"),
+             QStringLiteral("library_shelves")}) {
         QJsonObject merged = pending.value(key).toObject();
         const QJsonObject existing = target.value(key).toObject();
         for (auto it = existing.begin(); it != existing.end(); ++it) {
@@ -1602,6 +1603,35 @@ void ConfigManager::setLibraryStartupBufferingMode(const QString &libraryId, con
     m_config[QStringLiteral("settings")] = settings;
     save();
     emit libraryStartupBufferingModesChanged();
+}
+
+bool ConfigManager::getLibraryShelvesShown(const QString &libraryId) const
+{
+    if (libraryId.isEmpty()) {
+        return false;
+    }
+    const QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    return scopedAssignments(settings, QStringLiteral("library_shelves"))
+        .value(libraryId).toBool(false);
+}
+
+void ConfigManager::setLibraryShelvesShown(const QString &libraryId, bool shown)
+{
+    if (libraryId.isEmpty() || shown == getLibraryShelvesShown(libraryId)) {
+        return;
+    }
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject shelves = scopedAssignments(settings, QStringLiteral("library_shelves"));
+    // Only libraries showing shelves are stored; the grid is the default.
+    if (shown) {
+        shelves[libraryId] = true;
+    } else {
+        shelves.remove(libraryId);
+    }
+    setScopedAssignments(settings, QStringLiteral("library_shelves"), shelves);
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+    emit libraryShelvesShownChanged();
 }
 
 QString ConfigManager::resolveStartupBufferingModeForItem(const QString &libraryId) const

@@ -334,6 +334,10 @@ public:
     Q_INVOKABLE QString getLibraryStartupBufferingMode(const QString &libraryId) const;
     Q_INVOKABLE void setLibraryStartupBufferingMode(const QString &libraryId, const QString &mode);
     QString resolveStartupBufferingModeForItem(const QString &libraryId) const;
+    /// Whether a library page opens on its curated shelves instead of the
+    /// grid (per connection and library; false when never chosen).
+    Q_INVOKABLE bool getLibraryShelvesShown(const QString &libraryId) const;
+    Q_INVOKABLE void setLibraryShelvesShown(const QString &libraryId, bool shown);
     
     // Theme Song Settings
     void setThemeSongVolume(int level);
@@ -617,6 +621,7 @@ signals:
     void serverTrickplayEnabledChanged();
     void localSeekPreviewsEnabledChanged();
     void libraryStartupBufferingModesChanged();
+    void libraryShelvesShownChanged();
     void themeSongVolumeChanged();
     void themeSongLoopChanged();
     void uiSoundsEnabledChanged();

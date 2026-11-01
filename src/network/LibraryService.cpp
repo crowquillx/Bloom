@@ -250,8 +250,9 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         ++m_themeRequestGeneration;
         m_lastModified.clear();
         m_inFlightChapterRequests.clear();
-        m_peopleSearchScoped.clear();
-        m_peopleSearchCapabilityRetry.clear();
+        // The search capability document is profile scoped; reads in
+        // flight were cancelled and their waiters belong to the old session.
+        m_searchCapabilities.clear();
         // Cancelled reads answer nothing; a later page asks again.
         m_notInterestedCapabilityReads.clear();
         for (auto it = m_airingCalendarReads.cbegin(); it != m_airingCalendarReads.cend(); ++it) {
@@ -261,7 +262,6 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         }
         m_airingCalendarReads.clear();
         m_airingCalendars.clear();
-        m_letterIndexRetry.clear();
     };
     connect(m_authService, &AuthenticationService::authenticationStepChanged,
             this, [this, invalidateRequests]() {
@@ -313,7 +313,9 @@ void LibraryService::sendCatalogRequest(
     const ProviderCatalogQuery &query,
     CatalogResponseHandler responseHandler,
     FailureHandler failureHandler,
-    CatalogNotModifiedHandler notModifiedHandler)
+    CatalogNotModifiedHandler notModifiedHandler,
+    std::optional<RetryPolicy> retryPolicy,
+    int attemptTimeoutMs)
 {
     if (!m_authService || !m_authService->isAuthenticated()) {
         emitCatalogError(operationName, tr("Not authenticated"), std::move(failureHandler));
@@ -359,12 +361,15 @@ void LibraryService::sendCatalogRequest(
     }
 
     HttpRequestOptions options;
-    options.retryPolicy = m_retryPolicy;
+    options.retryPolicy = retryPolicy.value_or(m_retryPolicy);
     options.retrySafety =
         providerRequest.retrySafety == ProviderCatalogRetrySafety::Idempotent
         ? RetrySafety::Idempotent
         : RetrySafety::Never;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    if (attemptTimeoutMs > 0) {
+        options.attemptTimeoutMs = attemptTimeoutMs;
+    }
     HttpRequestHandle *handle = m_transport->sendWithRetry(
         this,
         providerRequest.relativeEndpoint,
@@ -2061,13 +2066,22 @@ void LibraryService::readLibrarySections(const QString &connectionId,
         QStringLiteral("getLibrarySections"),
         ProviderCatalogOperation::LibrarySections,
         query,
-        [this, connectionId, libraryId, generation](const ProviderCatalogResponse &response) {
+        [this, connectionId, libraryId, generation, itemLimit = query.limit](
+            const ProviderCatalogResponse &response) {
             if (generation != m_librarySectionsGeneration) {
                 return;
             }
             QVariantList rows;
             for (const QJsonValue &value : response.rawItems) {
                 const QJsonObject row = value.toObject();
+                // A row has more cards only when Bloom's item_limit cut it:
+                // it came back full at that cap and the section holds more.
+                // Without item_limit each section answers its own limit,
+                // which getLibrarySectionItems does not exceed.
+                const int itemCount = row.value(QStringLiteral("item_count")).toInt();
+                const int totalCount = row.value(QStringLiteral("total_count")).toInt();
+                const bool hasMore = itemLimit > 0 && itemCount >= itemLimit
+                    && (totalCount > itemCount || row.value(QStringLiteral("has_more")).toBool());
                 const QVariantList items = m_authService->mapMediaItems(
                     row.value(QStringLiteral("items")).toArray(), connectionId);
                 if (items.isEmpty()) {
@@ -2079,9 +2093,8 @@ void LibraryService::readLibrarySections(const QString &connectionId,
                     {QStringLiteral("sectionType"),
                      row.value(QStringLiteral("section_type")).toString()},
                     {QStringLiteral("featured"), row.value(QStringLiteral("featured")).toBool()},
-                    {QStringLiteral("totalCount"),
-                     row.value(QStringLiteral("total_count")).toInt()},
-                    {QStringLiteral("hasMore"), row.value(QStringLiteral("has_more")).toBool()},
+                    {QStringLiteral("totalCount"), totalCount},
+                    {QStringLiteral("hasMore"), hasMore},
                     {QStringLiteral("items"), items}});
             }
             emit canonicalLibrarySectionsLoaded(connectionId, libraryId, rows);
@@ -2157,51 +2170,91 @@ void LibraryService::getLibraryLetters(const LibraryItemQuery &query)
         readLibraryLetters(connectionId, providerQuery, requestKey);
         return;
     }
-    const auto known = m_letterIndexAvailable.constFind(connectionId);
-    if (known != m_letterIndexAvailable.cend()) {
-        if (*known) {
-            readLibraryLetters(connectionId, providerQuery, requestKey);
-        } else {
-            emit libraryLettersFailed(connectionId, requestKey,
-                                      tr("The server has no letter index."));
+    withSearchCapabilities(
+        [this, connectionId, providerQuery, requestKey](const SearchCapabilities &capabilities,
+                                                        const NetworkError *error) {
+            if (activeConnectionId(m_authService) != connectionId) {
+                return;
+            }
+            if (capabilities.known && capabilities.letterIndex) {
+                readLibraryLetters(connectionId, providerQuery, requestKey);
+            } else if (error) {
+                emit libraryLettersFailed(connectionId, requestKey, error->userMessage);
+            } else {
+                emit libraryLettersFailed(connectionId, requestKey,
+                                          capabilities.known
+                                              ? tr("The server has no letter index.")
+                                              : tr("The server's letter index is unavailable."));
+            }
+        });
+}
+
+QString LibraryService::searchCapabilitiesKey() const
+{
+    return activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
+}
+
+void LibraryService::withSearchCapabilities(SearchCapabilitiesHandler handler)
+{
+    const QString key = searchCapabilitiesKey();
+    SearchCapabilities &entry = m_searchCapabilities[key];
+    if (entry.known || (entry.failed && !entry.retryAfter.hasExpired())) {
+        // A copy: the handler may read other entries and grow the hash.
+        const SearchCapabilities answered = entry;
+        handler(answered, nullptr);
+        return;
+    }
+    // One read serves every caller; a read from an older session was
+    // cancelled with it and no longer counts.
+    entry.waiters.append(std::move(handler));
+    if (entry.reading && entry.readGeneration == m_requestGeneration) {
+        return;
+    }
+    const quint64 generation = m_requestGeneration;
+    entry.reading = true;
+    entry.readGeneration = generation;
+    entry.failed = false;
+    const auto finish = [this, key, generation](auto &&update, const NetworkError *error) {
+        const auto found = m_searchCapabilities.find(key);
+        if (found == m_searchCapabilities.end() || !found->reading
+            || found->readGeneration != generation) {
+            return;
         }
-        return;
-    }
-    // A failed read is not repeated on every library load.
-    const auto retry = m_letterIndexRetry.constFind(connectionId);
-    if (retry != m_letterIndexRetry.cend() && !retry->hasExpired()) {
-        emit libraryLettersFailed(connectionId, requestKey,
-                                  tr("The server's letter index is unavailable."));
-        return;
-    }
-    m_letterIndexRetry.remove(connectionId);
+        update(*found);
+        found->reading = false;
+        const auto waiters = std::exchange(found->waiters, {});
+        const SearchCapabilities answered = *found;
+        for (const SearchCapabilitiesHandler &waiter : waiters) {
+            waiter(answered, error);
+        }
+    };
     sendCatalogRequest(
         QStringLiteral("getCatalogSearchCapabilities"),
         ProviderCatalogOperation::CatalogSearchCapabilities,
         baseCatalogQuery(),
-        [this, connectionId, providerQuery, requestKey](const ProviderCatalogResponse &response) {
-            const bool available
-                = response.capabilityMetadata.value(QStringLiteral("letterIndex")).toBool();
-            m_letterIndexAvailable.insert(connectionId, available);
-            if (activeConnectionId(m_authService) != connectionId) {
-                return;
-            }
-            if (available) {
-                readLibraryLetters(connectionId, providerQuery, requestKey);
-            } else {
-                emit libraryLettersFailed(connectionId, requestKey,
-                                          tr("The server has no letter index."));
-            }
+        [finish](const ProviderCatalogResponse &response) {
+            finish([&response](SearchCapabilities &capabilities) {
+                capabilities.known = true;
+                capabilities.peopleMediaScope =
+                    response.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool();
+                capabilities.letterIndex =
+                    response.capabilityMetadata.value(QStringLiteral("letterIndex")).toBool();
+            }, nullptr);
         },
-        [this, connectionId, requestKey](const NetworkError &error) {
-            // A server without the route has no index; that is remembered.
-            if (error.httpStatus == 404 || error.httpStatus == 405 || error.httpStatus == 501) {
-                m_letterIndexAvailable.insert(connectionId, false);
-            } else {
-                m_letterIndexRetry.insert(connectionId,
-                                          QDeadlineTimer(LetterIndexCapabilityRetryMs));
-            }
-            emit libraryLettersFailed(connectionId, requestKey, error.userMessage);
+        [finish](const NetworkError &error) {
+            finish([&error](SearchCapabilities &capabilities) {
+                // A server without the route has neither feature; that is
+                // remembered. Other failures are not repeated for a while.
+                if (error.httpStatus == 404 || error.httpStatus == 405
+                    || error.httpStatus == 501) {
+                    capabilities.known = true;
+                    capabilities.peopleMediaScope = false;
+                    capabilities.letterIndex = false;
+                } else {
+                    capabilities.failed = true;
+                    capabilities.retryAfter = QDeadlineTimer(SearchCapabilityRetryMs);
+                }
+            }, &error);
         });
 }
 
@@ -2209,12 +2262,51 @@ void LibraryService::readLibraryLetters(const QString &connectionId,
                                         const ProviderCatalogQuery &providerQuery,
                                         const QString &requestKey)
 {
+    const ICatalogProvider *provider = m_authService ? m_authService->catalogProvider() : nullptr;
+    const bool wholeList = provider
+        && provider->createRequest(ProviderCatalogOperation::LibraryLetterCount, providerQuery)
+               .supported;
+    const auto readLetters = [this, connectionId, providerQuery, requestKey, wholeList]() {
+        // The whole list's sort names (Jellyfin) are one large answer: a
+        // retry would download it again, so one attempt with a longer
+        // deadline. Parsing runs off the UI thread (sendCatalogRequest).
+        std::optional<RetryPolicy> retryPolicy;
+        if (wholeList) {
+            RetryPolicy once = m_retryPolicy;
+            once.maxAttempts = 1;
+            retryPolicy = once;
+        }
+        sendCatalogRequest(
+            QStringLiteral("getLibraryLetters"),
+            ProviderCatalogOperation::LibraryLetters,
+            providerQuery,
+            [this, connectionId, requestKey](const ProviderCatalogResponse &response) {
+                emit libraryLettersLoaded(connectionId, requestKey, response.capabilityMetadata);
+            },
+            [this, connectionId, requestKey](const NetworkError &error) {
+                emit libraryLettersFailed(connectionId, requestKey, error.userMessage);
+            },
+            CatalogNotModifiedHandler(),
+            retryPolicy,
+            wholeList ? LetterIndexAttemptTimeoutMs : 0);
+    };
+    if (!wholeList) {
+        readLetters();
+        return;
+    }
+    // Count first, so a large library is never downloaded for its index.
     sendCatalogRequest(
-        QStringLiteral("getLibraryLetters"),
-        ProviderCatalogOperation::LibraryLetters,
+        QStringLiteral("getLibraryLetterCount"),
+        ProviderCatalogOperation::LibraryLetterCount,
         providerQuery,
-        [this, connectionId, requestKey](const ProviderCatalogResponse &response) {
-            emit libraryLettersLoaded(connectionId, requestKey, response.capabilityMetadata);
+        [this, connectionId, requestKey, readLetters](const ProviderCatalogResponse &response) {
+            if (response.total > LetterIndexMaxTitles) {
+                emit libraryLettersFailed(
+                    connectionId, requestKey,
+                    tr("The library is too large for a letter index."));
+                return;
+            }
+            readLetters();
         },
         [this, connectionId, requestKey](const NetworkError &error) {
             emit libraryLettersFailed(connectionId, requestKey, error.userMessage);
@@ -2515,51 +2607,24 @@ void LibraryService::searchPeople(const QString &searchTerm, int limit)
     // books, music and other libraries would show, so none are shown.
     const ICatalogProvider *provider = m_authService->catalogProvider();
     if (!provider
-        || !provider->createRequest(ProviderCatalogOperation::PersonSearchCapability,
+        || !provider->createRequest(ProviderCatalogOperation::CatalogSearchCapabilities,
                                     baseCatalogQuery()).supported) {
         runSearch();
         return;
     }
-    const auto known = m_peopleSearchScoped.constFind(connectionId);
-    if (known != m_peopleSearchScoped.constEnd()) {
-        if (known.value()) {
-            runSearch();
-        } else {
-            emit canonicalPeopleSearchLoaded(connectionId, term, {});
-        }
-        return;
-    }
-    const auto retry = m_peopleSearchCapabilityRetry.constFind(connectionId);
-    if (retry != m_peopleSearchCapabilityRetry.constEnd() && !retry.value().hasExpired()) {
-        emit canonicalPeopleSearchLoaded(connectionId, term, {});
-        return;
-    }
-    m_peopleSearchCapabilityRetry.remove(connectionId);
-    sendCatalogRequest(
-        QStringLiteral("searchPeople"),
-        ProviderCatalogOperation::PersonSearchCapability,
-        baseCatalogQuery(),
-        [this, connectionId, term, generation, runSearch](
-            const ProviderCatalogResponse &response) {
-            const bool scoped =
-                response.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool();
-            m_peopleSearchScoped.insert(connectionId, scoped);
+    withSearchCapabilities(
+        [this, connectionId, term, generation, runSearch, emitFailure](
+            const SearchCapabilities &capabilities, const NetworkError *error) {
             if (generation != m_peopleSearchGeneration) {
                 return;
             }
-            if (scoped) {
+            if (capabilities.known && capabilities.peopleMediaScope) {
                 runSearch();
+            } else if (error) {
+                emitFailure(*error);
             } else {
                 emit canonicalPeopleSearchLoaded(connectionId, term, {});
             }
-        },
-        [this, connectionId, emitFailure](const NetworkError &error) {
-            // Not for a cancelled read (sign-out or a switch cleared the cache).
-            if (activeConnectionId(m_authService) == connectionId) {
-                m_peopleSearchCapabilityRetry.insert(
-                    connectionId, QDeadlineTimer(PeopleSearchCapabilityRetryMs));
-            }
-            emitFailure(error);
         });
 }
 

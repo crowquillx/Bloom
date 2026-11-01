@@ -103,16 +103,16 @@ public:
             return personItemsRequest(query);
         case ProviderCatalogOperation::PersonSearch:
             return personSearchRequest(query);
-        case ProviderCatalogOperation::PersonSearchCapability:
-            return unsupported(QStringLiteral(
-                "Jellyfin people search needs no capability read"));
         case ProviderCatalogOperation::LibrarySections:
         case ProviderCatalogOperation::LibrarySectionItems:
             return unsupported(QStringLiteral("Jellyfin has no profile-curated library rows"));
         case ProviderCatalogOperation::CatalogSearchCapabilities:
-            return unsupported(QStringLiteral("Jellyfin's letter index needs no capability read"));
+            return unsupported(QStringLiteral(
+                "Jellyfin people search and letter index need no capability read"));
         case ProviderCatalogOperation::LibraryLetters:
-            return lettersRequest(query);
+            return lettersRequest(query, false);
+        case ProviderCatalogOperation::LibraryLetterCount:
+            return lettersRequest(query, true);
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -223,6 +223,16 @@ public:
             || !root.value(QStringLiteral("Items")).isArray()) {
             response.error = QStringLiteral("Jellyfin %1 response has no Items array")
                                  .arg(operationName(operation));
+            return response;
+        }
+
+        if (operation == ProviderCatalogOperation::LibraryLetterCount) {
+            if (!root.value(QStringLiteral("TotalRecordCount")).isDouble()) {
+                response.error = QStringLiteral("Jellyfin letter count has no TotalRecordCount");
+                return response;
+            }
+            response.total = root.value(QStringLiteral("TotalRecordCount")).toInt();
+            response.valid = true;
             return response;
         }
 
@@ -564,8 +574,12 @@ private:
     // from the sort names of the whole filtered list instead: the library
     // query without paging, images or user data, and only SortName. A
     // server that pages anyway (Silo's compatibility listener defaults to
-    // 24) answers fewer items than its total, and has no index.
-    static ProviderCatalogRequest lettersRequest(const ProviderCatalogQuery &query)
+    // 24) answers fewer items than its total, and has no index. The count
+    // read (countOnly) is the same query with Limit=0: only
+    // TotalRecordCount, so LibraryService can skip a library too large to
+    // download.
+    static ProviderCatalogRequest lettersRequest(const ProviderCatalogQuery &query,
+                                                 bool countOnly)
     {
         if (query.sortBy != QStringLiteral("title")) {
             return unsupported(QStringLiteral("The letter index counts title order only"));
@@ -584,6 +598,10 @@ private:
         parameters.removeAllQueryItems(QStringLiteral("EnableImageTypes"));
         parameters.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("false"));
         parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("false"));
+        if (countOnly) {
+            parameters.removeAllQueryItems(QStringLiteral("Fields"));
+            parameters.addQueryItem(QStringLiteral("Limit"), QStringLiteral("0"));
+        }
         url.setQuery(parameters);
         request.relativeEndpoint = url.toString(QUrl::FullyEncoded);
         return request;
@@ -1144,11 +1162,11 @@ private:
         case ProviderCatalogOperation::Person: return QStringLiteral("person");
         case ProviderCatalogOperation::PersonItems: return QStringLiteral("person items");
         case ProviderCatalogOperation::PersonSearch: return QStringLiteral("people search");
-        case ProviderCatalogOperation::PersonSearchCapability: return QStringLiteral("people search capability");
         case ProviderCatalogOperation::LibrarySections: return QStringLiteral("library sections");
         case ProviderCatalogOperation::LibrarySectionItems: return QStringLiteral("library section items");
         case ProviderCatalogOperation::CatalogSearchCapabilities: return QStringLiteral("search capabilities");
         case ProviderCatalogOperation::LibraryLetters: return QStringLiteral("letter index");
+        case ProviderCatalogOperation::LibraryLetterCount: return QStringLiteral("letter count");
         }
         return QStringLiteral("catalog");
     }

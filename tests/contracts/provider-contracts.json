@@ -303,7 +303,7 @@
       "bloomCaller": "LibraryService::getLibraryLetters",
       "method": "GET",
       "path": "/Items",
-      "requestSemantics": ["The library query's filters with SortBy=SortName and its SortOrder are sent with Fields=SortName, EnableImages=false and EnableUserData=false and no StartIndex or Limit", "NameLessThan is not used: Jellyfin compares only the first character of SortName or Name, so it cannot locate a letter in SortName order"],
+      "requestSemantics": ["A count read comes first: the library query's filters with EnableImages=false, EnableUserData=false and Limit=0, for TotalRecordCount only; above 5,000 titles no index is read", "The library query's filters with SortBy=SortName and its SortOrder are sent with Fields=SortName, EnableImages=false and EnableUserData=false and no StartIndex or Limit, in one attempt with a 60-second deadline", "NameLessThan is not used: Jellyfin compares only the first character of SortName or Name, so it cannot locate a letter in SortName order"],
       "requiredSemantics": ["Items is the whole title-ordered list, so an item's index is its list position", "SortName is the key Jellyfin orders by; an answer with fewer Items than TotalRecordCount yields no letter index"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "GetItems without Limit answers every match; Fields=SortName, EnableImages and EnableUserData are current parameters in the pinned OpenAPI."},
@@ -1293,7 +1293,7 @@
         "outcome": "supported",
         "capability": {
           "state": "available",
-          "discovery": "getCatalogSearchCapabilities reports letter_index; read once per connection, and a failed read is not repeated for five minutes."
+          "discovery": "getCatalogSearchCapabilities reports letter_index; one read per connection and profile serves the letter index and scoped people search, concurrent callers wait for it, and a failed read is not repeated for five minutes."
         },
         "requestSemantics": [
           "queryCatalogLetters is a read-only natural_idempotent POST, so the transport may replay it.",
@@ -1371,7 +1371,7 @@
         "outcome": "supported",
         "capability": {
           "state": "available",
-          "discovery": "Pinned v2 operations; people search also needs getCatalogSearchCapabilities.people_media_scope, read once per connection."
+          "discovery": "Pinned v2 operations; people search also needs getCatalogSearchCapabilities.people_media_scope, read once per connection and profile in the same read that gates the letter index."
         },
         "requestSemantics": [
           "getPerson reads one person by opaque ID, without prefetch.",
@@ -1668,7 +1668,7 @@
         "requiredSemantics": [
           "Rows arrive in display order with id, section_type, title, featured, total_count and items.",
           "Only movie and series cards are kept, once each per row; rows left empty are dropped.",
-          "A row has more cards when has_more is true or total_count exceeds the cards sent."
+          "A row has more cards only when Bloom sent item_limit, the row answered exactly that many items and total_count is larger (or has_more is true); total_count alone counts past the section's own limit and is no such claim."
         ],
         "evidenceSources": [
           "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"

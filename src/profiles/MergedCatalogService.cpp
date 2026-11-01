@@ -189,8 +189,7 @@ void MergedCatalogService::rebuildMembers()
     m_views.clear();
     m_viewsLoading = false;
     // A member may now be another server version or account.
-    m_peopleSearchScoped.clear();
-    m_peopleSearchCapabilityRetry.clear();
+    m_searchCapabilities.clear();
 
     const bool wasActive = isActive();
     m_members = next;
@@ -438,45 +437,57 @@ void MergedCatalogService::requestMemberPeople(const Member &member,
         ? m_authService->providerForConnection(member.connectionId) : nullptr;
     const ICatalogProvider *catalog = adapter ? adapter->catalogProvider() : nullptr;
     if (!catalog
-        || !catalog->createRequest(ProviderCatalogOperation::PersonSearchCapability,
+        || !catalog->createRequest(ProviderCatalogOperation::CatalogSearchCapabilities,
                                    ProviderCatalogQuery{}).supported) {
         search();
         return;
     }
-    const auto known = m_peopleSearchScoped.constFind(member.connectionId);
-    if (known != m_peopleSearchScoped.constEnd()) {
-        if (known.value()) {
+    SearchCapabilities &entry = m_searchCapabilities[member.connectionId];
+    const auto answer = [this, member, completion, search, unscoped](
+                            const SearchCapabilities &capabilities, const QString *error) {
+        if (capabilities.known && capabilities.peopleMediaScope) {
             search();
+        } else if (error) {
+            completion(failedResult(member, *error));
         } else {
             unscoped();
         }
+    };
+    if (entry.known || (entry.failed && !entry.retryAfter.hasExpired())) {
+        const SearchCapabilities answered = entry;
+        answer(answered, nullptr);
         return;
     }
-    const auto retry = m_peopleSearchCapabilityRetry.constFind(member.connectionId);
-    if (retry != m_peopleSearchCapabilityRetry.constEnd() && !retry.value().hasExpired()) {
-        unscoped();
+    // Searches typed while the read is in flight wait for it.
+    entry.waiters.append(answer);
+    if (entry.reading) {
         return;
     }
-    m_peopleSearchCapabilityRetry.remove(member.connectionId);
-    // sendMemberRequest drops answers from an older epoch.
-    sendMemberRequest(member, ProviderCatalogOperation::PersonSearchCapability,
+    entry.reading = true;
+    entry.failed = false;
+    // sendMemberRequest drops answers from an older epoch, and the epoch
+    // clears m_searchCapabilities.
+    sendMemberRequest(member, ProviderCatalogOperation::CatalogSearchCapabilities,
                       ProviderCatalogQuery{}, false, false,
-                      [this, member, completion, search, unscoped](
-                          const ProviderCatalogResponse *response, IProviderAdapter *,
-                          const QString &error) {
-        if (!response) {
-            m_peopleSearchCapabilityRetry.insert(
-                member.connectionId, QDeadlineTimer(PeopleSearchCapabilityRetryMs));
-            completion(failedResult(member, error));
+                      [this, member](const ProviderCatalogResponse *response, IProviderAdapter *,
+                                     const QString &error) {
+        const auto found = m_searchCapabilities.find(member.connectionId);
+        if (found == m_searchCapabilities.end() || !found->reading) {
             return;
         }
-        const bool scoped =
-            response->capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool();
-        m_peopleSearchScoped.insert(member.connectionId, scoped);
-        if (scoped) {
-            search();
+        found->reading = false;
+        if (response) {
+            found->known = true;
+            found->peopleMediaScope =
+                response->capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool();
         } else {
-            unscoped();
+            found->failed = true;
+            found->retryAfter = QDeadlineTimer(SearchCapabilityRetryMs);
+        }
+        const auto waiters = std::exchange(found->waiters, {});
+        const SearchCapabilities answered = *found;
+        for (const auto &waiter : waiters) {
+            waiter(answered, response ? nullptr : &error);
         }
     });
 }

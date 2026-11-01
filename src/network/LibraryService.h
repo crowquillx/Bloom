@@ -13,6 +13,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <functional>
+#include <optional>
 
 #include "Types.h"  // Shared data structs and error helpers
 #include "providers/ICatalogProvider.h"
@@ -505,7 +506,9 @@ private:
         const ProviderCatalogQuery &query,
         CatalogResponseHandler responseHandler,
         FailureHandler failureHandler = FailureHandler(),
-        CatalogNotModifiedHandler notModifiedHandler = CatalogNotModifiedHandler());
+        CatalogNotModifiedHandler notModifiedHandler = CatalogNotModifiedHandler(),
+        std::optional<RetryPolicy> retryPolicy = std::nullopt,
+        int attemptTimeoutMs = 0);
     // Random selection for operations a provider cannot answer natively.
     void sendRandomSampleRequest(
         const QString &operationName,
@@ -573,23 +576,44 @@ private:
     void finishAiringCalendarRead(const QString &key, quint64 generation,
                                   const QVariantList &airings, bool cache);
     quint64 m_librarySectionsGeneration = 0;
-    /// Per connection, whether its letter index is available, once its
-    /// catalog search capabilities were read.
-    QHash<QString, bool> m_letterIndexAvailable;
-    /// Per connection, until when a failed capability read is not repeated.
-    QHash<QString, QDeadlineTimer> m_letterIndexRetry;
-    static constexpr int LetterIndexCapabilityRetryMs = 5 * 60 * 1000;
+    /// The catalog search capability document of one connection and
+    /// profile (Silo), read once for scoped people search and the letter
+    /// index. Reads asked for while one is in flight wait for it; a failed
+    /// read is not repeated until retryAfter. Cleared with the session.
+    struct SearchCapabilities {
+        bool known = false;
+        bool peopleMediaScope = false;
+        bool letterIndex = false;
+        bool failed = false;
+        QDeadlineTimer retryAfter;
+        /// A read is in flight, sent in request generation readGeneration.
+        bool reading = false;
+        quint64 readGeneration = 0;
+        /// Called with the entry once the read in flight answers, and with
+        /// the failure when it fails (null otherwise).
+        QList<std::function<void(const SearchCapabilities &, const NetworkError *)>> waiters;
+    };
+    using SearchCapabilitiesHandler =
+        std::function<void(const SearchCapabilities &, const NetworkError *)>;
+    QHash<QString, SearchCapabilities> m_searchCapabilities;
+    static constexpr int SearchCapabilityRetryMs = 5 * 60 * 1000;
+    /// Answers @p handler with the active connection's search capabilities:
+    /// at once when known or a failed read is still backed off, else after
+    /// one shared read.
+    void withSearchCapabilities(SearchCapabilitiesHandler handler);
+    QString searchCapabilitiesKey() const;
+    /// Above this many titles a provider that builds the letter index from
+    /// the whole list (Jellyfin) gets no index; the rail shows the loaded
+    /// letters instead.
+    static constexpr int LetterIndexMaxTitles = 5000;
+    /// The whole-list letters read is large: one attempt, a longer deadline.
+    static constexpr int LetterIndexAttemptTimeoutMs = 60000;
     // Newest search; a replaced search (new term or library exclusions)
     // must not publish results after it.
     quint64 m_searchGeneration = 0;
     // Newest people search, and per connection whether people search can be
     // limited to movie and series credits (providers that read it).
     quint64 m_peopleSearchGeneration = 0;
-    QHash<QString, bool> m_peopleSearchScoped;
-    // A failed capability read is not repeated for every keystroke: until
-    // the deadline, people search on that connection shows no people.
-    QHash<QString, QDeadlineTimer> m_peopleSearchCapabilityRetry;
-    static constexpr int PeopleSearchCapabilityRetryMs = 5 * 60 * 1000;
     /// Libraries of unsupported types per connection, from the last views
     /// listing; search leaves them out (LibraryKinds).
     QHash<QString, QStringList> m_unsupportedLibraryIds;

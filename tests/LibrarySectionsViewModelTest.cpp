@@ -108,6 +108,7 @@ private slots:
     void rowsFollowTheServerAndBelongToOneLibrary();
     void reloadUpdatesRowsInPlace();
     void rowsWithMoreCardsReadTheRest();
+    void focusIsFoundByIdAfterAReload();
     void providersWithoutRowsShowNone();
 };
 
@@ -220,9 +221,17 @@ void LibrarySectionsViewModelTest::rowsWithMoreCardsReadTheRest()
     QCOMPARE(service.itemRequests.first().sectionId, QStringLiteral("recent"));
     QVERIFY(model.data(model.index(0), LibrarySectionsViewModel::LoadingMoreRole).toBool());
 
-    // A failure leaves the row as it was, ready to try again.
+    // A failure keeps the cards and stops asking: focus moves near the
+    // row's end do not read it again until the rows are read again.
     service.failItems(QStringLiteral("lib-1"), QStringLiteral("recent"));
     QVERIFY(!model.data(model.index(0), LibrarySectionsViewModel::LoadingMoreRole).toBool());
+    QVERIFY(!model.data(model.index(0), LibrarySectionsViewModel::HasMoreRole).toBool());
+    QCOMPARE(cardIds(model, 0), (QStringList{QStringLiteral("a"), QStringLiteral("b")}));
+    model.loadMore(0);
+    QCOMPARE(service.itemRequests.size(), 1);
+    model.load(QStringLiteral("lib-1"));
+    service.loadRows(QStringLiteral("silo-1"), QStringLiteral("lib-1"),
+                     {row("recent", items({"a", "b"}), true), row("crime", items({"c"}))});
     QVERIFY(model.data(model.index(0), LibrarySectionsViewModel::HasMoreRole).toBool());
     model.loadMore(0);
     QCOMPARE(service.itemRequests.size(), 2);
@@ -241,7 +250,8 @@ void LibrarySectionsViewModelTest::rowsWithMoreCardsReadTheRest()
 
     // A reload that brings the first page again keeps the cards past it,
     // so a focused card there stays (a return from its page), with the
-    // first page's cards refreshed.
+    // first page's cards refreshed. The row keeps its more flag, so its
+    // next read replaces the merge with the whole row.
     model.load(QStringLiteral("lib-1"));
     QVariantList refreshed = items({"a", "b"});
     QVariantMap watched = refreshed.first().toMap();
@@ -253,7 +263,50 @@ void LibrarySectionsViewModelTest::rowsWithMoreCardsReadTheRest()
                                              QStringLiteral("d"), QStringLiteral("e")}));
     QVERIFY(model.data(model.index(0), LibrarySectionsViewModel::ItemsRole)
                 .toList().first().toMap().value(QStringLiteral("watched")).toBool());
+    QVERIFY(model.data(model.index(0), LibrarySectionsViewModel::HasMoreRole).toBool());
+
+    // A new first card pushes "b" out of the fresh first page: it is kept
+    // by identity, not dropped because it sat inside the old first page.
+    model.load(QStringLiteral("lib-1"));
+    service.loadRows(QStringLiteral("silo-1"), QStringLiteral("lib-1"),
+                     {row("recent", items({"n", "a"}), true), row("crime", items({"c"}))});
+    QCOMPARE(cardIds(model, 0), (QStringList{QStringLiteral("n"), QStringLiteral("a"),
+                                             QStringLiteral("b"), QStringLiteral("d"),
+                                             QStringLiteral("e")}));
+    // The next read near the row's end repairs it with the server's row,
+    // even when that has fewer cards than shown (one was removed).
+    model.loadMore(0);
+    QCOMPARE(service.itemRequests.size(), 3);
+    service.loadItems(QStringLiteral("lib-1"), QStringLiteral("recent"), items({"n", "a", "b", "e"}));
+    QCOMPARE(cardIds(model, 0), (QStringList{QStringLiteral("n"), QStringLiteral("a"),
+                                             QStringLiteral("b"), QStringLiteral("e")}));
     QVERIFY(!model.data(model.index(0), LibrarySectionsViewModel::HasMoreRole).toBool());
+}
+
+void LibrarySectionsViewModelTest::focusIsFoundByIdAfterAReload()
+{
+    ScriptedLibraryService service;
+    LibrarySectionsViewModel model(&service);
+    model.load(QStringLiteral("lib-1"));
+    service.loadRows(QStringLiteral("silo-1"), QStringLiteral("lib-1"),
+                     {row("recent", items({"a", "b", "c"})), row("crime", items({"d", "e"}))});
+    // The view saves {sectionId: "crime", itemId: "e"} (row 1, card 1).
+    QCOMPARE(model.rowOfSection(QStringLiteral("crime")), 1);
+    QCOMPARE(model.indexOfItem(1, QStringLiteral("e")), 1);
+
+    // The shelves come back reordered with the card moved: the saved IDs
+    // find them, not the saved positions.
+    model.load(QStringLiteral("lib-1"));
+    service.loadRows(QStringLiteral("silo-1"), QStringLiteral("lib-1"),
+                     {row("new", items({"x"})), row("crime", items({"f", "d", "e"})),
+                      row("recent", items({"a"}))});
+    const int shelf = model.rowOfSection(QStringLiteral("crime"));
+    QCOMPARE(shelf, 1);
+    QCOMPARE(model.indexOfItem(shelf, QStringLiteral("e")), 2);
+    // Gone: the view falls back to the saved positions.
+    QCOMPARE(model.rowOfSection(QStringLiteral("gone")), -1);
+    QCOMPARE(model.indexOfItem(shelf, QStringLiteral("gone")), -1);
+    QCOMPARE(model.indexOfItem(9, QStringLiteral("e")), -1);
 }
 
 void LibrarySectionsViewModelTest::providersWithoutRowsShowNone()

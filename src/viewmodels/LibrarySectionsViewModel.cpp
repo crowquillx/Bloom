@@ -191,11 +191,9 @@ void LibrarySectionsViewModel::onSectionItemsLoaded(const QString &connectionId,
         return;
     }
     QVariantMap entry = m_rows.at(row).toMap();
-    // The whole row; keep what is shown when the answer has fewer cards
-    // (the row changed since), so focus never loses its card.
-    if (items.size() >= entry.value(QStringLiteral("items")).toList().size()) {
-        entry.insert(QStringLiteral("items"), items);
-    }
+    // The whole row as the server holds it now, including cards a refresh
+    // kept from an older read; the shelf finds its focused card by ID.
+    entry.insert(QStringLiteral("items"), items);
     entry.insert(QStringLiteral("hasMore"), false);
     m_rows[row] = entry;
     const QModelIndex changed = index(row);
@@ -215,8 +213,13 @@ void LibrarySectionsViewModel::onSectionItemsFailed(const QString &connectionId,
                             << "failed to load more:" << error;
     const int row = rowOfSection(sectionId);
     if (row >= 0) {
+        // No read on every focus move: the row asks again only once the
+        // shelves are read again.
+        QVariantMap entry = m_rows.at(row).toMap();
+        entry.insert(QStringLiteral("hasMore"), false);
+        m_rows[row] = entry;
         const QModelIndex changed = index(row);
-        emit dataChanged(changed, changed, {LoadingMoreRole});
+        emit dataChanged(changed, changed, {HasMoreRole, LoadingMoreRole});
     }
 }
 
@@ -229,6 +232,20 @@ int LibrarySectionsViewModel::rowOfSection(const QString &sectionId) const
 {
     for (qsizetype i = 0; i < m_rows.size(); ++i) {
         if (sectionIdOf(m_rows.at(i)) == sectionId) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+int LibrarySectionsViewModel::indexOfItem(int row, const QString &itemId) const
+{
+    if (row < 0 || row >= m_rows.size() || itemId.isEmpty()) {
+        return -1;
+    }
+    const QVariantList items = m_rows.at(row).toMap().value(QStringLiteral("items")).toList();
+    for (qsizetype i = 0; i < items.size(); ++i) {
+        if (items.at(i).toMap().value(QStringLiteral("itemId")).toString() == itemId) {
             return static_cast<int>(i);
         }
     }
@@ -269,26 +286,28 @@ void LibrarySectionsViewModel::applyRows(const QVariantList &rows)
     for (qsizetype i = 0; i < rows.size(); ++i) {
         QVariantMap fresh = rows.at(i).toMap();
         const QVariantMap current = m_rows.at(i).toMap();
-        // A row already read in full keeps the cards past the fresh first
-        // page, so a focused card there (a return from its details) stays.
+        // A row already read in full keeps, after the fresh first page,
+        // every card it showed that the page lacks (by ID, wherever it
+        // sat), so a focused card there (a return from its details) stays
+        // and a card the page pushed out is not lost. The row keeps its
+        // more flag, so the next read near its end replaces the merge with
+        // the whole row.
         const QVariantList currentItems = current.value(QStringLiteral("items")).toList();
         QVariantList freshItems = fresh.value(QStringLiteral("items")).toList();
-        if (!current.value(QStringLiteral("hasMore")).toBool()
-            && fresh.value(QStringLiteral("hasMore")).toBool()
+        if (fresh.value(QStringLiteral("hasMore")).toBool()
             && currentItems.size() > freshItems.size()) {
             QSet<QString> freshIds;
             for (const QVariant &item : std::as_const(freshItems)) {
                 freshIds.insert(item.toMap().value(QStringLiteral("itemId")).toString());
             }
-            for (qsizetype k = freshItems.size(); k < currentItems.size(); ++k) {
-                const QString itemId
-                    = currentItems.at(k).toMap().value(QStringLiteral("itemId")).toString();
+            for (const QVariant &item : currentItems) {
+                const QString itemId = item.toMap().value(QStringLiteral("itemId")).toString();
                 if (!freshIds.contains(itemId)) {
-                    freshItems.append(currentItems.at(k));
+                    freshIds.insert(itemId);
+                    freshItems.append(item);
                 }
             }
             fresh.insert(QStringLiteral("items"), freshItems);
-            fresh.insert(QStringLiteral("hasMore"), false);
         }
         if (QVariant(fresh) == m_rows.at(i)) {
             continue;

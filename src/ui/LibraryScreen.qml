@@ -41,11 +41,18 @@ FocusScope {
                                              && currentSeriesId === ""
                                              && currentParentId.indexOf("combined:") !== 0
     readonly property bool showingShelves: shelvesMode && shelvesAvailable
-    /// Shelf and card to focus when the shelves come back ({ row, index }).
+    /// Shelf and card to focus when the shelves come back
+    /// ({ sectionId, itemId, row, index }; the IDs win, the positions are
+    /// the fallback).
     property var _pendingShelfFocus: null
     property bool _reloadingForQuery: false
+    /// A return to a title past the loaded pages seeks back to it; the
+    /// grid's scroll position is restored once it is loaded.
+    property int _pendingSeekIndex: -1
+    property real _pendingSeekContentY: -1
+    // Each library opens on the view last chosen for it.
     onCurrentLibraryIdChanged: {
-        shelvesMode = false
+        shelvesMode = currentLibraryId !== "" && ConfigManager.getLibraryShelvesShown(currentLibraryId)
         _pendingShelfFocus = null
     }
     
@@ -1001,19 +1008,31 @@ FocusScope {
         }
 
         // The shelf and card in focus, for a return from a title's page.
+        // Kept by ID: a reload may reorder the shelves or their cards.
         function currentShelfFocus() {
             if (!showingShelves || !shelvesView.activeFocus || shelvesView.currentIndex < 0)
                 return null
             var row = shelvesView.itemAtIndex(shelvesView.currentIndex)
-            return { row: shelvesView.currentIndex, index: row ? row.shelfList.currentIndex : 0 }
+            var index = row ? row.shelfList.currentIndex : 0
+            var card = row && index >= 0 && row.items && index < row.items.length ? row.items[index] : null
+            return {
+                sectionId: row ? row.sectionId : "",
+                itemId: card ? (card.itemId || "") : "",
+                row: shelvesView.currentIndex,
+                index: index
+            }
         }
 
         // The shelves left (the provider has no rows now): back to the grid.
+        // A library remembered on its shelves shows the grid until its rows
+        // arrive: focus follows them then.
         Connections {
             target: root
             function onShowingShelvesChanged() {
                 if (!showingShelves && shelvesView.activeFocus)
                     Qt.callLater(function() { grid.forceActiveFocus() })
+                else if (showingShelves && grid.activeFocus)
+                    Qt.callLater(shelvesView.focusShelf)
             }
         }
         
@@ -1080,7 +1099,8 @@ FocusScope {
                     detail: {
                         if (currentParentId === "")
                             return ""
-                        var loaded = LibraryViewModel.rowCount()
+                        // Rows a letter jump skipped are not counted.
+                        var loaded = LibraryViewModel.loadedCount
                         var total = LibraryViewModel.totalRecordCount
                         if (total > 0 && loaded > 0)
                             return loaded < total ? qsTr("%1 of %2 titles").arg(loaded).arg(total)
@@ -1943,15 +1963,26 @@ FocusScope {
                         return
                     var pending = _pendingShelfFocus
                     _pendingShelfFocus = null
-                    var row = pending ? Math.min(pending.row, count - 1) : Math.max(0, currentIndex)
+                    var row = Math.max(0, currentIndex)
+                    var card = -1
+                    if (pending) {
+                        // The shelf and card by ID; their old positions
+                        // only when a reload dropped them.
+                        var byId = pending.sectionId ? LibrarySectionsViewModel.rowOfSection(pending.sectionId) : -1
+                        row = byId >= 0 ? byId : Math.min(pending.row, count - 1)
+                        card = byId >= 0 && pending.itemId
+                            ? LibrarySectionsViewModel.indexOfItem(byId, pending.itemId) : -1
+                        if (card < 0)
+                            card = pending.index
+                    }
                     currentIndex = row
                     positionViewAtIndex(row, ListView.Beginning)
                     Qt.callLater(function() {
                         var list = shelfAt(row)
                         if (!list)
                             return
-                        if (pending && list.count > 0) {
-                            list.currentIndex = Math.min(pending.index, list.count - 1)
+                        if (card >= 0 && list.count > 0) {
+                            list.currentIndex = Math.min(card, list.count - 1)
                             list.positionViewAtIndex(list.currentIndex, ListView.Contain)
                         }
                         list.forceActiveFocus()
@@ -1993,11 +2024,18 @@ FocusScope {
                     width: shelvesView.width
                     height: shelfColumn.implicitHeight
 
-                    // The cards are set by hand so a longer row (its other
-                    // cards loaded) keeps the focused card.
+                    // The cards are set by hand so new cards (the rest of
+                    // the row, or a refresh) keep the focused card, found
+                    // by ID wherever it moved.
+                    property string _focusedItemId: ""
                     onItemsChanged: {
                         var keep = shelfCards.currentIndex
                         shelfCards.model = items || []
+                        if (_focusedItemId !== "") {
+                            var moved = LibrarySectionsViewModel.indexOfItem(index, _focusedItemId)
+                            if (moved >= 0)
+                                keep = moved
+                        }
                         if (keep > 0 && shelfCards.count > 0) {
                             shelfCards.currentIndex = Math.min(keep, shelfCards.count - 1)
                             shelfCards.positionViewAtIndex(shelfCards.currentIndex, ListView.Contain)
@@ -2032,6 +2070,9 @@ FocusScope {
                             // Near the end of a row that has more, read the
                             // rest of it.
                             onCurrentIndexChanged: {
+                                var card = currentIndex >= 0 && shelfRow.items && currentIndex < shelfRow.items.length
+                                    ? shelfRow.items[currentIndex] : null
+                                shelfRow._focusedItemId = card ? (card.itemId || "") : ""
                                 if (shelfRow.hasMore && currentIndex >= count - 5)
                                     LibrarySectionsViewModel.loadMore(shelfRow.index)
                             }
@@ -2921,7 +2962,9 @@ FocusScope {
             
             // If we have a pending position to restore, load enough items to include that index
             // This ensures when navigating back to a library at (e.g.) index 75, we load at least 76 items
-            if (shouldPaginate && _pendingGridIndex >= 0) {
+            // A title far down (a letter jump) is sought back instead of
+            // read through every page before it.
+            if (shouldPaginate && _pendingGridIndex >= 0 && _pendingGridIndex < baseLimit * 4) {
                 // Load enough items to include the pending index, plus a buffer for scrolling context
                 // Round up to the next multiple of baseLimit to avoid odd partial loads
                 var neededItems = _pendingGridIndex + 1 + baseLimit  // +1 for zero-indexing, +baseLimit for buffer
@@ -2943,10 +2986,13 @@ FocusScope {
             if (shouldPaginate) {
                 LibraryViewModel.loadFilterOptions(currentParentId, currentLibraryType)
                 // The library's curated shelves (Silo); other providers
-                // have none and the toggle stays hidden.
+                // have none and the toggle stays hidden. They are read once
+                // per library visit (enough to offer the toggle), and again
+                // on a return only while they are shown.
                 if (currentParentId.indexOf("combined:") === 0)
                     LibrarySectionsViewModel.clear()
-                else if (!_reloadingForQuery || LibrarySectionsViewModel.libraryId !== currentParentId)
+                else if (LibrarySectionsViewModel.libraryId !== currentParentId
+                         || (showingShelves && !_reloadingForQuery))
                     LibrarySectionsViewModel.load(currentParentId)
             }
         }
@@ -2975,6 +3021,7 @@ FocusScope {
         if (!shelvesAvailable)
             return
         shelvesMode = !shelvesMode
+        ConfigManager.setLibraryShelvesShown(currentLibraryId, shelvesMode)
         _pendingShelfFocus = null
         if (shelvesMode)
             showFilterPanel = false
@@ -3013,12 +3060,13 @@ FocusScope {
             }
         }
         function onLoadMoreComplete() {
-            // Update letter buckets after loading more items
-            var items = []
-            for (var i = 0; i < LibraryViewModel.rowCount(); i++) {
-                items.push(LibraryViewModel.getItem(i))
-            }
-            updateLetterBuckets(items)
+            rebuildLetterBuckets()
+        }
+        // The loaded-letters rail is rebuilt when the whole-library index
+        // goes away (another sort, or a failed read).
+        function onLetterIndexChanged() {
+            if (!wholeLibraryLetters)
+                rebuildLetterBuckets()
         }
         function onLoadError(error) {
             console.log("[Library] Load error:", error)
@@ -3026,11 +3074,26 @@ FocusScope {
         // A letter jump reached its first title: focus it.
         function onPositionReady(position) {
             var grid = contentLoader.item ? contentLoader.item.grid : null
+            var restoring = position === _pendingSeekIndex
+            var contentY = restoring ? _pendingSeekContentY : -1
+            _pendingSeekIndex = -1
+            _pendingSeekContentY = -1
             if (!grid || showingShelves || position < 0 || position >= grid.count)
                 return
             grid.currentIndex = position
-            grid.positionViewAtIndex(position, GridView.Beginning)
+            // A return keeps the title where it was on screen.
+            if (contentY >= 0)
+                grid.contentY = contentY
+            else
+                grid.positionViewAtIndex(position, restoring ? GridView.Center : GridView.Beginning)
             Qt.callLater(function() { grid.forceActiveFocus() })
+        }
+        // The seek's rows failed to load. Focus stays where it was; the
+        // same jump tries again.
+        function onSeekFailed(position, error) {
+            _pendingSeekIndex = -1
+            _pendingSeekContentY = -1
+            seekToast.show(qsTr("Couldn't load these titles. Choose the letter again to retry."))
         }
     }
 
@@ -3117,12 +3180,7 @@ FocusScope {
     }
 
     function applyItems() {
-        // Update letter buckets from ViewModel data
-        var items = []
-        for (var i = 0; i < LibraryViewModel.rowCount(); i++) {
-            items.push(LibraryViewModel.getItem(i))
-        }
-        updateLetterBuckets(items)
+        rebuildLetterBuckets()
         
         // Only force focus to grid if we're at top level or just navigated into a folder
         var grid = contentLoader.item ? contentLoader.item.grid : null
@@ -3156,11 +3214,13 @@ FocusScope {
             // Check if we have a pending position to restore
             if (_pendingGridIndex >= grid.count && _pendingGridIndex < LibraryViewModel.totalRecordCount) {
                 // A title past the first pages (reached by a letter jump):
-                // seek back to it; positionReady focuses it.
-                var target = _pendingGridIndex
+                // seek back to it; positionReady focuses it and restores the
+                // scroll position. A seek during a load waits for it.
+                _pendingSeekIndex = _pendingGridIndex
+                _pendingSeekContentY = _pendingGridContentY
                 _pendingGridIndex = -1
                 _pendingGridContentY = -1
-                LibraryViewModel.seekToPosition(target)
+                LibraryViewModel.seekToPosition(_pendingSeekIndex)
             } else if (_pendingGridIndex >= 0 && _pendingGridIndex < grid.count) {
                 console.log("[Library] Restoring grid position - index:", _pendingGridIndex, "contentY:", _pendingGridContentY)
                 grid.currentIndex = _pendingGridIndex
@@ -3246,10 +3306,27 @@ FocusScope {
         return d.getFullYear()
     }
 
+    // The loaded-letters rail. With the whole library's index it is not
+    // needed, and rows a jump skipped never count.
+    function rebuildLetterBuckets() {
+        if (wholeLibraryLetters) {
+            letterBuckets = []
+            return
+        }
+        var items = []
+        for (var i = 0; i < LibraryViewModel.rowCount(); i++) {
+            var item = LibraryViewModel.getItem(i)
+            items.push(item.bloomPlaceholder ? null : item)
+        }
+        updateLetterBuckets(items)
+    }
+
     function updateLetterBuckets(items) {
         var buckets = []
         var seen = {}
         for (var i = 0; i < items.length; ++i) {
+            if (!items[i])
+                continue
             var letter = getSortLetter(items[i])
             if (!seen[letter]) {
                 seen[letter] = true
@@ -3289,5 +3366,10 @@ FocusScope {
             }
         }
     }
-    
+
+    // A letter jump whose titles failed to load.
+    ToastNotification {
+        id: seekToast
+        z: 300
+    }
 }

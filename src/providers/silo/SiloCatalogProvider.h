@@ -421,8 +421,6 @@ private:
             return get(QStringLiteral("/api/v2/catalog/people?q=%1&").arg(encodedId(term.left(200)))
                        + parameters.query(QUrl::FullyEncoded));
         }
-        case ProviderCatalogOperation::PersonSearchCapability:
-            return get(QStringLiteral("/api/v2/catalog/search/capabilities"));
         case ProviderCatalogOperation::LibrarySections: {
             if (query.limit < 0) {
                 return unsupported(QStringLiteral("Silo library sections need a positive card limit"));
@@ -449,6 +447,8 @@ private:
             return get(QStringLiteral("/api/v2/catalog/search/capabilities"));
         case ProviderCatalogOperation::LibraryLetters:
             return createLettersRequest(query);
+        case ProviderCatalogOperation::LibraryLetterCount:
+            return unsupported(QStringLiteral("Silo answers the letter index itself"));
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -499,21 +499,6 @@ public:
                 return response;
             }
             response.rawItem = object;
-            response.valid = true;
-            return response;
-        }
-        if (operation == ProviderCatalogOperation::PersonSearchCapability) {
-            ProviderCatalogResponse response;
-            const QJsonObject object = QJsonDocument::fromJson(body).object();
-            if (!object.value(QStringLiteral("state")).isString()
-                || !object.value(QStringLiteral("allowed")).isBool()) {
-                response.error = QStringLiteral("Invalid Silo search capabilities response");
-                return response;
-            }
-            // Absent on servers before scoped people search.
-            response.capabilityMetadata.insert(
-                QStringLiteral("peopleMediaScope"),
-                object.value(QStringLiteral("people_media_scope")).toBool(false));
             response.valid = true;
             return response;
         }
@@ -611,13 +596,19 @@ public:
             return response;
         }
         if (operation == ProviderCatalogOperation::CatalogSearchCapabilities) {
+            // One profile-scoped document gates scoped people search and
+            // the letter index.
             ProviderCatalogResponse response;
             const QJsonObject object = QJsonDocument::fromJson(body).object();
-            if (!object.value(QStringLiteral("state")).isString()) {
-                response.error = QStringLiteral("Invalid Silo catalog search capabilities response");
+            if (!object.value(QStringLiteral("state")).isString()
+                || !object.value(QStringLiteral("allowed")).isBool()) {
+                response.error = QStringLiteral("Invalid Silo search capabilities response");
                 return response;
             }
-            // Absent on servers before the letter index.
+            // Each flag is absent on servers before its feature.
+            response.capabilityMetadata.insert(
+                QStringLiteral("peopleMediaScope"),
+                object.value(QStringLiteral("people_media_scope")).toBool(false));
             response.capabilityMetadata.insert(
                 QStringLiteral("letterIndex"),
                 object.value(QStringLiteral("state")).toString() == QStringLiteral("available")
@@ -870,10 +861,13 @@ private:
                  section.value(QStringLiteral("section_type")).toString()},
                 {QStringLiteral("title"), section.value(QStringLiteral("title")).toString()},
                 {QStringLiteral("featured"), section.value(QStringLiteral("featured")).toBool()},
+                // total_count counts the section's whole set, past its own
+                // item_limit too, so it alone never means more cards to
+                // read; LibraryService compares item_count with the
+                // item_limit it sent.
                 {QStringLiteral("total_count"), totalCount},
-                {QStringLiteral("has_more"),
-                 section.value(QStringLiteral("has_more")).toBool()
-                     || totalCount > items.size()},
+                {QStringLiteral("item_count"), static_cast<int>(items.size())},
+                {QStringLiteral("has_more"), section.value(QStringLiteral("has_more")).toBool()},
                 {QStringLiteral("items"), cards}});
         }
         return rows;

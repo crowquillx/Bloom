@@ -23,9 +23,17 @@ class LibraryService;
  *   (`isLoading`). Rows of another library or connection are dropped first;
  *   a reload of the same library updates rows in place when their IDs and
  *   order hold, so shelves keep their delegates.
- * - `loadMore(row)` reads every card of a row that has more
+ * - A row has more (`hasMore`) only when Bloom's `item_limit` cut it
+ *   (LibraryService). `loadMore(row)` reads every card of such a row
  *   (`getLibrarySectionItems`). The answer replaces the row's items; the
- *   row then has no more, since the server pages a row no further.
+ *   row then has no more, since the server pages a row no further. A
+ *   failed read also clears `hasMore`, so focus moves do not repeat it; the
+ *   next `load` restores it.
+ * - A reload keeps, after a fully read row's fresh first page, the cards
+ *   it showed that the page lacks (by item ID), and leaves the row's
+ *   `hasMore` so its next read replaces the merge.
+ * - `rowOfSection(sectionId)` and `indexOfItem(row, itemId)` let the view
+ *   restore focus by identity after a reload.
  * - Only the answer to the newest request for the active library and
  *   connection is applied. A failure sets `hasError` and keeps the rows.
  * - `available` is false for providers without curated library rows
@@ -70,6 +78,10 @@ public:
     /// Drops every row and forgets the pending requests.
     Q_INVOKABLE void clear();
     Q_INVOKABLE void reload() override;
+    /// The row of @p sectionId, or -1.
+    Q_INVOKABLE int rowOfSection(const QString &sectionId) const;
+    /// The position of @p itemId in @p row's cards, or -1.
+    Q_INVOKABLE int indexOfItem(int row, const QString &itemId) const;
 
 signals:
     void availableChanged();
@@ -92,7 +104,6 @@ private:
     void applyRows(const QVariantList &rows);
     void setRows(const QVariantList &rows);
     void setLibraryId(const QString &libraryId);
-    int rowOfSection(const QString &sectionId) const;
     static QString sectionIdOf(const QVariant &row);
 
     LibraryService *m_libraryService = nullptr;

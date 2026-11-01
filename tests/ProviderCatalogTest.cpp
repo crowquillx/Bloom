@@ -561,7 +561,7 @@ void ProviderCatalogTest::jellyfinPersonRequestsAndMapping()
     query.searchTerm = QStringLiteral("  ");
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::PersonSearch, query).supported);
     // People search needs no capability read on Jellyfin.
-    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::PersonSearchCapability, query).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::CatalogSearchCapabilities, query).supported);
 
     // GetItem answers the person itself.
     const ProviderCatalogResponse detail = catalog->parseResponse(
@@ -651,20 +651,20 @@ void ProviderCatalogTest::siloPersonRequestsAndMapping()
                                     QByteArrayLiteral(R"({"id":7,"name":"Al Pacino"})")).valid);
 
     const ProviderCatalogRequest capability
-        = provider.createRequest(ProviderCatalogOperation::PersonSearchCapability, {});
+        = provider.createRequest(ProviderCatalogOperation::CatalogSearchCapabilities, {});
     QVERIFY(capability.supported);
     QCOMPARE(capability.relativeEndpoint, QStringLiteral("/api/v2/catalog/search/capabilities"));
     ProviderCatalogResponse scoped = provider.parseResponse(
-        ProviderCatalogOperation::PersonSearchCapability,
+        ProviderCatalogOperation::CatalogSearchCapabilities,
         QByteArrayLiteral(R"({"revision":"r","state":"available","allowed":true,"people_media_scope":true})"));
     QVERIFY(scoped.valid);
     QCOMPARE(scoped.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool(), true);
     scoped = provider.parseResponse(
-        ProviderCatalogOperation::PersonSearchCapability,
+        ProviderCatalogOperation::CatalogSearchCapabilities,
         QByteArrayLiteral(R"({"revision":"r","state":"available","allowed":true})"));
     QVERIFY(scoped.valid);
     QCOMPARE(scoped.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool(), false);
-    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::PersonSearchCapability,
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::CatalogSearchCapabilities,
                                     QByteArrayLiteral(R"({"revision":"r"})")).valid);
 
     const ProviderCatalogResponse detail = provider.parseResponse(
@@ -1623,6 +1623,32 @@ void ProviderCatalogTest::jellyfinLetterIndexReadsTheWholeSortNameList()
                 .value(QStringLiteral("ItemFields")).toObject()
                 .value(QStringLiteral("enum")).toArray().contains(QStringLiteral("SortName")));
 
+    // The count read first: the same query with Limit=0 and no fields,
+    // answering only TotalRecordCount.
+    const ProviderCatalogRequest countRequest
+        = catalog->createRequest(ProviderCatalogOperation::LibraryLetterCount, query);
+    QVERIFY2(countRequest.supported, qPrintable(countRequest.unsupportedReason));
+    QCOMPARE(countRequest.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    const QUrlQuery countParameters(QUrl(countRequest.relativeEndpoint));
+    QCOMPARE(QUrl(countRequest.relativeEndpoint).path(), QStringLiteral("/Items"));
+    QCOMPARE(countParameters.queryItemValue(QStringLiteral("Limit")), QStringLiteral("0"));
+    QCOMPARE(countParameters.queryItemValue(QStringLiteral("ParentId")), QStringLiteral("library-1"));
+    QCOMPARE(countParameters.queryItemValue(QStringLiteral("IsFavorite")), QStringLiteral("true"));
+    QVERIFY(!countParameters.hasQueryItem(QStringLiteral("Fields")));
+    QVERIFY(!countParameters.hasQueryItem(QStringLiteral("StartIndex")));
+    for (const auto &item : countParameters.queryItems()) {
+        const QString name = item.first.toLower();
+        QVERIFY2(getItemsParameters.contains(name), qPrintable(item.first));
+        QVERIFY2(!getItemsParameters.value(name), qPrintable(item.first));
+    }
+    const ProviderCatalogResponse count = catalog->parseResponse(
+        ProviderCatalogOperation::LibraryLetterCount,
+        QByteArrayLiteral(R"({"Items":[],"TotalRecordCount":12345,"StartIndex":0})"));
+    QVERIFY2(count.valid, qPrintable(count.error));
+    QCOMPARE(count.total, 12345);
+    QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::LibraryLetterCount,
+                                    QByteArrayLiteral(R"({"Items":[]})")).valid);
+
     // Only title order has an index.
     query.sortBy = QStringLiteral("dateAdded");
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryLetters, query).supported);
@@ -1687,8 +1713,9 @@ void ProviderCatalogTest::siloLibrarySectionsKeepTitleRowsInOrder()
                  .supported);
 
     // Rows keep the server's order, only movie and series cards (once
-    // each), and drop rows left empty; a row has more when the server says
-    // so or counts more than it sent.
+    // each), and drop rows left empty. Each row carries how many wire
+    // items it sent beside total_count and has_more; LibraryService decides
+    // whether Bloom's item_limit cut it.
     const ProviderCatalogResponse rows = catalog->parseResponse(
         ProviderCatalogOperation::LibrarySections,
         QByteArrayLiteral(R"({"sections":[)"
@@ -1709,12 +1736,16 @@ void ProviderCatalogTest::siloLibrarySectionsKeepTitleRowsInOrder()
     QCOMPARE(scifi.value(QStringLiteral("title")).toString(), QStringLiteral("Sci-Fi"));
     QVERIFY(scifi.value(QStringLiteral("featured")).toBool());
     QCOMPARE(scifi.value(QStringLiteral("items")).toArray().size(), 2);
+    QCOMPARE(scifi.value(QStringLiteral("item_count")).toInt(), 3);
     QVERIFY(!scifi.value(QStringLiteral("has_more")).toBool());
     const QJsonObject recent = rows.rawItems.at(1).toObject();
     QCOMPARE(recent.value(QStringLiteral("items")).toArray().size(), 1);
     QCOMPARE(recent.value(QStringLiteral("items")).toArray().first().toObject()
                  .value(QStringLiteral("content_id")).toString(), QStringLiteral("m2"));
-    QVERIFY(recent.value(QStringLiteral("has_more")).toBool());
+    // total_count past the cards sent is no claim of more by itself.
+    QCOMPARE(recent.value(QStringLiteral("total_count")).toInt(), 120);
+    QCOMPARE(recent.value(QStringLiteral("item_count")).toInt(), 2);
+    QVERIFY(!recent.value(QStringLiteral("has_more")).toBool());
     QVERIFY(rows.rawItems.at(2).toObject().value(QStringLiteral("has_more")).toBool());
     QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::LibrarySections,
                                     QByteArrayLiteral(R"({"rows":[]})")).valid);
@@ -1760,6 +1791,17 @@ void ProviderCatalogTest::siloLetterIndexUsesTheLibraryQuery()
     QVERIFY(!letterIndex(R"({"revision":"r","state":"disabled","allowed":true,"letter_index":true})"));
     QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::CatalogSearchCapabilities,
                                     QByteArrayLiteral("{}")).valid);
+    // One document answers both features it gates.
+    const ProviderCatalogResponse both = catalog->parseResponse(
+        ProviderCatalogOperation::CatalogSearchCapabilities,
+        QByteArrayLiteral(R"({"revision":"r","state":"available","allowed":true,)"
+                          R"("people_media_scope":true,"letter_index":true})"));
+    QVERIFY(both.valid);
+    QVERIFY(both.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool());
+    QVERIFY(both.capabilityMetadata.value(QStringLiteral("letterIndex")).toBool());
+    // Silo answers the index itself: no count read.
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryLetterCount,
+                                    ProviderCatalogQuery{}).supported);
 
     // The same scope and rule groups as the grid's query, in title order.
     ProviderCatalogQuery query;
