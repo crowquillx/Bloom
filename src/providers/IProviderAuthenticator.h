@@ -5,6 +5,8 @@
 #include <QString>
 #include <optional>
 
+#include "models/ServerTrackPreferences.h"
+
 struct ProviderAuthenticationRequest {
     enum class Method { Post, Get };
 
@@ -29,6 +31,9 @@ struct ProviderAuthenticationResult {
     // Whether the account administers the server. Absent when the provider
     // does not say; callers keep server-enforced actions available then.
     std::optional<bool> isAdministrator;
+    // The account's own audio/subtitle language defaults (Jellyfin
+    // UserConfiguration). Absent when the provider keeps none per account.
+    std::optional<Bloom::ServerTrackPreferences> playbackDefaults;
     // Relative lifetime reported by the provider. Negative means unspecified.
     qint64 expiresInSeconds = -1;
 

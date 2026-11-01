@@ -13,6 +13,39 @@ std::optional<bool> administratorFlag(const QJsonObject &user)
                                  .value(QStringLiteral("IsAdministrator"));
     return value.isBool() ? std::optional<bool>(value.toBool()) : std::nullopt;
 }
+
+// UserDto.Configuration as language-based defaults. RememberAudioSelections
+// and RememberSubtitleSelections act only inside the server's own
+// PlaybackInfo defaults, so they are not read here.
+std::optional<Bloom::ServerTrackPreferences> playbackDefaults(const QJsonObject &user)
+{
+    const QJsonValue value = user.value(QStringLiteral("Configuration"));
+    if (!value.isObject()) {
+        return std::nullopt;
+    }
+    const QJsonObject configuration = value.toObject();
+    Bloom::ServerTrackPreferences result;
+    result.audioLanguage =
+        configuration.value(QStringLiteral("AudioLanguagePreference")).toString().trimmed();
+    result.playDefaultAudioTrack =
+        configuration.value(QStringLiteral("PlayDefaultAudioTrack")).toBool(true);
+    // SubtitlePlaybackMode: Default leaves subtitles to the file's flags,
+    // which is no preference of the account's own.
+    const QString mode = configuration.value(QStringLiteral("SubtitleMode")).toString();
+    if (mode == QStringLiteral("Always")) {
+        result.subtitleMode = QStringLiteral("always");
+    } else if (mode == QStringLiteral("Smart")) {
+        result.subtitleMode = QStringLiteral("auto");
+    } else if (mode == QStringLiteral("OnlyForced")) {
+        result.subtitleMode = QStringLiteral("forced");
+    } else if (mode == QStringLiteral("None")) {
+        result.subtitleMode = QStringLiteral("off");
+        result.showForcedSubtitles = false;
+    }
+    result.subtitleLanguage =
+        configuration.value(QStringLiteral("SubtitleLanguagePreference")).toString().trimmed();
+    return result;
+}
 }
 
 ProviderAuthenticationRequest JellyfinAuthenticator::createLoginRequest(
@@ -44,6 +77,7 @@ ProviderAuthenticationResult JellyfinAuthenticator::parseLoginResponse(
     result.accountId = user.value(QStringLiteral("Id")).toString();
     result.username = user.value(QStringLiteral("Name")).toString();
     result.isAdministrator = administratorFlag(user);
+    result.playbackDefaults = playbackDefaults(user);
     return result;
 }
 
@@ -57,6 +91,7 @@ ProviderAuthenticationResult JellyfinAuthenticator::parseSessionValidationRespon
     result.accountId = user.value(QStringLiteral("Id")).toString();
     result.username = user.value(QStringLiteral("Name")).toString();
     result.isAdministrator = administratorFlag(user);
+    result.playbackDefaults = playbackDefaults(user);
     return result;
 }
 

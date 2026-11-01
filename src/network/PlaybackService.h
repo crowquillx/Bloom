@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QSet>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
@@ -128,6 +129,16 @@ public:
                                                    const QString &playbackOrder = QStringLiteral("Default"));
     Q_INVOKABLE void markItemPlayed(const QString &itemId);
 
+    /// Remembers a track the user picked on the server so other devices
+    /// follow (Silo only). Best-effort: a failure is only logged and never
+    /// touches the local choice. Writes for the same series and kind are sent
+    /// one at a time; while one is in flight only the newest waiting write is
+    /// kept, and a server or account switch drops it.
+    virtual void writeTrackPreference(const TrackPreferenceWrite &write);
+    /// The account's own language defaults on each source that carries no
+    /// server preferences of its own (Jellyfin UserConfiguration).
+    PlaybackInfoResponse withAccountPlaybackDefaults(PlaybackInfoResponse info) const;
+
     /// True when the active provider expires sessions that are started but
     /// not yet streamed (see IPlaybackProvider::queuedSessionsExpire).
     virtual bool queuedPlaybackSessionsExpire() const;
@@ -186,6 +197,10 @@ private:
     QHash<QString, const IPlaybackProvider *> m_pendingStopProviders;
     QHash<QString, QString> m_pendingStopRequestIdentities;
     QHash<QString, PlaybackReport> m_pendingStopReports;
+    // Keys (request identity, kind, series) with a track preference write in
+    // flight, and the newest write waiting behind each.
+    QSet<QString> m_trackPreferenceWritesInFlight;
+    QHash<QString, TrackPreferenceWrite> m_queuedTrackPreferenceWrites;
     
     // Retry mechanism types  
     using ResponseHandler = std::function<void(QNetworkReply*)>;

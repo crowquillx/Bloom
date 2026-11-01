@@ -5,6 +5,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include "models/ServerTrackPreferences.h"
 #include "utils/TrackPreferencesManager.h"
 
 namespace Bloom::PlaybackPolicy {
@@ -77,16 +78,54 @@ struct PrefetchedEpisodeInput
 };
 
 [[nodiscard]] QString normalizeLanguageCode(const QString &language);
+/// How closely a stream's language tag matches a preferred one (BCP 47 or
+/// ISO 639, any case, 2- or 3-letter aliases): 0 the same tag, 1 the same
+/// language with another region or script, -1 no match. Tags that name no
+/// language (und, mul, zxx, mis, private use) never match.
+[[nodiscard]] int languageMatchRank(const QString &candidate, const QString &preferred);
 [[nodiscard]] int bestLanguageStreamIndex(const QVariantList &streams,
                                           const QString &language,
                                           bool subtitle);
+/// A track the server's preferences pick for one file. An empty source
+/// means the server has no preference this file can meet; index -1 with a
+/// source is "subtitles off".
+struct ServerTrackChoice
+{
+    int index = -1;
+    QString source;
+};
+
+/// The server tier for audio: the server's resolved track, else its language
+/// (with Jellyfin's "play the default track" rule).
+[[nodiscard]] ServerTrackChoice serverAudioChoice(const QVariantList &audioStreams,
+                                                  const Bloom::ServerTrackPreferences &server);
+/// The server tier for subtitles, given the language of the audio that
+/// plays. Modes: off (forced track for the audio, if forced subtitles show),
+/// forced, always (remembered track, else the language) and auto (the
+/// language only when the audio is in another language).
+[[nodiscard]] ServerTrackChoice serverSubtitleChoice(
+    const QVariantList &subtitleStreams,
+    const Bloom::ServerTrackPreferences &server,
+    const QString &audioLanguage);
+
+/// Picks the initial audio and subtitle track. For each kind, first match wins:
+///   1. the request's own override (a pick carried into this request);
+///   2. the explicit local choice for the season or movie
+///      (TrackPreferencesManager), so a local pick always beats the server;
+///   3. the server's preferences (`serverTrackPreferences` on the source),
+///      unless `useServerPreferences` is off;
+///   4. Bloom's global defaults (`defaultAudioSelection`,
+///      `defaultSubtitleSelection`);
+///   5. the server's and then the file's default flags, then the first track
+///      (subtitles: forced, then off).
 [[nodiscard]] ResolvedTrackSelection resolveTrackSelection(
     const QVariantMap &mediaSource,
     const ScopedTrackPreferences &preferences,
     const QString &defaultAudioSelection,
     const QString &defaultSubtitleSelection,
     int preferredAudioIndex = -2,
-    int preferredSubtitleIndex = -2);
+    int preferredSubtitleIndex = -2,
+    bool useServerPreferences = true);
 
 [[nodiscard]] HdrContentKind classifyMediaSourceHdr(const QVariantMap &mediaSource);
 [[nodiscard]] bool isHdr(HdrContentKind kind);

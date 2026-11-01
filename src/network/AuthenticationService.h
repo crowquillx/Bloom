@@ -129,6 +129,11 @@ public:
     /// The server refused an administrator-only action (403): the account
     /// has lost those rights since sign-in.
     void markAccountNotAdministrator() { setAccountIsAdministrator(false); }
+    /// The signed-in account's own audio/subtitle language defaults, as read
+    /// at sign-in or session validation (Jellyfin UserConfiguration). Absent
+    /// when the provider keeps none per account or has not reported them for
+    /// the current account.
+    std::optional<Bloom::ServerTrackPreferences> accountPlaybackDefaults() const;
     const IPlaybackProvider *playbackProvider() const;
     const ICatalogProvider *catalogProvider() const;
     ProviderKind activeProviderKind() const;
@@ -248,6 +253,8 @@ protected:
 
 private:
     void setAccountIsAdministrator(std::optional<bool> isAdministrator);
+    void setAccountPlaybackDefaults(
+        const std::optional<Bloom::ServerTrackPreferences> &defaults);
     std::unique_ptr<HttpTransport> m_ownedTransport;
     std::unique_ptr<IProviderAdapter> m_ownedProviderAdapter;
     QList<IProviderAdapter *> m_providerAdapters;
@@ -268,6 +275,10 @@ private:
     QString m_userId;
     QString m_username;
     std::optional<bool> m_accountIsAdministrator;
+    std::optional<Bloom::ServerTrackPreferences> m_accountPlaybackDefaults;
+    // The server and account m_accountPlaybackDefaults were read for.
+    QString m_accountPlaybackDefaultsServerUrl;
+    QString m_accountPlaybackDefaultsUserId;
     QString m_providerSelection = QStringLiteral("auto");
     QString m_authenticationStep = QStringLiteral("credentials");
     QString m_pendingProfileId;

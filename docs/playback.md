@@ -233,12 +233,13 @@ Audio/Subtitle Track Selection
 - Call `JellyfinClient::getPlaybackInfo(itemId)` to fetch `PlaybackInfoResponse` containing `MediaSources` with all available streams.
 - Each `MediaSourceInfo` contains `mediaStreams` array with `MediaStreamInfo` objects describing video, audio, and subtitle tracks.
 - If PlaybackInfo provides `DirectStreamUrl` or `TranscodingUrl`, `JellyfinPlaybackProvider` finalizes that provider-selected URL and appends missing auth/media-source/track query parameters. The provider's constructed `/Videos/{itemId}/stream` endpoint remains its fallback when PlaybackInfo does not include a playback URL. `PlayerController` never constructs or parses these provider endpoints.
-- The server provides `defaultAudioStreamIndex` and `defaultSubtitleStreamIndex` which reflect the user's preferences set on the Jellyfin server.
+- The server provides `defaultAudioStreamIndex` and `defaultSubtitleStreamIndex` which reflect the user's preferences set on the Jellyfin server. The global `Server Default` setting uses them.
 - Use `PlayerController::setSelectedAudioTrack(index)` and `setSelectedSubtitleTrack(index)` to change tracks during playback via mpv IPC (`aid`, `sid` properties).
 - Use `PlayerController::setSubtitleDelayMs(delayMs)`, `adjustSubtitleDelayMs(deltaMs)`, or `resetSubtitleDelay()` to retime primary subtitles during playback. Bloom stores delay in milliseconds, applies it to mpv's `sub-delay` property as fractional seconds, and accepts negative or positive offsets.
-- Initial selection resolution order:
+- Initial selection resolution order (`Bloom::PlaybackPolicy::resolveTrackSelection`, per kind, first match wins):
   - request-time override from the playback request/autoplay context, if valid
-  - explicit saved preference for the current season/movie scope, if still valid
+  - explicit local choice for the current season/movie scope (`TrackPreferencesManager`), if still valid. **A track the user picked in Bloom always beats the server**: a pick on one episode is saved for its season, so every later episode of that season keeps it whatever the server says.
+  - the server's preferences (see "Server track preferences" below), unless **Settings > Playback > Use My Server's Language Preferences** is off
   - global app fallback from Settings > Playback (`Server Default`, `File Default`, common language, or subtitle `Off`/`Forced`)
   - built-in safety fallback
 - Built-in audio fallback uses Jellyfin `defaultAudioStreamIndex`, then file-level `isDefault`, then the first audio stream.
@@ -259,9 +260,20 @@ Audio/Subtitle Track Selection
 - Subtitle delay is persisted in the same season/movie scope as subtitle selection.
 - All playback reporting methods include `mediaSourceId`, `audioStreamIndex`, `subtitleStreamIndex`, and `playSessionId` for proper server sync.
 
+Server track preferences
+- Each canonical media source may carry `serverTrackPreferences` (`Bloom::ServerTrackPreferences`, [canonical models](canonical-models.md#playback-boundary)). An empty member means the server has no preference for it, and Bloom's global defaults decide.
+- Silo: `SiloModelMapper` reads them from `GET /api/v2/watch/{id}`. Audio is the version's `effective_audio_track_index`, an ordinal into `audio_tracks` and therefore Bloom's Silo audio stream index. Silo resolves that index even when the profile has no preference (its fallback is the first decodable default-flagged track, else the first), so only a different track counts as the server's choice. Subtitles come from `effective_subtitle_mode`, `effective_subtitle_language`, `effective_show_forced_subtitles` and `effective_subtitle_track_signature`, which Silo sends only when the profile stored them; a language without a mode means Silo's default mode, `auto`.
+- Jellyfin: `JellyfinAuthenticator` maps `UserDto.Configuration` from sign-in and from the `GET /Users/{userId}` session validation into the account's defaults (`AuthenticationService::accountPlaybackDefaults`), and `PlaybackService` attaches them to every source that has no preferences of its own. `AudioLanguagePreference` and `PlayDefaultAudioTrack` drive audio. `SubtitleMode` maps `Always`→`always`, `Smart`→`auto`, `OnlyForced`→`forced`, `None`→`off` without forced tracks, and `Default`→no preference (the file's flags decide). `RememberAudioSelections`/`RememberSubtitleSelections` act only inside Jellyfin's own `PlaybackInfo` defaults, which the `Server Default` setting already uses. They are language-based: Jellyfin never names a track for the account. Only the live session's account has them, so a pooled member of a merged space has none.
+- The server tier (`serverAudioChoice`, `serverSubtitleChoice`):
+  - Audio: the server's track if this file has it; else, with a language, the file's default track when "play the default audio track" is on, then the closest language match (same tag first, then the same language with another region), preferring the default flag, then stream order.
+  - Subtitles, given the language of the audio that plays: `off` shows the forced track in the audio's language when forced subtitles show, else none. `forced` shows a forced track (the audio's language first) or none. `always` uses the remembered track signature, else the closest full-dialogue track in the language. `auto` shows only the audio language's forced track when the audio is already in the subtitle language (or no language is set), else as `always`.
+  - A preference the file cannot meet (no track in that language) says nothing, so Bloom's global defaults decide for that file.
+- Write-back: when the user picks an audio or subtitle track for an episode (the in-playback menus, `cycle` bindings, or the season page's track menu via `chooseSeasonAudioTrack`/`chooseSeasonSubtitleTrack`), `PlayerController` saves it for the season first and then, after a 1.5 s pause (so browsing through tracks sends only the last one), asks `PlaybackService::writeTrackPreference` to remember it for the series. Silo answers with `PUT /api/v2/audio-prefs/{series_id}` (`audio_track_index` ordinal, `audio_language`, and a `track_signature` of language, title, embedded title, codec, layout and channels) or `PUT /api/v2/subtitle-prefs/{series_id}` (`subtitle_track_index` as Silo's combined ordinal or `-1` for off, `subtitle_mode` `always`/`off`, `subtitle_language`, and a signature of source, language, codec, label, forced and hearing-impaired; `show_forced_subtitles` is left out so the series keeps its own). Both are `natural_idempotent`, so they retry as idempotent. Writes for one series and kind go one at a time, only the newest waiting write is kept, and a server or account switch drops it. A failure is only logged: it never blocks, reverts, or reports anything about the local choice.
+- Nothing is written for Bloom's own automatic selection (startup, autoplay, a request override), for extras, for movies (Silo keeps track preferences per series; `library-playback-prefs` holds library-wide languages, not a pick), for Jellyfin (`POST /Users/Configuration` replaces the whole configuration), or when the setting is off. A pick rolled back because the server refused the stream change cancels its waiting write.
+
 Track Preference Persistence
 - Track preferences are stored separately from the main config in `~/.config/Bloom/track_preferences.json` and grouped by `connectionId` so identical season/movie IDs on different servers cannot collide.
-- The file stores only explicit user intent. Unset preferences fall back to Jellyfin/file defaults and are not written.
+- The file stores only explicit user intent. Unset preferences fall back to the server's preferences, then Bloom's global defaults and the file's defaults, and are not written.
 - Subtitle delay is written as `subtitleDelayMs` only when non-zero.
 - Global app-level audio/subtitle fallback defaults are stored in the main config, not in `track_preferences.json`.
 - Preferences are loaded at startup and saved with a 1-second delay to batch multiple changes.
@@ -272,9 +284,9 @@ Track Preference Persistence
   - Different seasons may have different audio tracks available (e.g., added dubs in later seasons)
   - Subtitle indexing can vary between seasons
 - When the user changes audio/subtitle track in `SeriesSeasonEpisodeView`, the preference is immediately saved.
-- When navigating to a new episode in the same season, explicit preferences and subtitle delay are restored. If track preferences are missing or invalid for the new source, Bloom falls back through the standard resolution order.
+- When navigating to a new episode in the same season, explicit preferences and subtitle delay are restored, ahead of any server preference. If track preferences are missing or invalid for the new source, Bloom falls back through the standard resolution order. A new season starts without a local choice, so the server's series preference (which Bloom wrote back on Silo) carries the pick into it.
 - Use `PlayerController.getLastAudioTrackForSeason(seasonId)` and `getLastSubtitleTrackForSeason(seasonId)` to retrieve.
-- Use `PlayerController.setExplicitSeasonAudioPreference(seasonId, index)` and `setExplicitSeasonSubtitlePreference(seasonId, index)` to save.
+- Use `PlayerController.setExplicitSeasonAudioPreference(seasonId, index)` and `setExplicitSeasonSubtitlePreference(seasonId, index)` to save locally only. A user's pick on the season page goes through `chooseSeasonAudioTrack(seasonId, seriesId, mediaSource, index)` / `chooseSeasonSubtitleTrack(...)`, which also writes it back to the server.
 - `SeriesSeasonEpisodeView` preloads provider-neutral chapter metadata for the highlighted episode and keeps a `Chapters` card rail between `Episodes` and `Cast & Crew`. When no chapter has a thumbnail, the rail is replaced by a compact `ChapterTimeline` strip after `Cast & Crew`; an episode without chapters shows neither.
 - Activating a chapter card or a timeline chapter reuses the normal episode playback request, including track preference/version-prompt handling, and sets canonical `startPositionMs` so playback begins at the selected chapter.
 
@@ -283,7 +295,7 @@ Track Preference Persistence
 - When the user changes audio/subtitle track in `MovieDetailsView`, the preference is immediately saved.
 - `MovieDetailsView` exposes the same chapter-card playback rail above `Cast & Crew`, or the `ChapterTimeline` strip after `Recommended From Your Library` when no chapter has a thumbnail; activating a chapter starts the movie at that chapter's start tick.
 - Detail-page primary `Play` / `Resume` controls remain pressable while playback info is preparing, show a spinner in place of the normal glyph, and preserve the existing "still preparing" toast on press.
-- When returning to the same movie, explicit preferences and subtitle delay are restored instead of server defaults. If none were saved, Bloom uses Jellyfin/file defaults.
+- When returning to the same movie, explicit preferences and subtitle delay are restored instead of server preferences. If none were saved, Bloom uses the standard resolution order.
 - Use `PlayerController.getLastAudioTrackForMovie(movieId)` and `getLastSubtitleTrackForMovie(movieId)` to retrieve.
 - Use `PlayerController.setExplicitMovieAudioPreference(movieId, index)` and `setExplicitMovieSubtitlePreference(movieId, index)` to save.
 

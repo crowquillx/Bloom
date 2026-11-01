@@ -34,6 +34,8 @@ public:
         int tileIndex) const override;
 
     PlaybackReportRequest createReportRequest(const PlaybackReport &report) const override;
+    TrackPreferenceWriteRequest createTrackPreferenceWriteRequest(
+        const TrackPreferenceWrite &write) const override;
     // Silo expires a session after about 45 s without stream reads or progress.
     bool queuedSessionsExpire() const override { return true; }
     PlaybackSessionLoss classifyReportFailure(

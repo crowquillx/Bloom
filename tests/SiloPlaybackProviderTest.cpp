@@ -126,6 +126,8 @@ private slots:
     void parsesDecisionAndOpaqueStream();
     void rejectsUnknownAndUnsafePlans();
     void mapsWatchStateAndSeconds();
+    void mapsServerTrackPreferences();
+    void writesTrackPreferencesWithSiloIdentities();
     void replansAudioWithDurableRequestIdentity();
     void sequencesReportsAndFinalizesStop();
     void isolatesAccountsAndConnections();
@@ -261,6 +263,145 @@ void SiloPlaybackProviderTest::mapsWatchStateAndSeconds()
     QVERIFY(parsed.valid);
     QCOMPARE(parsed.response.mediaSources.first().id, QStringLiteral("file-1"));
     QCOMPARE(parsed.response.mediaSources.first().durationMs, 123000);
+}
+
+void SiloPlaybackProviderTest::mapsServerTrackPreferences()
+{
+    SiloPlaybackProvider provider;
+    const QJsonArray audio {
+        QJsonObject { { "codec", "truehd" }, { "language", "en" }, { "default", true },
+            { "title", "TrueHD 7.1" }, { "embedded_title", "Main" } },
+        QJsonObject { { "codec", "aac" }, { "language", "ja" }, { "default", false },
+            { "title", "AAC Stereo" } } };
+    const QJsonArray subtitles { QJsonObject { { "index", 3 }, { "language", "en" },
+        { "codec", "subrip" }, { "forced", false }, { "hearing_impaired", false } } };
+    const auto version = [&](int effectiveAudio)
+    {
+        return QJsonObject { { "file_id", "file-1" }, { "audio_tracks", audio },
+            { "subtitle_tracks", subtitles }, { "effective_audio_track_index", effectiveAudio },
+            { "effective_audio_language", "ja" } };
+    };
+    auto parsed = provider.parsePlaybackInfoResponse(context(), media(),
+        QJsonObject { { "versions", QJsonArray { version(1) } },
+            { "effective_subtitle_mode", "always" }, { "effective_subtitle_language", "en" },
+            { "effective_show_forced_subtitles", false },
+            { "effective_subtitle_track_signature",
+                QJsonObject { { "source", "embedded" }, { "language", "en" },
+                    { "codec", "subrip" }, { "label", "English" }, { "forced", false },
+                    { "hearing_impaired", true } } } });
+    QVERIFY(parsed.valid);
+    const MediaSourceInfo source = parsed.response.mediaSources.first();
+    // The ordinal into audio_tracks is Bloom's Silo audio stream index.
+    QCOMPARE(source.serverTrackPreferences.audioStreamIndex, 1);
+    QCOMPARE(source.serverTrackPreferences.subtitleMode, QStringLiteral("always"));
+    QCOMPARE(source.serverTrackPreferences.subtitleLanguage, QStringLiteral("en"));
+    QVERIFY(source.serverTrackPreferences.showForcedSubtitles == std::optional<bool>(false));
+    QCOMPARE(source.serverTrackPreferences.subtitleSignature.label, QStringLiteral("English"));
+    QVERIFY(source.serverTrackPreferences.subtitleSignature.hearingImpaired);
+    QCOMPARE(source.mediaStreams.at(0).embeddedTitle, QStringLiteral("Main"));
+    QCOMPARE(source.mediaStreams.at(0).title, QStringLiteral("TrueHD 7.1"));
+    const QVariantMap mapped =
+        parsed.response.getMediaSourcesVariant().first().toMap().value("serverTrackPreferences").toMap();
+    QCOMPARE(mapped.value("audioStreamIndex").toInt(), 1);
+    QCOMPARE(mapped.value("subtitleMode").toString(), QStringLiteral("always"));
+
+    // Silo resolves the file's default track even without a preference: no
+    // server choice then, and no stored subtitle preference either.
+    parsed = provider.parsePlaybackInfoResponse(
+        context(), media(), QJsonObject { { "versions", QJsonArray { version(0) } } });
+    QVERIFY(parsed.valid);
+    QVERIFY(parsed.response.mediaSources.first().serverTrackPreferences.isEmpty());
+    QVERIFY(!parsed.response.getMediaSourcesVariant().first().toMap().contains(
+        "serverTrackPreferences"));
+
+    // A track FFmpeg cannot decode is not Silo's fallback.
+    QJsonArray undecodable = audio;
+    undecodable[0] = QJsonObject { { "codec", "unknown" }, { "default", true } };
+    QJsonObject withUndecodable = version(1);
+    withUndecodable["audio_tracks"] = undecodable;
+    parsed = provider.parsePlaybackInfoResponse(
+        context(), media(), QJsonObject { { "versions", QJsonArray { withUndecodable } } });
+    QCOMPARE(parsed.response.mediaSources.first().serverTrackPreferences.audioStreamIndex, -1);
+
+    // A stored language without a mode follows Silo's default mode, auto.
+    parsed = provider.parsePlaybackInfoResponse(context(), media(),
+        QJsonObject { { "versions", QJsonArray { version(0) } },
+            { "effective_subtitle_language", "fr" } });
+    QCOMPARE(parsed.response.mediaSources.first().serverTrackPreferences.subtitleMode,
+        QStringLiteral("auto"));
+}
+
+void SiloPlaybackProviderTest::writesTrackPreferencesWithSiloIdentities()
+{
+    SiloPlaybackProvider provider;
+    QVariantMap source = sourceWithSubtitles();
+    QVariantList streams = source.value("mediaStreams").toList();
+    QVariantMap english = stream("Audio", 0, "en");
+    english["title"] = "TrueHD 7.1";
+    english["embeddedTitle"] = "Main";
+    english["codec"] = "truehd";
+    english["channelLayout"] = "7.1";
+    english["channels"] = 8;
+    QVariantMap japanese = stream("Audio", 1, "und");
+    japanese["codec"] = "aac";
+    streams[1] = english;
+    streams.insert(2, japanese);
+    source["mediaStreams"] = streams;
+
+    TrackPreferenceWrite write;
+    write.seriesId = QStringLiteral("series/7");
+    write.mediaSource = source;
+    write.streamIndex = 0;
+    auto request = provider.createTrackPreferenceWriteRequest(write);
+    QVERIFY(request.isValid());
+    QCOMPARE(request.method, QStringLiteral("PUT"));
+    QCOMPARE(request.endpoint, QStringLiteral("/api/v2/audio-prefs/series%2F7"));
+    QVERIFY(request.replaySafe);
+    QCOMPARE(request.body.value("audio_track_index").toInt(), 0);
+    QCOMPARE(request.body.value("audio_language").toString(), QStringLiteral("en"));
+    const QJsonObject signature = request.body.value("track_signature").toObject();
+    QCOMPARE(signature.value("title").toString(), QStringLiteral("TrueHD 7.1"));
+    QCOMPARE(signature.value("embedded_title").toString(), QStringLiteral("Main"));
+    QCOMPARE(signature.value("codec").toString(), QStringLiteral("truehd"));
+    QCOMPARE(signature.value("layout").toString(), QStringLiteral("7.1"));
+    QCOMPARE(signature.value("channels").toInt(), 8);
+    QVERIFY(!signature.contains("default"));
+
+    // An undetermined language is no preference; the ordinal still counts.
+    write.streamIndex = 1;
+    request = provider.createTrackPreferenceWriteRequest(write);
+    QCOMPARE(request.body.value("audio_track_index").toInt(), 1);
+    QVERIFY(!request.body.contains("audio_language"));
+
+    // Subtitles use Silo's combined ordinal: external files, then embedded.
+    write.kind = TrackPreferenceWrite::Kind::Subtitle;
+    write.streamIndex = 6;
+    request = provider.createTrackPreferenceWriteRequest(write);
+    QCOMPARE(request.endpoint, QStringLiteral("/api/v2/subtitle-prefs/series%2F7"));
+    QCOMPARE(request.body.value("subtitle_track_index").toInt(), 1);
+    QCOMPARE(request.body.value("subtitle_mode").toString(), QStringLiteral("always"));
+    QCOMPARE(request.body.value("subtitle_language").toString(), QStringLiteral("ger"));
+    QCOMPARE(request.body.value("track_signature").toObject().value("source").toString(),
+        QStringLiteral("external"));
+    QVERIFY(!request.body.contains("show_forced_subtitles"));
+    write.streamIndex = 2;
+    request = provider.createTrackPreferenceWriteRequest(write);
+    QCOMPARE(request.body.value("subtitle_track_index").toInt(), 2);
+    QCOMPARE(request.body.value("track_signature").toObject().value("source").toString(),
+        QStringLiteral("embedded"));
+
+    write.streamIndex = -1;
+    request = provider.createTrackPreferenceWriteRequest(write);
+    QCOMPARE(request.body.value("subtitle_track_index").toInt(), -1);
+    QCOMPARE(request.body.value("subtitle_mode").toString(), QStringLiteral("off"));
+    QVERIFY(!request.body.contains("subtitle_language"));
+
+    // Tracks Silo does not know, and items outside a series, are not written.
+    write.streamIndex = 9;
+    QVERIFY(!provider.createTrackPreferenceWriteRequest(write).isValid());
+    write.streamIndex = 2;
+    write.seriesId.clear();
+    QVERIFY(!provider.createTrackPreferenceWriteRequest(write).isValid());
 }
 
 void SiloPlaybackProviderTest::replansAudioWithDurableRequestIdentity()

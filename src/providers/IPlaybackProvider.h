@@ -110,6 +110,30 @@ struct PlaybackReportRequest
     [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
 };
 
+/// A track the user picked on an episode, to remember on the server so other
+/// devices follow. Bloom's automatic selections never become one.
+struct TrackPreferenceWrite
+{
+    enum class Kind { Audio, Subtitle };
+    Kind kind = Kind::Audio;
+    QString seriesId;
+    // The canonical media source the pick was made on.
+    QVariantMap mediaSource;
+    // Bloom's source stream index; -1 turns subtitles off.
+    int streamIndex = -1;
+};
+
+struct TrackPreferenceWriteRequest
+{
+    QString method = QStringLiteral("PUT");
+    QString endpoint;
+    QJsonObject body;
+    // The write replaces the stored preference, so a lost response may be resent.
+    bool replaySafe = false;
+
+    [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
+};
+
 // How a failed progress report reflects the server-side playback session.
 enum class PlaybackSessionLoss {
     None,    // Transient or unrelated failure; keep playing.
@@ -242,6 +266,15 @@ public:
     {
         Q_UNUSED(context)
         Q_UNUSED(wireResponse)
+        return {};
+    }
+
+    /// The request that remembers a track pick on the server, or an invalid
+    /// one when the provider keeps no writable per-series preference.
+    virtual TrackPreferenceWriteRequest createTrackPreferenceWriteRequest(
+        const TrackPreferenceWrite &write) const
+    {
+        Q_UNUSED(write)
         return {};
     }
 

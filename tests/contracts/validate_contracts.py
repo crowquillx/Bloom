@@ -46,6 +46,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.playback.stop",
     "native.playback.transcode",
     "native.playback.track",
+    "native.playback.track-preferences",
     "native.markers",
     "native.chapters",
     "native.trickplay",

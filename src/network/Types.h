@@ -11,6 +11,7 @@
 #include <QList>
 #include <QMetaType>
 #include "models/AudioTypes.h"
+#include "models/ServerTrackPreferences.h"
 
 // ============================================================================
 // Media Stream / Source / Playback Info
@@ -58,6 +59,9 @@ public:
     QString codec;
     QString language;
     QString title;
+    // The container's own title tag, when the provider reports it apart from
+    // the display title (Silo). Server track signatures name it.
+    QString embeddedTitle;
     QString displayTitle;
     bool isDefault = false;
     bool isForced = false;
@@ -131,6 +135,10 @@ public:
     int presentationPartIndex = 0;
     int presentationPartTotal = 0;
     QList<MediaStreamInfo> mediaStreams;
+    // The audio/subtitle preferences the server resolved for this source or
+    // holds for the account; the media source map carries them as
+    // `serverTrackPreferences` when any is set.
+    Bloom::ServerTrackPreferences serverTrackPreferences;
 
     [[nodiscard]] QList<MediaStreamInfo> getAudioStreams() const;
     [[nodiscard]] QList<MediaStreamInfo> getSubtitleStreams() const;

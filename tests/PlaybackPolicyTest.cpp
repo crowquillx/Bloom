@@ -76,6 +76,12 @@ private slots:
     void scoresLanguageStreamsDeterministically();
     void resolvesTrackSelectionPrecedence();
     void prefersEmbeddedSubtitlesOverExternalFiles();
+    void localSeasonPickBeatsServerOnNextEpisode();
+    void serverPreferencesBeatGlobalDefaults();
+    void serverPreferencesOffSkipsServerTier();
+    void serverSubtitleModes_data();
+    void serverSubtitleModes();
+    void matchesServerLanguageTags();
     void classifiesHdrAndDolbyVision();
     void evaluatesHdrOutputPolicy();
     void selectsVersionsByForcedIdAndAffinity();
@@ -279,6 +285,224 @@ void PlaybackPolicyTest::prefersEmbeddedSubtitlesOverExternalFiles()
     resolved = PlayerPolicy::resolveTrackSelection(
         externalOnly, {}, QStringLiteral("eng"), QStringLiteral("eng"));
     QCOMPARE(resolved.subtitleIndex, 2);
+}
+
+namespace {
+
+// An anime episode: Japanese (default) and English audio; full English,
+// English signs (forced) and Japanese subtitles.
+QVariantMap episodeSource(const Bloom::ServerTrackPreferences &server)
+{
+    QVariantMap source = mediaSource(
+        QStringLiteral("episode"), QStringLiteral("Episode"), QStringLiteral("/media/show/e02.mkv"),
+        {
+            stream(QStringLiteral("Audio"), 0, QStringLiteral("ja"), true),
+            stream(QStringLiteral("Audio"), 1, QStringLiteral("en")),
+            stream(QStringLiteral("Subtitle"), 2, QStringLiteral("en")),
+            stream(QStringLiteral("Subtitle"), 3, QStringLiteral("en"), false, true),
+            stream(QStringLiteral("Subtitle"), 4, QStringLiteral("ja"))
+        });
+    if (!server.isEmpty()) {
+        source.insert(QStringLiteral("serverTrackPreferences"), server.toVariantMap());
+    }
+    return source;
+}
+
+} // namespace
+
+void PlaybackPolicyTest::localSeasonPickBeatsServerOnNextEpisode()
+{
+    // The server would play English audio with English subtitles.
+    Bloom::ServerTrackPreferences server;
+    server.audioStreamIndex = 1;
+    server.subtitleMode = QStringLiteral("always");
+    server.subtitleLanguage = QStringLiteral("en");
+    const QVariantMap nextEpisode = episodeSource(server);
+
+    // On the previous episode the user picked Japanese audio, subtitles off;
+    // the season scope carries that pick to the next episode.
+    ScopedTrackPreferences season;
+    season.audio.mode = TrackPreferenceMode::ExplicitStream;
+    season.audio.streamIndex = 0;
+    season.subtitle.mode = TrackPreferenceMode::Off;
+
+    auto resolved = PlayerPolicy::resolveTrackSelection(
+        nextEpisode, season, QStringLiteral("jellyfin-default"), QStringLiteral("jellyfin-default"));
+    QCOMPARE(resolved.audioIndex, 0);
+    QCOMPARE(resolved.audioSource, QStringLiteral("explicit"));
+    QCOMPARE(resolved.subtitleIndex, -1);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("explicit-off"));
+
+    // A picked subtitle track wins the same way.
+    season.subtitle.mode = TrackPreferenceMode::ExplicitStream;
+    season.subtitle.streamIndex = 4;
+    resolved = PlayerPolicy::resolveTrackSelection(
+        nextEpisode, season, QStringLiteral("jellyfin-default"), QStringLiteral("jellyfin-default"));
+    QCOMPARE(resolved.subtitleIndex, 4);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("explicit"));
+
+    // Only the kind the user picked is pinned; the other still follows the server.
+    season.subtitle = {};
+    resolved = PlayerPolicy::resolveTrackSelection(
+        nextEpisode, season, QStringLiteral("jellyfin-default"), QStringLiteral("jellyfin-default"));
+    QCOMPARE(resolved.audioIndex, 0);
+    QCOMPARE(resolved.subtitleIndex, 2);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("server-language"));
+
+    // A pick this file does not have falls through to the server.
+    season.audio.streamIndex = 9;
+    resolved = PlayerPolicy::resolveTrackSelection(
+        nextEpisode, season, QStringLiteral("jellyfin-default"), QStringLiteral("jellyfin-default"));
+    QCOMPARE(resolved.audioIndex, 1);
+    QCOMPARE(resolved.audioSource, QStringLiteral("server"));
+}
+
+void PlaybackPolicyTest::serverPreferencesBeatGlobalDefaults()
+{
+    // Silo: a resolved audio track and a subtitle mode.
+    Bloom::ServerTrackPreferences silo;
+    silo.audioStreamIndex = 1;
+    silo.subtitleMode = QStringLiteral("off");
+    auto resolved = PlayerPolicy::resolveTrackSelection(
+        episodeSource(silo), {}, QStringLiteral("jpn"), QStringLiteral("jpn"));
+    QCOMPARE(resolved.audioIndex, 1);
+    QCOMPARE(resolved.audioSource, QStringLiteral("server"));
+    // Off still shows forced subtitles in the audio's language.
+    QCOMPARE(resolved.subtitleIndex, 3);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("server-forced"));
+
+    silo.showForcedSubtitles = false;
+    resolved = PlayerPolicy::resolveTrackSelection(
+        episodeSource(silo), {}, QStringLiteral("jpn"), QStringLiteral("jpn"));
+    QCOMPARE(resolved.subtitleIndex, -1);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("server-off"));
+
+    // Jellyfin: language-based account defaults.
+    Bloom::ServerTrackPreferences jellyfin;
+    jellyfin.audioLanguage = QStringLiteral("eng");
+    jellyfin.playDefaultAudioTrack = false;
+    jellyfin.subtitleMode = QStringLiteral("auto");
+    jellyfin.subtitleLanguage = QStringLiteral("eng");
+    resolved = PlayerPolicy::resolveTrackSelection(
+        episodeSource(jellyfin), {}, QStringLiteral("jpn"), QStringLiteral("off"));
+    QCOMPARE(resolved.audioIndex, 1);
+    QCOMPARE(resolved.audioSource, QStringLiteral("server-language"));
+    // Smart: English audio needs only forced English subtitles.
+    QCOMPARE(resolved.subtitleIndex, 3);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("server-forced"));
+
+    // "Play default audio track regardless of language" keeps the file's default.
+    jellyfin.playDefaultAudioTrack = true;
+    resolved = PlayerPolicy::resolveTrackSelection(
+        episodeSource(jellyfin), {}, QStringLiteral("eng"), QStringLiteral("off"));
+    QCOMPARE(resolved.audioIndex, 0);
+    QCOMPARE(resolved.audioSource, QStringLiteral("server-default-track"));
+    // Japanese audio now gets full English subtitles.
+    QCOMPARE(resolved.subtitleIndex, 2);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("server-language"));
+
+    // A server preference the file cannot meet leaves Bloom's defaults in charge.
+    Bloom::ServerTrackPreferences french;
+    french.audioLanguage = QStringLiteral("fr");
+    french.subtitleMode = QStringLiteral("always");
+    french.subtitleLanguage = QStringLiteral("fr");
+    resolved = PlayerPolicy::resolveTrackSelection(
+        episodeSource(french), {}, QStringLiteral("eng"), QStringLiteral("jpn"));
+    QCOMPARE(resolved.audioIndex, 1);
+    QCOMPARE(resolved.audioSource, QStringLiteral("global-language"));
+    QCOMPARE(resolved.subtitleIndex, 4);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("global-language"));
+
+    // No server preference at all: unchanged behavior.
+    resolved = PlayerPolicy::resolveTrackSelection(
+        episodeSource({}), {}, QStringLiteral("eng"), QStringLiteral("off"));
+    QCOMPARE(resolved.audioIndex, 1);
+    QCOMPARE(resolved.audioSource, QStringLiteral("global-language"));
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("global-off"));
+
+    // A request override still beats the server.
+    resolved = PlayerPolicy::resolveTrackSelection(
+        episodeSource(silo), {}, QStringLiteral("jellyfin-default"),
+        QStringLiteral("jellyfin-default"), 0, 4);
+    QCOMPARE(resolved.audioIndex, 0);
+    QCOMPARE(resolved.audioSource, QStringLiteral("override"));
+    QCOMPARE(resolved.subtitleIndex, 4);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("override"));
+}
+
+void PlaybackPolicyTest::serverPreferencesOffSkipsServerTier()
+{
+    Bloom::ServerTrackPreferences server;
+    server.audioStreamIndex = 1;
+    server.subtitleMode = QStringLiteral("always");
+    server.subtitleLanguage = QStringLiteral("en");
+    const auto resolved = PlayerPolicy::resolveTrackSelection(
+        episodeSource(server), {}, QStringLiteral("jpn"), QStringLiteral("off"), -2, -2, false);
+    QCOMPARE(resolved.audioIndex, 0);
+    QCOMPARE(resolved.audioSource, QStringLiteral("global-language"));
+    QCOMPARE(resolved.subtitleIndex, -1);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("global-off"));
+}
+
+void PlaybackPolicyTest::serverSubtitleModes_data()
+{
+    QTest::addColumn<QString>("mode");
+    QTest::addColumn<QString>("language");
+    QTest::addColumn<int>("audioIndex");
+    QTest::addColumn<int>("expectedIndex");
+    QTest::addColumn<QString>("expectedSource");
+
+    // Audio 0 is Japanese, audio 1 English.
+    QTest::newRow("always, language") << "always" << "en" << 0 << 2 << "server-language";
+    QTest::newRow("always, region variant") << "always" << "en-US" << 0 << 2 << "server-language";
+    QTest::newRow("auto, other audio") << "auto" << "en" << 0 << 2 << "server-language";
+    QTest::newRow("auto, same audio") << "auto" << "en" << 1 << 3 << "server-forced";
+    QTest::newRow("auto, no language") << "auto" << "" << 1 << 3 << "server-forced";
+    QTest::newRow("forced") << "forced" << "" << 0 << 3 << "server-forced";
+    QTest::newRow("off, japanese audio has no forced track") << "off" << "" << 0 << -1
+                                                             << "server-off";
+}
+
+void PlaybackPolicyTest::serverSubtitleModes()
+{
+    QFETCH(QString, mode);
+    QFETCH(QString, language);
+    QFETCH(int, audioIndex);
+    QFETCH(int, expectedIndex);
+    QFETCH(QString, expectedSource);
+
+    Bloom::ServerTrackPreferences server;
+    server.subtitleMode = mode;
+    server.subtitleLanguage = language;
+    const auto resolved = PlayerPolicy::resolveTrackSelection(
+        episodeSource(server), {}, QStringLiteral("jellyfin-default"),
+        QStringLiteral("jellyfin-default"), audioIndex);
+    QCOMPARE(resolved.subtitleIndex, expectedIndex);
+    QCOMPARE(resolved.subtitleSource, expectedSource);
+}
+
+void PlaybackPolicyTest::matchesServerLanguageTags()
+{
+    QCOMPARE(PlayerPolicy::languageMatchRank(QStringLiteral("eng"), QStringLiteral("en")), 0);
+    QCOMPARE(PlayerPolicy::languageMatchRank(QStringLiteral("pt-BR"), QStringLiteral("pt_br")), 0);
+    QCOMPARE(PlayerPolicy::languageMatchRank(QStringLiteral("pt-BR"), QStringLiteral("por")), 1);
+    QCOMPARE(PlayerPolicy::languageMatchRank(QStringLiteral("und"), QStringLiteral("und")), -1);
+    QCOMPARE(PlayerPolicy::languageMatchRank(QStringLiteral("en"), QStringLiteral("x-silo-original")),
+             -1);
+    QCOMPARE(PlayerPolicy::languageMatchRank(QStringLiteral("fr"), QStringLiteral("de")), -1);
+
+    // The remembered subtitle track wins over a plain language match.
+    Bloom::ServerTrackPreferences server;
+    server.subtitleMode = QStringLiteral("always");
+    server.subtitleLanguage = QStringLiteral("en");
+    server.subtitleSignature.source = QStringLiteral("embedded");
+    server.subtitleSignature.language = QStringLiteral("en");
+    server.subtitleSignature.forced = true;
+    const auto resolved = PlayerPolicy::resolveTrackSelection(
+        episodeSource(server), {}, QStringLiteral("jellyfin-default"),
+        QStringLiteral("jellyfin-default"));
+    QCOMPARE(resolved.subtitleIndex, 3);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("server-signature"));
 }
 
 void PlaybackPolicyTest::classifiesHdrAndDolbyVision()

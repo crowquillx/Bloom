@@ -21,6 +21,7 @@
 #include "TrickplayProcessor.h"
 #include "LocalSeekPreview.h"
 #include "../network/Types.h"
+#include "../providers/IPlaybackProvider.h"
 #include "../models/MediaModels.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/TrackPreferencesManager.h"
@@ -402,6 +403,13 @@ public:
     Q_INVOKABLE void saveMovieSubtitleTrackPreference(const QString &movieId, int index);
     Q_INVOKABLE void setExplicitSeasonAudioPreference(const QString &seasonId, int index);
     Q_INVOKABLE void setExplicitSeasonSubtitlePreference(const QString &seasonId, int index);
+    // A pick the user made for an episode before playback (the season view's
+    // track menu): saved for the season, then written back to the server for
+    // the series so other devices follow (best-effort).
+    Q_INVOKABLE void chooseSeasonAudioTrack(const QString &seasonId, const QString &seriesId,
+                                            const QVariantMap &mediaSource, int index);
+    Q_INVOKABLE void chooseSeasonSubtitleTrack(const QString &seasonId, const QString &seriesId,
+                                               const QVariantMap &mediaSource, int index);
     Q_INVOKABLE void clearSeasonAudioPreference(const QString &seasonId);
     Q_INVOKABLE void clearSeasonSubtitlePreference(const QString &seasonId);
     Q_INVOKABLE void setExplicitMovieAudioPreference(const QString &movieId, int index);
@@ -821,8 +829,18 @@ private:
     void applySubtitleDelay();
     void persistSubtitleDelayForCurrentScope(int delayMs);
     int subtitleDelayForScope(const QString &seasonId, const QString &itemId, bool isMovie) const;
-    void persistAudioPreferenceForCurrentScope(int index);
-    void persistSubtitlePreferenceForCurrentScope(int index);
+    // userChoice is false when a failed stream change restores the previous
+    // track: that is no new pick, so it is saved locally only and cancels a
+    // write-back still waiting for the abandoned pick.
+    void persistAudioPreferenceForCurrentScope(int index, bool userChoice = true);
+    void persistSubtitlePreferenceForCurrentScope(int index, bool userChoice = true);
+    // Writes a user's episode pick back to the server after a short pause, so
+    // browsing through tracks sends only the last one. Skipped when server
+    // preferences are off or the item has no series.
+    void scheduleTrackPreferenceWrite(TrackPreferenceWrite::Kind kind, const QString &seriesId,
+                                      const QVariantMap &mediaSource, int index);
+    void cancelTrackPreferenceWrite(TrackPreferenceWrite::Kind kind);
+    void flushTrackPreferenceWrites();
     void updateSeasonPreference(const QString &seasonId,
                                 std::function<void(ScopedTrackPreferences &preferences)> updater);
     void updateMoviePreference(const QString &movieId,
@@ -967,6 +985,8 @@ private:
     QTimer *m_progressReportTimer;
     QTimer *m_volumePersistTimer;
     QTimer *m_autoplayPlaybackInfoTimeoutTimer;
+    QTimer *m_trackPreferenceWriteTimer = nullptr;
+    QList<TrackPreferenceWrite> m_pendingTrackPreferenceWrites;
 
     // Audio output device hotplug handling
     Bloom::AudioOutputPlan m_audioPlan;
@@ -998,6 +1018,7 @@ private:
     QString m_deferredSegmentContext;
     static constexpr int kVolumePersistDebounceMs = 250;
     static constexpr int kAutoplayPlaybackInfoTimeoutMs = 8000;
+    static constexpr int kTrackPreferenceWriteDelayMs = 1500;
     static constexpr double kNextEpisodePrefetchTriggerPercent = 70.0;
     static constexpr int kMaxSubtitleDelayMs = 600000;
 

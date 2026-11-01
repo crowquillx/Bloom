@@ -2431,6 +2431,22 @@ QString ConfigManager::getDefaultSubtitleTrackSelection() const
         true);
 }
 
+void ConfigManager::setUseServerTrackPreferences(bool enabled)
+{
+    if (enabled == getUseServerTrackPreferences()) {
+        return;
+    }
+    setPlaybackSetting(m_config, QStringLiteral("use_server_track_preferences"), enabled);
+    save();
+    emit useServerTrackPreferencesChanged();
+}
+
+bool ConfigManager::getUseServerTrackPreferences() const
+{
+    return playbackSettingsObject(m_config)
+        .value(QStringLiteral("use_server_track_preferences")).toBool(true);
+}
+
 QVariantList ConfigManager::getSupportedTrackLanguages() const
 {
     return supportedTrackLanguageOptions();

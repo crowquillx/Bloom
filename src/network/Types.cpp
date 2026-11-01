@@ -51,6 +51,8 @@ QVariantMap MediaStreamInfo::toVariantMap() const
     streamMap["codec"] = codec;
     streamMap["language"] = language;
     streamMap["title"] = title;
+    if (!embeddedTitle.isEmpty())
+        streamMap["embeddedTitle"] = embeddedTitle;
     streamMap["displayTitle"] = displayTitle;
     streamMap["isDefault"] = isDefault;
     streamMap["isForced"] = isForced;
@@ -155,6 +157,12 @@ QVariantList PlaybackInfoResponse::getMediaSourcesVariant() const
         sourceMap["presentationPartIndex"] = source.presentationPartIndex;
         sourceMap["presentationPartTotal"] = source.presentationPartTotal;
         sourceMap["mediaStreams"] = source.getMediaStreamsVariant();
+        if (!source.serverTrackPreferences.isEmpty()) {
+            sourceMap["serverTrackPreferences"] = source.serverTrackPreferences.toVariantMap();
+        }
+        if (!source.serverTrackPreferences.isEmpty()) {
+            sourceMap["serverTrackPreferences"] = source.serverTrackPreferences.toVariantMap();
+        }
         result.append(sourceMap);
     }
     return result;

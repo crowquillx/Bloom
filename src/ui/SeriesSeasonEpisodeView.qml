@@ -1876,7 +1876,8 @@ FocusScope {
                         console.log("[ContextMenu] Selected audio:", selectedAudioIndex)
                         var seasonId = SeriesDetailsViewModel.selectedSeasonId
                         if (seasonId) {
-                             PlayerController.setExplicitSeasonAudioPreference(seasonId, selectedAudioIndex)
+                             PlayerController.chooseSeasonAudioTrack(seasonId, SeriesDetailsViewModel.seriesId,
+                                                                     currentMediaSource || ({}), selectedAudioIndex)
                         }
                         contextMenu.close()
                     }
@@ -1904,7 +1905,8 @@ FocusScope {
                     console.log("[ContextMenu] Selected subtitle: None")
                     var seasonId = SeriesDetailsViewModel.selectedSeasonId
                     if (seasonId) {
-                         PlayerController.setExplicitSeasonSubtitlePreference(seasonId, selectedSubtitleIndex)
+                         PlayerController.chooseSeasonSubtitleTrack(seasonId, SeriesDetailsViewModel.seriesId,
+                                                                    currentMediaSource || ({}), selectedSubtitleIndex)
                     }
                 }
             }
@@ -1932,7 +1934,8 @@ FocusScope {
                         console.log("[ContextMenu] Selected subtitle:", selectedSubtitleIndex)
                         var seasonId = SeriesDetailsViewModel.selectedSeasonId
                         if (seasonId) {
-                             PlayerController.setExplicitSeasonSubtitlePreference(seasonId, selectedSubtitleIndex)
+                             PlayerController.chooseSeasonSubtitleTrack(seasonId, SeriesDetailsViewModel.seriesId,
+                                                                        currentMediaSource || ({}), selectedSubtitleIndex)
                         }
                         contextMenu.close()
                     }

@@ -471,8 +471,14 @@ public:
     QStringList requestedAdditionalPartsItemIds;
     QStringList requestedAdditionalPartsContexts;
     bool deferDescriptorRequests = false;
+    void writeTrackPreference(const TrackPreferenceWrite &write) override
+    {
+        trackPreferenceWrites.append(write);
+    }
+
     bool deferReplans = false;
     QList<PlaybackReplan> replans;
+    QList<TrackPreferenceWrite> trackPreferenceWrites;
     QStringList replanContexts;
     bool queuedSessionsExpire = false;
     bool queuedPlaybackSessionsExpire() const override { return queuedSessionsExpire; }
@@ -592,6 +598,8 @@ private slots:
     void autoplayPlaybackInfoErrorFallsBackToBasicPlayback();
     void autoplayToneMapStateSurvivesPlaybackInfoFallback();
     void staleNativeAudioSwitchResponseIsIgnoredAfterNonNativeSelection();
+    void userTrackPicksAreWrittenBackForTheSeries();
+    void automaticAndRolledBackSelectionsAreNotWrittenBack();
     void autoplayDescriptorWaitIsBoundedAndFallbackIsOneShot();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeNavigationKeepsAwaitingUntilQueuedDelivery();
@@ -2155,6 +2163,134 @@ void PlayerControllerAutoplayContextTest::staleNativeAudioSwitchResponseIsIgnore
                                       Q_ARG(QString, QStringLiteral("stale failure")),
                                       Q_ARG(QString, QStringLiteral("audio|7|4"))));
     QCOMPARE(controller.selectedAudioTrack(), -1);
+}
+
+void PlayerControllerAutoplayContextTest::userTrackPicksAreWrittenBackForTheSeries()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+    const QVariantMap source{
+        {QStringLiteral("id"), QStringLiteral("file-1")},
+        {QStringLiteral("mediaStreams"), QVariantList{
+             QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")},
+                         {QStringLiteral("index"), 0}},
+             QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")},
+                         {QStringLiteral("index"), 1}},
+             QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")},
+                         {QStringLiteral("index"), 2}}}}};
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentItemId = QStringLiteral("episode-2");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_currentSeasonId = QStringLiteral("season-1");
+    controller.m_activeMediaSource = source;
+    controller.m_selectedAudioTrack = 0;
+    controller.m_selectedSubtitleTrack = 2;
+
+    // Browsing tracks sends only the last pick of each kind, after a pause.
+    controller.setSelectedSubtitleTrack(-1);
+    controller.setSelectedAudioTrack(1);
+    controller.setSelectedSubtitleTrack(2);
+    QVERIFY(playbackService.trackPreferenceWrites.isEmpty());
+    QTRY_COMPARE(playbackService.trackPreferenceWrites.size(), 2);
+    for (const TrackPreferenceWrite &write : playbackService.trackPreferenceWrites) {
+        QCOMPARE(write.seriesId, QStringLiteral("series-1"));
+        QCOMPARE(write.mediaSource.value(QStringLiteral("id")).toString(), QStringLiteral("file-1"));
+        QCOMPARE(write.streamIndex,
+                 write.kind == TrackPreferenceWrite::Kind::Audio ? 1 : 2);
+    }
+    // The local season choice is saved first and stays whatever the server does.
+    QCOMPARE(controller.getLastAudioTrackForSeason(QStringLiteral("season-1")), 1);
+    QCOMPARE(controller.getLastSubtitleTrackForSeason(QStringLiteral("season-1")), 2);
+
+    // A pick on the season page before playback is written back too.
+    playbackService.trackPreferenceWrites.clear();
+    controller.chooseSeasonSubtitleTrack(QStringLiteral("season-1"), QStringLiteral("series-1"),
+                                         source, -1);
+    controller.flushTrackPreferenceWrites();
+    QCOMPARE(playbackService.trackPreferenceWrites.size(), 1);
+    QCOMPARE(playbackService.trackPreferenceWrites.first().streamIndex, -1);
+    QCOMPARE(trackPrefs.getSeasonPreferences(QStringLiteral("season-1")).subtitle.mode,
+             TrackPreferenceMode::Off);
+
+    // With server preferences off, picks stay local.
+    playbackService.trackPreferenceWrites.clear();
+    config.setUseServerTrackPreferences(false);
+    controller.setSelectedAudioTrack(0);
+    controller.flushTrackPreferenceWrites();
+    QVERIFY(playbackService.trackPreferenceWrites.isEmpty());
+    QCOMPARE(controller.getLastAudioTrackForSeason(QStringLiteral("season-1")), 0);
+    config.setUseServerTrackPreferences(true);
+
+    // A movie has no series to write to.
+    controller.m_currentSeriesId.clear();
+    controller.m_currentSeasonId.clear();
+    controller.setSelectedAudioTrack(1);
+    controller.flushTrackPreferenceWrites();
+    QVERIFY(playbackService.trackPreferenceWrites.isEmpty());
+}
+
+void PlayerControllerAutoplayContextTest::automaticAndRolledBackSelectionsAreNotWrittenBack()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    playbackService.deferDescriptorRequests = true;
+    playbackService.deferReplans = true;
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    // Autoplay resolves the next episode's tracks on its own: no write.
+    controller.m_pendingAutoplaySeriesId = QStringLiteral("series-1");
+    controller.m_pendingAutoplaySeasonId = QStringLiteral("season-1");
+    controller.m_pendingAutoplayEpisodeData = QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("episode-3")},
+        {QStringLiteral("seasonId"), QStringLiteral("season-1")}};
+    controller.m_waitingForAutoplayPlaybackInfo = true;
+    PlaybackInfoResponse playbackInfo;
+    MediaSourceInfo mediaSource;
+    mediaSource.id = QStringLiteral("file-3");
+    mediaSource.mediaStreams = {MediaStreamInfo{.index = 1, .type = QStringLiteral("Audio")}};
+    mediaSource.serverTrackPreferences.audioStreamIndex = 1;
+    playbackInfo.mediaSources.append(mediaSource);
+    QVERIFY(QMetaObject::invokeMethod(&controller, "onPlaybackInfoLoaded", Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("episode-3")),
+                                      Q_ARG(PlaybackInfoResponse, playbackInfo)));
+    QCOMPARE(playbackService.requestedDescriptorAudioIndexes.value(0), 1);
+    QVERIFY(controller.m_pendingTrackPreferenceWrites.isEmpty());
+
+    // A pick whose stream change fails is rolled back and never written.
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_currentSeasonId = QStringLiteral("season-1");
+    controller.m_activeMediaSource = QVariantMap{{QStringLiteral("id"), QStringLiteral("file-3")}};
+    controller.m_streamPinsAudioTrack = true;
+    controller.m_playSessionId = QStringLiteral("session-3");
+    controller.m_pinnedAudioTrack = 0;
+    controller.m_selectedAudioTrack = 0;
+    controller.setSelectedAudioTrack(2);
+    QCOMPARE(controller.m_pendingTrackPreferenceWrites.size(), 1);
+    QVERIFY(QMetaObject::invokeMethod(&controller, "onPlaybackReplanFailedForRequest",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("session-3")),
+                                      Q_ARG(QString, QStringLiteral("refused")),
+                                      Q_ARG(QString, controller.m_pendingAudioSwitchContext)));
+    QCOMPARE(controller.selectedAudioTrack(), 0);
+    QVERIFY(controller.m_pendingTrackPreferenceWrites.isEmpty());
+    controller.flushTrackPreferenceWrites();
+    QVERIFY(playbackService.trackPreferenceWrites.isEmpty());
 }
 
 void PlayerControllerAutoplayContextTest::autoplayDescriptorWaitIsBoundedAndFallbackIsOneShot()

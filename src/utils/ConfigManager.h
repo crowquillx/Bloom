@@ -100,6 +100,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool autoSkipOutro READ getAutoSkipOutro WRITE setAutoSkipOutro NOTIFY autoSkipOutroChanged)
     Q_PROPERTY(QString defaultAudioTrackSelection READ getDefaultAudioTrackSelection WRITE setDefaultAudioTrackSelection NOTIFY defaultAudioTrackSelectionChanged)
     Q_PROPERTY(QString defaultSubtitleTrackSelection READ getDefaultSubtitleTrackSelection WRITE setDefaultSubtitleTrackSelection NOTIFY defaultSubtitleTrackSelectionChanged)
+    Q_PROPERTY(bool useServerTrackPreferences READ getUseServerTrackPreferences WRITE setUseServerTrackPreferences NOTIFY useServerTrackPreferencesChanged)
     Q_PROPERTY(QString playerBackend READ getPlayerBackend WRITE setPlayerBackend NOTIFY playerBackendChanged)
     Q_PROPERTY(int playbackCacheSizeMB READ getPlaybackCacheSizeMB WRITE setPlaybackCacheSizeMB NOTIFY playbackCacheSizeMBChanged)
     Q_PROPERTY(QString startupBufferingMode READ getStartupBufferingMode WRITE setStartupBufferingMode NOTIFY startupBufferingModeChanged)
@@ -315,6 +316,10 @@ public:
     QString getDefaultAudioTrackSelection() const;
     void setDefaultSubtitleTrackSelection(const QString &selection);
     QString getDefaultSubtitleTrackSelection() const;
+    // Whether the server's audio/subtitle preferences rank above Bloom's
+    // global track defaults, and whether in-playback picks are written back.
+    void setUseServerTrackPreferences(bool enabled);
+    bool getUseServerTrackPreferences() const;
     QVariantList getSupportedTrackLanguages() const;
 
     QVariantMap getInputBindings() const;
@@ -627,6 +632,7 @@ signals:
     void autoSkipOutroChanged();
     void defaultAudioTrackSelectionChanged();
     void defaultSubtitleTrackSelectionChanged();
+    void useServerTrackPreferencesChanged();
     void playerBackendChanged();
     void playbackCacheSizeMBChanged();
     void autoRecoverPlaybackChanged();
