@@ -23,7 +23,9 @@
 #include "network/PlaybackService.h"
 #include "providers/ICatalogProvider.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
+#include "providers/silo/SiloArtworkProvider.h"
 #include "providers/silo/SiloCatalogProvider.h"
+#include "providers/silo/SiloModelMapper.h"
 #include "providers/silo/SiloProviderAdapter.h"
 #include "utils/ConfigManager.h"
 
@@ -186,6 +188,8 @@ private slots:
     void responsePreservesSnapshotAndPaginationTruth();
     void nativeResponseShapesPreserveHomeLibrarySearchAndDetailData();
     void sparseNativeMappingsPreserveFallbacksAndState();
+    void episodeCardsMapParentArtwork();
+    void seasonPosterRefreshReadsItsOwnField();
     void immediateCatalogRequestSurvivesAuthenticationCompletion();
     void requestHeadersAndGenerationSuppressStaleReplies();
     void theIntroDbV4Requests_data();
@@ -198,6 +202,7 @@ private slots:
     void watchlistRequestsUseMembershipRoutes();
     void artworkWidthsOnlyOnRoutesThatDeclareThem();
     void homeSectionsServiceAddsWatchlistRowOnlyWithoutOne();
+    void homeSectionsCapRowsOnlyWhenTheServerAcceptsIt();
     void homeSectionsServiceReportsFailure();
     void watchlistWritesReportSuccessAndFailure();
     void jellyfinHasNoWatchlistOrCuratedRows();
@@ -721,6 +726,105 @@ void SiloCatalogServiceTest::sparseNativeMappingsPreserveFallbacksAndState()
         QStringLiteral("silo"));
     QCOMPARE(native.value(QStringLiteral("itemId")).toString(), QStringLiteral("content-1"));
     QVERIFY(native.value(QStringLiteral("isInProgress")).toBool());
+}
+
+void SiloCatalogServiceTest::episodeCardsMapParentArtwork()
+{
+    const QString connectionId = QStringLiteral("silo");
+    const auto ref = [](const QVariantMap &item, const QString &key) {
+        return item.value(key).toMap();
+    };
+
+    // A browse card: backdrop_url is the episode still, so the series
+    // backdrop stands in for it.
+    QJsonObject card{
+        {QStringLiteral("content_id"), QStringLiteral("episode:1")},
+        {QStringLiteral("type"), QStringLiteral("episode")},
+        {QStringLiteral("series_id"), QStringLiteral("series:1")},
+        {QStringLiteral("series_title"), QStringLiteral("Show")},
+        {QStringLiteral("poster_url"), QStringLiteral("https://cdn.test/season-1.webp?sig=a")},
+        {QStringLiteral("backdrop_url"), QStringLiteral("https://cdn.test/still-1.webp?sig=b")},
+        {QStringLiteral("backdrop_is_episode_still"), true},
+        {QStringLiteral("backdrop_thumbhash"), QStringLiteral("still-hash")},
+        {QStringLiteral("backdrop_url_expires_at"), QStringLiteral("2026-11-01T00:00:00Z")},
+        {QStringLiteral("series_poster_url"), QStringLiteral("https://cdn.test/series-p.webp?sig=c")},
+        {QStringLiteral("series_poster_thumbhash"), QStringLiteral("series-poster-hash")},
+        {QStringLiteral("season_poster_url"), QStringLiteral("https://cdn.test/season-1-poster.webp?sig=d")},
+        {QStringLiteral("season_poster_thumbhash"), QStringLiteral("season-poster-hash")},
+        {QStringLiteral("series_backdrop_url"), QStringLiteral("https://cdn.test/series-b.webp?sig=e")},
+        {QStringLiteral("series_backdrop_thumbhash"), QStringLiteral("series-backdrop-hash")}};
+    QVariantMap mapped = SiloModelMapper::mediaItem(card, connectionId);
+
+    const QVariantMap seriesPoster = ref(mapped, QStringLiteral("seriesPrimaryArtwork"));
+    QCOMPARE(seriesPoster.value(QStringLiteral("itemId")).toString(), QStringLiteral("series:1"));
+    QCOMPARE(seriesPoster.value(QStringLiteral("kind")).toString(), QStringLiteral("primary"));
+    QCOMPARE(seriesPoster.value(QStringLiteral("tag")).toString(),
+             SiloModelMapper::artworkTag(QStringLiteral("https://cdn.test/series-p.webp")));
+    QCOMPARE(mapped.value(QStringLiteral("seriesPrimaryArtworkUrl")).toString(),
+             QStringLiteral("https://cdn.test/series-p.webp?sig=c"));
+
+    // Cards carry no season ID, so the episode owns its season poster.
+    const QVariantMap seasonPoster = ref(mapped, QStringLiteral("parentPrimaryArtwork"));
+    QCOMPARE(seasonPoster.value(QStringLiteral("itemId")).toString(), QStringLiteral("episode:1"));
+    QCOMPARE(seasonPoster.value(QStringLiteral("kind")).toString(), QStringLiteral("primary"));
+    QCOMPARE(seasonPoster.value(QStringLiteral("tag")).toString(),
+             SiloModelMapper::artworkTag(QStringLiteral("https://cdn.test/season-1-poster.webp")));
+    QVERIFY(seasonPoster.value(QStringLiteral("tag")).toString()
+            != ref(mapped, QStringLiteral("primaryArtwork")).value(QStringLiteral("tag")).toString());
+
+    const QVariantMap backdrop = ref(mapped, QStringLiteral("backdropArtwork"));
+    QCOMPARE(backdrop.value(QStringLiteral("itemId")).toString(), QStringLiteral("series:1"));
+    QCOMPARE(mapped.value(QStringLiteral("backdropArtworkUrl")).toString(),
+             QStringLiteral("https://cdn.test/series-b.webp?sig=e"));
+    const QVariantMap thumbhashes = mapped.value(QStringLiteral("artworkThumbhashes")).toMap();
+    QCOMPARE(thumbhashes.value(QStringLiteral("backdrop")).toString(),
+             QStringLiteral("series-backdrop-hash"));
+    QCOMPARE(thumbhashes.value(QStringLiteral("seriesPoster")).toString(),
+             QStringLiteral("series-poster-hash"));
+    QCOMPARE(thumbhashes.value(QStringLiteral("seasonPoster")).toString(),
+             QStringLiteral("season-poster-hash"));
+    // The still's expiry no longer describes the backdrop.
+    QVERIFY(!mapped.value(QStringLiteral("artworkExpiresAt")).toMap()
+                 .contains(QStringLiteral("backdrop")));
+    // The still stays in the artwork list after the series backdrop.
+    QStringList backdropOwners;
+    for (const QVariant &value : mapped.value(QStringLiteral("artwork")).toList()) {
+        const QVariantMap artwork = value.toMap();
+        if (artwork.value(QStringLiteral("kind")).toString() == QStringLiteral("backdrop")) {
+            backdropOwners.append(artwork.value(QStringLiteral("itemId")).toString());
+        }
+    }
+    QCOMPARE(backdropOwners, (QStringList{QStringLiteral("series:1"), QStringLiteral("episode:1")}));
+
+    // Continue Watching and Next Up cards already carry the season backdrop
+    // as backdrop_url; it stays first.
+    card.insert(QStringLiteral("backdrop_url"), QStringLiteral("https://cdn.test/season-b.webp?sig=f"));
+    card.insert(QStringLiteral("backdrop_is_episode_still"), false);
+    mapped = SiloModelMapper::mediaItem(card, connectionId);
+    QCOMPARE(ref(mapped, QStringLiteral("backdropArtwork")).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("episode:1"));
+    QCOMPARE(mapped.value(QStringLiteral("backdropArtworkUrl")).toString(),
+             QStringLiteral("https://cdn.test/season-b.webp?sig=f"));
+    QCOMPARE(mapped.value(QStringLiteral("artworkThumbhashes")).toMap()
+                 .value(QStringLiteral("backdrop")).toString(),
+             QStringLiteral("still-hash"));
+
+    // Servers before episode_parent_artwork send none of the fields.
+    for (const QString &field : {QStringLiteral("series_poster_url"),
+                                 QStringLiteral("season_poster_url"),
+                                 QStringLiteral("series_backdrop_url")}) {
+        card.remove(field);
+    }
+    card.insert(QStringLiteral("backdrop_url"), QStringLiteral("https://cdn.test/still-1.webp?sig=b"));
+    card.insert(QStringLiteral("backdrop_is_episode_still"), true);
+    mapped = SiloModelMapper::mediaItem(card, connectionId);
+    QVERIFY(!mapped.contains(QStringLiteral("seriesPrimaryArtwork")));
+    QVERIFY(!mapped.contains(QStringLiteral("parentPrimaryArtwork")));
+    QCOMPARE(ref(mapped, QStringLiteral("backdropArtwork")).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("episode:1"));
+    QCOMPARE(mapped.value(QStringLiteral("artworkExpiresAt")).toMap()
+                 .value(QStringLiteral("backdrop")).toString(),
+             QStringLiteral("2026-11-01T00:00:00Z"));
 }
 
 void SiloCatalogServiceTest::responsePreservesSnapshotAndPaginationTruth()
@@ -1331,6 +1435,18 @@ void SiloCatalogServiceTest::hierarchyAndRandomFallbacksUseCatalogRoutes()
 namespace {
 
 // Home layout with every kind of row Bloom must keep or drop.
+// GET /api/v2/home/capabilities, with or without the per-row card cap.
+QByteArray homeCapabilities(bool withItemLimit, int itemLimitMax = 100)
+{
+    QJsonObject capabilities{{QStringLiteral("revision"), QStringLiteral("r1")},
+                             {QStringLiteral("state"), QStringLiteral("available")},
+                             {QStringLiteral("allowed"), true}};
+    if (withItemLimit) {
+        capabilities.insert(QStringLiteral("section_item_limit_max"), itemLimitMax);
+    }
+    return QJsonDocument(capabilities).toJson(QJsonDocument::Compact);
+}
+
 QByteArray curatedHomeLayout(bool withWatchlistRow)
 {
     QByteArray body = QByteArrayLiteral(
@@ -1424,7 +1540,34 @@ void SiloCatalogServiceTest::homeSectionsKeepCuratedVideoRowsInLayoutOrder()
     QCOMPARE(request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/home/sections")));
     ProviderCatalogQuery modified;
     modified.limit = 10;
+    request = provider.createRequest(ProviderCatalogOperation::HomeSections, modified);
+    QVERIFY(request.supported);
+    QCOMPARE(request.relativeEndpoint,
+             withArtworkWidths(QStringLiteral("/api/v2/home/sections?item_limit=10")));
+    modified.startIndex = 1;
     QVERIFY(!provider.createRequest(ProviderCatalogOperation::HomeSections, modified).supported);
+    modified = {};
+    modified.limit = -1;
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::HomeSections, modified).supported);
+
+    // The Home capabilities report the largest cap only on servers that
+    // accept item_limit.
+    request = provider.createRequest(ProviderCatalogOperation::HomeCapabilities, {});
+    QVERIFY(request.supported);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/home/capabilities"));
+    ProviderCatalogResponse capabilities = provider.parseResponse(
+        ProviderCatalogOperation::HomeCapabilities,
+        QByteArrayLiteral(
+            R"({"revision":"r1","state":"available","allowed":true,"section_item_limit_max":100})"));
+    QVERIFY(capabilities.valid);
+    QCOMPARE(capabilities.capabilityMetadata.value(QStringLiteral("sectionItemLimitMax")).toInt(), 100);
+    capabilities = provider.parseResponse(
+        ProviderCatalogOperation::HomeCapabilities,
+        QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true})"));
+    QVERIFY(capabilities.valid);
+    QVERIFY(!capabilities.capabilityMetadata.contains(QStringLiteral("sectionItemLimitMax")));
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::HomeCapabilities,
+                                    QByteArrayLiteral(R"({"sections":[]})")).valid);
 
     // Rows Bloom already shows (Continue Watching, Next Up, Recently Added
     // and its newest-first twin) are skipped; non-video cards are dropped,
@@ -1595,6 +1738,7 @@ void SiloCatalogServiceTest::homeSectionsServiceAddsWatchlistRowOnlyWithoutOne()
 
     // Without a Watchlist row in the layout, Bloom adds one first.
     manager.responses = {
+        { 200, homeCapabilities(true), false },
         { 200, curatedHomeLayout(false), false },
         { 200,
             QByteArrayLiteral(
@@ -1605,12 +1749,16 @@ void SiloCatalogServiceTest::homeSectionsServiceAddsWatchlistRowOnlyWithoutOne()
     const qsizetype firstRequest = manager.requests.size();
     service.getHomeSections();
     QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
-    QCOMPARE(manager.requests.size(), firstRequest + 2);
-    const RecordedRequest layoutRequest = manager.requests.at(firstRequest);
+    QCOMPARE(manager.requests.size(), firstRequest + 3);
+    QCOMPARE(manager.requests.at(firstRequest).request.url().path(),
+             QStringLiteral("/api/v2/home/capabilities"));
+    const RecordedRequest layoutRequest = manager.requests.at(firstRequest + 1);
     QCOMPARE(layoutRequest.operation, QNetworkAccessManager::GetOperation);
     QCOMPARE(layoutRequest.request.url().path(), QStringLiteral("/api/v2/home/sections"));
+    QCOMPARE(QUrlQuery(layoutRequest.request.url()).queryItemValue(QStringLiteral("item_limit")),
+             QStringLiteral("20"));
     QCOMPARE(layoutRequest.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
-    const RecordedRequest watchlistRequest = manager.requests.at(firstRequest + 1);
+    const RecordedRequest watchlistRequest = manager.requests.at(firstRequest + 2);
     QCOMPARE(watchlistRequest.request.url().path(), QStringLiteral("/api/v2/watchlist"));
     QCOMPARE(QUrlQuery(watchlistRequest.request.url()).queryItemValue(QStringLiteral("limit")),
              QStringLiteral("20"));
@@ -1661,6 +1809,172 @@ void SiloCatalogServiceTest::homeSectionsServiceAddsWatchlistRowOnlyWithoutOne()
     QCOMPARE(rowIds(loaded.at(3).at(1).toList()).size(), 3);
 }
 
+void SiloCatalogServiceTest::seasonPosterRefreshReadsItsOwnField()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+    const QString connectionId = config.getActiveConnection().value_or(ServerConnection{}).connectionId;
+    QVERIFY(!connectionId.isEmpty());
+
+    const QVariantMap mapped = SiloModelMapper::mediaItem(
+        QJsonObject{
+            {QStringLiteral("content_id"), QStringLiteral("episode-1")},
+            {QStringLiteral("type"), QStringLiteral("episode")},
+            {QStringLiteral("series_id"), QStringLiteral("series-1")},
+            {QStringLiteral("poster_url"), QStringLiteral("https://silo.example.test/img/still.webp?sig=a")},
+            {QStringLiteral("season_poster_url"),
+             QStringLiteral("https://silo.example.test/img/season.webp?sig=b")}},
+        connectionId);
+    const QByteArray episode = QJsonDocument(QJsonObject{
+        {QStringLiteral("content_id"), QStringLiteral("episode-1")},
+        {QStringLiteral("type"), QStringLiteral("episode")},
+        {QStringLiteral("poster_url"), QStringLiteral("https://silo.example.test/img/still.webp?sig=c")},
+        {QStringLiteral("season_poster_url"),
+         QStringLiteral("https://silo.example.test/img/season.webp?sig=d")}}).toJson();
+    const auto refresh = [&](const QString &key) {
+        manager.responses = {{200, episode, false}};
+        const qsizetype first = manager.requests.size();
+        SiloArtworkProvider provider(&auth);
+        std::optional<QNetworkRequest> refreshed;
+        bool finished = false;
+        provider.refreshArtwork(
+            Bloom::ArtworkRef::fromVariantMap(mapped.value(key).toMap()),
+            [&](std::optional<QNetworkRequest> request) {
+                refreshed = std::move(request);
+                finished = true;
+            });
+        if (!QTest::qWaitFor([&finished] { return finished; }, 1000)
+            || manager.requests.size() != first + 1
+            || manager.requests.at(first).request.url().path()
+                != QStringLiteral("/api/v2/catalog/items/episode-1")) {
+            return QStringLiteral("unexpected refresh read");
+        }
+        return refreshed.has_value() ? refreshed->url().toString() : QString();
+    };
+
+    // Both are the episode's primary artwork; each refreshes to its own field.
+    QCOMPARE(refresh(QStringLiteral("parentPrimaryArtwork")),
+             QStringLiteral("https://silo.example.test/img/season.webp?sig=d"));
+    QCOMPARE(refresh(QStringLiteral("primaryArtwork")),
+             QStringLiteral("https://silo.example.test/img/still.webp?sig=c"));
+}
+
+void SiloCatalogServiceTest::homeSectionsCapRowsOnlyWhenTheServerAcceptsIt()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    const auto layoutReads = [&manager](qsizetype from) {
+        QStringList reads;
+        for (qsizetype index = from; index < manager.requests.size(); ++index) {
+            const QUrl url = manager.requests.at(index).request.url();
+            const QString limit = QUrlQuery(url).queryItemValue(QStringLiteral("item_limit"));
+            reads.append(url.path() + (limit.isEmpty() ? QString() : QLatin1Char('=') + limit));
+        }
+        return reads;
+    };
+    const QString capabilities = QStringLiteral("/api/v2/home/capabilities");
+    const QString layout = QStringLiteral("/api/v2/home/sections");
+
+    // A server without the cap rejects item_limit: the layout is read
+    // uncapped, and its capabilities are read once.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+        manager.responses = {{200, homeCapabilities(false), false},
+                             {200, curatedHomeLayout(true), false},
+                             {200, curatedHomeLayout(true), false}};
+        const qsizetype first = manager.requests.size();
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+        QCOMPARE(layoutReads(first), (QStringList{capabilities, layout, layout}));
+    }
+
+    // A smaller server cap wins over Bloom's row size.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+        manager.responses = {{200, homeCapabilities(true, 12), false},
+                             {200, curatedHomeLayout(true), false}};
+        const qsizetype first = manager.requests.size();
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        QCOMPARE(layoutReads(first), (QStringList{capabilities, layout + QStringLiteral("=12")}));
+    }
+
+    // A failed capability read still loads the rows, uncapped, and the next
+    // load asks again.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+        manager.responses = {
+            {403, QByteArrayLiteral(R"({"type":"about:blank","title":"Forbidden","status":403})"), false},
+            {200, curatedHomeLayout(true), false},
+            {200, homeCapabilities(true), false},
+            {200, curatedHomeLayout(true), false}};
+        const qsizetype first = manager.requests.size();
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+        QCOMPARE(layoutReads(first), (QStringList{capabilities, layout, capabilities,
+                                                  layout + QStringLiteral("=20")}));
+    }
+
+    // A server without the capabilities route has no cap; that is remembered.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+        manager.responses = {
+            {404, QByteArrayLiteral(R"({"type":"about:blank","title":"Not Found","status":404})"), false},
+            {200, curatedHomeLayout(true), false},
+            {200, curatedHomeLayout(true), false}};
+        const qsizetype first = manager.requests.size();
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+        QCOMPARE(layoutReads(first), (QStringList{capabilities, layout, layout}));
+    }
+
+    // A remembered cap the server now rejects is dropped, and the rows are
+    // read once more without it.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+        QSignalSpy failed(&service, &LibraryService::canonicalHomeSectionsFailed);
+        manager.responses = {
+            {200, homeCapabilities(true), false},
+            {400, QByteArrayLiteral(R"({"type":"about:blank","title":"Bad Request","status":400})"), false},
+            {200, curatedHomeLayout(true), false},
+            {200, curatedHomeLayout(true), false}};
+        const qsizetype first = manager.requests.size();
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        QCOMPARE(failed.count(), 0);
+        service.getHomeSections();
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+        QCOMPARE(layoutReads(first), (QStringList{capabilities, layout + QStringLiteral("=20"),
+                                                  layout, layout}));
+    }
+}
+
 void SiloCatalogServiceTest::homeSectionsServiceReportsFailure()
 {
     QTemporaryDir temporaryDirectory;
@@ -1679,14 +1993,15 @@ void SiloCatalogServiceTest::homeSectionsServiceReportsFailure()
 
     // A newer request supersedes an older one still in flight.
     manager.responses = {
+        { 200, homeCapabilities(true), false },
         { 200, curatedHomeLayout(true), true },
         { 404, QByteArrayLiteral(R"({"type":"about:blank","title":"Not Found","status":404})"), true }
     };
     service.getHomeSections();
-    QTRY_COMPARE_WITH_TIMEOUT(manager.replies.size(), 3, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(manager.replies.size(), 4, 1000);
     QPointer<ControlledReply> olderReply = manager.replies.constLast();
     service.getHomeSections();
-    QTRY_COMPARE_WITH_TIMEOUT(manager.replies.size(), 4, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(manager.replies.size(), 5, 1000);
     QPointer<ControlledReply> newerReply = manager.replies.constLast();
     QVERIFY(olderReply && newerReply);
     newerReply->complete();

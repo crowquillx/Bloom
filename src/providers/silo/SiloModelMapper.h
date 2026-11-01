@@ -43,6 +43,9 @@ public:
                                  const QString &connectionId);
     static QVariantList mediaItems(const QJsonArray &wireItems,
                                    const QString &connectionId);
+    /// The token-free tag of a signed artwork URL: a hash of its path, which
+    /// names the stored size variant and its content.
+    static QString artworkTag(const QString &url);
 
     static QVariantMap chapter(const QJsonObject &wireChapter,
                                const QString &connectionId,

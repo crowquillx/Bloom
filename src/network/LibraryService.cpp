@@ -26,9 +26,10 @@ namespace {
 // selection; the Silo catalog caps GET pages Bloom sends at 100.
 constexpr int kRandomSampleWindow = 100;
 
-// Cards in the Watchlist row Home adds when the profile's layout has none;
-// Silo's own rows default to 20.
-constexpr int kHomeWatchlistRowLimit = 20;
+// Cards per Home row Bloom reads: the Watchlist row Home adds when the
+// profile's layout has none, and each of the profile's rows when the server
+// accepts a cap (Silo's own rows default to 100).
+constexpr int kHomeRowCardLimit = 20;
 // Bloom names that row; it is not a server section.
 const QString kHomeWatchlistRowId = QStringLiteral("bloom:watchlist");
 
@@ -1360,6 +1361,48 @@ void LibraryService::getHomeSections()
         return;
     }
 
+    // Silo caps each row's cards only when its Home capabilities report the
+    // largest cap it accepts; older servers reject item_limit. They are read
+    // once per connection. Next Up reads the layout separately and uncapped,
+    // so no resume card is dropped.
+    const auto itemLimitMax = m_homeSectionItemLimitMax.constFind(connectionId);
+    if (itemLimitMax != m_homeSectionItemLimitMax.cend()) {
+        readHomeSections(connectionId, generation, *itemLimitMax);
+        return;
+    }
+    const auto isCurrent = [this, connectionId, generation] {
+        return generation == m_homeSectionsGeneration
+            && activeConnectionId(m_authService) == connectionId;
+    };
+    sendCatalogRequest(
+        QStringLiteral("getHomeCapabilities"),
+        ProviderCatalogOperation::HomeCapabilities,
+        baseCatalogQuery(),
+        [this, connectionId, generation, isCurrent](const ProviderCatalogResponse &capabilities) {
+            const int limitMax = capabilities.capabilityMetadata
+                .value(QStringLiteral("sectionItemLimitMax")).toInt();
+            m_homeSectionItemLimitMax.insert(connectionId, limitMax);
+            if (isCurrent()) {
+                readHomeSections(connectionId, generation, limitMax);
+            }
+        },
+        [this, connectionId, generation, isCurrent](const NetworkError &error) {
+            // A server without the route has no cap, which is remembered so
+            // each Home load does not pay the read again. Other failures read
+            // the rows uncapped and ask again next time.
+            if (error.httpStatus == 404 || error.httpStatus == 405 || error.httpStatus == 501) {
+                m_homeSectionItemLimitMax.insert(connectionId, 0);
+            }
+            if (isCurrent()) {
+                readHomeSections(connectionId, generation, 0);
+            }
+        });
+}
+
+void LibraryService::readHomeSections(const QString &connectionId,
+                                      quint64 generation,
+                                      int itemLimitMax)
+{
     const auto mapRows = [this, connectionId](const QJsonArray &wireRows) {
         QVariantList rows;
         for (const QJsonValue &value : wireRows) {
@@ -1377,10 +1420,15 @@ void LibraryService::getHomeSections()
         return rows;
     };
 
+    ProviderCatalogQuery layoutQuery = baseCatalogQuery();
+    if (itemLimitMax > 0) {
+        layoutQuery.limit = qMin(kHomeRowCardLimit, itemLimitMax);
+    }
+
     sendCatalogRequest(
         QStringLiteral("getHomeSections"),
         ProviderCatalogOperation::HomeSections,
-        baseCatalogQuery(),
+        layoutQuery,
         [this, connectionId, generation, mapRows](const ProviderCatalogResponse &response) {
             if (generation != m_homeSectionsGeneration) {
                 return;
@@ -1397,7 +1445,7 @@ void LibraryService::getHomeSections()
             // The layout has no Watchlist row: Home adds one ahead of the
             // profile's rows.
             ProviderCatalogQuery watchlistQuery = baseCatalogQuery();
-            watchlistQuery.limit = kHomeWatchlistRowLimit;
+            watchlistQuery.limit = kHomeRowCardLimit;
             sendCatalogRequest(
                 QStringLiteral("getWatchlist"),
                 ProviderCatalogOperation::Watchlist,
@@ -1424,10 +1472,21 @@ void LibraryService::getHomeSections()
                     }
                 });
         },
-        [this, connectionId, generation](const NetworkError &error) {
-            if (generation == m_homeSectionsGeneration) {
-                emit canonicalHomeSectionsFailed(connectionId, error.userMessage);
+        [this, connectionId, generation, itemLimitMax](const NetworkError &error) {
+            if (generation != m_homeSectionsGeneration) {
+                return;
             }
+            // A remembered cap can outlive the server that reported it (a
+            // rollback or reconfiguration). If the capped read is rejected,
+            // forget the cap and read once without it.
+            if (itemLimitMax > 0 && (error.httpStatus == 400 || error.httpStatus == 422)) {
+                m_homeSectionItemLimitMax.insert(connectionId, 0);
+                if (activeConnectionId(m_authService) == connectionId) {
+                    readHomeSections(connectionId, generation, 0);
+                    return;
+                }
+            }
+            emit canonicalHomeSectionsFailed(connectionId, error.userMessage);
         });
 }
 

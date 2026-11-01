@@ -1,5 +1,6 @@
 #include "SiloArtworkProvider.h"
 #include "SiloArtworkSizes.h"
+#include "SiloModelMapper.h"
 
 #include "network/AuthenticationService.h"
 #include "network/HttpTransport.h"
@@ -307,12 +308,21 @@ QString refreshedSource(const QByteArray &payload,
         }
         return chapterSource(
             unwrappedObject(document.object(), QStringLiteral("item")), artwork);
-    case Bloom::ArtworkOwnerKind::MediaItem:
+    case Bloom::ArtworkOwnerKind::MediaItem: {
         if (!document.isObject()) {
             return {};
         }
-        return sourceForKind(
-            unwrappedObject(document.object(), QStringLiteral("item")), artwork.kind);
+        const QJsonObject item = unwrappedObject(document.object(), QStringLiteral("item"));
+        // An episode owns its season poster next to its own poster, since
+        // cards carry no season ID. The reference whose path still matches
+        // the season poster refreshes to it.
+        const QString seasonPoster = item.value(QStringLiteral("season_poster_url")).toString();
+        if (artwork.kind == Bloom::ArtworkKind::Primary && !seasonPoster.isEmpty()
+            && SiloModelMapper::artworkTag(seasonPoster) == artwork.tag) {
+            return seasonPoster;
+        }
+        return sourceForKind(item, artwork.kind);
+    }
     }
     return {};
 }

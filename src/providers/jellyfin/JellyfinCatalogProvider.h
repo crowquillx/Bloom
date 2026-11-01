@@ -67,6 +67,7 @@ public:
         case ProviderCatalogOperation::PosterBadgeDefaults:
             return unsupported(QStringLiteral("Jellyfin has no server-side poster badge preferences"));
         case ProviderCatalogOperation::HomeSections:
+        case ProviderCatalogOperation::HomeCapabilities:
             return unsupported(QStringLiteral("Jellyfin has no profile-curated Home rows"));
         case ProviderCatalogOperation::Watchlist:
         case ProviderCatalogOperation::SetWatchlist:
@@ -874,6 +875,7 @@ private:
         case ProviderCatalogOperation::PosterBadgeSettings: return QStringLiteral("poster badge settings");
         case ProviderCatalogOperation::PosterBadgeDefaults: return QStringLiteral("poster badge defaults");
         case ProviderCatalogOperation::HomeSections: return QStringLiteral("home sections");
+        case ProviderCatalogOperation::HomeCapabilities: return QStringLiteral("home capabilities");
         case ProviderCatalogOperation::Watchlist: return QStringLiteral("watchlist");
         case ProviderCatalogOperation::SetWatchlist: return QStringLiteral("watchlist state");
         case ProviderCatalogOperation::MediaRequestStatus: return QStringLiteral("request capability");

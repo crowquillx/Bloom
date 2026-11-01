@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "sourceRevision": "62b1a6e82408eb4be3409255583bf8b0a192a69f",
-  "source": "https://raw.githubusercontent.com/Silo-Server/silo-server/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/openapi.json",
-  "sourceSha256": "874142d5f0bd4abe657ce158af93744572c24924c8b806854fa6a8afc489376b",
-  "migrationSource": "https://raw.githubusercontent.com/Silo-Server/silo-server/62b1a6e82408eb4be3409255583bf8b0a192a69f/contracts/api/v2/migration.json",
-  "migrationSha256": "f30d8063f00d75835cb4bc3171fc55ed6ed4859fe688ff85d658f1998e9fd73d",
+  "sourceRevision": "a103c2c885f20ea1b11160c233d04994a0884014",
+  "source": "https://raw.githubusercontent.com/Silo-Server/silo-server/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
+  "sourceSha256": "eb3cb4a524d15602a87abd1e37c877ded646c098fba8a6cdbc35a1e659bbcccf",
+  "migrationSource": "https://raw.githubusercontent.com/Silo-Server/silo-server/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/migration.json",
+  "migrationSha256": "626e794c48090e37b7b6b9c086a13af6f2a31068c3cd5c6280a48d4078bd065d",
   "apiVersion": "2",
-  "pathCount": 722,
+  "pathCount": 732,
   "operations": [
     {
       "method": "DELETE",
@@ -1756,6 +1756,15 @@
           }
         },
         "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "501": {
           "content": {
             "application/problem+json": {
               "schema": {
@@ -4166,6 +4175,175 @@
     },
     {
       "method": "GET",
+      "path": "/api/v2/home/capabilities",
+      "operationId": "getHomeCapabilities",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "If-Match",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HomeCapabilities"
+              }
+            }
+          },
+          "headers": {
+            "Cache-Control": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "304": {
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "412": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          },
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": true,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
       "path": "/api/v2/home/sections",
       "operationId": "listHomeSections",
       "parameters": [
@@ -4182,6 +4360,17 @@
           "name": "X-Profile-Token",
           "schema": {
             "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "item_limit",
+          "schema": {
+            "format": "int64",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
           }
         },
         {
@@ -4383,6 +4572,17 @@
         {
           "explode": false,
           "in": "query",
+          "name": "item_limit",
+          "schema": {
+            "format": "int64",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
           "name": "image_size",
           "schema": {
             "enum": [
@@ -4574,6 +4774,17 @@
           "schema": {
             "minLength": 1,
             "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "item_limit",
+          "schema": {
+            "format": "int64",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
           }
         },
         {
@@ -9987,6 +10198,15 @@
             }
           }
         },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
         "500": {
           "content": {
             "application/problem+json": {
@@ -10098,6 +10318,15 @@
             }
           }
         },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
         "500": {
           "content": {
             "application/problem+json": {
@@ -10192,6 +10421,15 @@
           }
         },
         "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
           "content": {
             "application/problem+json": {
               "schema": {
@@ -10935,6 +11173,15 @@
           }
         },
         "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "501": {
           "content": {
             "application/problem+json": {
               "schema": {
@@ -13777,7 +14024,28 @@
           "format": "int64",
           "type": "integer"
         },
+        "season_poster_thumbhash": {
+          "type": "string"
+        },
+        "season_poster_url": {
+          "format": "uri-reference",
+          "type": "string"
+        },
+        "series_backdrop_thumbhash": {
+          "type": "string"
+        },
+        "series_backdrop_url": {
+          "format": "uri-reference",
+          "type": "string"
+        },
         "series_id": {
+          "type": "string"
+        },
+        "series_poster_thumbhash": {
+          "type": "string"
+        },
+        "series_poster_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "series_title": {
@@ -14171,7 +14439,28 @@
           "format": "int64",
           "type": "integer"
         },
+        "season_poster_thumbhash": {
+          "type": "string"
+        },
+        "season_poster_url": {
+          "format": "uri-reference",
+          "type": "string"
+        },
+        "series_backdrop_thumbhash": {
+          "type": "string"
+        },
+        "series_backdrop_url": {
+          "format": "uri-reference",
+          "type": "string"
+        },
         "series_id": {
+          "type": "string"
+        },
+        "series_poster_thumbhash": {
+          "type": "string"
+        },
+        "series_poster_url": {
+          "format": "uri-reference",
           "type": "string"
         },
         "series_title": {
@@ -15320,6 +15609,26 @@
       ],
       "type": "object"
     },
+    "DiscoverRowRef": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "type",
+        "title"
+      ],
+      "type": "object"
+    },
     "DiscoverSection": {
       "additionalProperties": false,
       "properties": {
@@ -15373,9 +15682,16 @@
         },
         "page": {
           "$ref": "#/components/schemas/PageInfo"
+        },
+        "row_order": {
+          "items": {
+            "$ref": "#/components/schemas/DiscoverRowRef"
+          },
+          "type": "array"
         }
       },
       "required": [
+        "row_order",
         "items"
       ],
       "type": "object"
@@ -15752,6 +16068,9 @@
         "allowed": {
           "type": "boolean"
         },
+        "discover_rows_supported": {
+          "type": "boolean"
+        },
         "download_progress_supported": {
           "type": "boolean"
         },
@@ -15798,6 +16117,7 @@
         "download_progress_supported",
         "watchlist_titles_supported",
         "watchlist_requests",
+        "discover_rows_supported",
         "revision",
         "state",
         "allowed"
@@ -16060,6 +16380,44 @@
         "name",
         "format",
         "mime_type"
+      ],
+      "type": "object"
+    },
+    "HomeCapabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "include_items_max": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "row_item_limit_max": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "section_item_limit_max": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "available",
+            "disabled",
+            "not_configured",
+            "unsupported"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "state",
+        "allowed"
       ],
       "type": "object"
     },
@@ -17770,8 +18128,6 @@
       "required": [
         "id",
         "name",
-        "avatar",
-        "avatar_source",
         "has_pin",
         "is_child",
         "is_primary",
@@ -17792,7 +18148,9 @@
         "allowed_library_ids",
         "max_playback_quality",
         "created_at",
-        "updated_at"
+        "updated_at",
+        "avatar",
+        "avatar_source"
       ],
       "type": "object"
     },
@@ -18472,6 +18830,9 @@
           "type": "boolean"
         },
         "featured": {
+          "type": "boolean"
+        },
+        "has_more": {
           "type": "boolean"
         },
         "id": {
@@ -19810,9 +20171,31 @@
     "WatchMarker": {
       "additionalProperties": false,
       "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "confidence": {
+          "format": "double",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
         "end_seconds": {
           "format": "double",
           "type": "number"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "scanner",
+            "online",
+            "plugin",
+            "s3",
+            "manual"
+          ],
+          "type": "string"
         },
         "start_seconds": {
           "format": "double",

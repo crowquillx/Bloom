@@ -1353,28 +1353,74 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
                   QStringLiteral("primaryArtworkUrl"), connectionId, itemId,
                   Bloom::ArtworkKind::Primary,
                   primaryArtworkUrl);
+    // Episode cards may carry their series' and season's artwork (Silo's
+    // episode_parent_artwork). The series art is owned by the series, so a
+    // refresh reads it there. The season poster stays owned by the episode,
+    // because cards carry no season ID. A card's backdrop_url is usually the
+    // episode still; the series backdrop then takes its place, as Jellyfin's
+    // parent backdrop does. Continue Watching and Next Up cards already carry
+    // the season or series backdrop as backdrop_url and keep it.
+    const QString backdropUrl = wireItem.value(QStringLiteral("backdrop_url")).toString();
+    const QString seriesBackdropUrl =
+        wireItem.value(QStringLiteral("series_backdrop_url")).toString();
+    const bool seriesBackdropFirst = !seriesBackdropUrl.isEmpty()
+        && (backdropUrl.isEmpty()
+            || wireItem.value(QStringLiteral("backdrop_is_episode_still")).toBool());
+    const auto appendSeriesBackdrop = [&] {
+        appendArtwork(artwork, result, QStringLiteral("backdropArtwork"),
+                      QStringLiteral("backdropArtworkUrl"), connectionId, seriesId,
+                      Bloom::ArtworkKind::Backdrop, seriesBackdropUrl);
+    };
+    if (seriesBackdropFirst) {
+        appendSeriesBackdrop();
+    }
     appendArtwork(artwork, result, QStringLiteral("backdropArtwork"),
                   QStringLiteral("backdropArtworkUrl"), connectionId, itemId,
-                  Bloom::ArtworkKind::Backdrop,
-                  wireItem.value(QStringLiteral("backdrop_url")).toString());
+                  Bloom::ArtworkKind::Backdrop, backdropUrl);
+    if (!seriesBackdropFirst) {
+        appendSeriesBackdrop();
+    }
     appendArtwork(artwork, result, QStringLiteral("logoArtwork"),
                   QStringLiteral("logoArtworkUrl"), connectionId, itemId,
                   Bloom::ArtworkKind::Logo,
                   wireItem.value(QStringLiteral("logo_url")).toString());
+    appendArtwork(artwork, result, QStringLiteral("seriesPrimaryArtwork"),
+                  QStringLiteral("seriesPrimaryArtworkUrl"), connectionId, seriesId,
+                  Bloom::ArtworkKind::Primary,
+                  wireItem.value(QStringLiteral("series_poster_url")).toString());
+    appendArtwork(artwork, result, QStringLiteral("parentPrimaryArtwork"),
+                  QStringLiteral("parentPrimaryArtworkUrl"), connectionId, itemId,
+                  Bloom::ArtworkKind::Primary,
+                  wireItem.value(QStringLiteral("season_poster_url")).toString());
     result[QStringLiteral("artwork")] = artwork;
-    result[QStringLiteral("artworkThumbhashes")] = QVariantMap{
+    QVariantMap thumbhashes{
         {QStringLiteral("poster"), primaryThumbhash},
-        {QStringLiteral("backdrop"), wireItem.value(QStringLiteral("backdrop_thumbhash")).toString()}
+        {QStringLiteral("backdrop"),
+         wireItem.value(seriesBackdropFirst ? QStringLiteral("series_backdrop_thumbhash")
+                                            : QStringLiteral("backdrop_thumbhash")).toString()}
     };
+    for (const auto &[kind, field] : {
+             std::pair{QStringLiteral("seriesPoster"), QStringLiteral("series_poster_thumbhash")},
+             std::pair{QStringLiteral("seasonPoster"), QStringLiteral("season_poster_thumbhash")},
+             std::pair{QStringLiteral("seriesBackdrop"),
+                       QStringLiteral("series_backdrop_thumbhash")}}) {
+        const QString thumbhash = wireItem.value(field).toString();
+        if (!thumbhash.isEmpty()) {
+            thumbhashes.insert(kind, thumbhash);
+        }
+    }
+    result[QStringLiteral("artworkThumbhashes")] = thumbhashes;
     QVariantMap artworkExpiresAt;
     for (const auto &[kind, field] : {
              std::pair{QStringLiteral("primary"),
                        !posterUrl.isEmpty()
                            ? QStringLiteral("poster_url_expires_at")
                            : QStringLiteral("still_url_expires_at")},
-             std::pair{QStringLiteral("backdrop"), QStringLiteral("backdrop_url_expires_at")},
+             std::pair{QStringLiteral("backdrop"),
+                       seriesBackdropFirst ? QString()
+                                           : QStringLiteral("backdrop_url_expires_at")},
              std::pair{QStringLiteral("logo"), QStringLiteral("logo_url_expires_at")}}) {
-        if (wireItem.value(field).isString()) {
+        if (!field.isEmpty() && wireItem.value(field).isString()) {
             artworkExpiresAt.insert(kind, wireItem.value(field).toString());
         }
     }
@@ -1382,6 +1428,11 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         result[QStringLiteral("artworkExpiresAt")] = artworkExpiresAt;
     }
     return result;
+}
+
+QString SiloModelMapper::artworkTag(const QString &url)
+{
+    return artworkSourceTag(url);
 }
 
 QVariantList SiloModelMapper::mediaItems(const QJsonArray &wireItems,
