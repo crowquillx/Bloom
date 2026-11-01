@@ -8,15 +8,15 @@ Native Silo support is first-class: it passed the live release gates without Sil
 
 | Component | Pin |
 | --- | --- |
-| Native Silo source | `62b1a6e82408eb4be3409255583bf8b0a192a69f` |
-| Silo API | `2`, 722 paths |
-| Silo OpenAPI SHA-256 | `874142d5f0bd4abe657ce158af93744572c24924c8b806854fa6a8afc489376b` |
-| Silo migration SHA-256 | `f30d8063f00d75835cb4bc3171fc55ed6ed4859fe688ff85d658f1998e9fd73d` |
+| Native Silo source | `a103c2c885f20ea1b11160c233d04994a0884014` |
+| Silo API | `2`, 732 paths |
+| Silo OpenAPI SHA-256 | `eb3cb4a524d15602a87abd1e37c877ded646c098fba8a6cdbc35a1e659bbcccf` |
+| Silo migration SHA-256 | `626e794c48090e37b7b6b9c086a13af6f2a31068c3cd5c6280a48d4078bd065d` |
 | Historical Silo compatibility control | `8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6`, image `ghcr.io/silo-server/silo-server@sha256:944ee9821de1d6a61876c9b7b06daa358118163d1e5f9b3aa9f5437856fd06e9` |
 | Jellyfin control | `10.11.10`, image `docker.io/jellyfin/jellyfin@sha256:f66273e014b307e4ac46778845ebc1e9ee24b2e57c1fc17d5ec5ac3015649bfa` |
 | Jellyfin API | `12.0.0`, SDK revision `592747ce7add446b9a14ad56aba8a7441a2e2618`, SHA-256 `f073a3e661f1c7249c8dc7df257b31f290c8931950f8563e9df537a46717f700` |
 
-The native source and exact contract bytes are pinned. No new native container digest is asserted. The 2026-10-18 live run was against the previous pin `35ef973b`; between that pin and `62b1a6e8` Silo removed no operation and changed only optional fields on the operations Bloom calls. The live runner has not yet run against `62b1a6e8`. The historical compatibility image remains a separate baseline; it is not a v2 image pin.
+The native source and exact contract bytes are pinned. No new native container digest is asserted. The 2026-10-18 live run was against the earlier pin `35ef973b`. Between that pin and `a103c2c8` (through `62b1a6e8`) Silo removed no operation Bloom calls and made no request field newly required. On those operations it added only optional query parameters (`item_limit` on the Home and library section reads), optional response fields, and documented error statuses. The live runner has not yet run against `62b1a6e8` or `a103c2c8`. The historical compatibility image remains a separate baseline; it is not a v2 image pin.
 
 [`provider-contracts.json`](../tests/contracts/provider-contracts.json) records native operation references, behavior, capability conditions, and exclusions. [`silo-v2-openapi-manifest.json`](../tests/contracts/silo-v2-openapi-manifest.json) contains the operations and transitive schemas Bloom consumes. The generator checks both artifact hashes before writing the manifest. The offline validator rejects pin drift, absent operations, unsupported claims, and frozen native API calls.
 
@@ -24,7 +24,7 @@ To reproduce the manifest, use a zsh-compatible shell:
 
 ```sh
 mkdir -p /tmp/opencode
-revision=62b1a6e82408eb4be3409255583bf8b0a192a69f
+revision=a103c2c885f20ea1b11160c233d04994a0884014
 curl --fail --location "https://raw.githubusercontent.com/Silo-Server/silo-server/$revision/contracts/api/v2/openapi.json" --output /tmp/opencode/openapi.json
 curl --fail --location "https://raw.githubusercontent.com/Silo-Server/silo-server/$revision/contracts/api/v2/migration.json" --output /tmp/opencode/migration.json
 jq '.paths["/api/v2/playback/start"].post.requestBody' /tmp/opencode/openapi.json
@@ -70,7 +70,7 @@ Catalog reads use `cursor`, `page.next_cursor`, `page.has_more`, and `window_cur
 
 Library IDs are strings in query bodies and URLs. Hierarchy requests use explicit series/season context rather than inferring a resource kind from whether an ID is numeric. Numeric season numbers remain numbers. Series and season children are requested through `LibraryService::getSeasons` and `getSeasonEpisodes`, which add the `Season` or `Episode` item type. A parent ID without a type is a library and becomes a `library_id` catalog query. GET sort direction uses a minus prefix; grouped GET filters use one JSON `groups` parameter.
 
-Home section IDs come from the profile's layout, so Bloom never requests a fixed section ID. Next Up reads `GET /api/v2/home/sections` and keeps movie and episode cards from the `continue_watching` and `next_up` section types, in layout order and without duplicates. Silo folds Next Up cards into Continue Watching unless the profile shows Next Up separately. The `system-next-up` section exists only in that separate mode. Continue Listening and Continue Reading share the `continue_watching` type, and their cards are dropped. Home episode cards (`CatalogItem`) carry no thumb and no season ID. Their `poster_url` is the portrait season poster, and their `backdrop_url` is the episode still or the series backdrop. Bloom's landscape Home cards therefore fall back to the backdrop before the poster. Opening such an episode selects its season by `season_number` once the series' seasons load.
+Home section IDs come from the profile's layout, so Bloom never requests a fixed section ID. Next Up reads `GET /api/v2/home/sections` and keeps movie and episode cards from the `continue_watching` and `next_up` section types, in layout order and without duplicates. Silo folds Next Up cards into Continue Watching unless the profile shows Next Up separately. The `system-next-up` section exists only in that separate mode. Continue Listening and Continue Reading share the `continue_watching` type, and their cards are dropped. Home episode cards (`CatalogItem`) carry no thumb and no season ID. Their `poster_url` is the portrait season poster. In Continue Watching and Next Up rows their `backdrop_url` is the season backdrop, else the series backdrop, else the episode still. Bloom's landscape Home cards therefore fall back to the backdrop before the poster, as Jellyfin's fall back to the parent backdrop. Opening such an episode selects its season by `season_number` once the series' seasons load.
 
 Home also shows the rows the profile curates in Silo (recommendations, Because You Watched, collections, seasonal picks, genre rows, its watchlist and so on). `LibraryService::getHomeSections` reads the same `GET /api/v2/home/sections`, whose rows come with their cards after the server's cross-row de-duplication and hide-watched rules, and `HomeSectionsViewModel` adds them below Bloom's own shelves in the server's layout order:
 
@@ -78,7 +78,7 @@ Home also shows the rows the profile curates in Silo (recommendations, Because Y
 - Every other type is kept, including types Silo adds later. Featured rows (Silo's page hero) are ordinary rows, since Bloom keeps its own hero.
 - Only movie, series and episode cards are kept, once each per row. Rows of music, audiobooks, ebooks, manga or podcasts, and rows left empty, are dropped.
 - Without a `watchlist` row in the layout, Home adds a "Watchlist" row first, from the first 20 entries of `GET /api/v2/watchlist` (newest first). An empty watchlist adds no row; a failed read leaves the other rows.
-- Rows show their first page only; there is no "See all", as on Bloom's other Home rows.
+- Rows show their first page only; there is no "See all", as on Bloom's other Home rows. When `GET /api/v2/home/capabilities` reports `section_item_limit_max`, the read sends `item_limit=20` (or the server's maximum, if smaller), the same size as the Watchlist row. Silo's own rows default to 100 cards. Servers without that field reject `item_limit`, so the read goes uncapped. The capabilities are read once per connection; a failed read loads the rows uncapped and asks again on the next load. Next Up reads the layout separately and never sends `item_limit`, so no resume card is cut.
 
 Rows load in the background with the other Home rows and refresh with them: after playback, on returning to Home after 30 seconds, on a library-visibility change, and after a watchlist change. A new Home (sign-in, profile or space switch) starts without rows. Merged spaces keep Bloom's own Home rows only, because a layout belongs to one Silo profile. Jellyfin has no curated layout (`ProviderCapability::HomeSections` is Silo-only), so its Home is unchanged.
 
@@ -87,6 +87,14 @@ The watchlist is a per-profile list separate from favorites. Movie and series pa
 Series and season collections omit `type`. The mapper treats an untyped card with `episode_number` as an episode, and one with `season_number` and `episode_count` as a season numbered by `season_number`.
 
 Artwork URLs are signed links to one stored size variant per image. Each read picks the narrowest variant at least as wide as the request's `poster_width`, `backdrop_width`, `logo_width`, `still_width`, or `photo_width`, else the original. Without them Silo uses per-surface defaults: 300 px posters and backdrops on catalog pages and structured queries, 300 px stills on episode rows (season episode lists), and 500 px posters with 1920 px backdrops on Home and details. Those defaults upscale on a large screen. `SiloArtworkSizes` sends `poster_width=1000`, `backdrop_width=3840`, `logo_width=1280`, and `still_width=1280` (sizes for a 4K screen, matching Bloom's 2x `maxWidth` requests to Jellyfin) on every catalog, Home, library section, similar, and watchlist read, and on the artwork refresh read. Episode stills (the series page and Up Next episode cards) get the 1280 px rung; photos keep their 500 px default. Silo answers `422` to parameters a route does not declare, so library discovery, filters, theme reads, settings, and writes never carry them. The mapper tags each artwork reference with a hash of the URL path without its signed query. The image cache key therefore changes when the variant or the artwork changes, but not when the signature rotates.
+
+Episode cards can also carry their parents' artwork: `series_poster_url`, `season_poster_url`, and `series_backdrop_url`, each with a `*_thumbhash` (`GET /api/v2/images/capabilities` reports `episode_parent_artwork`). They appear on Home and library sections, catalog browse and search, Watch Tonight, and episode detail. Each is optional; older servers send none, and the mapper then maps only the card's own artwork. The mapper fills the keys the Jellyfin mapper fills:
+
+- `series_poster_url` becomes `seriesPrimaryArtwork`, owned by the series (`series_id`). Poster cards for episodes (Recently Added and the curated rows) therefore show the series poster, as on Jellyfin.
+- `season_poster_url` becomes `parentPrimaryArtwork`. Cards carry no season ID, so the episode owns it. Its refresh re-reads the episode and returns `season_poster_url` when that field's path still matches the reference's tag, else the episode's own poster.
+- `series_backdrop_url` becomes `backdropArtwork`, owned by the series, when `backdrop_url` is missing or `backdrop_is_episode_still` is true. This matches Jellyfin, whose episodes take their parent's backdrop. Otherwise the card's own `backdrop_url` stays first (the season or series backdrop in Continue Watching and Next Up), and the series backdrop follows it in the `artwork` list.
+
+None of these fields has an `*_expires_at`. When the series backdrop replaces the still, the card's `backdrop_url_expires_at` is dropped from `artworkExpiresAt`.
 
 Catalog cards (`CatalogItem`) carry `overlay_summary` but no unwatched episode count: their `user_state` holds only `played`, `is_favorite`, `in_watchlist`, and `not_interested`. Seasons and item details carry the full watch rollup, so Silo series posters show a watched check but no count. Poster badge preferences come from the profile-scoped effective `ui.card_overlays` and `ui.card_overlays_enabled` settings and `GET /api/v2/settings/overlay-config`; see [poster badges](poster-badges.md).
 
@@ -139,7 +147,7 @@ Use `./scripts/dev-build.sh --tests` during development, then `nix flake check` 
 export BLOOM_CONTRACT_USERNAME=tester
 read -rs 'BLOOM_CONTRACT_PASSWORD?Fixture password: '
 export BLOOM_CONTRACT_PASSWORD
-python3 tests/contracts/run_live_contracts.py --deployment silo-62b1a6e-native --base-url http://silo --allow-mutations --output /tmp/opencode/silo-v2-report.json
+python3 tests/contracts/run_live_contracts.py --deployment silo-a103c2c-native --base-url http://silo --allow-mutations --output /tmp/opencode/silo-v2-report.json
 unset BLOOM_CONTRACT_PASSWORD
 ```
 

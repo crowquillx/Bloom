@@ -86,7 +86,7 @@ Silo plans that cannot play the original file now play through `server_remux_hls
 
 ## Native Silo v2 migration, 2026-10-18 UTC
 
-This run predates the pin bump to `62b1a6e8` (2026-10-27). Live gates against the new pin are NOT RUN.
+This run predates the pin bumps to `62b1a6e8` (2026-10-27) and `a103c2c8` (2026-10-31). Live gates against either pin are NOT RUN.
 
 The server at `http://silo` reported source revision `35ef973b`. The full source pin is `35ef973bc64af293aff76bcd49fa2dcab82a7f74`. Its served OpenAPI bytes equal SHA-256 `be30c2f6d2a4dc7fbfef2a9b1438d843b4c25239eb2d637ec09dfef12f1220be`, the pinned artifact with 707 paths. No container-image identity was verified. Checks used the operator-supplied disposable `tester` account. No password, token, signed URL, or PIN is retained here.
 

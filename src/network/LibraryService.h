@@ -356,11 +356,18 @@ private:
                           int code = -1);
     void emitError(const NetworkError &error);
 
+    // The profile's Home rows, each capped at itemLimitMax cards when it
+    // is positive.
+    void readHomeSections(const QString &connectionId, quint64 generation, int itemLimitMax);
+
     QSet<QString> m_inFlightChapterRequests;
     QList<QPointer<HttpRequestHandle>> m_catalogRequests;
     quint64 m_requestGeneration = 0;
     quint64 m_heroRequestGeneration = 0;
     quint64 m_homeSectionsGeneration = 0;
+    /// Per connection, the largest per-row card cap its Home layout read
+    /// accepts (0 when it accepts none), once its capabilities were read.
+    QHash<QString, int> m_homeSectionItemLimitMax;
     // Newest search; a replaced search (new term or library exclusions)
     // must not publish results after it.
     quint64 m_searchGeneration = 0;

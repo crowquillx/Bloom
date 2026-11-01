@@ -39,6 +39,10 @@ enum class ProviderCatalogOperation {
     // The profile's own Home rows (Silo). rawItems holds one object per row
     // with `id`, `title`, `section_type` and wire `items`, in layout order.
     HomeSections,
+    // The Home layout's capability document (Silo). capabilityMetadata
+    // carries `sectionItemLimitMax`, the largest per-row card cap a
+    // HomeSections read accepts, when the server reports one.
+    HomeCapabilities,
     // The profile's watchlist, and adding or removing one item.
     Watchlist,
     SetWatchlist,

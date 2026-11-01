@@ -141,16 +141,29 @@ private:
             // the profile shows Next Up separately. Read the layout and pick
             // both section types in parseResponse.
             return get(QStringLiteral("/api/v2/home/sections"));
-        case ProviderCatalogOperation::HomeSections:
-            if (hasCatalogModifiers(query)
+        case ProviderCatalogOperation::HomeSections: {
+            // The limit caps each row's cards (item_limit). Only servers
+            // whose Home capabilities report section_item_limit_max accept
+            // it; older ones reject the parameter.
+            ProviderCatalogQuery layout = query;
+            layout.limit = 0;
+            if (query.limit < 0 || hasCatalogModifiers(layout)
                 || !query.parentId.trimmed().isEmpty()
                 || !query.itemId.trimmed().isEmpty()) {
                 return unsupported(QStringLiteral(
-                    "Silo's home layout does not accept catalog modifiers"));
+                    "Silo's home layout accepts only a per-row card limit"));
             }
             // The aggregate read answers every row with its cards and applies
             // the server's cross-row de-duplication and hide-watched rules.
-            return get(QStringLiteral("/api/v2/home/sections"));
+            if (query.limit == 0) {
+                return get(QStringLiteral("/api/v2/home/sections"));
+            }
+            QUrlQuery parameters;
+            parameters.addQueryItem(QStringLiteral("item_limit"), QString::number(query.limit));
+            return get(endpointWithQuery(QStringLiteral("/api/v2/home/sections"), parameters));
+        }
+        case ProviderCatalogOperation::HomeCapabilities:
+            return get(QStringLiteral("/api/v2/home/capabilities"));
         case ProviderCatalogOperation::Watchlist: {
             if (query.limit < 0 || query.startIndex != 0) {
                 return unsupported(QStringLiteral(
@@ -374,6 +387,23 @@ public:
             response.capabilityMetadata.insert(
                 QStringLiteral("layoutHasWatchlist"), layoutHasWatchlist);
             response.total = static_cast<int>(response.rawItems.size());
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::HomeCapabilities) {
+            ProviderCatalogResponse response;
+            const QJsonObject object = QJsonDocument::fromJson(body).object();
+            if (!object.value(QStringLiteral("state")).isString()) {
+                response.error = QStringLiteral("Invalid Silo home capabilities response");
+                return response;
+            }
+            // Absent on servers before the cap and when the home sections
+            // service is not configured.
+            const QJsonValue limitMax = object.value(QStringLiteral("section_item_limit_max"));
+            if (limitMax.isDouble() && limitMax.toInt() > 0) {
+                response.capabilityMetadata.insert(
+                    QStringLiteral("sectionItemLimitMax"), limitMax.toInt());
+            }
             response.valid = true;
             return response;
         }
