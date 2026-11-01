@@ -125,6 +125,12 @@ enum class ProviderCatalogOperation {
     // `recommendationType`, `baselineItemName`, `categoryId` and wire
     // `items`, in the server's order.
     MovieRecommendations,
+    // Which of itemIds lie in the library parentId (Jellyfin). rawItems
+    // holds one {"itemId"} object per item found.
+    LibraryMembership,
+    // The server's public identity (Jellyfin). capabilityMetadata holds
+    // `version` and `productName`.
+    ServerInfo,
 };
 
 enum class ProviderHttpMethod {

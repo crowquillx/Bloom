@@ -28,8 +28,10 @@ class LibraryService;
  *   loaded, and so does a favorite change when the provider has the
  *   Favorites row.
  * - `setLibraries()` takes the libraries Home shows; the movie ones are
- *   where recommendation rows come from. They belong to the connection that
- *   was active when they were set.
+ *   where recommendation rows come from, in that order. They belong to the
+ *   connection that was active when they were set.
+ * - Recommendation rows are read again only when `refresh(true)` asks for
+ *   it; other refreshes (a favorite or watchlist change) reuse them.
  *
  * Merged spaces show no curated rows: Home calls `clear()` instead.
  */
@@ -54,8 +56,16 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     /// Loads the active connection's rows. Rows of another connection are
-    /// dropped first.
-    Q_INVOKABLE void refresh();
+    /// dropped first. Recommendation rows are reused from the last read
+    /// unless reloadRecommendations asks the server again (a new Home,
+    /// after playback, the setting turned on).
+    Q_INVOKABLE void refresh(bool reloadRecommendations = false);
+    /// Drops the recommendation rows at once (the setting turned off).
+    Q_INVOKABLE void removeRecommendationRows();
+    /// The row focus returns to: the row sectionId when it is still shown,
+    /// otherwise the one now at position or the last row above it. -1 when
+    /// there are no rows.
+    Q_INVOKABLE int restoreRowIndex(const QString &sectionId, int position) const;
     /// The library views Home shows (the space's visible ones). The next
     /// refresh reads recommendations from the movie libraries among them.
     Q_INVOKABLE void setLibraries(const QVariantList &views);

@@ -115,6 +115,10 @@ public:
             return lettersRequest(query, true);
         case ProviderCatalogOperation::MovieRecommendations:
             return movieRecommendationsRequest(query);
+        case ProviderCatalogOperation::LibraryMembership:
+            return libraryMembershipRequest(query);
+        case ProviderCatalogOperation::ServerInfo:
+            return supportedRequest(QStringLiteral("/System/Info/Public"));
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -196,6 +200,30 @@ public:
         }
 
         const QJsonObject root = document.object();
+        if (operation == ProviderCatalogOperation::ServerInfo) {
+            response.capabilityMetadata = {
+                {QStringLiteral("version"), root.value(QStringLiteral("Version")).toString()},
+                {QStringLiteral("productName"),
+                 root.value(QStringLiteral("ProductName")).toString()}};
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::LibraryMembership) {
+            if (!root.value(QStringLiteral("Items")).isArray()) {
+                response.error = QStringLiteral("Jellyfin %1 response has no Items array")
+                                     .arg(operationName(operation));
+                return response;
+            }
+            for (const QJsonValue &value : root.value(QStringLiteral("Items")).toArray()) {
+                const QString itemId = value.toObject().value(QStringLiteral("Id")).toString();
+                if (!itemId.isEmpty()) {
+                    response.rawItems.append(QJsonObject{{QStringLiteral("itemId"), itemId}});
+                }
+            }
+            response.total = response.rawItems.size();
+            response.valid = true;
+            return response;
+        }
         if (operation == ProviderCatalogOperation::Person) {
             if (root.value(QStringLiteral("Id")).toString().isEmpty()
                 || root.value(QStringLiteral("Name")).toString().isEmpty()) {
@@ -851,6 +879,31 @@ private:
             endpointWithQuery(QStringLiteral("/Movies/Recommendations"), parameters));
     }
 
+    // Which of the item IDs the library holds: GetItems scoped to the
+    // library, without images, user data or a total count.
+    static ProviderCatalogRequest libraryMembershipRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, false, QStringLiteral("library membership"));
+        if (!validation.supported) {
+            return validation;
+        }
+        if (query.parentId.isEmpty() || query.itemIds.isEmpty()) {
+            return unsupported(QStringLiteral(
+                "Jellyfin library membership requires a library ID and item IDs"));
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
+        parameters.addQueryItem(QStringLiteral("ParentId"), query.parentId);
+        parameters.addQueryItem(QStringLiteral("Ids"), query.itemIds.join(QLatin1Char(',')));
+        parameters.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
+        parameters.addQueryItem(QStringLiteral("Limit"), QString::number(query.itemIds.size()));
+        parameters.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("false"));
+        parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("false"));
+        parameters.addQueryItem(QStringLiteral("EnableTotalRecordCount"), QStringLiteral("false"));
+        return supportedRequest(endpointWithQuery(QStringLiteral("/Items"), parameters));
+    }
+
     // RecommendationDto rows as {recommendationType, baselineItemName,
     // categoryId, items}; items stay wire BaseItemDto objects.
     static QJsonArray recommendationRows(const QJsonArray &wireRows)
@@ -1230,6 +1283,8 @@ private:
         case ProviderCatalogOperation::LibraryLetters: return QStringLiteral("letter index");
         case ProviderCatalogOperation::LibraryLetterCount: return QStringLiteral("letter count");
         case ProviderCatalogOperation::MovieRecommendations: return QStringLiteral("movie recommendations");
+        case ProviderCatalogOperation::LibraryMembership: return QStringLiteral("library membership");
+        case ProviderCatalogOperation::ServerInfo: return QStringLiteral("server info");
         }
         return QStringLiteral("catalog");
     }

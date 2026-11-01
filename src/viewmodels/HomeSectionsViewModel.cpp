@@ -1,9 +1,12 @@
 #include "HomeSectionsViewModel.h"
 
 #include "../core/ServiceLocator.h"
+#include "../models/HomeRecommendations.h"
 #include "../models/LibraryKinds.h"
 #include "../network/LibraryService.h"
 #include "../utils/BloomLogging.h"
+
+#include <algorithm>
 
 HomeSectionsViewModel::HomeSectionsViewModel(QObject *parent)
     : HomeSectionsViewModel(ServiceLocator::tryGet<LibraryService>(), parent)
@@ -69,7 +72,7 @@ QHash<int, QByteArray> HomeSectionsViewModel::roleNames() const
     };
 }
 
-void HomeSectionsViewModel::refresh()
+void HomeSectionsViewModel::refresh(bool reloadRecommendations)
 {
     if (!m_libraryService) {
         return;
@@ -89,7 +92,33 @@ void HomeSectionsViewModel::refresh()
     setLoading(true);
     // May answer synchronously (no curated rows for this provider).
     m_libraryService->getHomeSections(
-        m_librariesConnectionId == connectionId ? m_movieLibraryIds : QStringList());
+        m_librariesConnectionId == connectionId ? m_movieLibraryIds : QStringList(),
+        reloadRecommendations);
+}
+
+void HomeSectionsViewModel::removeRecommendationRows()
+{
+    // From the end, so the rows above keep their delegates.
+    for (qsizetype i = m_rows.size() - 1; i >= 0; --i) {
+        if (sectionIdOf(m_rows.at(i)).startsWith(HomeRecommendations::SectionIdPrefix)) {
+            beginRemoveRows({}, static_cast<int>(i), static_cast<int>(i));
+            m_rows.removeAt(i);
+            endRemoveRows();
+        }
+    }
+}
+
+int HomeSectionsViewModel::restoreRowIndex(const QString &sectionId, int position) const
+{
+    if (m_rows.isEmpty()) {
+        return -1;
+    }
+    for (qsizetype i = 0; i < m_rows.size(); ++i) {
+        if (!sectionId.isEmpty() && sectionIdOf(m_rows.at(i)) == sectionId) {
+            return static_cast<int>(i);
+        }
+    }
+    return std::clamp(position, 0, static_cast<int>(m_rows.size()) - 1);
 }
 
 void HomeSectionsViewModel::setLibraries(const QVariantList &views)

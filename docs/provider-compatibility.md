@@ -346,8 +346,8 @@ both for Continue Watching and Next Up:
   provider reports `ProviderCapability::MovieRecommendations` (Jellyfin
   only). `GET /Movies/Recommendations` (`GetMovieRecommendations`,
   `ProviderCatalogOperation::MovieRecommendations`) is read once for each
-  movie library Home shows, so libraries the space hides are never read. It
-  sends `UserId`, `ParentId`, `CategoryLimit=4`, `ItemLimit=15` and
+  movie library Home shows. It sends `UserId`, `ParentId`,
+  `CategoryLimit=4`, `ItemLimit=15` and
   `Fields=Overview,ParentId,PrimaryImageAspectRatio`; the operation has no
   image or user data switches, and the server adds user data for the user.
   The answer is a bare `RecommendationDto` array. The adapter keeps each
@@ -360,16 +360,48 @@ both for Continue Watching and Next Up:
   movie cards are kept; a row that repeats an earlier row's type and
   baseline (from another library) is merged into it, and empty rows are
   dropped ([view models](viewmodels.md#homesectionsviewmodel)). Each read
-  can fail alone and leaves the other rows. Merged spaces show none, like
-  the Favorites row: the rows are per user and per server, and Bloom does
-  not merge them across members.
+  can fail alone and leaves the other rows; a failed library shows the
+  categories it answered last. Merged spaces show none, like the Favorites
+  row: the rows are per user and per server, and Bloom does not merge them
+  across members.
+- `ParentId` scopes only the seed titles (the played and liked movies).
+  Similar titles and people's films come from every library the user may
+  open, in 10.11 (`MoviesController.GetSimilarTo`, `GetWithDirector`,
+  `GetWithActor`) and in 12.x (`SimilarItemsManager`) alike, so a hidden
+  library's movies can be recommended. Bloom then reads, per shown movie
+  library, `GET /Items` (`GetItems`) with `UserId`, `ParentId`, `Ids` (at
+  most 60 recommended items per read), `Recursive=true`, `Limit`,
+  `EnableImages=false`, `EnableUserData=false` and
+  `EnableTotalRecordCount=false`, and keeps only the items found
+  (`ProviderCatalogOperation::LibraryMembership`). When that read fails,
+  only items an earlier read found in the same libraries stay.
+- Jellyfin 10.11.0 to 10.11.11 build the `SimilarTo*` categories without
+  the baseline (`GetSimilarTo` sets no `SimilarTo = item`, sort or
+  `ParentId`), so every "Because you watched" and "More like" row lists
+  the same arbitrary movies. 10.10 still set it, and jellyfin/jellyfin
+  `97c20e6ac` ("Fix movie recommendations", first in v12.0) fixed it. Bloom
+  reads `GET /System/Info/Public` (`GetPublicSystemInfo`,
+  `ProviderCatalogOperation::ServerInfo`) once per connection and keeps
+  those categories only for `Version` 10.10 and older or 12.0 and newer
+  (`HomeRecommendations::similarRowsWork`). A failed read hides them until
+  it succeeds. As a second guard, a `SimilarTo*` category whose items equal
+  those of a category with another title is dropped. Person rows always
+  stay.
+- The server picks its seeds at random, so Bloom keeps a read per
+  connection, user and set of shown movie libraries for 45 minutes and
+  reads again only on a new Home, after playback, and when the setting is
+  turned on. A favorite change re-reads the Favorites row only.
 - Silo's compatibility listener (pinned `8044eb8`) registers
   `GET /Movies/Recommendations` but ignores `ParentId` (each library read
   answers the same rows, which Bloom merges), approximates
   `RecommendationType`, and puts its whole row label ("Top Rated", "For
-  You") in `BaselineItemName`, so Bloom's titles read oddly there. Native
-  Silo reports the operation unsupported; its own recommendation rows come
-  with the Home layout.
+  You") in `BaselineItemName`, so Bloom's titles read oddly there. Its
+  `/System/Info/Public` answers `ProductName` "Jellyfin Server" and the
+  emulated version (12.1.0 by default), so Bloom cannot tell it from
+  Jellyfin and shows these rows there too. Latest Silo (`d31eecb`) scopes
+  `Ids` reads to `ParentId`; the pinned build was not checked. Native Silo
+  reports the operation unsupported; its own recommendation rows come with
+  the Home layout.
 - Silo's Jellyfin compatibility listener (pinned `8044eb8`) serves the same
   reads: it registers `GET /UserItems/Resume`, honors `enableResumable`
   and `nextUpDateCutoff` on Next Up, and filters `IsFavorite`. It honors

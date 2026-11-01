@@ -42,6 +42,7 @@ private slots:
     void jellyfinRequestsUseOpenApiRoutesAndFields();
     void jellyfinNextUpOptionsAndResumeList();
     void jellyfinMovieRecommendationsRequestAndParse();
+    void jellyfinRecommendationLibraryAndServerReads();
     void jellyfinPersonRequestsAndMapping();
     void siloPersonRequestsAndMapping();
     void siloTrackIndicesAndMultipartFallbackStayContiguous();
@@ -621,6 +622,106 @@ void ProviderCatalogTest::jellyfinMovieRecommendationsRequestAndParse()
         siloCatalog.createRequest(ProviderCatalogOperation::MovieRecommendations, query);
     QVERIFY(!siloRequest.supported);
     QVERIFY(!siloRequest.unsupportedReason.isEmpty());
+}
+
+void ProviderCatalogTest::jellyfinRecommendationLibraryAndServerReads()
+{
+    JellyfinProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    QFile openApiManifest(QStringLiteral(BLOOM_JELLYFIN_OPENAPI_MANIFEST));
+    QVERIFY2(openApiManifest.open(QIODevice::ReadOnly),
+             qPrintable(openApiManifest.errorString()));
+    const QJsonObject manifest = QJsonDocument::fromJson(openApiManifest.readAll()).object();
+    // Each query parameter must be a current one of the operation.
+    const auto verifyCurrent = [&manifest](const QString &path, const QUrlQuery &parameters) {
+        QHash<QString, bool> deprecatedByName;
+        bool found = false;
+        for (const QJsonValue &value : manifest.value(QStringLiteral("operations")).toArray()) {
+            const QJsonObject operation = value.toObject();
+            if (operation.value(QStringLiteral("method")).toString() != QStringLiteral("GET")
+                || operation.value(QStringLiteral("path")).toString() != path) {
+                continue;
+            }
+            found = !operation.value(QStringLiteral("deprecated")).toBool();
+            for (const QJsonValue &parameter :
+                 operation.value(QStringLiteral("parameters")).toArray()) {
+                deprecatedByName.insert(
+                    parameter.toObject().value(QStringLiteral("name")).toString().toLower(),
+                    parameter.toObject().value(QStringLiteral("deprecated")).toBool());
+            }
+        }
+        if (!found) {
+            return false;
+        }
+        for (const auto &[name, value] : parameters.queryItems()) {
+            Q_UNUSED(value)
+            if (!deprecatedByName.contains(name.toLower()) || deprecatedByName.value(name.toLower())) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // Which recommended items lie in a library Home shows.
+    ProviderCatalogQuery query;
+    query.userId = QStringLiteral("user-1");
+    query.parentId = QStringLiteral("library-1");
+    query.itemIds = {QStringLiteral("movie-1"), QStringLiteral("movie-2")};
+    const ProviderCatalogRequest membership =
+        catalog->createRequest(ProviderCatalogOperation::LibraryMembership, query);
+    QVERIFY2(membership.supported, qPrintable(membership.unsupportedReason));
+    QCOMPARE(membership.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    const QUrl membershipUrl(membership.relativeEndpoint);
+    QCOMPARE(membershipUrl.path(), QStringLiteral("/Items"));
+    const QUrlQuery membershipParameters(membershipUrl);
+    QCOMPARE(membershipParameters.queryItemValue(QStringLiteral("ParentId")),
+             QStringLiteral("library-1"));
+    QCOMPARE(membershipParameters.queryItemValue(QStringLiteral("Ids"), QUrl::FullyDecoded),
+             QStringLiteral("movie-1,movie-2"));
+    QCOMPARE(membershipParameters.queryItemValue(QStringLiteral("Recursive")),
+             QStringLiteral("true"));
+    QCOMPARE(membershipParameters.queryItemValue(QStringLiteral("Limit")), QStringLiteral("2"));
+    QVERIFY(verifyCurrent(QStringLiteral("/Items"), membershipParameters));
+    ProviderCatalogQuery noItems = query;
+    noItems.itemIds.clear();
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryMembership, noItems).supported);
+    ProviderCatalogQuery noLibrary = query;
+    noLibrary.parentId.clear();
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryMembership, noLibrary)
+                 .supported);
+
+    const ProviderCatalogResponse members = catalog->parseResponse(
+        ProviderCatalogOperation::LibraryMembership,
+        QByteArrayLiteral(R"({"Items":[{"Id":"movie-2","Type":"Movie"},{"Name":"no id"}]})"), {});
+    QVERIFY(members.valid);
+    QCOMPARE(members.rawItems.size(), 1);
+    QCOMPARE(members.rawItems.first().toObject().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("movie-2"));
+    QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::LibraryMembership,
+                                    QByteArrayLiteral("[]"), {}).valid);
+
+    // The server version, from the public system info.
+    const ProviderCatalogRequest info =
+        catalog->createRequest(ProviderCatalogOperation::ServerInfo, ProviderCatalogQuery());
+    QVERIFY(info.supported);
+    QCOMPARE(info.relativeEndpoint, QStringLiteral("/System/Info/Public"));
+    QVERIFY(verifyCurrent(QStringLiteral("/System/Info/Public"), QUrlQuery()));
+    const ProviderCatalogResponse parsedInfo = catalog->parseResponse(
+        ProviderCatalogOperation::ServerInfo,
+        QByteArrayLiteral(R"({"Version":"10.11.10","ProductName":"Jellyfin Server","Id":"x"})"),
+        {});
+    QVERIFY(parsedInfo.valid);
+    QCOMPARE(parsedInfo.capabilityMetadata.value(QStringLiteral("version")).toString(),
+             QStringLiteral("10.11.10"));
+    QCOMPARE(parsedInfo.capabilityMetadata.value(QStringLiteral("productName")).toString(),
+             QStringLiteral("Jellyfin Server"));
+
+    // Native Silo needs neither.
+    SiloCatalogProvider siloCatalog;
+    QVERIFY(!siloCatalog.createRequest(ProviderCatalogOperation::LibraryMembership, query).supported);
+    QVERIFY(!siloCatalog.createRequest(ProviderCatalogOperation::ServerInfo, query).supported);
 }
 
 void ProviderCatalogTest::jellyfinPersonRequestsAndMapping()

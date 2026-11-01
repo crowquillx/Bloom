@@ -116,8 +116,10 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
     required_operations = {
         ("GET", "/UserViews"): {"userId"},
         ("GET", "/Items"): {"userId", "fields", "ids", "personIds", "includeItemTypes",
-                            "sortBy", "sortOrder", "startIndex", "limit",
-                            "enableImages", "enableUserData"},
+                            "sortBy", "sortOrder", "startIndex", "limit", "parentId",
+                            "recursive", "enableImages", "enableUserData",
+                            "enableTotalRecordCount"},
+        ("GET", "/System/Info/Public"): set(),
         ("GET", "/Items/{itemId}"): {"itemId", "userId"},
         ("GET", "/Persons"): {"userId", "searchTerm", "limit", "enableImages",
                               "enableImageTypes", "personTypes"},

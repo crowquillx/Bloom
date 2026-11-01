@@ -4,6 +4,9 @@
 #include <QHash>
 #include <QSet>
 #include <QVariantMap>
+#include <QVersionNumber>
+
+#include <algorithm>
 
 namespace HomeRecommendations {
 
@@ -21,6 +24,26 @@ bool isMovie(const QVariantMap &item)
         && !item.value(QStringLiteral("itemId")).toString().isEmpty();
 }
 
+QString identityOf(const Category &category)
+{
+    return category.recommendationType + QLatin1Char(':')
+        + category.baselineItemName.trimmed().toCaseFolded();
+}
+
+// The category's item IDs, sorted: the same items in any order match.
+QString itemListKey(const Category &category)
+{
+    QStringList ids;
+    for (const QVariant &value : category.items) {
+        const QString itemId = value.toMap().value(QStringLiteral("itemId")).toString();
+        if (!itemId.isEmpty()) {
+            ids.append(itemId);
+        }
+    }
+    std::sort(ids.begin(), ids.end());
+    return ids.join(QLatin1Char('\n'));
+}
+
 struct Row {
     QString sectionId;
     QString title;
@@ -29,6 +52,47 @@ struct Row {
 };
 
 } // namespace
+
+bool isSimilarType(const QString &recommendationType)
+{
+    return recommendationType == QStringLiteral("SimilarToRecentlyPlayed")
+        || recommendationType == QStringLiteral("SimilarToLikedItem");
+}
+
+bool similarRowsWork(const QString &serverVersion)
+{
+    const QVersionNumber version = QVersionNumber::fromString(serverVersion.trimmed());
+    if (version.isNull()) {
+        return false;
+    }
+    // jellyfin/jellyfin 97c20e6ac ("Fix movie recommendations", first in
+    // v12.0) restored the baseline; v10.10 still passed SimilarTo.
+    return version.majorVersion() >= 12
+        || (version.majorVersion() == 10 && version.minorVersion() <= 10);
+}
+
+bool cacheFresh(qint64 fetchedAtMs, qint64 nowMs)
+{
+    return fetchedAtMs > 0 && nowMs >= fetchedAtMs && nowMs - fetchedAtMs < CacheLifetimeMs;
+}
+
+QStringList itemIds(const QList<QList<Category>> &categoriesByLibrary)
+{
+    QStringList result;
+    QSet<QString> seen;
+    for (const QList<Category> &categories : categoriesByLibrary) {
+        for (const Category &category : categories) {
+            for (const QVariant &value : category.items) {
+                const QString itemId = value.toMap().value(QStringLiteral("itemId")).toString();
+                if (!itemId.isEmpty() && !seen.contains(itemId)) {
+                    seen.insert(itemId);
+                    result.append(itemId);
+                }
+            }
+        }
+    }
+    return result;
+}
 
 QString title(const QString &recommendationType, const QString &baselineItemName)
 {
@@ -54,8 +118,21 @@ QString title(const QString &recommendationType, const QString &baselineItemName
     return {};
 }
 
-QVariantList rows(const QList<QList<Category>> &categoriesByLibrary)
+QVariantList rows(const QList<QList<Category>> &categoriesByLibrary, const Filter &filter)
 {
+    // The titles each item list appears under. A server that builds
+    // "similar to" categories without their baseline answers the same
+    // items for every one of them.
+    QHash<QString, QSet<QString>> identitiesByItemList;
+    for (const QList<Category> &categories : categoriesByLibrary) {
+        for (const Category &category : categories) {
+            const QString key = itemListKey(category);
+            if (!key.isEmpty()) {
+                identitiesByItemList[key].insert(identityOf(category));
+            }
+        }
+    }
+
     QList<Row> built;
     QHash<QString, qsizetype> rowByIdentity;
     for (const QList<Category> &categories : categoriesByLibrary) {
@@ -64,10 +141,18 @@ QVariantList rows(const QList<QList<Category>> &categoriesByLibrary)
             if (rowTitle.isEmpty()) {
                 continue;
             }
+            if (isSimilarType(category.recommendationType)
+                && (!filter.similarRowsWork
+                    || identitiesByItemList.value(itemListKey(category)).size() > 1)) {
+                continue;
+            }
             QVariantList movies;
             for (const QVariant &value : category.items) {
                 const QVariantMap item = value.toMap();
-                if (isMovie(item)) {
+                if (isMovie(item)
+                    && (!filter.allowedItemIds
+                        || filter.allowedItemIds->contains(
+                            item.value(QStringLiteral("itemId")).toString()))) {
                     movies.append(item);
                 }
             }
@@ -75,8 +160,7 @@ QVariantList rows(const QList<QList<Category>> &categoriesByLibrary)
                 continue;
             }
             // The same reason and baseline from another library is one row.
-            const QString identity = category.recommendationType + QLatin1Char(':')
-                + category.baselineItemName.trimmed().toCaseFolded();
+            const QString identity = identityOf(category);
             auto existing = rowByIdentity.constFind(identity);
             if (existing == rowByIdentity.cend()) {
                 if (built.size() >= MaxRows) {
