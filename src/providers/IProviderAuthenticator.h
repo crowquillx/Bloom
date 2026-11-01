@@ -6,11 +6,15 @@
 #include <optional>
 
 struct ProviderAuthenticationRequest {
+    enum class Method { Post, Get };
+
     QString endpoint;
     QByteArray body;
     QString refreshToken;
     QString profileId;
     QString profileToken;
+    // Only device authorization polls may be reads (Jellyfin Quick Connect).
+    Method method = Method::Post;
 
     [[nodiscard]] bool isValid() const { return !endpoint.trimmed().isEmpty(); }
 };
@@ -76,6 +80,8 @@ struct ProviderDeviceAuthorization {
     // Secret the device polls with. Never shown, logged, or persisted.
     QString deviceCode;
     QString userCode;
+    // Empty when the code is typed into an app rather than a page (Jellyfin
+    // Quick Connect).
     QString verificationUri;
     // verificationUri with the user code prefilled, when the provider has one.
     QString verificationUriComplete;
@@ -86,8 +92,8 @@ struct ProviderDeviceAuthorization {
 
     [[nodiscard]] bool isValid() const
     {
-        return !deviceCode.isEmpty() && !userCode.isEmpty() && !verificationUri.isEmpty()
-            && expiresInSeconds > 0 && intervalSeconds > 0;
+        return !deviceCode.isEmpty() && !userCode.isEmpty() && expiresInSeconds > 0
+            && intervalSeconds > 0;
     }
 };
 
@@ -96,6 +102,9 @@ struct ProviderDeviceAuthorizationPoll {
         Invalid,
         Pending,
         Approved,
+        // Approved, but the tokens come from a separate one-shot exchange
+        // (createDeviceAuthorizationExchangeRequest).
+        Authorized,
         Denied,
         Expired,
         Canceled,
@@ -181,9 +190,9 @@ public:
     }
 
     // Optional device authorization ("sign in with a code"). Requests are
-    // unauthenticated POSTs; a provider whose poll is a different shape (for
-    // example Jellyfin Quick Connect's separate token exchange) extends this
-    // capability rather than reusing the login flow.
+    // unauthenticated; polls may be reads (ProviderAuthenticationRequest::Method).
+    // A poll either carries the tokens (Approved) or reports Authorized, after
+    // which the device code is exchanged once for a login response.
     virtual std::optional<QString> deviceAuthorizationCapabilityEndpoint() const
     {
         return std::nullopt;
@@ -220,6 +229,13 @@ public:
         return {};
     }
     virtual std::optional<ProviderAuthenticationRequest> createDeviceAuthorizationCancelRequest(
+        const QString &deviceCode) const
+    {
+        Q_UNUSED(deviceCode)
+        return std::nullopt;
+    }
+    // The answer is parsed with parseLoginResponse.
+    virtual std::optional<ProviderAuthenticationRequest> createDeviceAuthorizationExchangeRequest(
         const QString &deviceCode) const
     {
         Q_UNUSED(deviceCode)

@@ -114,14 +114,8 @@ void DeviceSignInSession::sendStart()
     options.retrySafety = RetrySafety::Never;
     options.retryPolicy.maxAttempts = 1;
     options.attemptTimeoutMs = kRequestTimeoutMs;
-    const Target target = m_target;
-    m_request = m_transport->sendWithRetry(
-        this,
-        request->endpoint,
-        [target, endpoint = request->endpoint, body = request->body]() {
-            return target.networkManager->post(
-                target.requestFactory->createRequest(target.context, endpoint), body);
-        },
+    m_request = send(
+        *request, options,
         [this, attempt](QNetworkReply *reply) {
             if (attempt == m_attempt) {
                 handleStarted(reply->readAll());
@@ -134,16 +128,20 @@ void DeviceSignInSession::sendStart()
             if (error.httpStatus == 429) {
                 finish(State::Failed,
                        tr("Too many sign-in attempts. Wait a minute, then get a new code."));
-            } else if (error.httpStatus == 404 || error.httpStatus == 503) {
+            } else if ((error.httpStatus == 401 && m_target.unauthorizedMeansUnavailable)
+                       || error.httpStatus == 404 || error.httpStatus == 503) {
+                // Jellyfin answers 401 while Quick Connect is turned off.
                 finish(State::Failed, tr("This server isn't offering sign-in with a code right now."));
+                if (error.httpStatus != 503) {
+                    emit unavailable();
+                }
             } else {
                 finish(State::Failed,
                        error.userMessage.isEmpty()
                            ? tr("Could not reach the server.")
                            : error.userMessage);
             }
-        },
-        options);
+        });
 }
 
 void DeviceSignInSession::handleStarted(const QByteArray &body)
@@ -161,6 +159,7 @@ void DeviceSignInSession::handleStarted(const QByteArray &body)
     m_verificationUriComplete = authorization->verificationUriComplete;
     m_opened = false;
     m_consecutiveFailures = 0;
+    m_finalPollSent = false;
     m_intervalSeconds = qBound(kMinimumIntervalSeconds, authorization->intervalSeconds,
                                kMaximumIntervalSeconds);
     const qint64 lifetime = qMin(authorization->expiresInSeconds, kMaximumLifetimeSeconds);
@@ -199,20 +198,20 @@ void DeviceSignInSession::poll()
     }
 
     const quint64 attempt = ++m_attempt;
-    // An approved answer carries the tokens exactly once, so a lost reply must
-    // not be replayed by the transport; the next scheduled poll asks again.
     HttpRequestOptions options;
-    options.retrySafety = RetrySafety::Never;
-    options.retryPolicy.maxAttempts = 1;
     options.attemptTimeoutMs = kRequestTimeoutMs;
-    const Target target = m_target;
-    m_request = m_transport->sendWithRetry(
-        this,
-        request->endpoint,
-        [target, endpoint = request->endpoint, body = request->body]() {
-            return target.networkManager->post(
-                target.requestFactory->createRequest(target.context, endpoint), body);
-        },
+    if (request->method == ProviderAuthenticationRequest::Method::Get) {
+        // A status read changes nothing, so one transient retry is safe.
+        options.retrySafety = RetrySafety::Idempotent;
+        options.retryPolicy.maxAttempts = 2;
+    } else {
+        // An approved answer carries the tokens exactly once, so a lost reply
+        // must not be replayed by the transport; the next poll asks again.
+        options.retrySafety = RetrySafety::Never;
+        options.retryPolicy.maxAttempts = 1;
+    }
+    m_request = send(
+        *request, options,
         [this, attempt](QNetworkReply *reply) {
             if (attempt == m_attempt) {
                 handlePoll(reply->readAll());
@@ -222,8 +221,7 @@ void DeviceSignInSession::poll()
             if (attempt == m_attempt) {
                 handlePollError(error);
             }
-        },
-        options);
+        });
 }
 
 void DeviceSignInSession::handlePoll(const QByteArray &body)
@@ -249,19 +247,21 @@ void DeviceSignInSession::handlePoll(const QByteArray &body)
         schedulePoll(qMax(m_intervalSeconds, result.pollAfterSeconds));
         return;
     }
-    case Status::Approved: {
+    case Status::Approved:
         qCInfo(lcAuth) << "Device sign-in approved";
         m_pollTimer.stop();
         m_tickTimer.stop();
         m_deviceCode.clear();
         setState(State::SigningIn);
-        // The owner may reset or restart this session from the handler.
-        const AuthorizedHandler handler = m_onAuthorized;
-        if (handler) {
-            handler(result.authentication);
-        }
+        signIn(result.authentication);
         return;
-    }
+    case Status::Authorized:
+        qCInfo(lcAuth) << "Device sign-in authorized; exchanging the code";
+        m_pollTimer.stop();
+        m_tickTimer.stop();
+        setState(State::SigningIn);
+        exchange();
+        return;
     case Status::Denied:
         finish(State::Denied);
         return;
@@ -298,6 +298,12 @@ void DeviceSignInSession::handlePollError(const NetworkError &error)
         finish(State::Expired);
         return;
     }
+    if (error.httpStatus == 401 && m_target.unauthorizedMeansUnavailable) {
+        // Jellyfin answers 401 once Quick Connect is turned off.
+        finish(State::Expired);
+        emit unavailable();
+        return;
+    }
     if (isTransient(error)) {
         ++m_consecutiveFailures;
         qCWarning(lcAuth) << "Device sign-in poll failed:" << error.code
@@ -313,6 +319,71 @@ void DeviceSignInSession::handlePollError(const NetworkError &error)
     withdraw();
     finish(State::Failed,
            error.userMessage.isEmpty() ? tr("Sign-in with a code failed.") : error.userMessage);
+}
+
+void DeviceSignInSession::exchange()
+{
+    const auto request =
+        m_target.authenticator->createDeviceAuthorizationExchangeRequest(m_deviceCode);
+    // The code is good for one exchange only.
+    m_deviceCode.clear();
+    if (!request || !request->isValid()) {
+        finish(State::Failed, tr("This server can't sign in with a code."));
+        return;
+    }
+
+    const quint64 attempt = ++m_attempt;
+    // The exchange mints a session, so it is never replayed.
+    HttpRequestOptions options;
+    options.retrySafety = RetrySafety::Never;
+    options.retryPolicy.maxAttempts = 1;
+    options.attemptTimeoutMs = kRequestTimeoutMs;
+    m_request = send(
+        *request, options,
+        [this, attempt](QNetworkReply *reply) {
+            if (attempt == m_attempt) {
+                handleExchanged(reply->readAll());
+            }
+        },
+        [this, attempt](const NetworkError &error) {
+            if (attempt != m_attempt) {
+                return;
+            }
+            qCWarning(lcAuth) << "Device sign-in exchange failed:" << error.code;
+            if (error.httpStatus == 401 || error.httpStatus == 404) {
+                finish(State::Failed,
+                       tr("The server no longer accepts this code. Get a new code."));
+            } else {
+                finish(State::Failed,
+                       error.userMessage.isEmpty()
+                           ? tr("Couldn't finish signing in. Get a new code to try again.")
+                           : error.userMessage);
+            }
+        });
+}
+
+void DeviceSignInSession::handleExchanged(const QByteArray &body)
+{
+    m_request.clear();
+    if (m_state != State::SigningIn) {
+        return;
+    }
+    const ProviderAuthenticationResult authentication =
+        m_target.authenticator->parseLoginResponse(body);
+    if (!authentication.isValid()) {
+        finish(State::Failed, tr("The server sent an unexpected reply. Try again."));
+        return;
+    }
+    signIn(authentication);
+}
+
+void DeviceSignInSession::signIn(const ProviderAuthenticationResult &authentication)
+{
+    // The owner may reset or restart this session from the handler.
+    const AuthorizedHandler handler = m_onAuthorized;
+    if (handler) {
+        handler(authentication);
+    }
 }
 
 void DeviceSignInSession::moveDeadline(const QDateTime &serverExpiry)
@@ -349,6 +420,18 @@ void DeviceSignInSession::tick()
         return;
     }
     if (m_clock.elapsed() >= m_deadlineMs) {
+        if (m_request) {
+            // A poll is still in flight; its answer may be the approval.
+            emit changed();
+            return;
+        }
+        if (!m_finalPollSent) {
+            m_finalPollSent = true;
+            m_pollTimer.stop();
+            poll();
+            emit changed();
+            return;
+        }
         // Expired requests need no withdrawal.
         finish(State::Expired);
         return;
@@ -390,16 +473,27 @@ void DeviceSignInSession::withdraw()
     options.retrySafety = RetrySafety::Idempotent;
     options.retryPolicy.maxAttempts = 2;
     options.attemptTimeoutMs = kWithdrawTimeoutMs;
+    send(*request, options, [](QNetworkReply *) {}, [](const NetworkError &) {});
+}
+
+HttpRequestHandle *DeviceSignInSession::send(const ProviderAuthenticationRequest &request,
+                                             const HttpRequestOptions &options,
+                                             std::function<void(QNetworkReply *)> onReply,
+                                             std::function<void(const NetworkError &)> onError)
+{
     const Target target = m_target;
-    m_transport->sendWithRetry(
+    return m_transport->sendWithRetry(
         this,
-        request->endpoint,
-        [target, endpoint = request->endpoint, body = request->body]() {
-            return target.networkManager->post(
-                target.requestFactory->createRequest(target.context, endpoint), body);
+        request.endpoint,
+        [target, endpoint = request.endpoint, body = request.body, method = request.method]() {
+            const QNetworkRequest networkRequest =
+                target.requestFactory->createRequest(target.context, endpoint);
+            return method == ProviderAuthenticationRequest::Method::Get
+                ? target.networkManager->get(networkRequest)
+                : target.networkManager->post(networkRequest, body);
         },
-        [](QNetworkReply *) {},
-        [](const NetworkError &) {},
+        std::move(onReply),
+        std::move(onError),
         options);
 }
 
@@ -423,6 +517,7 @@ void DeviceSignInSession::clear()
     m_verificationUriComplete.clear();
     m_opened = false;
     m_consecutiveFailures = 0;
+    m_finalPollSent = false;
     m_intervalSeconds = 0;
     m_onAuthorized = {};
 }
@@ -471,6 +566,7 @@ QVariantMap DeviceSignInSession::toVariantMap() const
     displayCode.replace(QLatin1Char('-'), QLatin1Char(' '));
     return {
         {QStringLiteral("state"), stateName(m_state)},
+        {QStringLiteral("method"), m_target.method},
         {QStringLiteral("userCode"), displayCode},
         // The prefilled link spares typing the code; fall back to the page.
         {QStringLiteral("verificationUrl"),

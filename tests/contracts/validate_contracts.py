@@ -131,6 +131,10 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         ("POST", "/Sessions/Playing"): set(),
         ("POST", "/Sessions/Playing/Progress"): set(),
         ("POST", "/Sessions/Playing/Stopped"): set(),
+        ("GET", "/QuickConnect/Enabled"): set(),
+        ("POST", "/QuickConnect/Initiate"): set(),
+        ("GET", "/QuickConnect/Connect"): {"secret"},
+        ("POST", "/Users/AuthenticateWithQuickConnect"): set(),
     }
     for operation_key, required_parameters in required_operations.items():
         operation = operations.get(operation_key)

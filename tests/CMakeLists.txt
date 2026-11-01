@@ -429,6 +429,32 @@ target_link_libraries(SiloAuthenticationTest
 )
 
 add_test(NAME SiloAuthenticationTest COMMAND SiloAuthenticationTest)
+
+add_executable(JellyfinQuickConnectTest
+    JellyfinQuickConnectTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${TEST_CONFIG_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
+)
+
+target_include_directories(JellyfinQuickConnectTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(JellyfinQuickConnectTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME JellyfinQuickConnectTest COMMAND JellyfinQuickConnectTest)
 add_executable(SiloPlaybackProviderTest
     SiloPlaybackProviderTest.cpp
     ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
@@ -1124,6 +1150,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     BloomProfileRepositoryTest
     ProviderTransportTest
     SiloAuthenticationTest
+    JellyfinQuickConnectTest
     SiloPlaybackProviderTest
     ProviderCatalogTest
     SiloCatalogServiceTest

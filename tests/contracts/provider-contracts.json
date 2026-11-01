@@ -67,6 +67,7 @@
     "auth.login",
     "auth.validate",
     "auth.invalid",
+    "auth.quick-connect",
     "catalog.views",
     "catalog.items",
     "catalog.details",
@@ -158,6 +159,19 @@
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Bloom maps 401 to invalid credentials."},
         "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Compat maps failed account/profile/PIN resolution to 401."}
+      }
+    },
+    {
+      "id": "auth.quick-connect",
+      "journey": "authentication",
+      "bloomCaller": "AuthenticationService::startDeviceSignIn",
+      "method": "GET/POST",
+      "path": "/QuickConnect/Enabled and /QuickConnect/Initiate and /QuickConnect/Connect?secret={secret} and /Users/AuthenticateWithQuickConnect",
+      "requestSemantics": ["Public operations with the MediaBrowser client identity and the stable Bloom DeviceId, never a Token", "Enabled and Connect are safe reads retried once; Initiate and the AuthenticateWithQuickConnect exchange are never replayed", "Connect sends the secret as the secret query parameter; the exchange sends it once as the JSON Secret field"],
+      "requiredSemantics": ["Enabled answers a bare JSON boolean; only true offers Quick Connect next to the password form", "Initiate returns a non-empty Secret and Code; Connect reports Authenticated true once a signed-in Jellyfin app authorizes the Code", "The exchange returns the AuthenticateByName shape with a non-empty AccessToken and User Id and Name", "An unknown or expired secret on Connect ends the code; Bloom also ends it locally ten minutes after Initiate"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Jellyfin Quick Connect: non-obsolete GetQuickConnectEnabled, InitiateQuickConnect, GetQuickConnectState and AuthenticateWithQuickConnect operations in the pinned OpenAPI."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Not part of the audited historical compatibility surface; Bloom offers Quick Connect only when /QuickConnect/Enabled answers true, so the password form remains."}
       }
     },
     {

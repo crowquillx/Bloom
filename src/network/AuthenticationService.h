@@ -56,7 +56,8 @@ class AuthenticationService : public QObject
     Q_PROPERTY(QVariantList authSessions READ authSessions NOTIFY authSessionsChanged)
     Q_PROPERTY(QString authenticationStep READ authenticationStep NOTIFY authenticationStepChanged)
     // Sign-in methods the typed server offers: server, state (idle, checking,
-    // ready, unreachable), silo, passwordSignIn, deviceSignIn.
+    // ready, unreachable), silo, passwordSignIn, deviceSignIn, quickConnect
+    // (deviceSignIn is Jellyfin Quick Connect).
     Q_PROPERTY(QVariantMap signInOptions READ signInOptions NOTIFY signInOptionsChanged)
     // "Sign in with a code": see DeviceSignInSession::toVariantMap.
     Q_PROPERTY(QVariantMap deviceSignIn READ deviceSignIn NOTIFY deviceSignInChanged)
@@ -106,8 +107,9 @@ public:
     /// Reads which sign-in methods a server offers, before anyone signs in.
     /// Repeating the same address while a check is current does nothing.
     Q_INVOKABLE void checkSignInOptions(const QString &serverAddress);
-    /// Starts device sign-in on a server whose options offer it. Approved
-    /// tokens continue exactly like a password login (profiles, PIN, storage).
+    /// Starts device sign-in (Silo codes or Jellyfin Quick Connect) on a
+    /// server whose options offer it. Approved tokens continue exactly like a
+    /// password login (profiles, PIN, storage).
     Q_INVOKABLE void startDeviceSignIn(const QString &serverAddress);
     /// Abandons device sign-in and withdraws its code on the server.
     Q_INVOKABLE void cancelDeviceSignIn();
@@ -349,6 +351,8 @@ private:
         bool silo = false;
         bool passwordSignIn = true;
         bool deviceSignIn = false;
+        // The code option is Jellyfin Quick Connect rather than Silo's.
+        bool quickConnect = false;
         bool deviceCanWithdraw = false;
         ProviderDetectionResult detection;
     };
@@ -368,6 +372,9 @@ private:
     void discoverSilo(const QString &baseUrl, const QString &fallbackUrl, quint64 generation);
     void discoverDeviceSignIn(quint64 generation);
     void discoverSignInMethods(quint64 generation);
+    void discoverQuickConnect(const QString &baseUrl, const QString &fallbackUrl,
+                              quint64 generation);
+    bool discoversQuickConnect() const;
     void finishSignInDiscovery(const QString &state, quint64 generation);
     HttpRequestOptions discoveryRequestOptions(int maxAttempts) const;
     void startRestoration();

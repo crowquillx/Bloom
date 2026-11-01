@@ -13,6 +13,17 @@ The Jellyfin `MediaBrowser` header sends the machine hostname as `Device` instea
 | Live non-administrator revoke | NOT RUN / UNAVAILABLE | Sign in as a non-administrator, open Settings › About & Account › Active Sessions, and check that no row has Revoke, Revoke All is gone, and the note explains why. Back, Refresh and the list must still work with only the keyboard or the D-pad. |
 | Live administrator revoke | NOT RUN / UNAVAILABLE | Sign in as an administrator with a second device signed in. Revoke that device's row: the row must go away, and the other device must be signed out. |
 
+## Jellyfin Quick Connect, 2026-11-01 UTC
+
+On a Jellyfin server with Quick Connect turned on, the login screen offers "Sign in with Quick Connect" next to the password form (see [provider compatibility](provider-compatibility.md#jellyfin-quick-connect)). No Jellyfin server was available.
+
+| Gate | Result | Evidence or procedure |
+| --- | --- | --- |
+| Automated checks | PASS | `./scripts/dev-build.sh --tests` passed; local CTest passed 51/51, including the new `JellyfinQuickConnectTest` (8 cases): wire contracts, secret redaction and device identity, discovery (hidden when `/QuickConnect/Enabled` is false or fails), the code without a link, authorized → one exchange → a session matching a password login, server 404/401 and local ten-minute expiry, failed and malformed exchanges, and backing out without a request. `SiloAuthenticationTest` still passes. Contract validation passed. The flake QML lint passes with no warnings on the changed `LoginScreen.qml` lines. `nix flake check` was not run. |
+| Live Quick Connect | NOT RUN | Enter a Jellyfin address with Quick Connect on and press Enter. "Sign in with Quick Connect" must appear below Sign in, with the password form still shown; with Quick Connect off it must not appear. Choose it and check the six-digit code is readable from the couch at 1080p and 4K. Enter it in another Jellyfin app under Settings → Quick Connect: Bloom must sign in within about five seconds. Jellyfin's Devices page must list one Bloom device with the same ID a password login uses. Restart Bloom: the session must restore. |
+| Live expiry and back out | NOT RUN | Leave a code for ten minutes: "This code expired", with focus on Get a new code, which must show a different code. Turn Quick Connect off while a code is shown: the code must end. Choose Use a password instead: polling must stop (no further `/QuickConnect/Connect` requests in the server log). |
+| Keyboard and gamepad | NOT RUN | Using only arrows or the D-pad, A/Enter, and B/Escape, move through the server field, Sign in, Reset, Sign in with Quick Connect, and Open a saved space. On the code screen, B must return to the Quick Connect button. |
+
 ## Packaging and CI fixes, 2026-10-30 UTC
 
 The deb moves to `/opt/bloom`, the Linux executable is named `bloom` by CMake, the Flatpak gains `--device=input`, the PKGBUILD becomes `bloom-jellyfin-git`, the NSIS installer changes its install, upgrade, and uninstall behavior, and stable tags run the Windows test suite (see [build](build.md) and [Windows build](WINDOWS-BUILD.md)). The host had no Nix, container engine, Windows, or Arch system.
