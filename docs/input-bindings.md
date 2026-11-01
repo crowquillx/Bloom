@@ -50,7 +50,7 @@ Keyboard defaults
 | Stats Once (`playback.statsOnce`) | Advanced Playback | Shift+I |
 
 - Playback navigation/select/back, previous/next chapter, skip segment, mute, audio/subtitle cycling, and the sleep timer have no keyboard default. `playback.sleepTimer` opens the Sleep Timer page of the playback settings pop-out during embedded playback.
-- Under `external-mpv-ipc`, mpv's window has focus and Bloom's runtime context stays `navigation`, so playback actions (including `playback.sleepTimer`) do not reach Bloom; a Bloom keyboard binding only fires while Bloom's own window has focus, where it steps through the sleep-timer choices on mpv's OSD. Bind the sleep timer in mpv instead, in `~/.config/Bloom/mpv/input.conf`:
+- Under `external-mpv-ipc`, keys go to whichever window has focus. While mpv's window has focus, mpv handles them and Bloom's keyboard bindings (including `playback.sleepTimer`) do not fire; a Bloom keyboard binding only fires while Bloom's own window has focus (the runtime context is `playback` then, as above), where it steps through the sleep-timer choices on mpv's OSD. Bind the sleep timer in mpv instead, in `~/.config/Bloom/mpv/input.conf`:
 
   ```
   Z      script-message bloom-sleep-timer        # step through Off, 15 … 90 min, end of item
