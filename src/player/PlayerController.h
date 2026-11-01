@@ -29,6 +29,7 @@ class PlaybackService;
 class LibraryService;
 class AuthenticationService;
 class QNetworkReply;
+class HttpRequestHandle;
 
 /**
  * @class PlayerController
@@ -952,7 +953,7 @@ private:
     };
     RecoveryContext m_recoveryContext;
     QTimer *m_recoveryTimer;
-    QPointer<QNetworkReply> m_recoveryReply;
+    QPointer<HttpRequestHandle> m_recoveryPing;
     int m_recoveryAttemptCount = 0;
     bool m_isRecovering = false;
     bool m_lastErrorWasNetworkRecoverable = false;

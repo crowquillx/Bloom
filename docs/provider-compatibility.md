@@ -39,7 +39,7 @@ Discovery probes `/health` and `/ready`, then reads `/api/v2/system/info`. Only 
 
 `server_version` and `contract_digest` are diagnostic fields. They never enable a feature. Playback, themes, and previews require explicit capability documents and resource availability.
 
-Login and refresh use `/api/v2/auth/login` and `/api/v2/auth/refresh`. Session validation uses `/api/v2/account/me`. Profile and authentication-session lists use `items`. IDs remain opaque strings. Profile-PIN verification requires `valid: true` and a non-empty `profile_token`; `valid: false` is an incorrect PIN.
+Login and refresh use `/api/v2/auth/login` and `/api/v2/auth/refresh`. Session validation and the playback recovery ping use `/api/v2/account/me`, which answers `401` to a refused access token; the public `/health` probe cannot tell an expired session from a live one. Explicit sign-out and removing a connection send `POST /api/v2/auth/logout` once with the session's bearer token before Bloom deletes it. The operation declares no idempotency mechanism, so Bloom never replays it, and a failure does not stop the local sign-out. Profile and authentication-session lists use `items`. IDs remain opaque strings. Profile-PIN verification requires `valid: true` and a non-empty `profile_token`; `valid: false` is an incorrect PIN.
 
 ### Sign in with a code
 
@@ -190,6 +190,9 @@ not branch the core catalog/playback contract by server version. In particular:
   `PlaybackStopInfo` fields;
 - session restore validates the stored token with `GET /Users/{userId}` and
   accepts it only when the returned `UserDto.Id` matches the stored account;
+  the playback recovery ping uses the same route instead of `/System/Info`;
+- sign-out sends `POST /Sessions/Logout` (`ReportSessionEnded`) once, best
+  effort, before deleting the token;
 - Jellyfin media markers use `/MediaSegments/{id}`. Bloom does not call the
   excluded legacy Intro Skipper plugin endpoint;
 - remote session removal resolves the session's device and uses

@@ -124,14 +124,27 @@
     {
       "id": "auth.validate",
       "journey": "authentication",
-      "bloomCaller": "AuthenticationService::validateAccessToken",
+      "bloomCaller": "AuthenticationService::validateAccessToken and LibraryService::pingServer",
       "method": "GET",
       "path": "/Users/{userId}",
-      "requestSemantics": ["MediaBrowser token is present"],
-      "requiredSemantics": ["Valid token returns HTTP 200", "Returned user identity matches the authenticated profile"],
+      "requestSemantics": ["MediaBrowser token is present", "Playback recovery pings the same route to tell a returned server from an expired session"],
+      "requiredSemantics": ["Valid token returns HTTP 200", "Returned user identity matches the authenticated profile", "A refused token returns HTTP 401, which recovery reports as an expired session"],
       "expectations": {
-        "jellyfin-supported": {"outcome": "supported", "evidence": "Used for restart/session restoration."},
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Used for restart/session restoration and the playback recovery ping."},
         "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Compat pseudo-user identity is stable for the account/profile pair."}
+      }
+    },
+    {
+      "id": "auth.logout",
+      "journey": "authentication",
+      "bloomCaller": "AuthenticationService::logout and AuthenticationService::removeStoredCredentials",
+      "method": "POST",
+      "path": "/Sessions/Logout",
+      "requestSemantics": ["MediaBrowser token of the session being signed out is present", "Sent once, best effort, before local credentials are deleted, and never replayed"],
+      "requiredSemantics": ["The caller's access token stops authenticating after the call"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "ReportSessionEnded is listed and not deprecated in the pinned OpenAPI and ends the caller's session."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Compat POST /Sessions/Logout ends the caller's compat token."}
       }
     },
     {
@@ -907,10 +920,12 @@
           "discovery": "Pinned v2 operation."
         },
         "requestSemantics": [
-          "Bearer authorization."
+          "Bearer authorization.",
+          "Playback recovery pings this route; a 401 is renewed through refresh before the session counts as expired."
         ],
         "requiredSemantics": [
-          "Opaque string id, username, role, permissions and download_allowed validate the account."
+          "Opaque string id, username, role, permissions and download_allowed validate the account.",
+          "A refused access token returns 401."
         ],
         "evidenceSources": [
           "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
@@ -934,7 +949,8 @@
           "discovery": "Pinned v2 operation."
         },
         "requestSemantics": [
-          "Bearer authorization for the caller."
+          "Bearer authorization for the caller.",
+          "Sent once on explicit sign-out or account removal, before local credentials are deleted; the operation has no idempotency mechanism, so it is never replayed, and a failure is not shown."
         ],
         "requiredSemantics": [
           "The current authentication session is revoked."

@@ -26,6 +26,9 @@ namespace {
 // selection; the Silo catalog caps GET pages Bloom sends at 100.
 constexpr int kRandomSampleWindow = 100;
 
+// Playback recovery pings every 5 seconds; one ping never outlives two.
+constexpr int kServerPingTimeoutMs = 10000;
+
 // Cards per Home row Bloom reads: the Watchlist row Home adds when the
 // profile's layout has none, and each of the profile's rows when the server
 // accepts a cap (Silo's own rows default to 100).
@@ -1990,8 +1993,33 @@ QString LibraryService::getCachedArtworkUrlFromRef(const QVariantMap &artworkMap
     return cachedArtworkSource(artwork);
 }
 
-QNetworkReply* LibraryService::pingServer()
+HttpRequestHandle *LibraryService::pingServer(QObject *context,
+                                              std::function<void(ServerReachability)> done)
 {
-    QNetworkRequest request = m_authService->createRequest("/System/Info");
-    return m_authService->networkManager()->get(request);
+    const QString endpoint =
+        m_authService ? m_authService->sessionValidationEndpoint() : QString();
+    if (endpoint.isEmpty() || !m_transport || !m_authService->networkManager()) {
+        return nullptr;
+    }
+    // Public health routes (Silo /health, Jellyfin /System/Info/Public) never
+    // answer 401, so they cannot tell an expired session from a live one.
+    HttpRequestOptions options;
+    options.retrySafety = RetrySafety::Never;
+    options.unauthorizedPolicy = UnauthorizedPolicy::DeferSessionExpiry;
+    options.attemptTimeoutMs = kServerPingTimeoutMs;
+    const auto shared =
+        std::make_shared<std::function<void(ServerReachability)>>(std::move(done));
+    return m_transport->sendWithRetry(
+        context,
+        endpoint,
+        [this, endpoint]() {
+            return m_authService->networkManager()->get(m_authService->createRequest(endpoint));
+        },
+        [shared](QNetworkReply *) { (*shared)(ServerReachability::Reachable); },
+        [shared](const NetworkError &error) {
+            // A renewal that could not reach the server reports status 0.
+            (*shared)(error.httpStatus == 401 ? ServerReachability::SessionExpired
+                                              : ServerReachability::Unreachable);
+        },
+        options);
 }

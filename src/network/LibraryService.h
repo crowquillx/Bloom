@@ -19,6 +19,16 @@ class AuthenticationService;
 class HttpTransport;
 class HttpRequestHandle;
 
+// Outcome of LibraryService::pingServer.
+enum class ServerReachability {
+    Reachable,
+    // The server refused the session and could not renew it.
+    SessionExpired,
+    // No answer, a server error, a deadline, or a renewal that could not
+    // reach the server: try again later.
+    Unreachable
+};
+
 struct LibraryItemQuery {
     QString parentId;
     int startIndex = 0;
@@ -196,7 +206,15 @@ public:
     Q_INVOKABLE virtual QString getCachedArtworkUrlFromRef(const QVariantMap &artwork,
                                                            int width);
 
-    QNetworkReply* pingServer();
+    /// Checks that the active server answers and still accepts the session,
+    /// through the provider's authenticated identity route (Silo
+    /// `/api/v2/account/me`, Jellyfin `/Users/{id}`). A refused access token
+    /// is renewed first; expiry is deferred until playback stops. One bounded
+    /// attempt, no replay: the caller polls on its own schedule. Returns null
+    /// (and never calls done) when no session can be checked; cancel the
+    /// handle to drop the result.
+    HttpRequestHandle *pingServer(QObject *context,
+                                  std::function<void(ServerReachability)> done);
 
 signals:
     void canonicalViewsLoadedForConnection(const QString &connectionId,

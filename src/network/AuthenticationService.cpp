@@ -41,6 +41,8 @@ namespace {
 // platform keyring hits this bound, and stalled tasks keep the store alive
 // via shared ownership until they complete.
 constexpr int kCredentialDrainTimeoutMs = 5000;
+// A server logout is a courtesy: a dead server must not keep it alive long.
+constexpr int kServerLogoutTimeoutMs = 5000;
 }
 
 QJsonObject capabilitiesObject(ProviderCapabilities capabilities)
@@ -1191,6 +1193,13 @@ void AuthenticationService::removeStoredCredentials(const ServerConnection &conn
     if (!connection.isValid()) {
         return;
     }
+    // Only a pooled member has its tokens in memory; a connection outside the
+    // active space would need a keyring read first, so it is not logged out.
+    if (connection.connectionId != activeConnectionId()
+        && m_sessionPool->credentials(connection.connectionId).has_value()) {
+        sendServerLogout(providerForKind(connection.providerKind),
+                         requestContextForConnection(connection.connectionId));
+    }
     m_sessionPool->forget(connection.connectionId);
     if (m_secretStore) {
         removeAllCredentialsAsync(
@@ -1514,7 +1523,8 @@ void AuthenticationService::revokeAuthSession(const QString &sessionId)
                 return;
             }
             if (revokingCurrent) {
-                logout();
+                // The server already ended this session.
+                clearAccountStateInternal(true, true);
             } else {
                 for (qsizetype i = m_authSessions.size() - 1; i >= 0; --i) {
                     if (m_authSessions.at(i).toMap().value(
@@ -1920,7 +1930,50 @@ void AuthenticationService::seedSession(const QString &serverUrl,
 
 void AuthenticationService::logout()
 {
+    // A session the server already refused has nothing left to revoke.
+    if (!m_accessToken.isEmpty() && !m_sessionExpiredEmitted && !m_sessionExpiredPending) {
+        sendServerLogout(m_providerAdapter, requestContext(true));
+    }
     clearAccountStateInternal(true, true);
+}
+
+void AuthenticationService::sendServerLogout(
+    IProviderAdapter *adapter, const std::optional<ProviderRequestContext> &context)
+{
+    if (!adapter || !adapter->requestFactory() || !context.has_value()
+        || context->baseUrl.isEmpty() || context->accessToken.isEmpty()
+        || !networkManager()) {
+        return;
+    }
+    const auto endpoint = adapter->endpointFor(ProviderRoute::CallerLogout);
+    if (!endpoint.has_value()) {
+        return;
+    }
+    if (!m_logoutTransport) {
+        m_logoutTransport = std::make_unique<HttpTransport>(networkManager());
+        m_logoutTransport->setUrlRedactor([](const QUrl &url) {
+            return url.toString(QUrl::RemoveQuery | QUrl::RemoveUserInfo);
+        });
+    }
+    // Built now: the caller discards these credentials right after this call.
+    const QNetworkRequest request =
+        adapter->requestFactory()->createRequest(*context, *endpoint);
+    // A mutation without an idempotency mechanism: never replayed, and a 401
+    // never triggers a refresh for a session that is being thrown away.
+    HttpRequestOptions options;
+    options.retrySafety = RetrySafety::Never;
+    options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
+    options.attemptTimeoutMs = kServerLogoutTimeoutMs;
+    m_logoutTransport->sendWithRetry(
+        this,
+        *endpoint,
+        [this, request]() { return networkManager()->post(request, QByteArray()); },
+        [](QNetworkReply *) { qCDebug(lcAuth) << "Server session logged out"; },
+        [](const NetworkError &error) {
+            qCInfo(lcAuth) << "Server logout failed; local sign-out continues: HTTP"
+                           << error.httpStatus << "network error" << error.networkErrorCode;
+        },
+        options);
 }
 
 void AuthenticationService::clearAccountState()
@@ -2088,15 +2141,20 @@ void AuthenticationService::handleUnauthorized(bool deferLogout)
     }
 }
 
+QString AuthenticationService::sessionValidationEndpoint() const
+{
+    return m_providerAuthenticator && !m_userId.isEmpty()
+        ? m_providerAuthenticator->sessionValidationEndpoint(m_userId)
+        : QString();
+}
+
 void AuthenticationService::validateAccessToken(std::function<void(SessionValidity)> callback)
 {
     if (!m_transport || !networkManager()) {
         callback(SessionValidity::Unreachable);
         return;
     }
-    const QString endpoint = m_providerAuthenticator && !m_userId.isEmpty()
-        ? m_providerAuthenticator->sessionValidationEndpoint(m_userId)
-        : QString();
+    const QString endpoint = sessionValidationEndpoint();
     // No access token (only a refresh token was saved) needs a renewal.
     if (m_accessToken.isEmpty() || endpoint.isEmpty()) {
         callback(SessionValidity::Invalid);

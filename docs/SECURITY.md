@@ -25,7 +25,7 @@ Legacy Jellyfin releases used service `"Bloom/Jellyfin"` with account `"<server_
 
 When upgrading, Bloom creates provider-neutral connection metadata and lets `CredentialStore` migrate any legacy Jellyfin credential during session restoration. Provider-neutral and legacy keychain credentials take precedence. If both secure entries are absent, `CredentialStore` may consume a legacy plaintext token once, write it to the provider-neutral secure-store entry, and read it back for verification; the plaintext value is not retained as current configuration. Bloom removes the old keychain entry and legacy `settings.jellyfin` metadata only after verification. If secure storage is unavailable or verification fails, the old keychain/config material remains recoverable as rollback data and migration is retried later. The connection migration sequence is also summarized in [provider architecture](provider-architecture.md).
 
-Logout removes all provider-neutral credential kinds for the active connection and any matching legacy Jellyfin entry. It does not delete another connection's credentials or metadata.
+Logout first asks the server to end the session (Silo `POST /api/v2/auth/logout`, which revokes the current authentication session; Jellyfin `POST /Sessions/Logout`). The request is best effort: one attempt with a short deadline, so an unreachable server never delays or blocks the local sign-out. Logout then removes all provider-neutral credential kinds for the active connection and any matching legacy Jellyfin entry. It does not delete another connection's credentials or metadata.
 
 ### Native Silo credential boundaries
 

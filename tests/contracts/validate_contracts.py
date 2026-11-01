@@ -124,7 +124,9 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         ("GET", "/Videos/{routeItemId}/{routeMediaSourceId}/Subtitles/{routeIndex}/Stream.{routeFormat}"): {
             "routeItemId", "routeMediaSourceId", "routeIndex", "routeFormat"},
         ("GET", "/MediaSegments/{itemId}"): {"itemId"},
+        ("GET", "/Users/{userId}"): {"userId"},
         ("GET", "/Sessions"): set(),
+        ("POST", "/Sessions/Logout"): set(),
         ("DELETE", "/Devices"): {"id"},
         ("POST", "/Sessions/Playing"): set(),
         ("POST", "/Sessions/Playing/Progress"): set(),
