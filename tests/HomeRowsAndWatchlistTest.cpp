@@ -47,7 +47,15 @@ public:
     {
         notInterestedWrites.append({itemId, notInterested});
     }
-    void getNextAiring(const QString &seriesId) override { airingRequests.append(seriesId); }
+    bool supportsNextAiring() const override { return airingCalendar; }
+    void getNextAiring(const QString &seriesId) override
+    {
+        airingRequests.append(seriesId);
+        // A cached calendar answers before the call returns.
+        if (answerAiringAtOnce) {
+            emit nextAiringLoaded(seriesId, {});
+        }
+    }
 
     using LibraryService::getItem;
     void getItem(const QString &itemId) override { itemRequests.append(itemId); }
@@ -125,6 +133,8 @@ public:
     bool notInterestedAllowed = false;
     int notInterestedCapabilityReads = 0;
     QList<WatchlistWrite> notInterestedWrites;
+    bool airingCalendar = true;
+    bool answerAiringAtOnce = false;
     QStringList airingRequests;
     QStringList itemRequests;
     QStringList extrasRequests;
@@ -210,6 +220,8 @@ private slots:
     void movieNotInterestedWaitsForCapabilityAndRollsBack();
     void seriesNotInterestedToggleIsOptimisticAndRollsBack();
     void seriesNextAiringComesFromDetailsOrCalendar();
+    void seriesNextAiringReservesTheChipOnlyWhileAsking();
+    void seriesNextAiringDropsPassedAirings();
     void nextAiringLabelUsesLocalDays();
     void serverRatingsLeadExternalRatings();
 
@@ -815,6 +827,7 @@ void HomeRowsAndWatchlistTest::seriesNextAiringComesFromDetailsOrCalendar()
     m_service->loadAiring(QStringLiteral("series-1"), airing);
     QCOMPARE(vm.nextAiring(), airing);
     QVERIFY(vm.nextAiringLabel().startsWith(QStringLiteral("S2 E5 airs ")));
+    QVERIFY(vm.expectsNextAiring());
 
     // An ended series asks nothing.
     vm.loadSeriesDetails(QStringLiteral("series-3"));
@@ -833,6 +846,76 @@ void HomeRowsAndWatchlistTest::seriesNextAiringComesFromDetailsOrCalendar()
     QCOMPARE(m_service->airingRequests.size(), 1);
     QCOMPARE(vm.nextAiring(), airing);
     QVERIFY(changed.count() > 0);
+}
+
+void HomeRowsAndWatchlistTest::seriesNextAiringReservesTheChipOnlyWhileAsking()
+{
+    m_service->connectionId.clear();
+    QVariantMap data = detail(QStringLiteral("series-1"), QStringLiteral("Series"), false);
+    data.insert(QStringLiteral("status"), QStringLiteral("Continuing"));
+
+    // A provider without a calendar (Jellyfin) neither asks nor reserves.
+    m_service->airingCalendar = false;
+    {
+        SeriesDetailsViewModel vm;
+        vm.loadSeriesDetails(QStringLiteral("series-1"));
+        m_service->loadSeries(QStringLiteral("series-1"), data);
+        QVERIFY(m_service->airingRequests.isEmpty());
+        QVERIFY(!vm.expectsNextAiring());
+    }
+
+    // A calendar that answers at once with nothing releases the slot.
+    m_service->airingCalendar = true;
+    m_service->answerAiringAtOnce = true;
+    {
+        SeriesDetailsViewModel vm;
+        vm.loadSeriesDetails(QStringLiteral("series-1"));
+        m_service->loadSeries(QStringLiteral("series-1"), data);
+        QCOMPARE(m_service->airingRequests.size(), 1);
+        QVERIFY(!vm.expectsNextAiring());
+        QVERIFY(vm.nextAiringLabel().isEmpty());
+    }
+
+    // An empty (or failed) answer that arrives later releases it too.
+    m_service->answerAiringAtOnce = false;
+    SeriesDetailsViewModel vm;
+    QSignalSpy changed(&vm, &SeriesDetailsViewModel::nextAiringChanged);
+    vm.loadSeriesDetails(QStringLiteral("series-1"));
+    m_service->loadSeries(QStringLiteral("series-1"), data);
+    QVERIFY(vm.expectsNextAiring());
+    changed.clear();
+    m_service->loadAiring(QStringLiteral("series-1"), {});
+    QVERIFY(!vm.expectsNextAiring());
+    QCOMPARE(changed.count(), 1);
+}
+
+void HomeRowsAndWatchlistTest::seriesNextAiringDropsPassedAirings()
+{
+    m_service->connectionId.clear();
+    SeriesDetailsViewModel vm;
+    vm.loadSeriesDetails(QStringLiteral("series-1"));
+    // A card's airing from a day already over is not shown; the calendar
+    // is asked instead.
+    QVariantMap data = detail(QStringLiteral("series-1"), QStringLiteral("Series"), false);
+    data.insert(QStringLiteral("nextAiring"),
+                QVariantMap{{QStringLiteral("seasonNumber"), 1},
+                            {QStringLiteral("episodeNumber"), 2},
+                            {QStringLiteral("airDate"),
+                             QDate::currentDate().addDays(-1).toString(Qt::ISODate)}});
+    m_service->loadSeries(QStringLiteral("series-1"), data);
+    QVERIFY(vm.nextAiring().isEmpty());
+    QVERIFY(vm.nextAiringLabel().isEmpty());
+    QCOMPARE(m_service->airingRequests, QStringList{QStringLiteral("series-1")});
+
+    // An airing whose instant has passed is dropped as well.
+    const QVariantMap aired{{QStringLiteral("seasonNumber"), 1},
+                            {QStringLiteral("episodeNumber"), 3},
+                            {QStringLiteral("airDate"), QDate::currentDate().toString(Qt::ISODate)},
+                            {QStringLiteral("airAt"),
+                             QDateTime::currentDateTimeUtc().addSecs(-60).toString(Qt::ISODate)}};
+    m_service->loadAiring(QStringLiteral("series-1"), aired);
+    QVERIFY(vm.nextAiring().isEmpty());
+    QVERIFY(!vm.expectsNextAiring());
 }
 
 void HomeRowsAndWatchlistTest::nextAiringLabelUsesLocalDays()
@@ -881,15 +964,62 @@ void HomeRowsAndWatchlistTest::serverRatingsLeadExternalRatings()
              QStringLiteral("rottenTomatoesCritic"));
     QCOMPARE(merged.at(1).toMap().value(QStringLiteral("display")).toString(), QStringLiteral("8.3"));
     QCOMPARE(merged.at(2).toMap().value(QStringLiteral("source")).toString(), QStringLiteral("metacritic"));
-    QCOMPARE(ExternalRatingsHelper::withServerRatings({}, mdbList), mdbList);
+    // Server ratings are marked; every rating carries its source key.
+    QVERIFY(merged.at(0).toMap().value(QStringLiteral("fromServer")).toBool());
+    QVERIFY(!merged.at(2).toMap().value(QStringLiteral("fromServer")).toBool());
+    QCOMPARE(merged.at(0).toMap().value(QStringLiteral("sourceKey")).toString(), QStringLiteral("tomatoes"));
+    QCOMPARE(merged.at(2).toMap().value(QStringLiteral("sourceKey")).toString(), QStringLiteral("metacritic"));
+    const QVariantList externalOnly = ExternalRatingsHelper::withServerRatings({}, mdbList)
+                                          .value(QStringLiteral("ratings")).toList();
+    QCOMPARE(externalOnly.size(), 3);
+    QCOMPARE(externalOnly.at(1).toMap().value(QStringLiteral("sourceKey")).toString(), QStringLiteral("tomatoes"));
 
-    // The detail page shows the server's ratings without an MDBList key.
+    // One alias table for every spelling of a source.
+    using ExternalRatingsHelper::ratingSourceKey;
+    QCOMPARE(ratingSourceKey(QStringLiteral("rottenTomatoesAudience")), QStringLiteral("audience"));
+    QCOMPARE(ratingSourceKey(QStringLiteral("popcorn")), QStringLiteral("audience"));
+    QCOMPARE(ratingSourceKey(QStringLiteral("Rotten Tomatoes")), QStringLiteral("tomatoes"));
+    QCOMPARE(ratingSourceKey(QStringLiteral("myanimelist")), QStringLiteral("mal"));
+    QCOMPARE(ratingSourceKey(QStringLiteral("MAL")), QStringLiteral("mal"));
+    QCOMPARE(ratingSourceKey(QStringLiteral("metacriticuser")), QStringLiteral("metacriticuser"));
+    QCOMPARE(ratingSourceKey(QStringLiteral("metacritic")), QStringLiteral("metacritic"));
+    QCOMPARE(ratingSourceKey(QStringLiteral("AniList")), QStringLiteral("anilist"));
+    QCOMPARE(ratingSourceKey(QStringLiteral("plugin_score")), QStringLiteral("pluginscore"));
+    // A server already showing MyAnimeList hides MDBList's copy.
+    const QVariantList malMerged = ExternalRatingsHelper::withServerRatings(
+        {QVariantMap{{QStringLiteral("source"), QStringLiteral("mal")},
+                     {QStringLiteral("score"), 81.0},
+                     {QStringLiteral("display"), QStringLiteral("8.1")}}},
+        QVariantMap{{QStringLiteral("ratings"), QVariantList{
+            QVariantMap{{QStringLiteral("source"), QStringLiteral("myanimelist")},
+                        {QStringLiteral("value"), 8.0}}}}}).value(QStringLiteral("ratings")).toList();
+    QCOMPARE(malMerged.size(), 1);
+
+    // The detail pages show the server's ratings without an MDBList key,
+    // a score of 0 included.
+    QVariantList withZero = server;
+    withZero.append(QVariantMap{{QStringLiteral("source"), QStringLiteral("rottenTomatoesAudience")},
+                                {QStringLiteral("score"), 0.0},
+                                {QStringLiteral("display"), QStringLiteral("0%")}});
     MovieDetailsViewModel vm;
     vm.loadMovieDetails(QStringLiteral("movie-9"));
     QVariantMap data = detail(QStringLiteral("movie-9"), QStringLiteral("Movie"), false);
-    data.insert(QStringLiteral("serverRatings"), server);
+    data.insert(QStringLiteral("serverRatings"), withZero);
     m_service->loadMovie(QStringLiteral("movie-9"), data);
-    QCOMPARE(vm.mdbListRatings().value(QStringLiteral("ratings")).toList(), server);
+    const QVariantList movieRatings = vm.mdbListRatings().value(QStringLiteral("ratings")).toList();
+    QCOMPARE(movieRatings.size(), 3);
+    QCOMPARE(movieRatings.at(2).toMap().value(QStringLiteral("display")).toString(), QStringLiteral("0%"));
+    QCOMPARE(movieRatings.at(2).toMap().value(QStringLiteral("sourceKey")).toString(), QStringLiteral("audience"));
+
+    m_service->connectionId.clear();
+    SeriesDetailsViewModel series;
+    series.loadSeriesDetails(QStringLiteral("series-9"));
+    QVariantMap seriesData = detail(QStringLiteral("series-9"), QStringLiteral("Series"), false);
+    seriesData.insert(QStringLiteral("serverRatings"), withZero);
+    m_service->loadSeries(QStringLiteral("series-9"), seriesData);
+    const QVariantList seriesRatings = series.mdbListRatings().value(QStringLiteral("ratings")).toList();
+    QCOMPARE(seriesRatings.size(), 3);
+    QCOMPARE(seriesRatings.at(2).toMap().value(QStringLiteral("display")).toString(), QStringLiteral("0%"));
 }
 
 QTEST_MAIN(HomeRowsAndWatchlistTest)

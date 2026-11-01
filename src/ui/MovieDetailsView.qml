@@ -395,6 +395,15 @@ FocusScope {
 
     function formatCommunityRating() {
         if (!communityRating || communityRating <= 0) return ""
+        // The server's own IMDb (else TMDB) score is already in its ratings.
+        const ratings = externalRatings["ratings"] || []
+        for (let i = 0; i < ratings.length; ++i) {
+            const rating = ratings[i]
+            if (rating && rating.fromServer
+                    && (rating.sourceKey === "imdb" || rating.sourceKey === "tmdb")) {
+                return ""
+            }
+        }
         return "★ " + communityRating.toFixed(1)
     }
 
@@ -416,6 +425,12 @@ FocusScope {
         for (let i = 0; i < ratings.length; ++i) {
             const rating = ratings[i]
             if (!rating) {
+                continue
+            }
+            // A server rating carries its display text, and a score of 0
+            // is a real rating there.
+            if (rating.display) {
+                filtered.push(rating)
                 continue
             }
             const value = rating.value

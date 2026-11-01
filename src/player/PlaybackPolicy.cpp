@@ -1,5 +1,7 @@
 #include "PlaybackPolicy.h"
 
+#include <algorithm>
+
 #include <QDir>
 #include <QFileInfo>
 #include <QHash>
@@ -862,7 +864,24 @@ EndFileOutcome classifyEndFile(EndFileReason reason, bool hasRemainingPlaylistIt
     return reason == EndFileReason::Error ? EndFileOutcome::Failed : EndFileOutcome::Ended;
 }
 
-int skipRangeIndex(const QList<SkipRange> &ranges, qint64 positionMs)
+QList<SkipRange> mergeSkipRanges(QList<SkipRange> ranges)
+{
+    ranges.removeIf([](const SkipRange &range) { return range.endMs <= range.startMs; });
+    std::sort(ranges.begin(), ranges.end(), [](const SkipRange &a, const SkipRange &b) {
+        return a.startMs < b.startMs;
+    });
+    QList<SkipRange> merged;
+    for (const SkipRange &range : std::as_const(ranges)) {
+        if (!merged.isEmpty() && range.startMs <= merged.last().endMs) {
+            merged.last().endMs = std::max(merged.last().endMs, range.endMs);
+        } else {
+            merged.append(range);
+        }
+    }
+    return merged;
+}
+
+int skipRangeIndex(const QList<SkipRange> &ranges, qint64 positionMs, qint64 aheadToleranceMs)
 {
     int ahead = -1;
     for (int index = 0; index < ranges.size(); ++index) {
@@ -872,6 +891,9 @@ int skipRangeIndex(const QList<SkipRange> &ranges, qint64 positionMs)
         }
         if (range.startMs <= positionMs) {
             return index;
+        }
+        if (range.startMs - positionMs > aheadToleranceMs) {
+            continue;
         }
         if (ahead < 0 || range.startMs < ranges.at(ahead).startMs) {
             ahead = index;

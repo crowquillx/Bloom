@@ -15,6 +15,7 @@
 #include <functional>
 
 class LibraryService;
+class QTimer;
 
 /**
  * @brief Model for displaying seasons in a series.
@@ -165,8 +166,10 @@ class SeriesDetailsViewModel : public BaseViewModel
     // text, e.g. "S2 E5 airs Thu, Nov 6"; empty when none is known.
     Q_PROPERTY(QVariantMap nextAiring READ nextAiring NOTIFY nextAiringChanged)
     Q_PROPERTY(QString nextAiringLabel READ nextAiringLabel NOTIFY nextAiringChanged)
-    // True once the page asked for the next airing or has one, so the hero
-    // keeps the chip's slot instead of moving when the answer arrives.
+    // True while the provider's calendar is being asked or once the page
+    // has an airing, so the hero keeps the chip's slot instead of moving
+    // when the answer arrives. Providers without a calendar never reserve
+    // it, and an empty or failed answer releases it.
     Q_PROPERTY(bool expectsNextAiring READ expectsNextAiring NOTIFY nextAiringChanged)
     Q_PROPERTY(QString tmdbId READ tmdbId NOTIFY tmdbIdChanged)
     Q_PROPERTY(QVariantList people READ people NOTIFY peopleChanged)
@@ -236,7 +239,7 @@ public:
     bool notInterested() const { return m_notInterested; }
     QVariantMap nextAiring() const { return m_nextAiring; }
     QString nextAiringLabel() const;
-    bool expectsNextAiring() const { return m_nextAiringRequested || !m_nextAiring.isEmpty(); }
+    bool expectsNextAiring() const { return m_nextAiringPending || !m_nextAiring.isEmpty(); }
     // "S2 E5 airs Thu, Nov 6" in the system locale: "today" or "tomorrow"
     // (with the local time when the airing has an instant) for the next
     // two days. Empty for an empty airing.
@@ -525,6 +528,14 @@ private:
     bool m_notInterestedPending = false;
     QVariantMap m_nextAiring;
     bool m_nextAiringRequested = false;
+    bool m_nextAiringPending = false;
+    // Refreshes the chip at the next local midnight or air time, whichever
+    // comes first, so "tomorrow" becomes "today" and a past airing goes.
+    QTimer *m_nextAiringTimer = nullptr;
+    bool airingStillAhead(const QVariantMap &airing) const;
+    void setNextAiring(const QVariantMap &airing);
+    void scheduleNextAiringRefresh();
+    void refreshNextAiring();
     QString m_imdbId;
     QString m_tmdbId;
     QVariantList m_people;

@@ -5,11 +5,13 @@
 #include "../utils/DetailViewCache.h"
 #include "../utils/ExternalRatingsHelper.h"
 #include <QDateTime>
+#include <algorithm>
 #include <QLocale>
 #include <QDir>
 #include <QFile>
 #include <QDebug>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QUrlQuery>
@@ -595,6 +597,10 @@ QString EpisodesModel::getImageUrl(const QVariantMap &item) const
 SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
     : BaseViewModel(parent)
 {
+    m_nextAiringTimer = new QTimer(this);
+    m_nextAiringTimer->setSingleShot(true);
+    connect(m_nextAiringTimer, &QTimer::timeout, this, &SeriesDetailsViewModel::refreshNextAiring);
+
     m_libraryService = ServiceLocator::tryGet<LibraryService>();
     
     // Set service on child models
@@ -977,11 +983,62 @@ void SeriesDetailsViewModel::onNotInterestedStatusFailed(const QString &itemId,
 
 void SeriesDetailsViewModel::onNextAiringLoaded(const QString &seriesId, const QVariantMap &airing)
 {
-    if (seriesId != m_seriesId || m_nextAiring == airing) {
+    if (seriesId != m_seriesId) {
         return;
     }
-    m_nextAiring = airing;
+    m_nextAiringPending = false;
+    setNextAiring(airing);
+}
+
+bool SeriesDetailsViewModel::airingStillAhead(const QVariantMap &airing) const
+{
+    if (airing.isEmpty()) {
+        return false;
+    }
+    QVariantMap candidate = airing;
+    candidate.insert(QStringLiteral("seriesId"), m_seriesId);
+    return !LibraryService::nextAiringFor(QVariantList{QVariant(candidate)}, m_seriesId,
+                                          QDateTime::currentDateTime()).isEmpty();
+}
+
+void SeriesDetailsViewModel::setNextAiring(const QVariantMap &airing)
+{
+    // Only an airing still ahead shows; a card's or cache's may have passed.
+    m_nextAiring = airingStillAhead(airing) ? airing : QVariantMap();
+    scheduleNextAiringRefresh();
+    // Also when unchanged: a released reservation must reach the hero.
     emit nextAiringChanged();
+}
+
+void SeriesDetailsViewModel::scheduleNextAiringRefresh()
+{
+    m_nextAiringTimer->stop();
+    if (m_nextAiring.isEmpty()) {
+        return;
+    }
+    const QDateTime now = QDateTime::currentDateTime();
+    QDateTime next = now.date().addDays(1).startOfDay();
+    const QDateTime instant = QDateTime::fromString(
+        m_nextAiring.value(QStringLiteral("airAt")).toString(), Qt::ISODate);
+    if (instant.isValid() && instant > now && instant < next) {
+        next = instant;
+    }
+    // A second late, so the new day or the airing has begun.
+    m_nextAiringTimer->start(static_cast<int>(
+        std::clamp<qint64>(now.msecsTo(next) + 1000, 1000, 24LL * 60 * 60 * 1000)));
+}
+
+void SeriesDetailsViewModel::refreshNextAiring()
+{
+    const QVariantMap previous = m_nextAiring;
+    setNextAiring(previous);
+    // The airing went: the calendar names the one after it.
+    if (!previous.isEmpty() && m_nextAiring.isEmpty() && m_libraryService
+        && !m_seriesId.isEmpty() && m_libraryService->supportsNextAiring()) {
+        m_nextAiringPending = true;
+        emit nextAiringChanged();
+        m_libraryService->getNextAiring(m_seriesId);
+    }
 }
 
 QString SeriesDetailsViewModel::nextAiringLabel() const
@@ -1190,6 +1247,8 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     m_notInterestedPending = false;
     m_nextAiring.clear();
     m_nextAiringRequested = false;
+    m_nextAiringPending = false;
+    m_nextAiringTimer->stop();
     m_imdbId.clear();
     m_tmdbId.clear();
     m_people.clear();
@@ -2014,14 +2073,18 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QVariantMap &data)
     // The details may already name the next airing; otherwise a series
     // that is still running asks the provider's calendar once.
     const QVariantMap detailAiring = data.value(QStringLiteral("nextAiring")).toMap();
-    if (!detailAiring.isEmpty()) {
-        onNextAiringLoaded(m_seriesId, detailAiring);
-    } else if (!m_nextAiringRequested && m_libraryService && !m_seriesId.isEmpty()) {
+    if (airingStillAhead(detailAiring)) {
+        setNextAiring(detailAiring);
+    }
+    if (m_nextAiring.isEmpty() && !m_nextAiringRequested && m_libraryService
+        && !m_seriesId.isEmpty() && m_libraryService->supportsNextAiring()) {
         const QString status = m_status.toLower();
         if (status != QStringLiteral("ended") && status != QStringLiteral("cancelled")
             && status != QStringLiteral("canceled")) {
             m_nextAiringRequested = true;
+            m_nextAiringPending = true;
             emit nextAiringChanged();
+            // May answer at once (cached calendar, unsupported provider).
             m_libraryService->getNextAiring(m_seriesId);
         }
     }

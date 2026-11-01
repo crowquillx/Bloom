@@ -229,9 +229,18 @@ struct SkipRange {
     qint64 endMs = 0;
 };
 
+/// The ranges of one type with overlapping or touching ones joined into one,
+/// ordered by start; empty ranges are dropped. Two intros back to back are
+/// then one skip that lands after both.
+[[nodiscard]] QList<SkipRange> mergeSkipRanges(QList<SkipRange> ranges);
+
 /// Index of the range a skip acts on: the one holding the position, else the
-/// first one still ahead of it; -1 when none is. A file can repeat a range
-/// type, so skipping never jumps back to an earlier range of that type.
-[[nodiscard]] int skipRangeIndex(const QList<SkipRange> &ranges, qint64 positionMs);
+/// nearest one starting at most aheadToleranceMs after it (a range that
+/// begins a moment after playback starts); -1 when none is. A file can
+/// repeat a range type, so skipping never jumps back to an earlier range,
+/// nor far ahead to a later one.
+[[nodiscard]] int skipRangeIndex(const QList<SkipRange> &ranges,
+                                 qint64 positionMs,
+                                 qint64 aheadToleranceMs);
 
 } // namespace Bloom::PlaybackPolicy

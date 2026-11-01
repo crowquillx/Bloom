@@ -144,7 +144,9 @@ the page's details keeps its slot reserved from the start: quality badges
 (playback info), external ratings (MDBList, AniList), a series' next airing,
 and late footnotes such as a series' up-next episode. Set `reserveChipRow`
 and `reserveFootnote` on `DetailHero` for those, and `stableSynopsisHeight`
-where browsing changes the synopsis.
+where browsing changes the synopsis. Reserve only for an answer that can
+arrive: a provider without the read reserves nothing, and an empty or failed
+answer releases the slot.
 
 The hero occupies about the top 60% of the screen. The first shelf sits fully
 in view below it, and the next shelf's header peeks in.

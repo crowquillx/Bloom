@@ -1,6 +1,7 @@
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QtTest/QtTest>
+#include <QScopeGuard>
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -216,6 +217,9 @@ private slots:
     void peopleSearchFollowsTheSearchCapability();
     void notInterestedRequestsAndCapabilityParse();
     void notInterestedServiceGatesOnProfileCapability();
+    void notInterestedReadCancelledWithSessionIsAskedAgain();
+    void nextAiringSharesAndCachesOneCalendarRead();
+    void nextAiringRetriesUnknownZoneAsOffset();
     void upcomingAiringsReadTheViewerCalendar();
     void nextAiringPicksEarliestAiringStillAhead();
     void markerSegmentsKeepRepeatedRanges();
@@ -2618,6 +2622,182 @@ void SiloCatalogServiceTest::notInterestedServiceGatesOnProfileCapability()
     QCOMPARE(failed.first().at(0).toString(), QStringLiteral("episode:x"));
     QCOMPARE(failed.first().at(1).toBool(), true);
     QCOMPARE(changed.count(), 2);
+}
+
+void SiloCatalogServiceTest::notInterestedReadCancelledWithSessionIsAskedAgain()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QSignalSpy support(&service, &LibraryService::notInterestedSupportChanged);
+    const QByteArray allowed = QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true})");
+    manager.responses = { { 200, allowed, true } };
+    const qsizetype firstRequest = manager.requests.size();
+    service.loadNotInterestedCapability();
+    QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), firstRequest + 1, 1000);
+
+    // The session changes while the read is out, which cancels it; the
+    // next page asks again instead of waiting on it forever.
+    emit auth.userIdChanged();
+    manager.responses = { { 200, allowed, false } };
+    service.loadNotInterestedCapability();
+    QTRY_COMPARE_WITH_TIMEOUT(support.count(), 1, 1000);
+    QVERIFY(service.supportsNotInterested());
+    QCOMPARE(manager.requests.size(), firstRequest + 2);
+    // The cancelled read finishing late changes nothing.
+    if (manager.replies.at(firstRequest)) {
+        manager.replies.at(firstRequest)->complete();
+    }
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(support.count(), 1);
+}
+
+namespace {
+
+QByteArray calendarBody(const QDate &day)
+{
+    const QString date = day.toString(Qt::ISODate);
+    const auto event = [&date](const QString &series, int episode) {
+        return QJsonObject{{QStringLiteral("content_id"), QStringLiteral("episode:%1-%2").arg(series).arg(episode)},
+                           {QStringLiteral("type"), QStringLiteral("episode")},
+                           {QStringLiteral("title"), series},
+                           {QStringLiteral("series_id"), QStringLiteral("series:") + series},
+                           {QStringLiteral("season_number"), 1},
+                           {QStringLiteral("episode_number"), episode},
+                           {QStringLiteral("air_date"), date},
+                           {QStringLiteral("local_air_date"), date},
+                           {QStringLiteral("watched"), false},
+                           {QStringLiteral("badges"), QJsonArray{}}};
+    };
+    return QJsonDocument(QJsonObject{{QStringLiteral("events"), QJsonArray{QJsonObject{
+        {QStringLiteral("date"), date},
+        {QStringLiteral("items"), QJsonArray{event(QStringLiteral("a"), 2),
+                                             event(QStringLiteral("b"), 5)}}}}}})
+        .toJson(QJsonDocument::Compact);
+}
+
+} // namespace
+
+void SiloCatalogServiceTest::nextAiringSharesAndCachesOneCalendarRead()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QVERIFY(service.supportsNextAiring());
+    QSignalSpy loaded(&service, &LibraryService::nextAiringLoaded);
+    const QDate today = QDate::currentDate();
+    const auto airingFor = [&loaded](const QString &seriesId) {
+        for (const QList<QVariant> &arguments : std::as_const(loaded)) {
+            if (arguments.at(0).toString() == seriesId) {
+                return arguments.at(1).toMap();
+            }
+        }
+        return QVariantMap{{QStringLiteral("missing"), true}};
+    };
+
+    // A failed read answers every waiting page with nothing and is not kept.
+    qsizetype firstRequest = manager.requests.size();
+    manager.responses = { { 404, QByteArrayLiteral(R"({"type":"about:blank","status":404})"), false } };
+    service.getNextAiring(QStringLiteral("series:a"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    QVERIFY(airingFor(QStringLiteral("series:a")).isEmpty());
+    loaded.clear();
+
+    // Pages asking while the calendar is read share the one read.
+    manager.responses = { { 200, calendarBody(today.addDays(3)), true } };
+    firstRequest = manager.requests.size();
+    service.getNextAiring(QStringLiteral("series:a"));
+    service.getNextAiring(QStringLiteral("series:b"));
+    service.getNextAiring(QStringLiteral("series:a"));
+    QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), firstRequest + 1, 1000);
+    const QUrl url = manager.requests.at(firstRequest).request.url();
+    QCOMPARE(url.path(), QStringLiteral("/api/v2/calendar"));
+    QCOMPARE(QUrlQuery(url).queryItemValue(QStringLiteral("start")), today.toString(Qt::ISODate));
+    QCOMPARE(manager.requests.at(firstRequest).request.rawHeader("X-Profile-Id"),
+             QByteArrayLiteral("profile-1"));
+    QCOMPARE(loaded.count(), 0);
+    manager.replies.at(firstRequest)->complete();
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+    QCOMPARE(airingFor(QStringLiteral("series:a")).value(QStringLiteral("episodeNumber")).toInt(), 2);
+    QCOMPARE(airingFor(QStringLiteral("series:b")).value(QStringLiteral("episodeNumber")).toInt(), 5);
+
+    // Another series page answers from the kept calendar, at once.
+    service.getNextAiring(QStringLiteral("series:c"));
+    QCOMPARE(loaded.count(), 3);
+    QVERIFY(airingFor(QStringLiteral("series:c")).isEmpty());
+    service.getNextAiring(QStringLiteral("series:b"));
+    QCOMPARE(loaded.count(), 4);
+    QCOMPARE(manager.requests.size(), firstRequest + 1);
+
+    // A new session drops the kept calendar.
+    emit auth.userIdChanged();
+    manager.responses = { { 200, calendarBody(today.addDays(3)), false } };
+    service.getNextAiring(QStringLiteral("series:a"));
+    QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), firstRequest + 2, 1000);
+}
+
+void SiloCatalogServiceTest::nextAiringRetriesUnknownZoneAsOffset()
+{
+    // A zone with a fixed whole-hour offset (UTC+9) that the server is
+    // made to reject.
+    const QByteArray previousZone = qgetenv("TZ");
+    const bool hadZone = qEnvironmentVariableIsSet("TZ");
+    qputenv("TZ", "Asia/Tokyo");
+    const auto restoreZone = qScopeGuard([&]() {
+        if (hadZone) {
+            qputenv("TZ", previousZone);
+        } else {
+            qunsetenv("TZ");
+        }
+    });
+    if (QTimeZone::systemTimeZoneId() != QByteArrayLiteral("Asia/Tokyo")) {
+        QSKIP("The system zone does not follow TZ here");
+    }
+
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QSignalSpy loaded(&service, &LibraryService::nextAiringLoaded);
+    const qsizetype firstRequest = manager.requests.size();
+    manager.responses = {
+        { 422, QByteArrayLiteral(R"({"type":"https://silo.example.test/problems/validation_failed","status":422,)"
+                                 R"("errors":[{"location":"query.timezone","code":"invalid"}]})"), false },
+        { 200, calendarBody(QDate::currentDate().addDays(2)), false } };
+    service.getNextAiring(QStringLiteral("series:b"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    QCOMPARE(manager.requests.size(), firstRequest + 2);
+    QCOMPARE(QUrlQuery(manager.requests.at(firstRequest).request.url())
+                 .queryItemValue(QStringLiteral("timezone"), QUrl::FullyDecoded),
+             QStringLiteral("Asia/Tokyo"));
+    // Etc/GMT zones invert the sign: UTC+9 is Etc/GMT-9.
+    QCOMPARE(QUrlQuery(manager.requests.at(firstRequest + 1).request.url())
+                 .queryItemValue(QStringLiteral("timezone"), QUrl::FullyDecoded),
+             QStringLiteral("Etc/GMT-9"));
+    QCOMPARE(loaded.first().at(1).toMap().value(QStringLiteral("episodeNumber")).toInt(), 5);
 }
 
 void SiloCatalogServiceTest::upcomingAiringsReadTheViewerCalendar()

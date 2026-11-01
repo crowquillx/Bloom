@@ -313,6 +313,12 @@ FocusScope {
             if (!rating) {
                 continue
             }
+            // A server rating carries its display text, and a score of 0
+            // is a real rating there.
+            if (rating.display) {
+                filtered.push(rating)
+                continue
+            }
             const value = rating.value
             const score = rating.score
             if ((value === undefined || value === null || value === "" || value === 0 || value === "0")
