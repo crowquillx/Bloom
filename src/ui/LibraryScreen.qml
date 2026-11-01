@@ -3091,9 +3091,13 @@ FocusScope {
         // The seek's rows failed to load. Focus stays where it was; the
         // same jump tries again.
         function onSeekFailed(position, error) {
+            // Only a return to a far-down title sets _pendingSeekIndex.
+            var restoring = position === _pendingSeekIndex
             _pendingSeekIndex = -1
             _pendingSeekContentY = -1
-            seekToast.show(qsTr("Couldn't load these titles. Choose the letter again to retry."))
+            seekToast.show(restoring
+                           ? qsTr("Couldn't load the title you were on.")
+                           : qsTr("Couldn't load these titles. Choose the letter again to retry."))
         }
     }
 
