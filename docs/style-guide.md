@@ -179,6 +179,18 @@ Cards are always `MediaCard`:
 - Badges come from the card: unwatched count or watched check
   (`showWatchState`), Silo poster badges (`item`), and the merged-space source
   (`sourceLabel`). Do not stack extra badges on top of a card.
+- Continue Watching and Up Next cards have an actions menu: the actions key
+  (`nav.menu`: Menu, Shift+F10, controller Start) opens a `BloomMenu` under
+  the focused card; right-click or press-and-hold opens it for the pointer
+  (`MediaCard.menuEnabled`). Actions come from C++
+  (`ContinueWatchingViewModel`), and an action the card cannot take shows
+  disabled rather than missing. An action that changes more than the card
+  (dropping a show on the profile's watch services) asks first in a dialog
+  whose Cancel takes focus. A removed card leaves the shelf at once, focus
+  moves to its neighbour, and a `ToastNotification` reports failures or
+  offers Undo, naming the key that reaches it; the menu's Undo comes last.
+  Other shelves have no card menu yet; reuse this pattern when one needs
+  it.
 - People use `PersonCard` (cast and crew on detail pages, People in Search).
   Enter or a click opens the person's page when the card has a `personId`.
   Don't introduce other card shapes without adding them to this table.
@@ -326,6 +338,9 @@ Every screen must be fully keyboard and gamepad navigable.
 - Expose `navigationId` (`"home"`, `"search"`, `"settings"`, `"library:<id>"`)
   so the bar shows the current page.
 - Back (Escape) pops the page unless it sets `handlesOwnBackNavigation`.
+- The actions key (`nav.menu`) opens the focused card's actions menu where a
+  card has one. Menu items accept `ShortcutOverride` for Escape, so Back
+  closes the menu instead of reaching `Main.qml`'s shortcuts.
 - Restore focus with `Qt.callLater` after async model updates.
 
 ## Adding a screen

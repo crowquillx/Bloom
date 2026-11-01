@@ -203,12 +203,27 @@ Window {
         value: window.appWindowEligible
     }
 
+    // Any playback, embedded or external mpv, takes the controller's
+    // playback bindings, so Start stays play/pause and never opens a menu on
+    // the page behind the player.
     Binding {
         target: InputBindingManager
         property: "currentRuntimeContext"
-        value: embeddedPlaybackActive
-               && !navigationModalActive
-               ? "playback" : "navigation"
+        value: InputBindingManager.runtimeContextFor(PlayerController.isPlaybackActive,
+                                                     navigationModalActive)
+    }
+
+    // External mpv has no Bloom overlay to take controller playback
+    // actions; run them like the bound playback keys. B has no controls to
+    // dismiss there, so it does not stop playback.
+    Connections {
+        target: InputBindingManager
+        function onActionTriggeredWithContext(actionId, runtimeContext) {
+            if (runtimeContext === "playback" && actionId !== "playback.back"
+                    && PlayerController.isPlaybackActive && !window.embeddedPlaybackActive) {
+                window.triggerPlaybackKeyAction(actionId)
+            }
+        }
     }
     
     // ========================================

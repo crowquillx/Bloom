@@ -23,6 +23,8 @@ Runtime
 - Controller navigation actions synthesize the same Qt key events already used by QML focus handlers.
 - Playback controller actions emit `InputBindingManager.actionTriggeredWithContext(actionId, "playback")` and are handled by `EmbeddedPlaybackOverlay.qml`.
 - Default controller playback bindings: D-pad/left stick move or seek based on overlay state, A selects the focused playback control or active Skip Intro/Credits prompt, B mirrors Escape dismissal/stop behavior, Start play/pause, LB/RB seek, LT/RT chapters, Y opens the Audio page and X the Subtitles page of the playback settings pop-out, Back/View volume control, right stick volume, L3 subtitle ASS override, R3 deband.
+- Default controller navigation bindings: D-pad/left stick move, A selects, B goes back, and Start (the Menu/Options button) opens the focused card's actions (`nav.menu`). Start keeps play/pause during playback, a separate runtime context.
+- The runtime context is `playback` whenever playback is active, embedded or external mpv, unless a navigation modal (the screensaver) is up (`InputBindingManager::runtimeContextFor`, bound in `Main.qml`). So controller buttons never resolve `nav.*` actions during playback, and Start never opens a card menu on the page behind the player. External mpv has no Bloom overlay: `Main.qml` runs the controller's playback actions like the bound playback keys (`triggerPlaybackKeyAction`: play/pause, LB/RB seek, L3/R3 toggles, stats). B does not stop external playback, and the D-pad, Y, X and Back do nothing there.
 - In the settings pop-out, D-pad/left stick Up/Down move through rows, Right or A opens a category page, A selects an option, and Left returns to the root list. On the Subtitles page, Left/Right on the delay row adjust the current season/movie subtitle delay in 1 ms steps (persisted with subtitle preferences) and A resets it.
 
 Keyboard defaults
@@ -32,6 +34,7 @@ Keyboard defaults
 | Up / Down / Left / Right (`nav.*`) | Navigation | Arrow keys |
 | Select (`nav.select`) | Navigation | Return, Enter, Space |
 | Back (`nav.back`) | Navigation | Esc |
+| Actions (`nav.menu`) | Navigation | Menu, Shift+F10 |
 | Play/Pause (`playback.playPause`) | Playback | Space |
 | Seek Back (`playback.seekBack`) | Playback | J |
 | Seek Forward (`playback.seekForward`) | Playback | L |
@@ -48,6 +51,12 @@ Keyboard defaults
 - Playback navigation/select/back, previous/next chapter, skip segment, mute, and audio/subtitle cycling have no keyboard default.
 - Fixed playback keys that are not actions: Esc dismisses the playback overlay or stops playback, Return/Enter triggers an active skip prompt or brings up the controls, Left/Right seek 10 seconds (or move overlay focus), Up/Down move overlay focus, and 0-9 open mpv stats pages. Each of these yields to a user binding of the same key in the playback context.
 - F11 and Alt+Enter toggle fullscreen everywhere.
+
+Card actions
+- `nav.menu` opens the actions menu of the focused Continue Watching or Up Next card on Home (remove or hide the card, go to the series or details, watched, favorite, watchlist, not interested; see [view models](viewmodels.md#continuewatchingviewmodel)). The controller binding posts `Key_Menu`, which Home always accepts; a keyboard key bound to `nav.menu` works too (`actionForKeyboardEvent` in the navigation context). With a pointer, right-click or press-and-hold a card (`MediaCard.menuEnabled`).
+- The menu is a `BloomMenu`: Up/Down move (disabled actions are skipped), Select runs an action, and Back/Esc closes it. Focus starts on the card's first action and returns to the card, or after a removal to the card that took its place (the shelf below if the row emptied). A shelf refresh never takes focus from the open menu, another shelf, or the navigation bar.
+- "Stop watching ‹series›" on a Silo episode asks first in a dialog (Cancel takes focus), because the server drops the whole show from both rows and also on the watch services connected to the profile, such as Trakt.
+- While a removal can be undone, "Undo removal" ends the menu, and the actions key anywhere on Home opens a menu with just that entry. The undo toast names the key ("To undo, press Start and choose Undo removal", from the current `nav.menu` binding: the controller's when one is connected, else the keyboard's), and its timeout waits while the menu or the dialog is open. Picking Undo after it expired says it can no longer be undone. The toast's Undo button is for the pointer and takes no keyboard focus.
 
 Settings UI
 - Settings > Input edits bindings by context and device.

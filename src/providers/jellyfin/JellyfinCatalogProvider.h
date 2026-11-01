@@ -119,6 +119,10 @@ public:
             return libraryMembershipRequest(query);
         case ProviderCatalogOperation::ServerInfo:
             return supportedRequest(QStringLiteral("/System/Info/Public"));
+        case ProviderCatalogOperation::SetHomeDismissal:
+            return unsupported(QStringLiteral("Jellyfin has no Home dismissals"));
+        case ProviderCatalogOperation::ClearResumePosition:
+            return clearResumePositionRequest(query);
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -132,7 +136,8 @@ public:
         applySnapshot(response, responseHeaders);
 
         if (operation == ProviderCatalogOperation::SetWatched
-            || operation == ProviderCatalogOperation::SetFavorite) {
+            || operation == ProviderCatalogOperation::SetFavorite
+            || operation == ProviderCatalogOperation::ClearResumePosition) {
             const QJsonDocument mutationDocument = QJsonDocument::fromJson(body);
             if (mutationDocument.isObject()) {
                 response.rawItem = mutationDocument.object();
@@ -978,6 +983,27 @@ private:
         return request;
     }
 
+    // UpdateItemUserData applies only the fields the body carries, so a
+    // zero PlaybackPositionTicks leaves Played, PlayCount and IsFavorite
+    // as they are; the item leaves the resume list. The server declares no
+    // replay semantics, so the write is never retried.
+    static ProviderCatalogRequest clearResumePositionRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, true, QStringLiteral("resume position update"));
+        if (!validation.supported) {
+            return validation;
+        }
+        ProviderCatalogRequest request = supportedRequest(
+            QStringLiteral("/UserItems/%1/UserData?UserId=%2")
+                .arg(encodedPathSegment(query.itemId), encodedPathSegment(query.userId)),
+            ProviderHttpMethod::Post);
+        request.body = QByteArrayLiteral(R"({"PlaybackPositionTicks":0})");
+        request.extraHeaders.insert(
+            QByteArrayLiteral("Content-Type"), QByteArrayLiteral("application/json"));
+        return request;
+    }
+
     static ProviderCatalogRequest searchRequest(const ProviderCatalogQuery &query)
     {
         const ProviderCatalogRequest validation = requireIds(
@@ -1285,6 +1311,8 @@ private:
         case ProviderCatalogOperation::MovieRecommendations: return QStringLiteral("movie recommendations");
         case ProviderCatalogOperation::LibraryMembership: return QStringLiteral("library membership");
         case ProviderCatalogOperation::ServerInfo: return QStringLiteral("server info");
+        case ProviderCatalogOperation::SetHomeDismissal: return QStringLiteral("home dismissal");
+        case ProviderCatalogOperation::ClearResumePosition: return QStringLiteral("resume position");
         }
         return QStringLiteral("catalog");
     }

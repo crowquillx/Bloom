@@ -459,6 +459,11 @@ private:
             return createLettersRequest(query);
         case ProviderCatalogOperation::LibraryLetterCount:
             return unsupported(QStringLiteral("Silo answers the letter index itself"));
+        case ProviderCatalogOperation::SetHomeDismissal:
+            return homeDismissalRequest(query);
+        case ProviderCatalogOperation::ClearResumePosition:
+            return unsupported(QStringLiteral(
+                "Silo hides Continue Watching cards with Home dismissals"));
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -513,7 +518,8 @@ public:
             return response;
         }
         if (operation == ProviderCatalogOperation::SetWatchlist
-            || operation == ProviderCatalogOperation::SetNotInterested) {
+            || operation == ProviderCatalogOperation::SetNotInterested
+            || operation == ProviderCatalogOperation::SetHomeDismissal) {
             // 204 No Content on success.
             ProviderCatalogResponse response;
             response.valid = true;
@@ -993,6 +999,48 @@ private:
             return unsupported(QStringLiteral("Silo catalog operation requires a content_id"));
         }
         return get(format.arg(encodedId(normalized)));
+    }
+
+    // dismissHomeItem (PUT) and undismissHomeItem (DELETE). The body
+    // anchors a dismissal: continue_watching needs the card's
+    // progress_updated_at, next_up the episode's series_id. Both routes are
+    // declared natural_idempotent: a replay leaves the same dismissal.
+    static ProviderCatalogRequest homeDismissalRequest(const ProviderCatalogQuery &query)
+    {
+        const QString surface = query.homeSurface.trimmed();
+        if (surface != QStringLiteral("continue_watching")
+            && surface != QStringLiteral("next_up")) {
+            return unsupported(QStringLiteral(
+                "Silo Home dismissals need the continue_watching or next_up surface"));
+        }
+        ProviderCatalogRequest request = mutationWithContentId(
+            query.stateValue ? ProviderHttpMethod::Put : ProviderHttpMethod::Delete,
+            QStringLiteral("/api/v2/home/dismissals/") + surface + QStringLiteral("/%1"),
+            query.itemId);
+        if (!request.supported) {
+            return request;
+        }
+        if (query.stateValue) {
+            QJsonObject body;
+            if (surface == QStringLiteral("continue_watching")) {
+                const QString stamp = query.progressUpdatedAt.trimmed();
+                if (stamp.isEmpty()) {
+                    return unsupported(QStringLiteral(
+                        "Hiding a Continue Watching card needs its progress_updated_at"));
+                }
+                body.insert(QStringLiteral("progress_updated_at"), stamp);
+            } else {
+                const QString seriesId = query.seriesId.trimmed();
+                if (seriesId.isEmpty()) {
+                    return unsupported(QStringLiteral(
+                        "Hiding a Next Up card needs its series_id"));
+                }
+                body.insert(QStringLiteral("series_id"), seriesId);
+            }
+            request.body = QJsonDocument(body).toJson(QJsonDocument::Compact);
+        }
+        request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
+        return request;
     }
 
     static ProviderCatalogRequest mutationWithContentId(ProviderHttpMethod method,

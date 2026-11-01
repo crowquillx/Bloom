@@ -17,6 +17,10 @@ import BloomUI
  * `artworkWidth` to fill their columns. Focus lifts the card (Theme.focusScale),
  * draws the shared FocusRing and a soft shadow; selection is never shown here.
  *
+ * Set `menuEnabled` when the card has an actions menu: right-click and
+ * press-and-hold then emit `menuRequested` (the keyboard and controller
+ * reach the same menu through the caller's `nav.menu` handling).
+ *
  * Callers own the model and key handling. Typical use in a ListView delegate:
  *   MediaCard {
  *       variant: "poster"
@@ -110,6 +114,9 @@ Item {
     }
 
     signal clicked()
+    signal menuRequested()
+
+    property bool menuEnabled: false
 
     implicitWidth: artworkWidth
     implicitHeight: artworkHeight + (hasCaption ? Theme.cardCaptionHeight : 0)
@@ -353,6 +360,18 @@ Item {
         id: mouseArea
         anchors.fill: parent
         hoverEnabled: true
-        onClicked: root.clicked()
+        acceptedButtons: root.menuEnabled ? (Qt.LeftButton | Qt.RightButton) : Qt.LeftButton
+        onClicked: function(mouse) {
+            if (mouse.button === Qt.RightButton)
+                root.menuRequested()
+            else
+                root.clicked()
+        }
+        // Unaccepted, a long press still ends in clicked().
+        onPressAndHold: function(mouse) {
+            mouse.accepted = root.menuEnabled
+            if (root.menuEnabled)
+                root.menuRequested()
+        }
     }
 }

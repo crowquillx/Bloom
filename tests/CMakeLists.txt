@@ -365,6 +365,7 @@ add_test(NAME MergedCatalogPolicyTest COMMAND MergedCatalogPolicyTest)
 # fake servers and an in-memory keyring.
 add_executable(WorkspaceRoutingTest
     WorkspaceRoutingTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/ContinueWatchingViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
 )
 target_include_directories(WorkspaceRoutingTest PRIVATE
@@ -1138,6 +1139,29 @@ target_link_libraries(LibrarySectionsViewModelTest
 
 add_test(NAME LibrarySectionsViewModelTest COMMAND LibrarySectionsViewModelTest)
 
+# No production target holds view models, so the view model's own source
+# is compiled here; the services come from Bloom::Network.
+add_executable(ContinueWatchingViewModelTest
+    ContinueWatchingViewModelTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/ContinueWatchingViewModel.cpp
+)
+
+target_include_directories(ContinueWatchingViewModelTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(ContinueWatchingViewModelTest
+    PRIVATE
+        Bloom::Network
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME ContinueWatchingViewModelTest COMMAND ContinueWatchingViewModelTest)
+
 add_executable(MediaRequestServiceTest
     MediaRequestServiceTest.cpp
 )
@@ -1248,6 +1272,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     HomeRowsAndWatchlistTest
     PersonViewModelTest
     LibrarySectionsViewModelTest
+    ContinueWatchingViewModelTest
     MediaRequestServiceTest
     UpNextRecommendationsViewModelTest
     UpdateServiceTest

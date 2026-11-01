@@ -126,12 +126,13 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `FocusRing` | Focus indicator; place it inside a focusable item's background. |
 | `NavigationBar` | The shell's top navigation (owned by `Main.qml`). |
 | `StageBackdrop` | Full-bleed page background: artwork in `hero` or `ambient` mode with the standard scrims, or the ambient accent glow without art. |
-| `MediaCard` | The one media card: `poster` (caption below) or `landscape` (title on the art, progress), with focus lift, badges and hybrid rounded artwork. |
+| `MediaCard` | The one media card: `poster` (caption below) or `landscape` (title on the art, progress), with focus lift, badges and hybrid rounded artwork. `menuEnabled` makes right-click and press-and-hold emit `menuRequested` (an actions menu); without it a long press still clicks. |
 | `ShelfList` | Horizontal shelf `ListView` aligned to the gutter with focus room and displacement transitions (no fade-in: ListView can leave an interrupted fade at opacity 0). |
 | `PageHeader` | Eyebrow, display title and detail line for non-hero pages, with a trailing slot for toolbars. |
 | `DialogSurface` / `ModalScrim` | `Dialog`/`Popup` background and `Overlay.modal`. |
 | `ModalFocusGuard` | Keeps focus inside an open modal `Dialog` when the page behind it restores focus late (`popup`, optional `fallbackItem`). |
 | `BloomMenu` / `BloomMenuItem` | Context menus and submenus (`iconGlyph`, `destructive`, `marked`). |
+| `ToastNotification` | Brief message at the bottom of its parent (`show(text)`); `showWithAction(text, actionText, hint)` adds a pointer-only button (`actionTriggered`) and a second line (`hint`, for example the key that reaches the same action), and `dismissed` fires when it goes away. `paused` holds the timeout (while a menu offering the action is open). Offer the same action somewhere focusable. |
 | `BloomCheckIndicator` | Check box indicator for `CheckBox`/`CheckDelegate`. |
 | `FieldBackground` | Text field and combo box backgrounds with focus and error states. |
 | `SectionHeader` | Page/section/group headers with optional detail text. |

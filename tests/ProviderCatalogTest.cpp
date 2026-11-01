@@ -39,6 +39,7 @@ private slots:
     void jellyfinCanonicalSortKeysMapAtProviderBoundary();
     void jellyfinReservedIdentifiersAndLimitsRemainOpaque();
     void jellyfinMutationsAndPaginationRemainCompatible();
+    void jellyfinClearResumePositionZeroesOnlyThePosition();
     void jellyfinRequestsUseOpenApiRoutesAndFields();
     void jellyfinNextUpOptionsAndResumeList();
     void jellyfinMovieRecommendationsRequestAndParse();
@@ -223,6 +224,47 @@ void ProviderCatalogTest::jellyfinReservedIdentifiersAndLimitsRemainOpaque()
              QStringLiteral("50"));
 }
 
+void ProviderCatalogTest::jellyfinClearResumePositionZeroesOnlyThePosition()
+{
+    JellyfinProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    ProviderCatalogQuery query;
+    query.userId = QStringLiteral("user-1");
+    query.itemId = QStringLiteral("item 9");
+
+    // UpdateItemUserData with PlaybackPositionTicks alone: Played, PlayCount
+    // and IsFavorite are absent, so the server leaves them as they are.
+    const ProviderCatalogRequest request = catalog->createRequest(
+        ProviderCatalogOperation::ClearResumePosition, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    // The server declares no replay semantics for the write.
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Never);
+    QCOMPARE(QUrl(request.relativeEndpoint).path(QUrl::FullyEncoded),
+             QStringLiteral("/UserItems/item%209/UserData"));
+    QCOMPARE(QUrlQuery(QUrl(request.relativeEndpoint))
+                 .queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
+    const QJsonObject body = QJsonDocument::fromJson(request.body).object();
+    QCOMPARE(body, QJsonObject({{QStringLiteral("PlaybackPositionTicks"), 0}}));
+    QCOMPARE(request.extraHeaders.value(QByteArrayLiteral("Content-Type")),
+             QByteArrayLiteral("application/json"));
+    // The answer is the item's user data; Bloom reads nothing from it.
+    QVERIFY(catalog->parseResponse(ProviderCatalogOperation::ClearResumePosition,
+                                   QByteArrayLiteral(R"({"PlaybackPositionTicks":0,"Played":false})"))
+                .valid);
+
+    query.itemId.clear();
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::ClearResumePosition, query).supported);
+    // Jellyfin has no Home dismissals.
+    query.itemId = QStringLiteral("item-9");
+    query.homeSurface = QStringLiteral("next_up");
+    query.seriesId = QStringLiteral("series-1");
+    query.stateValue = true;
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::SetHomeDismissal, query).supported);
+}
+
 void ProviderCatalogTest::jellyfinMutationsAndPaginationRemainCompatible()
 {
     JellyfinProviderAdapter adapter;
@@ -304,7 +346,8 @@ void ProviderCatalogTest::jellyfinRequestsUseOpenApiRoutesAndFields()
         {ProviderCatalogOperation::HeroOverviews, QStringLiteral("/Items")},
         {ProviderCatalogOperation::Versions, QStringLiteral("/Items")},
         {ProviderCatalogOperation::SetWatched, QStringLiteral("/UserPlayedItems/item-1")},
-        {ProviderCatalogOperation::SetFavorite, QStringLiteral("/UserFavoriteItems/item-1")}
+        {ProviderCatalogOperation::SetFavorite, QStringLiteral("/UserFavoriteItems/item-1")},
+        {ProviderCatalogOperation::ClearResumePosition, QStringLiteral("/UserItems/item-1/UserData")}
     };
     for (auto it = expectedPaths.constBegin(); it != expectedPaths.constEnd(); ++it) {
         const ProviderCatalogRequest request = catalog->createRequest(it.key(), query);

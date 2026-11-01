@@ -34,6 +34,20 @@ enum class ServerReachability {
     Unreachable
 };
 
+// What a Home card's actions can do on one connection (its provider).
+struct HomeCardCapabilities {
+    // Hide a card from Continue Watching or Next Up, with undo (Silo).
+    bool dismissals = false;
+    // Zero a resume position so the card leaves Continue Watching
+    // (providers with a separate resume list, Jellyfin).
+    bool resumeReset = false;
+    // A watchlist distinct from favorites (Silo).
+    bool watchlist = false;
+    // "Not interested" marks, allowed for the live profile (Silo). Known
+    // only for the live connection, after loadNotInterestedCapability.
+    bool notInterested = false;
+};
+
 struct LibraryItemQuery {
     QString parentId;
     int startIndex = 0;
@@ -195,6 +209,32 @@ public:
                                      const QString &seriesId,
                                      const QDateTime &now);
     Q_INVOKABLE virtual void getThemeSongs(const QString &seriesId);
+
+    // Home card writes. Capabilities are read from the provider of
+    // connectionId, which may be a merged member that is not live; the
+    // writes run on the live connection, so callers route first. Each
+    // write answers once with homeCardWriteFinished(requestKey), also when
+    // the session changes first and its reply can no longer arrive.
+    virtual HomeCardCapabilities homeCardCapabilities(const QString &connectionId) const;
+    // Hides a card from (dismissed) or shows it again on a Home surface,
+    // "continue_watching" or "next_up" (ProviderCapability::HomeDismissals).
+    virtual void setHomeItemDismissed(const QString &requestKey,
+                                      const QString &surface,
+                                      const QString &itemId,
+                                      const QString &seriesId,
+                                      const QString &progressUpdatedAt,
+                                      bool dismissed);
+    // Zeroes the resume position without changing the played state. A
+    // server without the route (Silo's compatibility listener) stops
+    // offering resumeReset for that connection after the first refusal.
+    virtual void clearResumePosition(const QString &requestKey, const QString &itemId);
+    // Sets one of a card's own states: field is "watched", "favorite",
+    // "inWatchlist" or "notInterested". Sends the same write as
+    // markItemPlayed and its siblings and emits their signals too.
+    virtual void setHomeItemState(const QString &requestKey,
+                                  const QString &field,
+                                  const QString &itemId,
+                                  bool value);
 
     // Server-side media requests, for providers with
     // ProviderCapability::MediaRequests (Silo). The handler receives the
@@ -423,6 +463,14 @@ signals:
     void notInterestedStatusChanged(const QString &itemId, bool notInterested);
     void notInterestedStatusFailed(const QString &itemId, bool notInterested, const QString &error);
     void nextAiringLoaded(const QString &seriesId, const QVariantMap &airing);
+    // markItemPlayed/markItemUnplayed and the favorite writes were refused
+    // or never reached the server.
+    void itemPlayedStatusFailed(const QString &itemId, bool isPlayed, const QString &error);
+    void favoriteStatusFailed(const QString &itemId, bool isFavorite, const QString &error);
+    void homeCardWriteFinished(const QString &connectionId,
+                               const QString &requestKey,
+                               bool succeeded,
+                               const QString &error);
     void canonicalHomeSectionsLoaded(const QString &connectionId, const QVariantList &sections);
     void canonicalHomeSectionsFailed(const QString &connectionId, const QString &error);
     void canonicalLibrarySectionsLoaded(const QString &connectionId,
@@ -515,6 +563,14 @@ private:
                                              const QString &requestContext);
     CatalogRequestIdentity catalogRequestIdentity() const;
     bool isCurrent(const CatalogRequestIdentity &identity) const;
+    // Sends a Home card write and answers it with homeCardWriteFinished.
+    void sendHomeCardWrite(const QString &requestKey,
+                           const QString &operationName,
+                           ProviderCatalogOperation operation,
+                           const ProviderCatalogQuery &query,
+                           std::function<void()> onSuccess,
+                           std::function<void(const NetworkError &)> onFailure);
+    void failStaleHomeCardWrites();
     void sendCatalogRequest(
         const QString &operationName,
         ProviderCatalogOperation operation,
@@ -609,6 +665,11 @@ private:
     // an older generation was cancelled and no longer blocks a new one.
     QHash<QString, bool> m_notInterestedAllowed;
     QHash<QString, quint64> m_notInterestedCapabilityReads;
+    // Home card writes in flight, by request key. A write whose session is
+    // gone is answered with a failure (failStaleHomeCardWrites).
+    QHash<QString, CatalogRequestIdentity> m_homeCardWrites;
+    // Connections whose server lacks the resume reset route.
+    QSet<QString> m_resumeResetMissing;
     // Parsed airing calendars per connection, profile, local day and zone,
     // and the reads in flight with the series waiting on them.
     struct AiringCalendar {

@@ -87,6 +87,7 @@
     "playback.report",
     "state.played",
     "state.favorite",
+    "state.resume-position",
     "hierarchy.ancestors",
     "segments.standard",
     "sessions.list",
@@ -443,6 +444,19 @@
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Standard favorite mutation."},
         "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Legacy favorite routes update profile state."}
+      }
+    },
+    {
+      "id": "state.resume-position",
+      "journey": "user-state",
+      "bloomCaller": "LibraryService::clearResumePosition",
+      "method": "POST",
+      "path": "/UserItems/{itemId}/UserData",
+      "requestSemantics": ["UserId is sent; the JSON body is exactly {\"PlaybackPositionTicks\":0}", "The write is never replayed: the server declares no replay semantics"],
+      "requiredSemantics": ["UpdateItemUserData applies only the fields the body carries, so Played, PlayCount and IsFavorite keep their values", "With PlaybackPositionTicks 0 the item leaves /UserItems/Resume, so Remove from Continue Watching takes it off Bloom's continue-watching rail; an episode may then appear in Next Up"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "UpdateItemUserData and UpdateUserItemDataDto.PlaybackPositionTicks are current, non-obsolete operations and fields in the pinned OpenAPI."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "internal/jellycompat/router.go at the compatibility revision registers GET /UserItems/{itemId}/UserData and only the legacy POST /Users/{userId}/Items/{itemId}/UserData, so the write fails and Bloom puts the card back with an error toast."}
       }
     },
     {
@@ -866,6 +880,7 @@
       "native.home.sections",
       "native.home.calendar",
       "native.library.sections",
+      "native.home.dismissals",
       "native.artwork.refetch",
       "native.playback.capability",
       "native.playback.start-v3",
@@ -1690,6 +1705,45 @@
           "src/providers/silo/SiloCatalogProvider.h",
           "src/network/LibraryService.cpp",
           "src/viewmodels/LibrarySectionsViewModel.cpp"
+        ]
+      },
+      {
+        "id": "native.home.dismissals",
+        "method": "PUT/DELETE",
+        "path": "/api/v2/home/dismissals/{surface}/{item_id}",
+        "operations": [
+          {
+            "method": "PUT",
+            "path": "/api/v2/home/dismissals/{surface}/{item_id}"
+          },
+          {
+            "method": "DELETE",
+            "path": "/api/v2/home/dismissals/{surface}/{item_id}"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operations; Bloom exposes them as ProviderCapability::HomeDismissals on native Silo only."
+        },
+        "requestSemantics": [
+          "Profile-scoped write by the card's content_id on the continue_watching or next_up surface.",
+          "dismissHomeItem sends the card's progress_updated_at verbatim for continue_watching and the episode's series_id for next_up; Bloom disables the action when the card lacks that field.",
+          "undismissHomeItem sends no body and backs the undo toast.",
+          "Both routes are natural_idempotent, so a lost response may be replayed."
+        ],
+        "requiredSemantics": [
+          "A dismissed card leaves the surface for the acting profile until the item is played again or the dismissal is undone.",
+          "Dismissing an episode drops the whole show: every card of that series leaves both rows, and Bloom hides them all at once. The server also sends the drop to the profile's watch providers, so Bloom labels it Stop watching and asks first.",
+          "Undismissing shows the card again; a card that was not dismissed is left as is."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/network/LibraryService.cpp",
+          "src/viewmodels/ContinueWatchingViewModel.cpp"
         ]
       },
       {

@@ -263,6 +263,8 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         }
         m_airingCalendarReads.clear();
         m_airingCalendars.clear();
+        // Cancelled writes answer nothing on their own.
+        failStaleHomeCardWrites();
     };
     connect(m_authService, &AuthenticationService::authenticationStepChanged,
             this, [this, invalidateRequests]() {
@@ -275,6 +277,13 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
     });
     connect(m_authService, &AuthenticationService::userIdChanged,
             this, invalidateRequests);
+    // A reply sent before the connection, profile or provider changed is
+    // dropped (isCurrent), so its Home card write is answered here.
+    for (const auto signal : {&AuthenticationService::providerSelectionChanged,
+                              &AuthenticationService::profilesChanged,
+                              &AuthenticationService::authSessionsChanged}) {
+        connect(m_authService, signal, this, &LibraryService::failStaleHomeCardWrites);
+    }
 }
 
 ProviderCatalogQuery LibraryService::baseCatalogQuery() const
@@ -1425,6 +1434,9 @@ void LibraryService::markItemPlayed(const QString &itemId)
         query,
         [this, itemId](const ProviderCatalogResponse &) {
             emit itemPlayedStatusChanged(itemId, true);
+        },
+        [this, itemId](const NetworkError &error) {
+            emit itemPlayedStatusFailed(itemId, true, error.userMessage);
         });
 }
 
@@ -1439,6 +1451,9 @@ void LibraryService::markItemUnplayed(const QString &itemId)
         query,
         [this, itemId](const ProviderCatalogResponse &) {
             emit itemPlayedStatusChanged(itemId, false);
+        },
+        [this, itemId](const NetworkError &error) {
+            emit itemPlayedStatusFailed(itemId, false, error.userMessage);
         });
 }
 
@@ -1453,6 +1468,9 @@ void LibraryService::markItemFavorite(const QString &itemId)
         query,
         [this, itemId](const ProviderCatalogResponse &) {
             emit favoriteStatusChanged(itemId, true);
+        },
+        [this, itemId](const NetworkError &error) {
+            emit favoriteStatusFailed(itemId, true, error.userMessage);
         });
 }
 
@@ -1467,6 +1485,9 @@ void LibraryService::markItemUnfavorite(const QString &itemId)
         query,
         [this, itemId](const ProviderCatalogResponse &) {
             emit favoriteStatusChanged(itemId, false);
+        },
+        [this, itemId](const NetworkError &error) {
+            emit favoriteStatusFailed(itemId, false, error.userMessage);
         });
 }
 
@@ -1720,6 +1741,164 @@ QVariantMap LibraryService::nextAiringFor(const QVariantList &airings,
         }
     }
     return best;
+}
+
+HomeCardCapabilities LibraryService::homeCardCapabilities(const QString &connectionId) const
+{
+    HomeCardCapabilities capabilities;
+    const IProviderAdapter *adapter =
+        m_authService ? m_authService->providerForConnection(connectionId) : nullptr;
+    if (!adapter) {
+        return capabilities;
+    }
+    capabilities.dismissals = adapter->supportsCapability(ProviderCapability::HomeDismissals);
+    capabilities.resumeReset = adapter->supportsCapability(ProviderCapability::ResumeItems)
+        && !m_resumeResetMissing.contains(connectionId);
+    capabilities.watchlist = adapter->supportsCapability(ProviderCapability::Watchlist);
+    capabilities.notInterested =
+        connectionId == activeConnectionId(m_authService) && supportsNotInterested();
+    return capabilities;
+}
+
+void LibraryService::sendHomeCardWrite(const QString &requestKey,
+                                       const QString &operationName,
+                                       ProviderCatalogOperation operation,
+                                       const ProviderCatalogQuery &query,
+                                       std::function<void()> onSuccess,
+                                       std::function<void(const NetworkError &)> onFailure)
+{
+    const CatalogRequestIdentity identity = catalogRequestIdentity();
+    m_homeCardWrites.insert(requestKey, identity);
+    // False once the write was answered (or failed as stale).
+    const auto take = [this, requestKey]() { return m_homeCardWrites.remove(requestKey) > 0; };
+    sendCatalogRequest(
+        operationName,
+        operation,
+        query,
+        [this, identity, requestKey, take, onSuccess](const ProviderCatalogResponse &) {
+            if (!take()) {
+                return;
+            }
+            if (onSuccess) {
+                onSuccess();
+            }
+            emit homeCardWriteFinished(identity.connectionId, requestKey, true, QString());
+        },
+        [this, identity, requestKey, take, onFailure](const NetworkError &error) {
+            if (!take()) {
+                return;
+            }
+            if (onFailure) {
+                onFailure(error);
+            }
+            emit homeCardWriteFinished(identity.connectionId, requestKey, false,
+                                       error.userMessage);
+        });
+}
+
+void LibraryService::failStaleHomeCardWrites()
+{
+    QList<std::pair<QString, QString>> stale;
+    for (auto it = m_homeCardWrites.begin(); it != m_homeCardWrites.end();) {
+        if (isCurrent(it.value())) {
+            ++it;
+            continue;
+        }
+        stale.append({it.key(), it->connectionId});
+        it = m_homeCardWrites.erase(it);
+    }
+    for (const auto &[requestKey, connectionId] : std::as_const(stale)) {
+        emit homeCardWriteFinished(connectionId, requestKey, false,
+                                   tr("The connection changed before the server answered."));
+    }
+}
+
+void LibraryService::setHomeItemDismissed(const QString &requestKey,
+                                          const QString &surface,
+                                          const QString &itemId,
+                                          const QString &seriesId,
+                                          const QString &progressUpdatedAt,
+                                          bool dismissed)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.seriesId = seriesId;
+    query.homeSurface = surface;
+    query.progressUpdatedAt = progressUpdatedAt;
+    query.stateValue = dismissed;
+    sendHomeCardWrite(
+        requestKey,
+        dismissed ? QStringLiteral("dismissHomeItem") : QStringLiteral("undismissHomeItem"),
+        ProviderCatalogOperation::SetHomeDismissal,
+        query, {}, {});
+}
+
+void LibraryService::clearResumePosition(const QString &requestKey, const QString &itemId)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    sendHomeCardWrite(
+        requestKey,
+        QStringLiteral("clearResumePosition"),
+        ProviderCatalogOperation::ClearResumePosition,
+        query,
+        {},
+        [this, connectionId](const NetworkError &error) {
+            // Silo's compatibility listener has no POST UserData route.
+            if (error.httpStatus == 404 || error.httpStatus == 405
+                || error.httpStatus == 501) {
+                m_resumeResetMissing.insert(connectionId);
+            }
+        });
+}
+
+void LibraryService::setHomeItemState(const QString &requestKey,
+                                      const QString &field,
+                                      const QString &itemId,
+                                      bool value)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.stateValue = value;
+    if (field == QStringLiteral("watched")) {
+        sendHomeCardWrite(
+            requestKey,
+            value ? QStringLiteral("markItemPlayed") : QStringLiteral("markItemUnplayed"),
+            ProviderCatalogOperation::SetWatched, query,
+            [this, itemId, value]() { emit itemPlayedStatusChanged(itemId, value); },
+            [this, itemId, value](const NetworkError &error) {
+                emit itemPlayedStatusFailed(itemId, value, error.userMessage);
+            });
+    } else if (field == QStringLiteral("favorite")) {
+        sendHomeCardWrite(
+            requestKey,
+            value ? QStringLiteral("markItemFavorite") : QStringLiteral("markItemUnfavorite"),
+            ProviderCatalogOperation::SetFavorite, query,
+            [this, itemId, value]() { emit favoriteStatusChanged(itemId, value); },
+            [this, itemId, value](const NetworkError &error) {
+                emit favoriteStatusFailed(itemId, value, error.userMessage);
+            });
+    } else if (field == QStringLiteral("inWatchlist")) {
+        sendHomeCardWrite(
+            requestKey, QStringLiteral("setItemWatchlisted"),
+            ProviderCatalogOperation::SetWatchlist, query,
+            [this, itemId, value]() { emit watchlistStatusChanged(itemId, value); },
+            [this, itemId, value](const NetworkError &error) {
+                emit watchlistStatusFailed(itemId, value, error.userMessage);
+            });
+    } else if (field == QStringLiteral("notInterested")) {
+        sendHomeCardWrite(
+            requestKey, QStringLiteral("setItemNotInterested"),
+            ProviderCatalogOperation::SetNotInterested, query,
+            [this, itemId, value]() { emit notInterestedStatusChanged(itemId, value); },
+            [this, itemId, value](const NetworkError &error) {
+                emit notInterestedStatusFailed(itemId, value, error.userMessage);
+            });
+    } else {
+        emit homeCardWriteFinished(activeConnectionId(m_authService), requestKey, false,
+                                   tr("Unknown card state."));
+    }
 }
 
 // ============================================================================

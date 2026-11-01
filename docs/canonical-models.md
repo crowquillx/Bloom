@@ -59,6 +59,10 @@ Existing list/detail/player flows are migrated in reviewable slices. During migr
 
 Providers that know a file's technical summary put it in the item's `mediaSummary` map (`resolution`, `hdr`, `audio`, `audioChannels`, `videoCodec`, `container`, `aspectRatio`, `releaseType`, `edition`, `multiAudio`, `multiSub`), leaving out empty and false values. Items may also carry `advisoryAge`, `originalLanguage`, and `showStatus` (the series lifecycle, separate from `status`). Silo fills these from catalog cards; Jellyfin list responses do not. `Bloom::PosterBadgeLayout` and `Bloom::resolvePosterBadges` (`src/models/PosterBadges.*`) turn them into badges. See [poster badges](poster-badges.md).
 
+## Home card progress stamp
+
+Silo Continue Watching and Up Next cards carry `progressUpdatedAt`, the card's `progress_updated_at` string exactly as the server sent it (absent when the card has none). Hiding a Continue Watching card sends it back, and the server compares it byte for byte with its stored stamp, so it is never reparsed or reformatted. `lastPlayedAt` may hold the same instant but is a display and ordering value. Jellyfin cards have no such field. See [provider compatibility](provider-compatibility.md#catalog-and-conditional-requests).
+
 ## Local extras
 
 A movie's or series' local extras (trailers, featurettes, deleted scenes, ...) are canonical maps described in `src/models/MediaExtras.h`: `media`, `connectionId`, `itemId` (the extra's own playable ID), `parentId`, `name`, `extraKind`, `durationMs`, and, when the provider has a still, `primaryArtwork`/`artwork` (16:9). `extraKind` is one of `trailer`, `teaser`, `featurette`, `clip`, `behindTheScenes`, `bloopers`, `deletedScene`, `interview`, `scene`, `short`, `other`. Only local files are extras; remote (YouTube) trailers are never mapped.
