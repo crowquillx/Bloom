@@ -15,15 +15,15 @@ Overview
 
 Configuration
 - Seerr: `Settings > Third Party`, `Seerr URL` (example: `http://localhost:5055`) and `Seerr API Key` (sent as `X-Api-Key`).
-- Silo: nothing to configure in Bloom. An administrator enables requests and sets who may request in Silo. Bloom reads `GET /api/v2/requests/status` for the selected profile and offers requests only when `requests_enabled`, `allowed`, and `state: available` all hold. The same document says whether following (`follow_supported`) and watchlist titles (`watchlist_titles_supported`, `watchlist_requests`) are on. Bloom reads it again after sign-in, a connection or profile switch, and whenever Discover opens.
+- Silo: nothing to configure in Bloom. An administrator enables requests and sets who may request in Silo. Bloom reads `GET /api/v2/requests/status` for the selected profile and offers requests only when `requests_enabled`, `allowed`, and `state: available` all hold. The same document says whether following (`follow_supported`) and watchlist titles (`watchlist_titles_supported`, `watchlist_requests`) are on, and whether Discover follows an admin-defined layout (`discover_rows_supported`). Bloom reads it again after sign-in, a connection or profile switch, and whenever Discover opens.
 
 What each backend offers
 
 | | Seerr | Silo |
 | --- | --- | --- |
 | Search, similar titles, request dialog | yes | yes |
-| Discover rows | Trending, Popular Movies, Upcoming Movies, Popular Shows, Upcoming Shows | the server's rows (trending, popular, upcoming, on the air) |
-| Browse | genres | genres, studios, networks |
+| Discover rows | Trending, Popular Movies, Upcoming Movies, Popular Shows, Upcoming Shows | the server's rows: the admin's layout (built-in, chart, discover, and list rows, in any order) when the server has one, else trending, popular, upcoming, and on the air |
+| Browse | genres | genres, studios, networks (where the admin's layout places them) |
 | Request list | the server's 20 most recent requests ("Recent Requests"; the API key sees every user) | the profile's requests ("My Requests") |
 | Withdraw a request | pending requests | pending or approved requests |
 | Notify me when available | no | when someone else requested the title |
@@ -32,6 +32,7 @@ What each backend offers
 Routing (`MediaRequestService`)
 - `src/network/MediaRequestService.{h,cpp}` is the QML context property `MediaRequests`. QML never calls `SeerrService` directly.
 - Properties: `available`, `backend` (`seerr`, `silo`, or empty), `backendName` (`Seerr`, or the Silo server's name), `discoverAvailable`, and the Silo-only `followSupported`, `watchlistTitlesSupported`, `watchlistRequests`.
+- `discoverLoaded` rows are title rows `{key, title, items, page, nextPage, hasMore}`. When Silo advertises `discover_rows_supported`, they come in the layout's `row_order` under its titles, and brand rows `{key, title, browseKind}` (`genre`, `studio`, or `network`) stand where the layout puts genres, studios, or networks. Otherwise no brand rows are sent.
 - Methods: `search`, `getSimilar`, `prepareRequest`, `createRequest`, `loadDiscover`, `loadDiscoverRow`, `loadBrowseCategories`, `browse` with `browseKey`, `loadMyRequests`, `cancelRequest`, `setFollowing`, `setWatchlisted`, `refreshAvailability`, and `statusLabel`.
 - Silo calls run through `LibraryService::sendMediaRequestOperation`, which uses the active provider's catalog boundary and shared transport. A response for a connection, account, or profile that is no longer active is dropped. `MediaRequestService` then reports the work as abandoned (an empty search, a `*Failed` signal, or an `errorOccurred`), so no loading state stays stuck.
 - Seerr's Discover loads its five rows in parallel and answers once with the rows that returned titles, in a fixed order. Each Seerr call has a 20-second transfer timeout.
@@ -61,7 +62,8 @@ Request dialog (`src/ui/MediaRequestDialog.qml`)
 
 Discover (`src/ui/DiscoverScreen.qml`) and Browse (`src/ui/BrowseScreen.qml`)
 - Discover, top to bottom: the request list, the discovery rows, then Genres, Studios, and Networks as landscape cards (with the category logo when Silo has one).
-- Each discovery row loads its next page when focus comes within six cards of its end. Silo's `next_page` wins over `page + 1` when rating backfill consumed several provider pages. Repeated titles are skipped; a page of nothing new loads the next one at once, up to three in a row, and a page number that does not advance ends the row. Browse pages the same way.
+- A Silo server with an admin-defined layout (`discover_rows_supported`) decides the rows below the request list instead: its rows in its order and under its titles, including rows an admin added (TMDB charts and discover queries, TMDB and MDBList lists). A brand row (studios, networks, genres) shows that browse category's cards at its place, and a category the layout leaves out is not shown. Row types Bloom does not know are skipped, and a title row with no titles is left out.
+- Each discovery row loads its next page when focus comes within six cards of its end. Silo's `next_page` wins over `page + 1` when rating backfill consumed several provider pages. Silo trims a layout row to its limit on the Discover page and drops its cursor; a first page shorter than a full page (20) with more pages behind it therefore continues at page 1, and the repeated titles are skipped. Repeated titles are skipped; a page of nothing new loads the next one at once, up to three in a row, and a page number that does not advance ends the row. Browse pages the same way.
 - The request list shows one card per request, so several requests for one title (different seasons, or other Seerr users) stay separate.
 - A title already in the library opens its details page; any other title opens the request dialog. Requests made or withdrawn update card statuses in place and reload the request list.
 - A category card opens Browse: a poster grid with Movies/Shows (when the category has both) and Popular, Top Rated, and Newest. Seerr's Top Rated needs at least 200 votes, and Newest stops at today's date. The grid loads the next page when focus is within two rows of the end or the pointer scrolls near it.
@@ -83,7 +85,7 @@ Silo API endpoints (all profile scoped; see [provider compatibility](provider-co
 - Search: `GET /api/v2/requests/search?q=...&page=...`
 - Title detail, seasons, follow and watchlist state, and recommendations (used for similar titles): `GET /api/v2/requests/detail/{media_type}/{tmdb_id}`
 - Request submit: `POST /api/v2/requests` with `media_type` (`movie` or `series`), `tmdb_id`, `title`, the optional `year`, `overview`, `poster_path`, `backdrop_path`, and `seasons` only when chosen. Never retried.
-- Discover: `GET /api/v2/requests/discover`, `GET /api/v2/requests/discover/{section}?page=...`
+- Discover: `GET /api/v2/requests/discover`; later pages of a built-in row through `GET /api/v2/requests/discover/{section}?page=...`, of any other title row through `GET /api/v2/requests/discover/rows/{row_id}?page=...`
 - Browse: `GET /api/v2/requests/discover/{genres|studios|networks}`, `GET /api/v2/requests/discover/browse/{genre|studio|network}/{slug}?media_type=...&sort=...&page=...` (`media_type` for genres only)
 - Request list: `GET /api/v2/requests/mine?limit=50`
 - Withdraw: `POST /api/v2/requests/{id}/cancel` with `{}`. Never retried.
@@ -97,4 +99,4 @@ Code map
 - `src/providers/silo/SiloMediaRequestMapper.{h,cpp}`: Silo wire bodies, discovery items, requests, and browse categories.
 - `src/network/LibraryService.{h,cpp}`: `supportsMediaRequests` and `sendMediaRequestOperation`.
 - `src/ui/SearchScreen.qml`, `src/ui/SeriesDetailsView.qml`, `src/viewmodels/UpNextRecommendationsViewModel.{h,cpp}` with `src/ui/UpNextScreen.qml`, `src/ui/DiscoverScreen.qml`, `src/ui/BrowseScreen.qml`, `src/ui/DiscoveryCard.qml`, `src/ui/DiscoveryListModel.qml`, `src/ui/MediaRequestDialog.qml`.
-- Tests: `tests/MediaRequestServiceTest.cpp` (Silo routes and mapping, Seerr priority, browse categories, request list and withdrawal, follow and watchlist gating, abandoned work), `tests/UpNextRecommendationsViewModelTest.cpp`.
+- Tests: `tests/MediaRequestServiceTest.cpp` (Silo routes and mapping, the admin Discover layout and its row paging, Seerr priority, browse categories, request list and withdrawal, follow and watchlist gating, abandoned work), `tests/UpNextRecommendationsViewModelTest.cpp`.

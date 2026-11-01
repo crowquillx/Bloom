@@ -263,10 +263,16 @@ private:
         case ProviderCatalogOperation::MediaRequestDiscover:
             return get(QStringLiteral("/api/v2/requests/discover"));
         case ProviderCatalogOperation::MediaRequestDiscoverSection: {
-            if (!SiloMediaRequestMapper::isDiscoverSectionKey(query.sectionKey)) {
+            // Built-in rows keep their section route; rows an admin added
+            // page only through getDiscoverRow.
+            QString endpoint;
+            if (SiloMediaRequestMapper::isBuiltInDiscoverRowKey(query.sectionKey)) {
+                endpoint = QStringLiteral("/api/v2/requests/discover/%1").arg(query.sectionKey);
+            } else if (SiloMediaRequestMapper::isDiscoverRowKey(query.sectionKey)) {
+                endpoint = QStringLiteral("/api/v2/requests/discover/rows/%1").arg(query.sectionKey);
+            } else {
                 return unsupported(QStringLiteral("Unknown Silo discovery row"));
             }
-            QString endpoint = QStringLiteral("/api/v2/requests/discover/%1").arg(query.sectionKey);
             if (query.page > 1) {
                 endpoint += QStringLiteral("?page=%1").arg(query.page);
             }

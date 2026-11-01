@@ -1,6 +1,8 @@
 #include "SiloMediaRequestMapper.h"
 
+#include <QHash>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QSet>
 
 namespace {
@@ -73,6 +75,24 @@ QVariantMap season(const QJsonObject &wireSeason)
     };
 }
 
+// Titles in one page of a Silo row (discoverrows.PageSize, TMDB's page).
+constexpr int kRowPageSize = 20;
+
+// Bloom's kind for a row_order entry: "titles" for a title row, the browse
+// kind for a brand row, empty for a type Bloom does not know (the contract
+// tells clients to skip those).
+QString layoutRowKind(const QString &wireType)
+{
+    if (wireType == QStringLiteral("tmdb_chart") || wireType == QStringLiteral("tmdb_discover")
+        || wireType == QStringLiteral("tmdb_list") || wireType == QStringLiteral("mdblist")) {
+        return QStringLiteral("titles");
+    }
+    if (wireType == QStringLiteral("genres")) return QStringLiteral("genre");
+    if (wireType == QStringLiteral("studios")) return QStringLiteral("studio");
+    if (wireType == QStringLiteral("networks")) return QStringLiteral("network");
+    return {};
+}
+
 QJsonObject objectBody(const QByteArray &body, bool *ok)
 {
     const QJsonDocument document = QJsonDocument::fromJson(body);
@@ -82,7 +102,7 @@ QJsonObject objectBody(const QByteArray &body, bool *ok)
 
 } // namespace
 
-bool SiloMediaRequestMapper::isDiscoverSectionKey(const QString &key)
+bool SiloMediaRequestMapper::isBuiltInDiscoverRowKey(const QString &key)
 {
     static const QSet<QString> kKeys{
         QStringLiteral("trending_movies"), QStringLiteral("trending_series"),
@@ -90,6 +110,15 @@ bool SiloMediaRequestMapper::isDiscoverSectionKey(const QString &key)
         QStringLiteral("upcoming_movies"), QStringLiteral("on_air_series"),
     };
     return kKeys.contains(key);
+}
+
+bool SiloMediaRequestMapper::isDiscoverRowKey(const QString &key)
+{
+    // getDiscoverRow's row_id pattern, ^[a-z0-9_]{1,40}$. Brand rows have no
+    // pages of their own.
+    static const QRegularExpression kPattern(QStringLiteral("^[a-z0-9_]{1,40}$"));
+    return kPattern.match(key).hasMatch() && key != QStringLiteral("genres")
+        && key != QStringLiteral("studios") && key != QStringLiteral("networks");
 }
 
 QString SiloMediaRequestMapper::browseListName(const QString &browseKind)
@@ -185,6 +214,9 @@ QVariantMap SiloMediaRequestMapper::features(const QJsonObject &wireStatus)
         // Adding a missing title to the watchlist also requests it.
         {QStringLiteral("watchlistRequests"),
          wireStatus.value(QStringLiteral("watchlist_requests")).toBool()},
+        // Discover follows the admin's layout (row_order).
+        {QStringLiteral("discoverRowsSupported"),
+         wireStatus.value(QStringLiteral("discover_rows_supported")).toBool()},
     };
 }
 
@@ -360,21 +392,76 @@ QVariantMap SiloMediaRequestMapper::browseCategory(const QJsonObject &wireBrand)
     };
 }
 
-QVariantMap SiloMediaRequestMapper::discoverRow(const QJsonObject &wireSection)
+QVariantMap SiloMediaRequestMapper::discoverRow(const QJsonObject &wireSection, bool fromLayout)
 {
     const int page = qMax(1, wireSection.value(QStringLiteral("page")).toInt(1));
     const int totalPages = wireSection.value(QStringLiteral("total_pages")).toInt();
+    const QJsonArray wireResults = wireSection.value(QStringLiteral("results")).toArray();
     // Rating backfill can consume several provider pages; next_page then
     // says where to continue.
-    const int nextPage = wireSection.value(QStringLiteral("next_page")).toInt(page + 1);
+    int nextPage = wireSection.value(QStringLiteral("next_page")).toInt(page + 1);
+    // A layout row trimmed to its limit loses its cursor, and the rest of
+    // its first page is only reachable by reading page 1 again. A short first
+    // page without a cursor is such a row.
+    if (fromLayout && page == 1 && !wireSection.contains(QStringLiteral("next_page"))
+        && wireResults.size() < kRowPageSize && totalPages > 1) {
+        nextPage = 1;
+    }
     return {
         {QStringLiteral("key"), wireSection.value(QStringLiteral("key")).toString()},
         {QStringLiteral("title"), wireSection.value(QStringLiteral("title")).toString()},
-        {QStringLiteral("items"), results(wireSection.value(QStringLiteral("results")).toArray())},
+        {QStringLiteral("items"), results(wireResults)},
         {QStringLiteral("page"), page},
         {QStringLiteral("nextPage"), nextPage},
         {QStringLiteral("hasMore"), nextPage <= totalPages},
     };
+}
+
+QVariantList SiloMediaRequestMapper::layoutRows(const QJsonArray &wireRowOrder,
+                                               const QJsonArray &wireSections)
+{
+    QHash<QString, QJsonObject> sections;
+    for (const QJsonValue &value : wireSections) {
+        const QJsonObject section = value.toObject();
+        sections.insert(section.value(QStringLiteral("key")).toString(), section);
+    }
+
+    QVariantList rows;
+    QSet<QString> placed;
+    for (const QJsonValue &value : wireRowOrder) {
+        const QJsonObject ref = value.toObject();
+        const QString key = ref.value(QStringLiteral("key")).toString();
+        const QString kind = layoutRowKind(ref.value(QStringLiteral("type")).toString());
+        const QString title = ref.value(QStringLiteral("title")).toString();
+        if (key.isEmpty() || kind.isEmpty() || placed.contains(key)) {
+            continue;
+        }
+        if (kind != QStringLiteral("titles")) {
+            // The cards come from the matching brand list.
+            placed.insert(key);
+            rows.append(QVariantMap{
+                {QStringLiteral("key"), key},
+                {QStringLiteral("title"), title},
+                {QStringLiteral("browseKind"), kind},
+            });
+            continue;
+        }
+        // A title row with no titles stays in row_order but not in items.
+        const auto section = sections.constFind(key);
+        if (section == sections.constEnd()) {
+            continue;
+        }
+        QVariantMap row = discoverRow(*section, true);
+        if (row.value(QStringLiteral("items")).toList().isEmpty()) {
+            continue;
+        }
+        if (!title.isEmpty()) {
+            row.insert(QStringLiteral("title"), title);
+        }
+        placed.insert(key);
+        rows.append(row);
+    }
+    return rows;
 }
 
 ProviderCatalogResponse SiloMediaRequestMapper::parseResponse(ProviderCatalogOperation operation,
@@ -430,6 +517,13 @@ ProviderCatalogResponse SiloMediaRequestMapper::parseResponse(ProviderCatalogOpe
         }
         response.valid = object.value(QStringLiteral("items")).isArray();
         response.capabilityMetadata.insert(QStringLiteral("rows"), rows);
+        // Servers that follow an admin layout list every row in row_order.
+        const QJsonValue rowOrder = object.value(QStringLiteral("row_order"));
+        if (rowOrder.isArray()) {
+            response.capabilityMetadata.insert(
+                QStringLiteral("layoutRows"),
+                layoutRows(rowOrder.toArray(), object.value(QStringLiteral("items")).toArray()));
+        }
         break;
     }
     case ProviderCatalogOperation::MediaRequestDiscoverSection:

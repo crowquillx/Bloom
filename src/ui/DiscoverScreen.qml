@@ -11,8 +11,10 @@ import BloomUI
  * (docs/seerr.md).
  *
  * Top to bottom: the request list (the profile's own on Silo, the server's
- * recent ones on Seerr), the discovery rows (trending, popular, upcoming),
- * then genres, studios and networks to browse. Only shown while
+ * recent ones on Seerr), then the discovery rows (trending, popular,
+ * upcoming) followed by genres, studios and networks to browse. A Silo
+ * server with an admin-defined layout orders the rows itself and places the
+ * browse rows among them. Only shown while
  * MediaRequests.discoverAvailable. A title already in the library opens its
  * details page; any other title opens the request dialog. Each discovery row
  * loads its next page as focus nears its end; a browse card opens
@@ -32,12 +34,29 @@ FocusScope {
     // Properties
     // ========================================
 
-    /// Rows as delivered: {key, title, items, page, nextPage, hasMore}.
+    /// Rows as delivered: title rows {key, title, items, page, nextPage,
+    /// hasMore} and, when Silo follows an admin layout, brand rows
+    /// {key, title, browseKind}.
     property var rows: []
     property bool loading: false
     property string loadError: ""
     /// Groups of {kind, title, items} to browse.
     property var browseGroups: []
+    /// Shelves in page order. Brand rows draw their browse group's cards;
+    /// without any from the server, every group follows the title rows.
+    /// Browse groups arriving later fill brand rows in place, so loaded
+    /// pages and focus survive.
+    readonly property var sections: {
+        for (var i = 0; i < rows.length; ++i) {
+            if (rows[i].browseKind)
+                return rows
+        }
+        return rows.concat([
+            { key: "browse:genre", browseKind: "genre" },
+            { key: "browse:studio", browseKind: "studio" },
+            { key: "browse:network", browseKind: "network" }
+        ])
+    }
     readonly property bool available: MediaRequests.discoverAvailable
 
     /// The shelf (or state action) that last held focus.
@@ -97,6 +116,14 @@ FocusScope {
         requestDialog.openForItem(item, list)
     }
 
+    function browseGroupFor(kind) {
+        for (var i = 0; i < browseGroups.length; ++i) {
+            if (browseGroups[i].kind === kind)
+                return browseGroups[i]
+        }
+        return null
+    }
+
     function showBackdropFor(item) {
         pendingStageSource = item ? (item.backdropUrl || "") : ""
         stageDebounce.restart()
@@ -118,13 +145,10 @@ FocusScope {
         var lists = []
         if (requestsSection.visible && requestsList.count > 0)
             lists.push(requestsList)
-        for (var r = 0; r < 2; ++r) {
-            var repeater = r === 0 ? rowRepeater : browseRepeater
-            for (var i = 0; i < repeater.count; ++i) {
-                var section = repeater.itemAt(i)
-                if (section && section.visible && section["shelf"].count > 0)
-                    lists.push(section["shelf"])
-            }
+        for (var i = 0; i < sectionRepeater.count; ++i) {
+            var section = sectionRepeater.itemAt(i)
+            if (section && section.visible && section["shelf"].count > 0)
+                lists.push(section["shelf"])
         }
         return lists
     }
@@ -445,8 +469,8 @@ FocusScope {
             }
 
             Repeater {
-                id: rowRepeater
-                model: root.rows
+                id: sectionRepeater
+                model: root.sections
 
                 delegate: ColumnLayout {
                     id: rowSection
@@ -454,7 +478,12 @@ FocusScope {
                     required property int index
 
                     readonly property string rowKey: modelData.key || ""
-                    property alias shelf: rowList
+                    /// A brand row: "genre", "studio", or "network".
+                    readonly property string browseKind: modelData.browseKind || ""
+                    readonly property bool isBrowse: browseKind !== ""
+                    readonly property var browseGroup: isBrowse ? root.browseGroupFor(browseKind) : null
+                    readonly property var categories: browseGroup ? (browseGroup.items || []) : []
+                    readonly property Item shelf: isBrowse ? browseList : rowList
                     property int nextPage: modelData.nextPage || 0
                     property bool hasMore: !!modelData.hasMore
                     property int loadingPage: 0
@@ -464,10 +493,10 @@ FocusScope {
                     Layout.fillWidth: true
                     Layout.topMargin: Theme.sectionSpacing
                     spacing: Theme.sectionTitleSpacing
-                    visible: rowItems.count > 0
+                    visible: isBrowse ? categories.length > 0 : rowItems.count > 0
 
                     function loadMoreIfNear(index) {
-                        if (!hasMore || loadingPage > 0 || nextPage < 1)
+                        if (isBrowse || !hasMore || loadingPage > 0 || nextPage < 1)
                             return
                         if (index >= rowItems.count - root.loadAheadCards) {
                             loadingPage = nextPage
@@ -479,10 +508,14 @@ FocusScope {
                         id: rowItems
                     }
 
-                    Component.onCompleted: rowItems.appendItems(modelData.items || [])
+                    Component.onCompleted: {
+                        if (!isBrowse)
+                            rowItems.appendItems(modelData.items || [])
+                    }
 
                     Connections {
                         target: MediaRequests
+                        enabled: !rowSection.isBrowse
 
                         function onDiscoverRowLoaded(key, page, row) {
                             if (key !== rowSection.rowKey || page !== rowSection.loadingPage)
@@ -522,7 +555,9 @@ FocusScope {
                     }
 
                     SectionHeader {
-                        text: rowSection.modelData.title || ""
+                        // A layout's own title, else the browse group's.
+                        text: rowSection.modelData.title
+                              || (rowSection.browseGroup ? rowSection.browseGroup.title || "" : "")
                         Layout.leftMargin: Theme.pageMarginX
                         Layout.rightMargin: Theme.pageMarginX
                         Layout.fillWidth: true
@@ -532,6 +567,7 @@ FocusScope {
 
                     ShelfList {
                         id: rowList
+                        visible: !rowSection.isBrowse
                         Layout.fillWidth: true
                         Layout.preferredHeight: implicitHeight
                         model: rowItems
@@ -570,41 +606,14 @@ FocusScope {
                             }
                         }
                     }
-                }
-            }
-
-            Repeater {
-                id: browseRepeater
-                model: root.browseGroups
-
-                delegate: ColumnLayout {
-                    id: browseSection
-                    required property var modelData
-                    required property int index
-
-                    readonly property var categories: modelData.items || []
-                    property alias shelf: browseList
-
-                    Layout.fillWidth: true
-                    Layout.topMargin: Theme.sectionSpacing
-                    spacing: Theme.sectionTitleSpacing
-                    visible: categories.length > 0
-
-                    SectionHeader {
-                        text: browseSection.modelData.title || ""
-                        Layout.leftMargin: Theme.pageMarginX
-                        Layout.rightMargin: Theme.pageMarginX
-                        Layout.fillWidth: true
-                        Accessible.role: Accessible.Heading
-                        Accessible.name: text
-                    }
 
                     ShelfList {
                         id: browseList
+                        visible: rowSection.isBrowse
                         Layout.fillWidth: true
                         Layout.preferredHeight: implicitHeight
                         cardHeight: Math.round(Theme.landscapeCardWidth * 9 / 16)
-                        model: browseSection.categories
+                        model: rowSection.categories
 
                         delegate: MediaCard {
                             id: categoryCard
@@ -630,19 +639,19 @@ FocusScope {
                         Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(browseList, -1) }
                         Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(browseList, 1) }
                         Keys.onReturnPressed: function(event) {
-                            if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < browseSection.categories.length)
-                                root.browseRequested(browseSection.categories[currentIndex])
+                            if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < rowSection.categories.length)
+                                root.browseRequested(rowSection.categories[currentIndex])
                             event.accepted = true
                         }
                         Keys.onEnterPressed: function(event) {
-                            if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < browseSection.categories.length)
-                                root.browseRequested(browseSection.categories[currentIndex])
+                            if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < rowSection.categories.length)
+                                root.browseRequested(rowSection.categories[currentIndex])
                             event.accepted = true
                         }
                         onActiveFocusChanged: {
                             if (activeFocus) {
                                 root.lastFocusTarget = browseList
-                                root.scrollToSection(browseSection)
+                                root.scrollToSection(rowSection)
                             }
                         }
                     }

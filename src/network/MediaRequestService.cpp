@@ -654,9 +654,15 @@ void MediaRequestService::loadDiscover()
     m_libraryService->sendMediaRequestOperation(
         ProviderCatalogOperation::MediaRequestDiscover, {},
         [this, token](const QVariantMap &result) {
-            if (finish(token)) {
-                emit discoverLoaded(result.value(QStringLiteral("rows")).toList());
+            if (!finish(token)) {
+                return;
             }
+            // A server that follows an admin layout orders the rows and adds
+            // brand rows; older servers keep the built-in rows.
+            const bool layout = siloFeature("discoverRowsSupported")
+                && result.contains(QStringLiteral("layoutRows"));
+            emit discoverLoaded(
+                result.value(layout ? QStringLiteral("layoutRows") : QStringLiteral("rows")).toList());
         },
         [this, token](const QString &error) {
             if (finish(token)) {
