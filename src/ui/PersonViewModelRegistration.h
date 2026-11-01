@@ -15,3 +15,11 @@ struct PersonViewModelRegistration
     QML_FOREIGN(PersonViewModel)
     QML_NAMED_ELEMENT(PersonViewModel)
 };
+
+/// The per-shelf title models PersonViewModel exposes (not creatable).
+struct PersonTitlesModelRegistration
+{
+    Q_GADGET
+    QML_FOREIGN(PersonTitlesModel)
+    QML_ANONYMOUS
+};

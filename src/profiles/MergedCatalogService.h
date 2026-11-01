@@ -3,6 +3,7 @@
 #include "profiles/MergedCatalogPolicy.h"
 #include "providers/ICatalogProvider.h"
 
+#include <QDeadlineTimer>
 #include <QHash>
 #include <QList>
 #include <QObject>
@@ -172,8 +173,12 @@ private:
     /// Libraries of unsupported types per member, from the last views fan-out.
     QHash<QString, QStringList> m_unsupportedLibraryIds;
     /// Per member, whether its people search can be limited to movie and
-    /// series credits, once read.
+    /// series credits, once read; cleared with the epoch.
     QHash<QString, bool> m_peopleSearchScoped;
+    /// Per member, until when a failed capability read is not repeated (its
+    /// people search adds no people meanwhile).
+    QHash<QString, QDeadlineTimer> m_peopleSearchCapabilityRetry;
+    static constexpr int PeopleSearchCapabilityRetryMs = 5 * 60 * 1000;
     bool m_viewsLoading = false;
     quint64 m_epoch = 0;
     // Newest Next Up fan-out; an older one must not publish after it.

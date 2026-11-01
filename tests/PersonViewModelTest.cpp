@@ -112,6 +112,8 @@ private slots:
     void failedLaterPageKeepsTitlesAndRetries();
     void staleAnswersAreIgnored();
     void personOfAnotherSourceIsRefused();
+    void shelvesOnlyGrowByInserts();
+    void requestKeysAreUniqueAcrossPages();
 };
 
 void PersonViewModelTest::loadShowsTheSeedThenDetailsAndFirstPage()
@@ -171,8 +173,8 @@ void PersonViewModelTest::filmographyKeepsOnlyMoviesAndSeriesOnce()
     }, false);
 
     QCOMPARE(model.rowCount(), 2);
-    QCOMPARE(itemIds(model.movies()), QStringList{QStringLiteral("m1")});
-    QCOMPARE(itemIds(model.series()), QStringList{QStringLiteral("s1")});
+    QCOMPARE(itemIds(model.movies()->items()), QStringList{QStringLiteral("m1")});
+    QCOMPARE(itemIds(model.series()->items()), QStringList{QStringLiteral("s1")});
 }
 
 void PersonViewModelTest::pagingContinuesFromServerCountAndCursor()
@@ -208,8 +210,8 @@ void PersonViewModelTest::pagingContinuesFromServerCountAndCursor()
                         title(QStringLiteral("m2"), QStringLiteral("Movie"))},
                        true, QStringLiteral("cursor-3"));
     QVERIFY(!model.loadingMore());
-    QCOMPARE(itemIds(model.movies()), (QStringList{QStringLiteral("m1"), QStringLiteral("m2")}));
-    QCOMPARE(itemIds(model.series()), QStringList{QStringLiteral("s1")});
+    QCOMPARE(itemIds(model.movies()->items()), (QStringList{QStringLiteral("m1"), QStringLiteral("m2")}));
+    QCOMPARE(itemIds(model.series()->items()), QStringList{QStringLiteral("s1")});
     // Appended, never reset.
     QCOMPARE(rowsInserted.count(), 2);
 
@@ -314,7 +316,7 @@ void PersonViewModelTest::staleAnswersAreIgnored()
     QVERIFY(model.isLoading());
 
     service.answerPage({title(QStringLiteral("m2"), QStringLiteral("Movie"))}, false);
-    QCOMPARE(itemIds(model.movies()), QStringList{QStringLiteral("m2")});
+    QCOMPARE(itemIds(model.movies()->items()), QStringList{QStringLiteral("m2")});
 }
 
 void PersonViewModelTest::personOfAnotherSourceIsRefused()
@@ -332,6 +334,76 @@ void PersonViewModelTest::personOfAnotherSourceIsRefused()
     model.load({});
     QVERIFY(service.pageRequests.isEmpty());
     QVERIFY(model.hasError());
+}
+
+// Later pages insert rows into each shelf, so a focused card keeps its place.
+void PersonViewModelTest::shelvesOnlyGrowByInserts()
+{
+    ScriptedLibraryService service;
+    PersonViewModel model(&service);
+    PersonTitlesModel *movies = model.movies();
+    PersonTitlesModel *series = model.series();
+    QVERIFY(movies);
+    QVERIFY(series);
+    model.load(credit());
+
+    QSignalSpy movieInserts(movies, &QAbstractItemModel::rowsInserted);
+    QSignalSpy movieResets(movies, &QAbstractItemModel::modelReset);
+    QSignalSpy movieRemovals(movies, &QAbstractItemModel::rowsRemoved);
+    QSignalSpy seriesInserts(series, &QAbstractItemModel::rowsInserted);
+    QSignalSpy seriesResets(series, &QAbstractItemModel::modelReset);
+
+    service.answerPage({title(QStringLiteral("m1"), QStringLiteral("Movie")),
+                        title(QStringLiteral("s1"), QStringLiteral("Series"))},
+                       true, QStringLiteral("cursor-2"));
+    model.loadMore();
+    service.answerPage({title(QStringLiteral("m2"), QStringLiteral("Movie")),
+                        title(QStringLiteral("m3"), QStringLiteral("Movie"))},
+                       true, QStringLiteral("cursor-3"));
+    model.loadMore();
+    // A page with no new movies leaves the movie shelf alone.
+    service.answerPage({title(QStringLiteral("m1"), QStringLiteral("Movie")),
+                        title(QStringLiteral("s2"), QStringLiteral("Series"))},
+                       false);
+
+    QCOMPARE(movieResets.count(), 0);
+    QCOMPARE(movieRemovals.count(), 0);
+    QCOMPARE(seriesResets.count(), 0);
+    QCOMPARE(movieInserts.count(), 2);
+    QCOMPARE(movieInserts.at(1).at(1).toInt(), 1);
+    QCOMPARE(movieInserts.at(1).at(2).toInt(), 2);
+    QCOMPARE(seriesInserts.count(), 2);
+    QCOMPARE(movies->count(), 3);
+    QCOMPARE(series->count(), 2);
+    QCOMPARE(movies->get(2).value(QStringLiteral("itemId")).toString(), QStringLiteral("m3"));
+    QCOMPARE(movies->data(movies->index(0), PersonTitlesModel::ItemIdRole).toString(),
+             QStringLiteral("m1"));
+    QVERIFY(movies->get(3).isEmpty());
+
+    // Another person starts over.
+    model.load(credit(QStringLiteral("person-2")));
+    QCOMPARE(movieResets.count(), 1);
+    QCOMPARE(movies->count(), 0);
+    QCOMPARE(series->count(), 0);
+}
+
+// Every PersonViewModel answers on LibraryService's one signal, so two pages
+// showing the same person must not take each other's pages.
+void PersonViewModelTest::requestKeysAreUniqueAcrossPages()
+{
+    ScriptedLibraryService service;
+    PersonViewModel first(&service);
+    PersonViewModel second(&service);
+    first.load(credit());
+    second.load(credit());
+    QCOMPARE(service.pageRequests.size(), 2);
+    QVERIFY(service.pageRequests.at(0).requestKey != service.pageRequests.at(1).requestKey);
+
+    // The second page's answer reaches only the second page.
+    service.answerPage({title(QStringLiteral("m1"), QStringLiteral("Movie"))}, false);
+    QCOMPARE(first.rowCount(), 0);
+    QVERIFY(first.isLoading());
+    QCOMPARE(second.rowCount(), 1);
 }
 
 QTEST_MAIN(PersonViewModelTest)

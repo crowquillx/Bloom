@@ -6,23 +6,95 @@
 
 namespace {
 
-QString mediaTypeOf(const QVariant &item)
+QVariant itemRole(const QVariantMap &item, int role)
 {
-    return item.toMap().value(QStringLiteral("mediaType")).toString();
+    switch (role) {
+    case PersonTitlesModel::ItemDataRole:
+        return item;
+    case PersonTitlesModel::ItemIdRole:
+        return item.value(QStringLiteral("itemId"));
+    case PersonTitlesModel::MediaTypeRole:
+        return item.value(QStringLiteral("mediaType"));
+    case PersonTitlesModel::NameRole:
+        return item.value(QStringLiteral("name"));
+    default:
+        return {};
+    }
 }
 
-QVariantList itemsOfType(const QVariantList &items, const QString &mediaType)
+QHash<int, QByteArray> itemRoleNames()
 {
-    QVariantList result;
-    for (const QVariant &item : items) {
-        if (mediaTypeOf(item) == mediaType) {
-            result.append(item);
-        }
-    }
-    return result;
+    return {
+        {PersonTitlesModel::ItemDataRole, "itemData"},
+        {PersonTitlesModel::ItemIdRole, "itemId"},
+        {PersonTitlesModel::MediaTypeRole, "mediaType"},
+        {PersonTitlesModel::NameRole, "name"}
+    };
+}
+
+// Distinguishes the page requests of every PersonViewModel: LibraryService
+// answers all of them on the same signal.
+quint64 nextPageRequestId()
+{
+    static quint64 counter = 0;
+    return ++counter;
 }
 
 } // namespace
+
+PersonTitlesModel::PersonTitlesModel(QObject *parent)
+    : QAbstractListModel(parent)
+{
+}
+
+int PersonTitlesModel::rowCount(const QModelIndex &parent) const
+{
+    return parent.isValid() ? 0 : count();
+}
+
+QVariant PersonTitlesModel::data(const QModelIndex &index, int role) const
+{
+    if (!index.isValid() || index.row() < 0 || index.row() >= m_items.size()) {
+        return {};
+    }
+    return itemRole(m_items.at(index.row()).toMap(), role);
+}
+
+QHash<int, QByteArray> PersonTitlesModel::roleNames() const
+{
+    return itemRoleNames();
+}
+
+QVariantMap PersonTitlesModel::get(int row) const
+{
+    if (row < 0 || row >= m_items.size()) {
+        return {};
+    }
+    return m_items.at(row).toMap();
+}
+
+void PersonTitlesModel::append(const QVariantList &items)
+{
+    if (items.isEmpty()) {
+        return;
+    }
+    const int first = count();
+    beginInsertRows(QModelIndex(), first, first + static_cast<int>(items.size()) - 1);
+    m_items.append(items);
+    endInsertRows();
+    emit countChanged();
+}
+
+void PersonTitlesModel::clear()
+{
+    if (m_items.isEmpty()) {
+        return;
+    }
+    beginResetModel();
+    m_items.clear();
+    endResetModel();
+    emit countChanged();
+}
 
 PersonViewModel::PersonViewModel(QObject *parent)
     : PersonViewModel(ServiceLocator::tryGet<LibraryService>(), parent)
@@ -32,6 +104,8 @@ PersonViewModel::PersonViewModel(QObject *parent)
 PersonViewModel::PersonViewModel(LibraryService *libraryService, QObject *parent)
     : BaseViewModel(parent)
     , m_libraryService(libraryService)
+    , m_movies(new PersonTitlesModel(this))
+    , m_series(new PersonTitlesModel(this))
 {
     connectService();
 }
@@ -62,39 +136,12 @@ QVariant PersonViewModel::data(const QModelIndex &index, int role) const
     if (!index.isValid() || index.row() < 0 || index.row() >= m_items.size()) {
         return {};
     }
-    const QVariantMap item = m_items.at(index.row()).toMap();
-    switch (role) {
-    case ItemDataRole:
-        return item;
-    case ItemIdRole:
-        return item.value(QStringLiteral("itemId"));
-    case MediaTypeRole:
-        return item.value(QStringLiteral("mediaType"));
-    case NameRole:
-        return item.value(QStringLiteral("name"));
-    default:
-        return {};
-    }
+    return itemRole(m_items.at(index.row()).toMap(), role);
 }
 
 QHash<int, QByteArray> PersonViewModel::roleNames() const
 {
-    return {
-        {ItemDataRole, "itemData"},
-        {ItemIdRole, "itemId"},
-        {MediaTypeRole, "mediaType"},
-        {NameRole, "name"}
-    };
-}
-
-QVariantList PersonViewModel::movies() const
-{
-    return itemsOfType(m_items, QStringLiteral("Movie"));
-}
-
-QVariantList PersonViewModel::series() const
-{
-    return itemsOfType(m_items, QStringLiteral("Series"));
+    return itemRoleNames();
 }
 
 void PersonViewModel::load(const QVariantMap &person)
@@ -123,6 +170,8 @@ void PersonViewModel::reload()
     if (!m_items.isEmpty()) {
         emitModelReset([this]() { m_items.clear(); });
     }
+    m_movies->clear();
+    m_series->clear();
     m_itemIds.clear();
     m_hasMore = false;
     m_nextStartIndex = 0;
@@ -165,7 +214,8 @@ void PersonViewModel::loadMore()
 
 void PersonViewModel::requestPage()
 {
-    m_pageRequestKey = QStringLiteral("person:%1").arg(++m_requestSerial);
+    ++m_requestSerial;
+    m_pageRequestKey = QStringLiteral("person:%1").arg(nextPageRequestId());
     // May answer synchronously.
     m_libraryService->getPersonItems(m_personId, m_nextStartIndex, m_nextCursor,
                                      PageSize, m_pageRequestKey);
@@ -233,6 +283,8 @@ void PersonViewModel::onPersonItemsLoaded(const QString &connectionId,
     m_hasMore = hasMore && !items.isEmpty();
 
     QVariantList added;
+    QVariantList addedMovies;
+    QVariantList addedSeries;
     for (const QVariant &value : items) {
         const QVariantMap item = value.toMap();
         const QString mediaType = item.value(QStringLiteral("mediaType")).toString();
@@ -245,6 +297,7 @@ void PersonViewModel::onPersonItemsLoaded(const QString &connectionId,
         }
         m_itemIds.insert(itemId);
         added.append(item);
+        (mediaType == QStringLiteral("Movie") ? addedMovies : addedSeries).append(item);
     }
     if (!added.isEmpty()) {
         const int first = static_cast<int>(m_items.size());
@@ -252,6 +305,8 @@ void PersonViewModel::onPersonItemsLoaded(const QString &connectionId,
         m_items.append(added);
         endInsertRows();
     }
+    m_movies->append(addedMovies);
+    m_series->append(addedSeries);
     emit filmographyChanged();
     updateLoading();
 }

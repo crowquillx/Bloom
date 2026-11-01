@@ -2,12 +2,56 @@
 
 #include "BaseViewModel.h"
 
+#include <QAbstractListModel>
 #include <QSet>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
 
 class LibraryService;
+
+/**
+ * @brief One shelf of a person's filmography (their movies, or their
+ * series). Pages only add rows (`rowsInserted`), so a shelf keeps its
+ * current card and scroll position while more titles load; a new load
+ * resets it.
+ *
+ * Roles: `itemData` (the canonical map), `itemId`, `mediaType`, `name`.
+ */
+class PersonTitlesModel : public QAbstractListModel
+{
+    Q_OBJECT
+    Q_PROPERTY(int count READ count NOTIFY countChanged)
+
+public:
+    enum Roles {
+        ItemDataRole = Qt::UserRole + 1,
+        ItemIdRole,
+        MediaTypeRole,
+        NameRole
+    };
+    Q_ENUM(Roles)
+
+    explicit PersonTitlesModel(QObject *parent = nullptr);
+
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    QHash<int, QByteArray> roleNames() const override;
+
+    int count() const { return static_cast<int>(m_items.size()); }
+    QVariantList items() const { return m_items; }
+    /// The canonical map at `row`, or an empty map.
+    Q_INVOKABLE QVariantMap get(int row) const;
+
+    void append(const QVariantList &items);
+    void clear();
+
+signals:
+    void countChanged();
+
+private:
+    QVariantList m_items;
+};
 
 /**
  * @brief One person's page: who they are and the movies and series they
@@ -24,7 +68,8 @@ class LibraryService;
  *   `birthplace`, `providerIds`).
  * - The list rows are the filmography, newest first: canonical movie and
  *   series maps only (LibraryKinds: every other type is dropped), each item
- *   once. `movies` and `series` split them for the page's shelves.
+ *   once. `movies` and `series` split them into one PersonTitlesModel per
+ *   shelf; later pages only insert rows.
  * - `isLoading` covers the details and the first page. A failed first page
  *   sets `hasError`/`errorMessage`; failed details keep the seed and show
  *   no error. `reload()` starts over.
@@ -38,8 +83,8 @@ class PersonViewModel : public BaseViewModel
     Q_PROPERTY(QString personId READ personId NOTIFY personChanged)
     Q_PROPERTY(QString connectionId READ connectionId NOTIFY personChanged)
     Q_PROPERTY(QVariantMap person READ person NOTIFY personChanged)
-    Q_PROPERTY(QVariantList movies READ movies NOTIFY filmographyChanged)
-    Q_PROPERTY(QVariantList series READ series NOTIFY filmographyChanged)
+    Q_PROPERTY(PersonTitlesModel *movies READ movies CONSTANT)
+    Q_PROPERTY(PersonTitlesModel *series READ series CONSTANT)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY filmographyChanged)
     Q_PROPERTY(bool loadingMore READ loadingMore NOTIFY loadingMoreChanged)
 
@@ -66,8 +111,8 @@ public:
     QString personId() const { return m_personId; }
     QString connectionId() const { return m_connectionId; }
     QVariantMap person() const { return m_person; }
-    QVariantList movies() const;
-    QVariantList series() const;
+    PersonTitlesModel *movies() const { return m_movies; }
+    PersonTitlesModel *series() const { return m_series; }
     bool hasMore() const { return m_hasMore; }
     bool loadingMore() const { return m_loadingMore; }
 
@@ -108,6 +153,8 @@ private:
     QString m_connectionId;
     QVariantList m_items;
     QSet<QString> m_itemIds;
+    PersonTitlesModel *m_movies = nullptr;
+    PersonTitlesModel *m_series = nullptr;
     bool m_detailsPending = false;
     bool m_firstPagePending = false;
     bool m_loadingMore = false;

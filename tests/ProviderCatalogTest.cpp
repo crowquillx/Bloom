@@ -543,6 +543,10 @@ void ProviderCatalogTest::jellyfinPersonRequestsAndMapping()
     QCOMPARE(searchQuery.queryItemValue(QStringLiteral("limit")), QStringLiteral("20"));
     QCOMPARE(searchQuery.queryItemValue(QStringLiteral("enableImages")), QStringLiteral("true"));
     QCOMPARE(searchQuery.queryItemValue(QStringLiteral("userId")), QStringLiteral("user-1"));
+    // GetPersons has no media scope: film and TV credit kinds only, each a
+    // pinned PersonKind value.
+    const QString personTypes = searchQuery.queryItemValue(QStringLiteral("personTypes"));
+    QCOMPARE(personTypes, QStringLiteral("Actor,Director,Writer,Producer,GuestStar"));
     query.searchTerm = QStringLiteral("  ");
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::PersonSearch, query).supported);
     // People search needs no capability read on Jellyfin.

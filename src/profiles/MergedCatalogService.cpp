@@ -188,6 +188,9 @@ void MergedCatalogService::rebuildMembers()
     m_sourceStates.clear();
     m_views.clear();
     m_viewsLoading = false;
+    // A member may now be another server version or account.
+    m_peopleSearchScoped.clear();
+    m_peopleSearchCapabilityRetry.clear();
 
     const bool wasActive = isActive();
     m_members = next;
@@ -449,12 +452,21 @@ void MergedCatalogService::requestMemberPeople(const Member &member,
         }
         return;
     }
+    const auto retry = m_peopleSearchCapabilityRetry.constFind(member.connectionId);
+    if (retry != m_peopleSearchCapabilityRetry.constEnd() && !retry.value().hasExpired()) {
+        unscoped();
+        return;
+    }
+    m_peopleSearchCapabilityRetry.remove(member.connectionId);
+    // sendMemberRequest drops answers from an older epoch.
     sendMemberRequest(member, ProviderCatalogOperation::PersonSearchCapability,
                       ProviderCatalogQuery{}, false, false,
                       [this, member, completion, search, unscoped](
                           const ProviderCatalogResponse *response, IProviderAdapter *,
                           const QString &error) {
         if (!response) {
+            m_peopleSearchCapabilityRetry.insert(
+                member.connectionId, QDeadlineTimer(PeopleSearchCapabilityRetryMs));
             completion(failedResult(member, error));
             return;
         }

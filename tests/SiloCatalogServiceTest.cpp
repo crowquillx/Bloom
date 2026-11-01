@@ -2439,7 +2439,9 @@ void SiloCatalogServiceTest::peopleSearchFollowsTheSearchCapability()
         QCOMPARE(paths(first), QStringList{capabilities});
     }
 
-    // A failed capability read fails the search, and the next one asks again.
+    // A failed capability read fails the search. Later searches (every
+    // debounced keystroke) do not read it again for a while: they show no
+    // people at once instead.
     {
         LibraryService service(&auth);
         QSignalSpy loaded(&service, &LibraryService::canonicalPeopleSearchLoaded);
@@ -2451,9 +2453,13 @@ void SiloCatalogServiceTest::peopleSearchFollowsTheSearchCapability()
         const qsizetype first = manager.requests.size();
         service.searchPeople(QStringLiteral("pacino"), 20);
         QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+        service.searchPeople(QStringLiteral("pacin"), 20);
         service.searchPeople(QStringLiteral("pacino"), 20);
-        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
-        QCOMPARE(paths(first), (QStringList{capabilities, capabilities, people}));
+        QCOMPARE(loaded.count(), 2);
+        QVERIFY(loaded.last().at(2).toList().isEmpty());
+        QCOMPARE(failed.count(), 1);
+        QTest::qWait(50);
+        QCOMPARE(paths(first), QStringList{capabilities});
     }
 
     // A newer search replaces an older one still in flight.

@@ -767,7 +767,7 @@
       "bloomCaller": "LibraryService::getPerson, getPersonItems and searchPeople",
       "method": "GET",
       "path": "/Items/{itemId} and /Items and /Persons",
-      "requestSemantics": ["The person is read by item ID through GetItem, never by name through /Persons/{name}, because names are not unique", "Filmography uses PersonIds with IncludeItemTypes Movie,Series, Recursive, SortBy PremiereDate,SortName (descending, then ascending), StartIndex and Limit", "People search uses GetPersons with searchTerm, limit and Primary images instead of /Search/Hints, which also answers music and books"],
+      "requestSemantics": ["The person is read by item ID through GetItem, never by name through /Persons/{name}, because names are not unique", "Filmography uses PersonIds with IncludeItemTypes Movie,Series, Recursive, SortBy PremiereDate,SortName (descending, then ascending), StartIndex and Limit", "People search uses GetPersons with searchTerm, limit, Primary images and personTypes Actor,Director,Writer,Producer,GuestStar instead of /Search/Hints; GetPersons has no media scope, so personTypes is what leaves out music and book credits"],
       "requiredSemantics": ["The person carries Id, Name, Overview, PremiereDate (birth), EndDate (death), ProductionLocations and a Primary image tag", "Filmography pages carry TotalRecordCount and StartIndex so Bloom knows whether another page exists", "Search results are Person items with Id and Name; the person page shows only movie and series titles"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "GetItem, GetItems with PersonIds, and GetPersons are non-obsolete operations in the pinned Jellyfin 12 OpenAPI document."},

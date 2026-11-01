@@ -115,7 +115,7 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
                             "sortBy", "sortOrder", "startIndex", "limit"},
         ("GET", "/Items/{itemId}"): {"itemId", "userId"},
         ("GET", "/Persons"): {"userId", "searchTerm", "limit", "enableImages",
-                              "enableImageTypes"},
+                              "enableImageTypes", "personTypes"},
         ("GET", "/Items/Latest"): {"userId", "fields"},
         ("GET", "/Shows/NextUp"): {
             "userId", "limit", "fields", "enableUserData", "enableImageTypes",

@@ -34,9 +34,11 @@ FocusScope {
     signal navigateToSeries(var seriesId)
 
     readonly property var person: viewModel.person || ({})
-    readonly property var movies: viewModel.movies || []
-    readonly property var shows: viewModel.series || []
-    readonly property bool hasTitles: movies.length > 0 || shows.length > 0
+    // One row-inserting model per shelf: later pages add cards without
+    // moving the focused one.
+    readonly property int movieCount: viewModel.movies ? viewModel.movies.count : 0
+    readonly property int showCount: viewModel.series ? viewModel.series.count : 0
+    readonly property bool hasTitles: movieCount > 0 || showCount > 0
     readonly property string biography: person.overview || ""
     property bool biographyExpanded: false
 
@@ -254,13 +256,50 @@ FocusScope {
         restoreLastFocus()
     }
 
-    function scrollToItem(item, toTop) {
-        if (!item)
-            return
-        var y = toTop ? 0 : item.mapToItem(contentFlickable.contentItem, 0, 0).y - root.shelfScrollOffset
+    function scrollTo(y) {
         var maxY = Math.max(0, contentFlickable.contentHeight - contentFlickable.height)
         scrollAnimation.to = Math.max(0, Math.min(maxY, y))
         scrollAnimation.restart()
+    }
+
+    // Where the page is scrolling to (or rests).
+    function scrollTarget() {
+        return scrollAnimation.running ? scrollAnimation.to : contentFlickable.contentY
+    }
+
+    function scrollToItem(item, toTop) {
+        if (!item)
+            return
+        scrollTo(toTop ? 0 : item.mapToItem(contentFlickable.contentItem, 0, 0).y - root.shelfScrollOffset)
+    }
+
+    // Read More focused: the top of the page, or, when the expanded
+    // biography is taller than the screen, as far as keeps the button in view.
+    function showReadMore() {
+        var bottom = readMoreButton.mapToItem(contentFlickable.contentItem, 0, readMoreButton.height).y
+                + root.shelfScrollOffset
+        scrollTo(Math.max(0, bottom - contentFlickable.height))
+    }
+
+    // Up/Down on Read More page through an expanded biography taller than
+    // the screen before focus leaves it. Returns true when it scrolled.
+    function pageBiography(delta) {
+        if (!root.biographyExpanded)
+            return false
+        var y = scrollTarget()
+        var step = Math.round(contentFlickable.height * 0.6)
+        if (delta < 0) {
+            if (y <= 0)
+                return false
+            scrollTo(y - step)
+            return true
+        }
+        var bottom = readMoreButton.mapToItem(contentFlickable.contentItem, 0, readMoreButton.height).y
+                + root.shelfScrollOffset
+        if (bottom <= y + contentFlickable.height)
+            return false
+        scrollTo(Math.min(y + step, bottom - contentFlickable.height))
+        return true
     }
 
     function loadMoreIfNear(list) {
@@ -287,27 +326,27 @@ FocusScope {
 
         MediaCard {
             id: titleCard
-            required property var modelData
+            required property var itemData
             required property int index
             variant: "poster"
-            artworkSources: [root.artworkUrlFromRef(modelData.primaryArtwork, root.posterRequestWidth)]
-            title: modelData.name || ""
-            subtitle: root.titleSubtitle(modelData)
-            placeholderIcon: modelData.mediaType === "Series" ? Icons.tvShows : Icons.movie
-            item: modelData
-            showWatchState: modelData.mediaType === "Series"
-                            || (modelData.mediaType === "Movie" && !!modelData.watched)
-            unplayedCount: modelData.mediaType === "Series" ? (modelData.unplayedItemCount || 0) : 0
-            watched: !!modelData.watched
+            artworkSources: [root.artworkUrlFromRef(itemData.primaryArtwork, root.posterRequestWidth)]
+            title: itemData.name || ""
+            subtitle: root.titleSubtitle(itemData)
+            placeholderIcon: itemData.mediaType === "Series" ? Icons.tvShows : Icons.movie
+            item: itemData
+            showWatchState: itemData.mediaType === "Series"
+                            || (itemData.mediaType === "Movie" && !!itemData.watched)
+            unplayedCount: itemData.mediaType === "Series" ? (itemData.unplayedItemCount || 0) : 0
+            watched: !!itemData.watched
             focused: ListView.isCurrentItem && ListView.view.activeFocus
-            onFocusedChanged: if (focused) root.showBackdropFor(modelData)
+            onFocusedChanged: if (focused) root.showBackdropFor(itemData)
             onClicked: {
                 var list = titleCard.ListView.view
                 list.currentIndex = index
                 list.forceActiveFocus()
-                root.openTitle(modelData)
+                root.openTitle(itemData)
             }
-            Accessible.description: qsTr("Details for %1").arg(modelData.name || "")
+            Accessible.description: qsTr("Details for %1").arg(itemData.name || "")
         }
     }
 
@@ -414,8 +453,9 @@ FocusScope {
                         opacity: 0.86
                         lineHeight: 1.12
                         wrapMode: Text.WordWrap
-                        maximumLineCount: root.biographyExpanded ? 40 : 5
-                        elide: Text.ElideRight
+                        // Expanded shows all of it; Up/Down on Read More scroll it.
+                        maximumLineCount: root.biographyExpanded ? -1 : 5
+                        elide: root.biographyExpanded ? Text.ElideNone : Text.ElideRight
                     }
 
                     // Read More sits under the biography, its label aligned
@@ -437,18 +477,27 @@ FocusScope {
                             iconGlyph: root.biographyExpanded ? Icons.expandLess : Icons.expandMore
                             accessibleLabel: root.biographyExpanded ? qsTr("Show less of the biography")
                                                                     : qsTr("Read the whole biography")
-                            onClicked: root.biographyExpanded = !root.biographyExpanded
+                            onClicked: {
+                                root.biographyExpanded = !root.biographyExpanded
+                                // Expanding leaves the start of the text in
+                                // view; collapsing returns to the top.
+                                if (!root.biographyExpanded)
+                                    root.scrollTo(0)
+                            }
                             onActiveFocusChanged: {
                                 if (activeFocus) {
                                     root.lastFocusTarget = readMoreButton
-                                    root.scrollToItem(headerRow, true)
+                                    root.showReadMore()
                                 }
                             }
                             Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) clicked(); event.accepted = true }
                             Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                            Keys.onDownPressed: (event) => { event.accepted = root.moveFocus(readMoreButton, 1) }
-                            // Top-most control: Up goes on to the navigation bar.
-                            Keys.onUpPressed: (event) => { event.accepted = false }
+                            Keys.onDownPressed: (event) => {
+                                event.accepted = root.pageBiography(1) || root.moveFocus(readMoreButton, 1)
+                            }
+                            // Top-most control: once the biography is at its
+                            // start, Up goes on to the navigation bar.
+                            Keys.onUpPressed: (event) => { event.accepted = root.pageBiography(-1) }
                             Keys.onLeftPressed: (event) => { event.accepted = true }
                             Keys.onRightPressed: (event) => { event.accepted = true }
                         }
@@ -507,11 +556,11 @@ FocusScope {
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.sectionSpacing
                 spacing: Theme.sectionTitleSpacing
-                visible: root.movies.length > 0
+                visible: root.movieCount > 0
 
                 SectionHeader {
                     text: qsTr("Movies")
-                    detail: String(root.movies.length)
+                    detail: String(root.movieCount)
                     Layout.leftMargin: Theme.pageMarginX
                     Layout.rightMargin: Theme.pageMarginX
                     Layout.fillWidth: true
@@ -523,19 +572,19 @@ FocusScope {
                     id: moviesList
                     Layout.fillWidth: true
                     Layout.preferredHeight: implicitHeight
-                    model: root.movies
+                    model: viewModel.movies
                     delegate: titleCardDelegate
                     onCurrentIndexChanged: root.loadMoreIfNear(moviesList)
                     Keys.onUpPressed: (event) => { event.accepted = root.moveFocus(moviesList, -1) }
                     Keys.onDownPressed: (event) => { event.accepted = root.moveFocus(moviesList, 1) }
                     Keys.onReturnPressed: (event) => {
-                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.movies.length)
-                            root.openTitle(root.movies[currentIndex])
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
+                            root.openTitle(viewModel.movies.get(currentIndex))
                         event.accepted = true
                     }
                     Keys.onEnterPressed: (event) => {
-                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.movies.length)
-                            root.openTitle(root.movies[currentIndex])
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
+                            root.openTitle(viewModel.movies.get(currentIndex))
                         event.accepted = true
                     }
                     onActiveFocusChanged: {
@@ -553,11 +602,11 @@ FocusScope {
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.sectionSpacing
                 spacing: Theme.sectionTitleSpacing
-                visible: root.shows.length > 0
+                visible: root.showCount > 0
 
                 SectionHeader {
                     text: qsTr("Shows")
-                    detail: String(root.shows.length)
+                    detail: String(root.showCount)
                     Layout.leftMargin: Theme.pageMarginX
                     Layout.rightMargin: Theme.pageMarginX
                     Layout.fillWidth: true
@@ -569,19 +618,19 @@ FocusScope {
                     id: showsList
                     Layout.fillWidth: true
                     Layout.preferredHeight: implicitHeight
-                    model: root.shows
+                    model: viewModel.series
                     delegate: titleCardDelegate
                     onCurrentIndexChanged: root.loadMoreIfNear(showsList)
                     Keys.onUpPressed: (event) => { event.accepted = root.moveFocus(showsList, -1) }
                     Keys.onDownPressed: (event) => { event.accepted = root.moveFocus(showsList, 1) }
                     Keys.onReturnPressed: (event) => {
-                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.shows.length)
-                            root.openTitle(root.shows[currentIndex])
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
+                            root.openTitle(viewModel.series.get(currentIndex))
                         event.accepted = true
                     }
                     Keys.onEnterPressed: (event) => {
-                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.shows.length)
-                            root.openTitle(root.shows[currentIndex])
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
+                            root.openTitle(viewModel.series.get(currentIndex))
                         event.accepted = true
                     }
                     onActiveFocusChanged: {

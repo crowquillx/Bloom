@@ -154,6 +154,12 @@ struct Account {
     QJsonArray resume;
     int resumeStatus = 200;
     QJsonArray favorites;
+    // People search answers in the server's own shape (Jellyfin /Persons
+    // items or Silo /api/v2/catalog/people items).
+    QJsonArray people;
+    // Silo getCatalogSearchCapabilities; status 404 when unset.
+    QByteArray searchCapabilities;
+    int searchCapabilitiesStatus = 200;
 };
 
 struct RecordedRequest {
@@ -351,6 +357,26 @@ protected:
             && query.queryItemValue(QStringLiteral("IsFavorite")) == QStringLiteral("true")) {
             return new FakeReply(request, 200, itemsEnvelope(account->favorites), this);
         }
+        if (url.path() == QStringLiteral("/Persons")) {
+            return new FakeReply(request, 200,
+                                 QJsonDocument(QJsonObject{{QStringLiteral("Items"), account->people},
+                                                           {QStringLiteral("TotalRecordCount"),
+                                                            account->people.size()}})
+                                     .toJson(QJsonDocument::Compact),
+                                 this);
+        }
+        if (url.path() == QStringLiteral("/api/v2/catalog/search/capabilities")) {
+            const int status = account->searchCapabilities.isEmpty()
+                ? 404 : account->searchCapabilitiesStatus;
+            return new FakeReply(request, status,
+                                 status == 200 ? account->searchCapabilities : QByteArray(), this);
+        }
+        if (url.path() == QStringLiteral("/api/v2/catalog/people")) {
+            return new FakeReply(request, 200,
+                                 QJsonDocument(QJsonObject{{QStringLiteral("items"), account->people}})
+                                     .toJson(QJsonDocument::Compact),
+                                 this);
+        }
         if (url.path() == QStringLiteral("/api/v2/settings/values/effective")) {
             return new FakeReply(request, overlaySettingsStatus,
                                  overlaySettingsStatus == 200 ? overlaySettings : QByteArray(), this);
@@ -493,6 +519,9 @@ private slots:
     void activationAdoptsRenewalAlreadyInFlight();
     void renewalFinishingAfterRemovalDoesNotReviveCredentials();
     void replacedSearchDoesNotPublishResults();
+    void mergedPeopleSearchReadsEachMembersCapability();
+    void mergedPeopleSearchSkipsMembersThatCannotScope();
+    void mergedPeopleSearchKeepsWorkingMembers();
     void posterBadgesFollowEachSiloMembersPreferences();
     void failedPosterBadgeReadLeavesSourceAlone();
     void recoveryPingChecksJellyfinSessionRoute();
@@ -511,6 +540,10 @@ private slots:
 
 private:
     void seedAccounts();
+    // Alice (Jellyfin) and erin (Silo) know an "Al Pacino"; erin's search
+    // capabilities say whether her people search can be scoped.
+    void seedPeople(const QByteArray &erinCapabilities, int erinCapabilitiesStatus = 200);
+    QStringList pathsSince(qsizetype from, const QString &path) const;
     QString createMergedWorkspace();
     // Adds a Silo account (access "erin-a1", refresh "erin-r1") and a merged
     // space of alice + erin, then switches to it.
@@ -1452,6 +1485,163 @@ void WorkspaceRoutingTest::replacedSearchDoesNotPublishResults()
     QTest::qWait(50);
     QCOMPARE(results.count(), 1);
     QCOMPARE(itemIds(results.first().at(2).toList()), QStringList({QStringLiteral("m-alice")}));
+}
+
+void WorkspaceRoutingTest::seedPeople(const QByteArray &erinCapabilities,
+                                      int erinCapabilitiesStatus)
+{
+    m_servers->accountsByToken[QStringLiteral("token-alice")].people = QJsonArray{
+        QJsonObject{{QStringLiteral("Id"), QStringLiteral("p-alice")},
+                    {QStringLiteral("Name"), QStringLiteral("Al Pacino")},
+                    {QStringLiteral("Type"), QStringLiteral("Person")}}};
+    Account &erin = m_servers->accountsByToken[QStringLiteral("erin-a1")];
+    erin.people = QJsonArray{QJsonObject{{QStringLiteral("id"), QStringLiteral("7")},
+                                         {QStringLiteral("name"), QStringLiteral("Al Pacino")}}};
+    erin.searchCapabilities = erinCapabilities;
+    erin.searchCapabilitiesStatus = erinCapabilitiesStatus;
+}
+
+QStringList WorkspaceRoutingTest::pathsSince(qsizetype from, const QString &path) const
+{
+    QStringList hosts;
+    for (qsizetype index = from; index < m_servers->requests.size(); ++index) {
+        if (m_servers->requests.at(index).path == path) {
+            hosts.append(m_servers->requests.at(index).host);
+        }
+    }
+    return hosts;
+}
+
+namespace {
+
+QStringList peopleRefs(const QVariantList &people)
+{
+    QStringList refs;
+    for (const QVariant &value : people) {
+        const QVariantMap person = value.toMap();
+        refs.append(person.value(QStringLiteral("connectionId")).toString() + QLatin1Char('/')
+                    + person.value(QStringLiteral("personId")).toString());
+    }
+    return refs;
+}
+
+const QString kSearchCapabilities = QStringLiteral("/api/v2/catalog/search/capabilities");
+const QString kSiloPeople = QStringLiteral("/api/v2/catalog/people");
+
+} // namespace
+
+// Each member decides for itself: Jellyfin searches GetPersons with film and
+// TV credit kinds, Silo only once its capability allows a video scope. The
+// capability is read once per member and read again in a new epoch.
+void WorkspaceRoutingTest::mergedPeopleSearchReadsEachMembersCapability()
+{
+    const QString mixed = createSiloMergedWorkspace();
+    QVERIFY(!mixed.isEmpty());
+    QTRY_VERIFY(m_auth->hasSessionForConnection(QStringLiteral("erin")));
+    seedPeople(QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true,"people_media_scope":true})"));
+
+    QSignalSpy loaded(m_merged.get(), &MergedCatalogService::peopleSearchLoaded);
+    qsizetype first = m_servers->requests.size();
+    m_merged->searchPeople(QStringLiteral(" pacino "));
+    QTRY_COMPARE(loaded.count(), 1);
+    QCOMPARE(loaded.first().at(0).toString(), QStringLiteral("pacino"));
+    // One name on two servers stays two people, each owned by its source.
+    QCOMPARE(peopleRefs(loaded.first().at(1).toList()),
+             QStringList({QStringLiteral("alice/p-alice"), QStringLiteral("erin/7")}));
+    QCOMPARE(pathsSince(first, kSearchCapabilities), QStringList{QStringLiteral("silo.test")});
+    QCOMPARE(pathsSince(first, kSiloPeople), QStringList{QStringLiteral("silo.test")});
+    QCOMPARE(pathsSince(first, QStringLiteral("/Persons")), QStringList{QStringLiteral("media.test")});
+    for (qsizetype index = first; index < m_servers->requests.size(); ++index) {
+        const RecordedRequest &request = m_servers->requests.at(index);
+        const QUrlQuery query(request.query);
+        if (request.path == QStringLiteral("/Persons")) {
+            QCOMPARE(request.token, QStringLiteral("token-alice"));
+            QCOMPARE(query.queryItemValue(QStringLiteral("personTypes")),
+                     QStringLiteral("Actor,Director,Writer,Producer,GuestStar"));
+        } else if (request.path == kSiloPeople) {
+            QCOMPARE(request.token, QStringLiteral("erin-a1"));
+            QCOMPARE(query.queryItemValue(QStringLiteral("media_scope")), QStringLiteral("video"));
+        }
+    }
+
+    // Known now: the next search reads no capability.
+    first = m_servers->requests.size();
+    m_merged->searchPeople(QStringLiteral("pacino"));
+    QTRY_COMPARE(loaded.count(), 2);
+    QVERIFY(pathsSince(first, kSearchCapabilities).isEmpty());
+    QCOMPARE(pathsSince(first, kSiloPeople), QStringList{QStringLiteral("silo.test")});
+
+    // Leaving the space and coming back starts a new epoch: the member may
+    // be another server version by then, so its capability is read again.
+    const QString single = m_workspaces->createProfile(
+        QStringLiteral("Just Alice"), {QStringLiteral("alice")}, false);
+    QVERIFY(!single.isEmpty());
+    QVERIFY(m_workspaces->switchProfile(single));
+    QVERIFY(!m_merged->isActive());
+    QVERIFY(m_workspaces->switchProfile(mixed));
+    QTRY_VERIFY(m_merged->isActive());
+    QTRY_VERIFY(m_auth->hasSessionForConnection(QStringLiteral("erin")));
+    first = m_servers->requests.size();
+    m_merged->searchPeople(QStringLiteral("pacino"));
+    QTRY_COMPARE(loaded.count(), 3);
+    QCOMPARE(pathsSince(first, kSearchCapabilities), QStringList{QStringLiteral("silo.test")});
+}
+
+// A Silo member whose people search cannot be limited to movie and series
+// credits adds no people and is never asked for any.
+void WorkspaceRoutingTest::mergedPeopleSearchSkipsMembersThatCannotScope()
+{
+    QVERIFY(!createSiloMergedWorkspace().isEmpty());
+    QTRY_VERIFY(m_auth->hasSessionForConnection(QStringLiteral("erin")));
+    seedPeople(QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true})"));
+
+    QSignalSpy loaded(m_merged.get(), &MergedCatalogService::peopleSearchLoaded);
+    QSignalSpy failed(m_merged.get(), &MergedCatalogService::peopleSearchFailed);
+    const qsizetype first = m_servers->requests.size();
+    m_merged->searchPeople(QStringLiteral("pacino"));
+    QTRY_COMPARE(loaded.count(), 1);
+    m_merged->searchPeople(QStringLiteral("pacino"));
+    QTRY_COMPARE(loaded.count(), 2);
+    QCOMPARE(failed.count(), 0);
+    QCOMPARE(peopleRefs(loaded.last().at(1).toList()), QStringList{QStringLiteral("alice/p-alice")});
+    QCOMPARE(pathsSince(first, kSearchCapabilities), QStringList{QStringLiteral("silo.test")});
+    QVERIFY(pathsSince(first, kSiloPeople).isEmpty());
+    // People search never changes a source's state.
+    QCOMPARE(sourceState(QStringLiteral("erin")), sourceState(QStringLiteral("alice")));
+}
+
+// A member whose capability read or search fails leaves the others' people.
+// The failed read is not repeated for every keystroke: meanwhile that member
+// adds no people, like one that cannot scope.
+void WorkspaceRoutingTest::mergedPeopleSearchKeepsWorkingMembers()
+{
+    QVERIFY(!createSiloMergedWorkspace().isEmpty());
+    QTRY_VERIFY(m_auth->hasSessionForConnection(QStringLiteral("erin")));
+    seedPeople(QByteArrayLiteral(R"({"type":"about:blank","title":"Forbidden","status":403})"), 403);
+
+    QSignalSpy loaded(m_merged.get(), &MergedCatalogService::peopleSearchLoaded);
+    QSignalSpy failed(m_merged.get(), &MergedCatalogService::peopleSearchFailed);
+    qsizetype first = m_servers->requests.size();
+    m_merged->searchPeople(QStringLiteral("pacino"));
+    QTRY_COMPARE(loaded.count(), 1);
+    QCOMPARE(peopleRefs(loaded.first().at(1).toList()), QStringList{QStringLiteral("alice/p-alice")});
+    // A 403 renews erin's token and tries once more before failing.
+    QVERIFY(!pathsSince(first, kSearchCapabilities).isEmpty());
+    QVERIFY(pathsSince(first, kSiloPeople).isEmpty());
+
+    first = m_servers->requests.size();
+    m_merged->searchPeople(QStringLiteral("pacin"));
+    QTRY_COMPARE(loaded.count(), 2);
+    QVERIFY(pathsSince(first, kSearchCapabilities).isEmpty());
+    QVERIFY(pathsSince(first, kSiloPeople).isEmpty());
+    QCOMPARE(failed.count(), 0);
+
+    // Alice's search fails too: no people, and Search shows none.
+    m_servers->accountsByToken[QStringLiteral("token-alice")].offline = true;
+    m_merged->searchPeople(QStringLiteral("pacino"));
+    QTRY_COMPARE(loaded.count() + failed.count(), 3);
+    QCOMPARE(failed.count(), 0);
+    QVERIFY(loaded.last().at(1).toList().isEmpty());
 }
 
 void WorkspaceRoutingTest::posterBadgesFollowEachSiloMembersPreferences()

@@ -8,6 +8,7 @@
 #include <QList>
 #include <QPointer>
 #include <QDate>
+#include <QDeadlineTimer>
 #include <QVariantList>
 #include <QVariantMap>
 #include <functional>
@@ -470,6 +471,10 @@ private:
     // limited to movie and series credits (providers that read it).
     quint64 m_peopleSearchGeneration = 0;
     QHash<QString, bool> m_peopleSearchScoped;
+    // A failed capability read is not repeated for every keystroke: until
+    // the deadline, people search on that connection shows no people.
+    QHash<QString, QDeadlineTimer> m_peopleSearchCapabilityRetry;
+    static constexpr int PeopleSearchCapabilityRetryMs = 5 * 60 * 1000;
     /// Libraries of unsupported types per connection, from the last views
     /// listing; search leaves them out (LibraryKinds).
     QHash<QString, QStringList> m_unsupportedLibraryIds;

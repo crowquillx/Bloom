@@ -183,15 +183,19 @@ crew card or a People result in Search. It has no hero: below
 `pageMarginTop`, the person's photo (poster size, `imageRadius`) sits beside a
 `PageHeader` with their name and a life line ("Born 25 April 1940 in New York
 City", or the birth and death dates), then the biography at `fontSizeBody`,
-five lines with Read More. Poster shelves of their Movies and Shows follow,
+five lines with Read More, which shows all of it. Poster shelves of their Movies and Shows follow,
 newest first, each a `MediaCard` with the usual year or run subtitle. The
 stage picks up the focused title's backdrop.
 
 Read More, when the biography is long, is the top-most control, so Up from it
-(or from the first shelf when there is none) reaches the navigation bar.
+(or from the first shelf when there is none) reaches the navigation bar. When
+the expanded biography is taller than the screen, Down and Up on Read More
+first page through it (keeping Read More in view at the end) before focus moves
+on.
 Enter opens a title through Main's details navigation, and Back returns to
 the same card. Back from the person page returns to the card that opened it.
-Shelves read the next page as focus nears their end. Loading, error (with
+Shelves read the next page as focus nears their end; new titles are added
+without moving the focused card. Loading, error (with
 Retry) and "no titles" states use `StateMessage`.
 
 ### Extras shelf

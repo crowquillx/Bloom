@@ -198,6 +198,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         m_lastModified.clear();
         m_inFlightChapterRequests.clear();
         m_peopleSearchScoped.clear();
+        m_peopleSearchCapabilityRetry.clear();
     };
     connect(m_authService, &AuthenticationService::authenticationStepChanged,
             this, [this, invalidateRequests]() {
@@ -2027,6 +2028,12 @@ void LibraryService::searchPeople(const QString &searchTerm, int limit)
         }
         return;
     }
+    const auto retry = m_peopleSearchCapabilityRetry.constFind(connectionId);
+    if (retry != m_peopleSearchCapabilityRetry.constEnd() && !retry.value().hasExpired()) {
+        emit canonicalPeopleSearchLoaded(connectionId, term, {});
+        return;
+    }
+    m_peopleSearchCapabilityRetry.remove(connectionId);
     sendCatalogRequest(
         QStringLiteral("searchPeople"),
         ProviderCatalogOperation::PersonSearchCapability,
@@ -2045,7 +2052,14 @@ void LibraryService::searchPeople(const QString &searchTerm, int limit)
                 emit canonicalPeopleSearchLoaded(connectionId, term, {});
             }
         },
-        emitFailure);
+        [this, connectionId, emitFailure](const NetworkError &error) {
+            // Not for a cancelled read (sign-out or a switch cleared the cache).
+            if (activeConnectionId(m_authService) == connectionId) {
+                m_peopleSearchCapabilityRetry.insert(
+                    connectionId, QDeadlineTimer(PeopleSearchCapabilityRetryMs));
+            }
+            emitFailure(error);
+        });
 }
 
 void LibraryService::getRandomItems(int limit)

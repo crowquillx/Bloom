@@ -37,11 +37,11 @@ FocusScope {
     property var requestResults: []
     /// People whose name matches; hidden when people search fails.
     property var peopleResults: []
-    property bool waitingForPeopleSearch: false
     property string pendingPeopleConnectionId: ""
     property string pendingPeopleSearchTerm: ""
+    // People search is auxiliary: its shelf appears when it answers, but
+    // neither the busy indicator nor "No results" waits for it.
     readonly property bool isSearching: waitingForLibrarySearch || waitingForRequestSearch
-                                        || waitingForPeopleSearch
     property bool hasSearched: false
     property bool waitingForLibrarySearch: false
     property bool waitingForRequestSearch: false
@@ -133,7 +133,6 @@ FocusScope {
     function startPeopleSearch(term) {
         pendingPeopleConnectionId = mergedMode ? "" : LibraryService.getActiveConnectionId()
         pendingPeopleSearchTerm = term
-        waitingForPeopleSearch = true
         peopleResults = []
         if (mergedMode)
             MergedCatalog.searchPeople(term, 20)
@@ -142,7 +141,6 @@ FocusScope {
     }
 
     function applyPeopleSearchResults(term, people) {
-        waitingForPeopleSearch = false
         pendingPeopleConnectionId = ""
         pendingPeopleSearchTerm = ""
         if (term !== searchTerm.trim())
@@ -176,7 +174,6 @@ FocusScope {
             seriesResults = []
             requestResults = []
             peopleResults = []
-            waitingForPeopleSearch = false
             pendingPeopleConnectionId = ""
             pendingPeopleSearchTerm = ""
             stageDebounce.stop()
@@ -789,7 +786,7 @@ FocusScope {
                 message: qsTr("Nothing in your libraries matches “%1”.").arg(root.searchTerm.trim())
                 visible: root.hasSearched && !root.waitingForLibrarySearch && !root.librarySearchFailed
                          && root.libraryResultCount === 0
-                         && root.peopleResults.length === 0 && !root.waitingForPeopleSearch
+                         && root.peopleResults.length === 0
                          && root.requestResults.length === 0 && !root.waitingForRequestSearch
             }
 

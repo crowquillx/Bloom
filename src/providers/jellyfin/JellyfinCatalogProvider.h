@@ -840,7 +840,8 @@ private:
         return supportedRequest(endpointWithQuery(QStringLiteral("/Items"), parameters));
     }
 
-    // GetPersons, not /Search/Hints, which also answers music and books.
+    // GetPersons, not /Search/Hints. GetPersons has no media scope, so
+    // personTypes keeps it to film and TV credits (no artists or authors).
     static ProviderCatalogRequest personSearchRequest(const ProviderCatalogQuery &query)
     {
         const ProviderCatalogRequest validation = requireIds(
@@ -855,6 +856,8 @@ private:
         QUrlQuery parameters;
         parameters.addQueryItem(QStringLiteral("userId"), query.userId);
         parameters.addQueryItem(QStringLiteral("searchTerm"), term);
+        parameters.addQueryItem(QStringLiteral("personTypes"),
+                                QStringLiteral("Actor,Director,Writer,Producer,GuestStar"));
         parameters.addQueryItem(QStringLiteral("limit"),
                                 QString::number(query.limit > 0 ? query.limit : 20));
         parameters.addQueryItem(QStringLiteral("enableImages"), QStringLiteral("true"));
