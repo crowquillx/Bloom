@@ -46,6 +46,11 @@ public:
         return QStringLiteral("test-connection");
     }
 
+    ProviderLibraryQueryCapabilities libraryQueryCapabilities() const override
+    {
+        return queryCapabilities;
+    }
+
     void getItems(const LibraryItemQuery &query) override
     {
         itemRequests.append(query);
@@ -144,6 +149,7 @@ public:
     QList<LibraryItemQuery> itemRequests;
     QList<QString> viewRequests;
     QList<FilterRequest> filterRequests;
+    ProviderLibraryQueryCapabilities queryCapabilities;
 };
 
 }
@@ -158,6 +164,7 @@ private slots:
     void canonicalRolesAndContainerFiltering();
     void cachePayloadRejectsProviderWireShape();
     void sortStateUsesCanonicalKeys();
+    void unsupportedSavedQueryFallsBack();
     void swrIdentityUsesCanonicalItemId();
     void swrMetadataRefreshUpdatesRowsWithoutReset();
     void failedLoadMoreRecovers();
@@ -286,6 +293,70 @@ void LibraryViewModelCanonicalTest::sortStateUsesCanonicalKeys()
     viewModel.setSortOrder(QStringLiteral("Descending"));
     QVERIFY(viewModel.sortBy().isEmpty());
     QVERIFY(viewModel.sortOrder().isEmpty());
+}
+
+void LibraryViewModelCanonicalTest::unsupportedSavedQueryFallsBack()
+{
+    LibraryViewModel viewModel;
+    QVERIFY(viewModel.supportedSorts().contains(QStringLiteral("random")));
+    QVERIFY(viewModel.supportedFilters().contains(QStringLiteral("tags")));
+    viewModel.setSortBy(QStringLiteral("random"));
+    viewModel.setSortOrder(QStringLiteral("descending"));
+    viewModel.toggleTag(QStringLiteral("award-winner"));
+    viewModel.toggleGenre(QStringLiteral("Drama"));
+    viewModel.setAddedSinceFilter(QStringLiteral("30d"));
+    QCOMPARE(viewModel.sortBy(), QStringLiteral("random"));
+    QCOMPARE(viewModel.activeFilterCount(), 3);
+
+    // The next library belongs to a connection without random order or
+    // tags, as on Silo.
+    ProviderLibraryQueryCapabilities silo;
+    silo.sorts.removeAll(QStringLiteral("random"));
+    silo.filters.removeAll(QStringLiteral("tags"));
+    m_libraryService->queryCapabilities = silo;
+
+    QSignalSpy capabilitiesSpy(&viewModel, &LibraryViewModel::queryCapabilitiesChanged);
+    QSignalSpy sortSpy(&viewModel, &LibraryViewModel::sortByChanged);
+    QSignalSpy tagsSpy(&viewModel, &LibraryViewModel::selectedTagsChanged);
+    QSignalSpy countSpy(&viewModel, &LibraryViewModel::activeFilterCountChanged);
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 20);
+
+    QCOMPARE(capabilitiesSpy.count(), 1);
+    QVERIFY(!viewModel.supportedSorts().contains(QStringLiteral("random")));
+    QVERIFY(!viewModel.supportedFilters().contains(QStringLiteral("tags")));
+    QCOMPARE(sortSpy.count(), 1);
+    QCOMPARE(tagsSpy.count(), 1);
+    QVERIFY(countSpy.count() >= 1);
+    QVERIFY(viewModel.sortBy().isEmpty());
+    QCOMPARE(viewModel.sortOrder(), QStringLiteral("descending"));
+    QVERIFY(viewModel.selectedTags().isEmpty());
+    QCOMPARE(viewModel.selectedGenres(), QStringList{QStringLiteral("Drama")});
+    QCOMPARE(viewModel.addedSinceFilter(), QStringLiteral("30d"));
+    QCOMPARE(viewModel.activeFilterCount(), 2);
+
+    QCOMPARE(m_libraryService->itemRequests.size(), 1);
+    const LibraryItemQuery request = m_libraryService->itemRequests.first();
+    QVERIFY(request.sortBy.isEmpty());
+    QVERIFY(request.tags.isEmpty());
+    QCOMPARE(request.genres, QStringList{QStringLiteral("Drama")});
+    QCOMPARE(request.minDateLastSaved, QDate::currentDate().addDays(-30));
+
+    // Unsupported choices cannot be made again on this connection.
+    viewModel.setSortBy(QStringLiteral("random"));
+    QVERIFY(viewModel.sortBy().isEmpty());
+    viewModel.toggleTag(QStringLiteral("award-winner"));
+    QVERIFY(viewModel.selectedTags().isEmpty());
+    viewModel.setSortBy(QStringLiteral("title"));
+    QCOMPARE(viewModel.sortBy(), QStringLiteral("title"));
+
+    // Back on a connection that serves everything, random is offered again.
+    m_libraryService->queryCapabilities = {};
+    viewModel.loadViews();
+    QCOMPARE(capabilitiesSpy.count(), 2);
+    QVERIFY(viewModel.supportedSorts().contains(QStringLiteral("random")));
+    QCOMPARE(viewModel.sortBy(), QStringLiteral("title"));
+    viewModel.setSortBy(QStringLiteral("random"));
+    QCOMPARE(viewModel.sortBy(), QStringLiteral("random"));
 }
 
 void LibraryViewModelCanonicalTest::swrIdentityUsesCanonicalItemId()

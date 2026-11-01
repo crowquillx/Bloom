@@ -1162,7 +1162,8 @@
         },
         "requestSemantics": [
           "A read-only POST query is explicitly idempotent; limit at most 100.",
-          "library_id is a string; groups and cursor are JSON fields."
+          "library_id is a string; groups and cursor are JSON fields.",
+          "Rule groups use the base vocabulary: added_at takes between with the local start of the minimum date as a UTC instant and a fixed far bound; there is no tag rule field and the query-source sort allowlist has no random order."
         ],
         "requiredSemantics": [
           "items, total, total_exact, page.has_more, page.next_cursor and window_cursor; no offset or snapshot request."

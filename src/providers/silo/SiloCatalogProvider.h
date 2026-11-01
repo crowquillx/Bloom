@@ -11,6 +11,8 @@
 #include <QSet>
 #include <QDateTime>
 #include <QUrl>
+
+#include <algorithm>
 #include <QUrlQuery>
 #include <optional>
 #include <cmath>
@@ -28,6 +30,31 @@ public:
             request.relativeEndpoint = SiloArtworkSizes::withWidths(request.relativeEndpoint);
         }
         return request;
+    }
+
+    // Silo's catalog rules have no tag or keyword field, and the query
+    // source sorts only by the query sort vocabulary, which has no random
+    // order.
+    ProviderLibraryQueryCapabilities libraryQueryCapabilities() const override
+    {
+        ProviderLibraryQueryCapabilities capabilities;
+        capabilities.sorts.removeAll(QStringLiteral("random"));
+        capabilities.filters.removeAll(QStringLiteral("tags"));
+        return capabilities;
+    }
+
+    // Silo's added_at rule is a timestamptz range. "Added since" is the
+    // local start of minDate as a UTC instant up to a fixed far bound, so
+    // every page of the same query sends identical rules (Silo binds paging
+    // cursors to them) and the server's clock does not move the cutoff.
+    static QJsonArray addedSinceRange(const QDate &minDate)
+    {
+        if (!minDate.isValid()) {
+            return {};
+        }
+        return QJsonArray{
+            minDate.startOfDay().toUTC().toString(Qt::ISODate),
+            QStringLiteral("9999-12-31T23:59:59Z")};
     }
 
 private:
@@ -755,10 +782,6 @@ private:
             || !query.seriesIds.isEmpty() || !query.excludeItemId.trimmed().isEmpty()) {
             return QStringLiteral("Silo catalog does not support the requested ID-set filter semantics");
         }
-        if (query.minDateLastSaved.isValid()) {
-            return QStringLiteral(
-                "Silo's added_at filter is exclusive and cannot represent Bloom's inclusive minimum date");
-        }
         if (query.minPremiereDate.isValid() != query.maxPremiereDate.isValid()) {
             return QStringLiteral(
                 "Silo supports an inclusive premiere-date range, but not either inclusive boundary alone");
@@ -828,6 +851,10 @@ private:
             rules.append({QStringLiteral("release_date"), QStringLiteral("between"),
                           QJsonArray{query.minPremiereDate.toString(Qt::ISODate),
                                      query.maxPremiereDate.toString(Qt::ISODate)}});
+        }
+        if (query.minDateLastSaved.isValid()) {
+            rules.append({QStringLiteral("added_at"), QStringLiteral("between"),
+                          addedSinceRange(query.minDateLastSaved)});
         }
         if (query.minCommunityRating > 0.0) {
             rules.append({QStringLiteral("rating_imdb"), QStringLiteral("gte"),
@@ -1071,6 +1098,21 @@ private:
             || query.favorite != ProviderCatalogTriState::Any || query.unwatchedOnly;
     }
 
+    // Jellyfin's recursive library query restricted to movies or series is
+    // the flat list of titles that Silo's library catalog already is.
+    static bool isFlatLibraryTitleQuery(const ProviderCatalogQuery &query)
+    {
+        if (query.parentId.trimmed().isEmpty() || query.includeItemTypes.isEmpty()) {
+            return false;
+        }
+        return std::all_of(query.includeItemTypes.cbegin(), query.includeItemTypes.cend(),
+                           [](const QString &type) {
+                               const QString normalized = type.trimmed().toLower();
+                               return normalized == QStringLiteral("movie")
+                                   || normalized == QStringLiteral("series");
+                           });
+    }
+
     static ProviderCatalogRequest createCatalogRequest(const ProviderCatalogQuery &query,
                                                         bool allowPost)
     {
@@ -1078,7 +1120,7 @@ private:
         if (!error.isEmpty()) {
             return unsupported(error);
         }
-        if (query.recursive) {
+        if (query.recursive && !isFlatLibraryTitleQuery(query)) {
             return unsupported(QStringLiteral(
                 "Silo catalog does not expose a recursive-scope switch"));
         }

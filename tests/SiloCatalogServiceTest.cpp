@@ -185,6 +185,9 @@ private slots:
     void structuredFiltersUseNativeQueryBody();
     void bookQueriesUseEbookType();
     void unsupportedFiltersAreExplicit();
+    void addedSinceUsesFixedRange();
+    void libraryTitleQueriesAcceptRecursiveScope();
+    void libraryQueryCapabilitiesFollowProvider();
     void responsePreservesSnapshotAndPaginationTruth();
     void nativeResponseShapesPreserveHomeLibrarySearchAndDetailData();
     void sparseNativeMappingsPreserveFallbacksAndState();
@@ -685,6 +688,111 @@ void SiloCatalogServiceTest::unsupportedFiltersAreExplicit()
     QCOMPARE(nextUp.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/home/sections")));
     verifyUnsupported(ProviderCatalogOperation::RandomItems, query);
     verifyUnsupported(ProviderCatalogOperation::ResolveLibrary, query);
+}
+
+void SiloCatalogServiceTest::addedSinceUsesFixedRange()
+{
+    // The local start of the minimum date as a UTC instant, up to a fixed far
+    // bound: identical on every page, whatever the clock says.
+    const QDate minDate(2026, 7, 1);
+    const QJsonArray range = SiloCatalogProvider::addedSinceRange(minDate);
+    QCOMPARE(range.size(), 2);
+    QCOMPARE(QDateTime::fromString(range.at(0).toString(), Qt::ISODate), minDate.startOfDay());
+    QVERIFY(range.at(0).toString().endsWith(QLatin1Char('Z')));
+    QCOMPARE(range.at(1).toString(), QStringLiteral("9999-12-31T23:59:59Z"));
+    QVERIFY(SiloCatalogProvider::addedSinceRange(QDate()).isEmpty());
+
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery query;
+    query.parentId = QStringLiteral("17");
+    query.minDateLastSaved = minDate;
+    const ProviderCatalogRequest request = provider.createRequest(
+        ProviderCatalogOperation::Items, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    const QJsonObject body = QJsonDocument::fromJson(request.body).object();
+    const QJsonArray groups = body.value(QStringLiteral("groups")).toArray();
+    QCOMPARE(groups.size(), 1);
+    const QJsonArray rules = groups.first().toObject().value(QStringLiteral("rules")).toArray();
+    QCOMPARE(rules.size(), 1);
+    const QJsonObject rule = rules.first().toObject();
+    QCOMPARE(rule.value(QStringLiteral("field")).toString(), QStringLiteral("added_at"));
+    QCOMPARE(rule.value(QStringLiteral("op")).toString(), QStringLiteral("between"));
+    QCOMPARE(rule.value(QStringLiteral("value")).toArray(), range);
+
+    // A later page of the same query sends the same rules, so Silo accepts
+    // the cursor it issued for the first page.
+    query.startIndex = 100;
+    const ProviderCatalogRequest later = provider.createRequest(
+        ProviderCatalogOperation::Items, query);
+    QVERIFY2(later.supported, qPrintable(later.unsupportedReason));
+    QCOMPARE(QJsonDocument::fromJson(later.body).object().value(QStringLiteral("groups")),
+             body.value(QStringLiteral("groups")));
+}
+
+void SiloCatalogServiceTest::libraryTitleQueriesAcceptRecursiveScope()
+{
+    // The library view asks for a recursive, type-restricted query whenever a
+    // sort or filter is active (and always for "All Movies"); Silo's library
+    // catalog is already that flat list of titles.
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery query;
+    query.parentId = QStringLiteral("17");
+    query.includeItemTypes = {QStringLiteral("Movie")};
+    query.recursive = true;
+    query.sortBy = QStringLiteral("title");
+    query.minDateLastSaved = QDate(2026, 7, 1);
+    query.genres = {QStringLiteral("Drama")};
+    ProviderCatalogRequest request = provider.createRequest(ProviderCatalogOperation::Items, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+
+    query.includeItemTypes = {QStringLiteral("Series")};
+    request = provider.createRequest(ProviderCatalogOperation::Items, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+
+    // Other recursive scopes stay unsupported.
+    query.includeItemTypes = {QStringLiteral("Episode")};
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::Items, query).supported);
+    query.includeItemTypes = {QStringLiteral("Movie")};
+    query.parentId.clear();
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::Items, query).supported);
+}
+
+void SiloCatalogServiceTest::libraryQueryCapabilitiesFollowProvider()
+{
+    SiloProviderAdapter silo;
+    QVERIFY(silo.catalogProvider());
+    const ProviderLibraryQueryCapabilities siloCapabilities =
+        silo.catalogProvider()->libraryQueryCapabilities();
+    QVERIFY(!siloCapabilities.sorts.contains(QStringLiteral("random")));
+    QVERIFY(!siloCapabilities.filters.contains(QStringLiteral("tags")));
+    QVERIFY(siloCapabilities.filters.contains(QStringLiteral("addedSince")));
+
+    // Every sort and filter Silo reports is one its catalog request accepts.
+    SiloCatalogProvider provider;
+    for (const QString &sort : siloCapabilities.sorts) {
+        ProviderCatalogQuery query;
+        query.sortBy = sort;
+        query.sortOrder = QStringLiteral("descending");
+        QVERIFY2(provider.createRequest(ProviderCatalogOperation::Items, query).supported,
+                 qPrintable(sort));
+    }
+    ProviderCatalogQuery random;
+    random.sortBy = QStringLiteral("random");
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::Items, random).supported);
+
+    JellyfinProviderAdapter jellyfin;
+    QVERIFY(jellyfin.catalogProvider());
+    QVERIFY(jellyfin.catalogProvider()->libraryQueryCapabilities()
+            == ProviderLibraryQueryCapabilities{});
+
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    ExposedAuthenticationService auth(&transport, &silo);
+    LibraryService service(&auth);
+    QVERIFY(service.libraryQueryCapabilities() == siloCapabilities);
+    LibraryService detached(nullptr);
+    QVERIFY(detached.libraryQueryCapabilities() == ProviderLibraryQueryCapabilities{});
 }
 
 void SiloCatalogServiceTest::sparseNativeMappingsPreserveFallbacksAndState()

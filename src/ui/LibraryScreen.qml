@@ -29,6 +29,13 @@ FocusScope {
     property var selectedStudios: []
     property bool showFilterPanel: false
     property string activeFilterCategory: "genres"
+    // Facet tabs and controls the active connection can filter or sort by
+    // (Silo has no tag filter and no random order).
+    readonly property var facetCategories: ["genres", "tags", "studios"].filter(function(category) {
+        return LibraryViewModel.supportedFilters.indexOf(category) >= 0
+    })
+    readonly property bool addedSinceSupported: LibraryViewModel.supportedFilters.indexOf("addedSince") >= 0
+    onFacetCategoriesChanged: normalizeActiveFilterCategory()
     property string librarySearchText: ""
     property bool queryToolbarPinned: true
     property bool queryToolbarScrollArmed: false
@@ -350,8 +357,8 @@ FocusScope {
     }
 
     function normalizeActiveFilterCategory() {
-        if (activeFilterCategory !== "tags" && activeFilterCategory !== "studios")
-            activeFilterCategory = "genres"
+        if (facetCategories.indexOf(activeFilterCategory) < 0)
+            activeFilterCategory = facetCategories.length > 0 ? facetCategories[0] : "genres"
     }
 
     function toggleActiveFacet(name) {
@@ -815,7 +822,7 @@ FocusScope {
             if (target === "orderCombo") return orderCombo
             if (target === "filterDrawerButton") return filterDrawerButton
             if (target === "favoriteFilterCombo") return favoriteFilterCombo
-            if (target === "addedSinceCombo") return addedSinceCombo
+            if (target === "addedSinceCombo") return addedSinceSupported ? addedSinceCombo : favoriteFilterCombo
             if (target === "ratingSlider") return ratingSlider
             if (target === "clearFiltersButton") return clearFiltersButton
             if (target === "facetTabs") return facetTabs
@@ -1030,13 +1037,31 @@ FocusScope {
                     LibraryComboBox {
                         id: sortCombo
                         Layout.preferredHeight: Theme.buttonHeightMedium
-                        model: ["Library order", "Title", "Release date", "Date added", "Rating", "Year", "Random"]
-                        values: ["", "title", "releaseDate", "dateAdded", "rating", "year", "random"]
+                        // Library order, then the sorts the connection serves.
+                        readonly property var sortOptions: [
+                            { value: "", label: "Library order" },
+                            { value: "title", label: "Title" },
+                            { value: "releaseDate", label: "Release date" },
+                            { value: "dateAdded", label: "Date added" },
+                            { value: "rating", label: "Rating" },
+                            { value: "year", label: "Year" },
+                            { value: "random", label: "Random" }
+                        ].filter(function(option) {
+                            return option.value === "" || LibraryViewModel.supportedSorts.indexOf(option.value) >= 0
+                        })
+                        model: sortOptions.map(function(option) { return option.label })
+                        values: sortOptions.map(function(option) { return option.value })
                         Accessible.name: "Sort library"
                         leftTarget: searchField
                         rightTarget: orderCombo
                         downTarget: grid
                         Component.onCompleted: syncComboIndex(sortCombo, LibraryViewModel.sortBy)
+                        onValuesChanged: Qt.callLater(function() { syncComboIndex(sortCombo, LibraryViewModel.sortBy) })
+                        Connections {
+                            target: LibraryViewModel
+                            // An unsupported saved sort falls back to library order.
+                            function onSortByChanged() { syncComboIndex(sortCombo, LibraryViewModel.sortBy) }
+                        }
                         onValueAccepted: function(value) {
                             LibraryViewModel.setSortBy(value)
                             applyFilters("sortCombo")
@@ -1172,7 +1197,7 @@ FocusScope {
                             model: ["Any favorite", "Favorites", "Not favorite"]
 	                            values: ["any", "favorite", "notFavorite"]
 		                            Component.onCompleted: syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
-	                                rightTarget: addedSinceCombo
+	                                rightTarget: addedSinceSupported ? addedSinceCombo : ratingSlider
 	                                upTarget: filterDrawerButton
 	                                downTarget: facetTabs
 	                            onValueAccepted: function(value) {
@@ -1183,6 +1208,7 @@ FocusScope {
 	
 	                        LibraryComboBox {
 	                            id: addedSinceCombo
+	                            visible: addedSinceSupported
 	                            	                            Layout.preferredHeight: Theme.buttonHeightMedium
                             model: ["Any added date", "Last 7 days", "Last 30 days", "Last 90 days", "Last year"]
 	                            values: ["any", "7d", "30d", "90d", "1y"]
@@ -1206,7 +1232,7 @@ FocusScope {
                             stepSize: 0.5
 	                            value: LibraryViewModel.minCommunityRating
                             Accessible.name: "Minimum rating"
-	                            KeyNavigation.left: addedSinceCombo
+	                            KeyNavigation.left: addedSinceSupported ? addedSinceCombo : favoriteFilterCombo
                             KeyNavigation.right: clearFiltersButton
                             KeyNavigation.down: facetTabs
                             Keys.priority: Keys.BeforeItem
@@ -1229,8 +1255,10 @@ FocusScope {
 	                                } else if (event.key === Qt.Key_Left) {
 	                                    if (ratingSliderEditing) {
 	                                        adjustRating(-stepSize)
-	                                    } else {
+	                                    } else if (addedSinceSupported) {
 	                                        addedSinceCombo.forceActiveFocus()
+	                                    } else {
+	                                        favoriteFilterCombo.forceActiveFocus()
 	                                    }
                                     event.accepted = true
                                 } else if (event.key === Qt.Key_Right) {
@@ -1312,7 +1340,17 @@ FocusScope {
                             }
 	                        KeyNavigation.up: favoriteFilterCombo
 	                        KeyNavigation.down: facetGrid
-	                        currentIndex: activeFilterCategory === "tags" ? 1 : (activeFilterCategory === "studios" ? 2 : 0)
+	                        currentIndex: Math.max(0, facetCategories.indexOf(activeFilterCategory))
+                            // Left/Right reassign currentIndex, so follow the
+                            // tab set when the connection's filters change,
+                            // once the Repeater has rebuilt the tabs.
+                            readonly property var categories: facetCategories
+                            onCategoriesChanged: {
+                                normalizeActiveFilterCategory()
+                                Qt.callLater(function() {
+                                    facetTabs.currentIndex = Math.max(0, facetTabs.categories.indexOf(activeFilterCategory))
+                                })
+                            }
                             Keys.priority: Keys.BeforeItem
                             Keys.onLeftPressed: (event) => {
                                 currentIndex = currentIndex > 0 ? currentIndex - 1 : count - 1
@@ -1333,102 +1371,49 @@ FocusScope {
                                 event.accepted = true
                             }
 	                        onCurrentIndexChanged: {
-	                            activeFilterCategory = currentIndex === 1 ? "tags" : (currentIndex === 2 ? "studios" : "genres")
+	                            // Removing tabs during a rebuild shifts the index.
+	                            if (count !== categories.length || currentIndex < 0 || currentIndex >= count)
+	                                return
+	                            activeFilterCategory = categories[currentIndex]
 	                            facetGrid.currentIndex = 0
 	                        }
-	                        TabButton {
-                                width: implicitContentWidth + Theme.spacingXLarge * 2
-                                implicitHeight: Theme.buttonHeightMedium
-                                text: "Genres"
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: parent.checked ? Theme.textPrimary : Theme.textSecondary
-                                    font.pixelSize: Theme.fontSizeBody
-                                    font.family: Theme.fontPrimary
-                                    font.weight: parent.checked ? Theme.fontWeightStrong : Theme.fontWeightRegular
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                                background: Rectangle {
-                                    color: parent.hovered ? Theme.surfaceInteractive : "transparent"
-                                    radius: Theme.radiusSmall
-                                    Rectangle {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        anchors.bottom: parent.bottom
-                                        width: parent.width * 0.6
-                                        height: Theme.selectionIndicatorWidth
-                                        radius: height / 2
-                                        color: Theme.selectionIndicator
-                                        visible: parent.parent.checked
+                            Repeater {
+                                model: facetTabs.categories
+                                TabButton {
+                                    id: facetTab
+                                    required property string modelData
+                                    width: implicitContentWidth + Theme.spacingXLarge * 2
+                                    implicitHeight: Theme.buttonHeightMedium
+                                    text: modelData === "tags" ? "Tags"
+                                          : modelData === "studios"
+                                            ? (currentLibraryType === "tvshows" || currentLibraryType === "series" ? "Networks" : "Studios")
+                                            : "Genres"
+                                    contentItem: Text {
+                                        text: facetTab.text
+                                        color: facetTab.checked ? Theme.textPrimary : Theme.textSecondary
+                                        font.pixelSize: Theme.fontSizeBody
+                                        font.family: Theme.fontPrimary
+                                        font.weight: facetTab.checked ? Theme.fontWeightStrong : Theme.fontWeightRegular
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
                                     }
-                                    FocusRing {
-                                        inset: true
-                                        active: facetTabs.activeFocus && parent.parent.checked
-                                        radius: parent.radius
-                                    }
-                                }
-                            }
-	                        TabButton {
-                                width: implicitContentWidth + Theme.spacingXLarge * 2
-                                implicitHeight: Theme.buttonHeightMedium
-                                text: "Tags"
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: parent.checked ? Theme.textPrimary : Theme.textSecondary
-                                    font.pixelSize: Theme.fontSizeBody
-                                    font.family: Theme.fontPrimary
-                                    font.weight: parent.checked ? Theme.fontWeightStrong : Theme.fontWeightRegular
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                                background: Rectangle {
-                                    color: parent.hovered ? Theme.surfaceInteractive : "transparent"
-                                    radius: Theme.radiusSmall
-                                    Rectangle {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        anchors.bottom: parent.bottom
-                                        width: parent.width * 0.6
-                                        height: Theme.selectionIndicatorWidth
-                                        radius: height / 2
-                                        color: Theme.selectionIndicator
-                                        visible: parent.parent.checked
-                                    }
-                                    FocusRing {
-                                        inset: true
-                                        active: facetTabs.activeFocus && parent.parent.checked
-                                        radius: parent.radius
-                                    }
-                                }
-                            }
-	                        TabButton {
-                                width: implicitContentWidth + Theme.spacingXLarge * 2
-                                implicitHeight: Theme.buttonHeightMedium
-                                text: currentLibraryType === "tvshows" || currentLibraryType === "series" ? "Networks" : "Studios"
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: parent.checked ? Theme.textPrimary : Theme.textSecondary
-                                    font.pixelSize: Theme.fontSizeBody
-                                    font.family: Theme.fontPrimary
-                                    font.weight: parent.checked ? Theme.fontWeightStrong : Theme.fontWeightRegular
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                                background: Rectangle {
-                                    color: parent.hovered ? Theme.surfaceInteractive : "transparent"
-                                    radius: Theme.radiusSmall
-                                    Rectangle {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        anchors.bottom: parent.bottom
-                                        width: parent.width * 0.6
-                                        height: Theme.selectionIndicatorWidth
-                                        radius: height / 2
-                                        color: Theme.selectionIndicator
-                                        visible: parent.parent.checked
-                                    }
-                                    FocusRing {
-                                        inset: true
-                                        active: facetTabs.activeFocus && parent.parent.checked
-                                        radius: parent.radius
+                                    background: Rectangle {
+                                        color: facetTab.hovered ? Theme.surfaceInteractive : "transparent"
+                                        radius: Theme.radiusSmall
+                                        Rectangle {
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            anchors.bottom: parent.bottom
+                                            width: parent.width * 0.6
+                                            height: Theme.selectionIndicatorWidth
+                                            radius: height / 2
+                                            color: Theme.selectionIndicator
+                                            visible: facetTab.checked
+                                        }
+                                        FocusRing {
+                                            inset: true
+                                            active: facetTabs.activeFocus && facetTab.checked
+                                            radius: parent.radius
+                                        }
                                     }
                                 }
                             }
@@ -2108,6 +2093,7 @@ FocusScope {
             selectedNetworks = prevContext.selectedNetworks || []
             showFilterPanel = prevContext.showFilterPanel || false
             activeFilterCategory = prevContext.activeFilterCategory || ""
+            normalizeActiveFilterCategory()
             
             // Set pending grid position restoration for library grid
             // Only restore if we're going back to the library grid view (not series/season/episode views)

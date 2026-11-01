@@ -169,10 +169,35 @@ struct ProviderCatalogResponse {
     QVariantMap filterMetadata;
 };
 
+// The library-browse sorts and filters a provider serves, in canonical
+// names. Library order (an empty sort) is always available. Views hide the
+// rest when a provider leaves them out and drop a saved choice that the
+// active connection cannot serve.
+struct ProviderLibraryQueryCapabilities {
+    // Canonical sortBy values beyond library order.
+    QStringList sorts{QStringLiteral("title"), QStringLiteral("releaseDate"),
+                      QStringLiteral("dateAdded"), QStringLiteral("rating"),
+                      QStringLiteral("year"), QStringLiteral("random")};
+    // Canonical filters: genres, tags, studios, watched, favorite,
+    // addedSince (minDateLastSaved), years, and rating
+    // (minCommunityRating).
+    QStringList filters{QStringLiteral("genres"), QStringLiteral("tags"),
+                        QStringLiteral("studios"), QStringLiteral("watched"),
+                        QStringLiteral("favorite"), QStringLiteral("addedSince"),
+                        QStringLiteral("years"), QStringLiteral("rating")};
+
+    bool operator==(const ProviderLibraryQueryCapabilities &) const = default;
+};
+
 class ICatalogProvider
 {
 public:
     virtual ~ICatalogProvider() = default;
+
+    virtual ProviderLibraryQueryCapabilities libraryQueryCapabilities() const
+    {
+        return {};
+    }
 
     virtual ProviderCatalogRequest createRequest(
         ProviderCatalogOperation operation,
