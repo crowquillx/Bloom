@@ -214,6 +214,7 @@ private slots:
     void quickConnectShowsTheCodeWithoutALink();
     void authorizedCodeIsExchangedOnceThenSignsInLikePassword();
     void quickConnectExpiresWhenServerOrDeadlineSaysSo();
+    void turningQuickConnectOffWithdrawsTheOffer();
     void failedExchangeEndsTheCode();
     void backingOutStopsPollingWithoutACancelRequest();
 };
@@ -497,11 +498,6 @@ void JellyfinQuickConnectTest::quickConnectExpiresWhenServerOrDeadlineSaysSo()
     QVERIFY(service.deviceSignIn().value(QStringLiteral("userCode")).toString().isEmpty());
     QVERIFY(!service.isAuthenticated());
 
-    // Quick Connect was turned off while the code was shown.
-    beginQuickConnect(fixture);
-    manager.responses.append(response(401, QByteArrayLiteral("Quick connect is disabled")));
-    QTRY_COMPARE_WITH_TIMEOUT(deviceState(service), QStringLiteral("expired"), 1000);
-
     // The ten-minute local deadline passes while the server still says pending.
     beginQuickConnect(fixture, 1);
     for (int i = 0; i < 400; ++i) {
@@ -518,6 +514,25 @@ void JellyfinQuickConnectTest::quickConnectExpiresWhenServerOrDeadlineSaysSo()
     service.startDeviceSignIn(kJellyfinAddress);
     QTRY_COMPARE_WITH_TIMEOUT(deviceState(service), QStringLiteral("waiting"), 1000);
     service.cancelDeviceSignIn();
+}
+
+void JellyfinQuickConnectTest::turningQuickConnectOffWithdrawsTheOffer()
+{
+    Fixture fixture;
+    AuthenticationService &service = fixture.service;
+    FakeNetworkAccessManager &manager = fixture.manager;
+
+    // Quick Connect is turned off while the code is shown: the code ends,
+    // and the address is checked again, which now withdraws the offer.
+    beginQuickConnect(fixture);
+    const qsizetype enabledReads = manager.countPath(QStringLiteral("/QuickConnect/Enabled"));
+    manager.responses.append(response(401, QByteArrayLiteral("Quick connect is disabled")));
+    manager.responses.append(response(404, QByteArrayLiteral("Not Found")));
+    manager.responses.append(response(200, QByteArrayLiteral("false")));
+    QTRY_COMPARE_WITH_TIMEOUT(deviceState(service), QStringLiteral("expired"), 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(signInState(service), QStringLiteral("ready"), 1000);
+    QCOMPARE(manager.countPath(QStringLiteral("/QuickConnect/Enabled")), enabledReads + 1);
+    QVERIFY(!service.signInOptions().value(QStringLiteral("quickConnect")).toBool());
 }
 
 void JellyfinQuickConnectTest::failedExchangeEndsTheCode()

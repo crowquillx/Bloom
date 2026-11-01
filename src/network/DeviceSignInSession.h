@@ -54,6 +54,9 @@ public:
         bool canWithdraw = false;
         // Flow shown to QML: "code" (Silo device login) or "quickConnect".
         QString method = QStringLiteral("code");
+        // Jellyfin answers 401 once Quick Connect is turned off; Silo's
+        // contract declares no 401 for its device-login routes.
+        bool unauthorizedMeansUnavailable = false;
     };
     using AuthorizedHandler = std::function<void(const ProviderAuthenticationResult &)>;
 
@@ -81,6 +84,9 @@ public:
 
 signals:
     void changed();
+    /// The server stopped offering sign-in with a code (turned off, or the
+    /// route is gone); the offer shown for this address is stale.
+    void unavailable();
 
 private:
     void ensureTransport();
@@ -123,6 +129,9 @@ private:
     bool m_opened = false;
     qint64 m_intervalSeconds = 0;
     int m_consecutiveFailures = 0;
+    // One last poll at the local deadline, so an approval that landed just
+    // before it is not thrown away.
+    bool m_finalPollSent = false;
 
     // Deadline on a monotonic clock; the server's absolute expiry is mapped
     // onto it through the skew measured at start.

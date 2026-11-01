@@ -212,6 +212,36 @@ class MediaBrowserV1Probe:
             f"session validation returned HTTP {validation.status} with matching identity={isinstance(valid_payload, dict) and valid_payload.get('Id') == self.user_id}",
         )
 
+        # Quick Connect: a code is requested and read back as pending, never
+        # approved. The secret stays out of the evidence and the report.
+        quick_headers = self.headers(token="", device_id="bloom-contract-quick-connect")
+        quick_enabled = self.transport.request("GET", "/QuickConnect/Enabled", headers=quick_headers)
+        enabled_payload = quick_enabled.json() if quick_enabled.status == 200 else None
+        if quick_enabled.status == 200 and enabled_payload is True:
+            initiate = self.transport.request("POST", "/QuickConnect/Initiate", headers=quick_headers)
+            initiate_payload = initiate.json() if initiate.status == 200 else {}
+            secret = initiate_payload.get("Secret", "") if isinstance(initiate_payload, dict) else ""
+            code = initiate_payload.get("Code", "") if isinstance(initiate_payload, dict) else ""
+            if secret and code:
+                state = self.transport.request(
+                    "GET",
+                    "/QuickConnect/Connect?" + urllib.parse.urlencode({"secret": secret}),
+                    headers=quick_headers,
+                )
+                state_payload = state.json() if state.status == 200 else {}
+                pending = isinstance(state_payload, dict) and state_payload.get("Authenticated") is False
+                record(
+                    "auth.quick-connect",
+                    "supported" if pending else "partial",
+                    f"initiate HTTP {initiate.status} with a code; status read HTTP {state.status}, pending={pending}",
+                )
+            else:
+                record("auth.quick-connect", "partial", f"initiate HTTP {initiate.status} without a code and secret")
+        elif quick_enabled.status == 200:
+            record("auth.quick-connect", "inconclusive", "Quick Connect is turned off on this server")
+        else:
+            record("auth.quick-connect", self._outcome_for_missing(quick_enabled), f"enabled check returned HTTP {quick_enabled.status}")
+
         expired = self.request("GET", f"/Users/{urllib.parse.quote(self.user_id)}", headers=self.headers(token=self.token + "-revoked"))
         record("errors.expired-session", "supported" if expired.status == 401 else "partial", f"invalid token returned HTTP {expired.status}")
 

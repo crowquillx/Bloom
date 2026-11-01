@@ -128,10 +128,13 @@ void DeviceSignInSession::sendStart()
             if (error.httpStatus == 429) {
                 finish(State::Failed,
                        tr("Too many sign-in attempts. Wait a minute, then get a new code."));
-            } else if (error.httpStatus == 401 || error.httpStatus == 404
-                       || error.httpStatus == 503) {
+            } else if ((error.httpStatus == 401 && m_target.unauthorizedMeansUnavailable)
+                       || error.httpStatus == 404 || error.httpStatus == 503) {
                 // Jellyfin answers 401 while Quick Connect is turned off.
                 finish(State::Failed, tr("This server isn't offering sign-in with a code right now."));
+                if (error.httpStatus != 503) {
+                    emit unavailable();
+                }
             } else {
                 finish(State::Failed,
                        error.userMessage.isEmpty()
@@ -156,6 +159,7 @@ void DeviceSignInSession::handleStarted(const QByteArray &body)
     m_verificationUriComplete = authorization->verificationUriComplete;
     m_opened = false;
     m_consecutiveFailures = 0;
+    m_finalPollSent = false;
     m_intervalSeconds = qBound(kMinimumIntervalSeconds, authorization->intervalSeconds,
                                kMaximumIntervalSeconds);
     const qint64 lifetime = qMin(authorization->expiresInSeconds, kMaximumLifetimeSeconds);
@@ -289,10 +293,15 @@ void DeviceSignInSession::handlePollError(const NetworkError &error)
         schedulePoll(m_intervalSeconds);
         return;
     }
-    if (error.httpStatus == 404 || error.httpStatus == 401) {
-        // The server no longer knows this code (Jellyfin answers 401 once
-        // Quick Connect is turned off).
+    if (error.httpStatus == 404) {
+        // The server no longer knows this code.
         finish(State::Expired);
+        return;
+    }
+    if (error.httpStatus == 401 && m_target.unauthorizedMeansUnavailable) {
+        // Jellyfin answers 401 once Quick Connect is turned off.
+        finish(State::Expired);
+        emit unavailable();
         return;
     }
     if (isTransient(error)) {
@@ -411,6 +420,18 @@ void DeviceSignInSession::tick()
         return;
     }
     if (m_clock.elapsed() >= m_deadlineMs) {
+        if (m_request) {
+            // A poll is still in flight; its answer may be the approval.
+            emit changed();
+            return;
+        }
+        if (!m_finalPollSent) {
+            m_finalPollSent = true;
+            m_pollTimer.stop();
+            poll();
+            emit changed();
+            return;
+        }
         // Expired requests need no withdrawal.
         finish(State::Expired);
         return;
@@ -496,6 +517,7 @@ void DeviceSignInSession::clear()
     m_verificationUriComplete.clear();
     m_opened = false;
     m_consecutiveFailures = 0;
+    m_finalPollSent = false;
     m_intervalSeconds = 0;
     m_onAuthorized = {};
 }

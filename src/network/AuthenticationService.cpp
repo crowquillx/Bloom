@@ -534,6 +534,11 @@ void AuthenticationService::setProviderSelection(const QString &selection)
     const bool wasAuthenticated = isAuthenticated();
     clearAccountStateInternal(true, wasAuthenticated);
     m_providerSelection = normalized;
+    // Sign-in options depend on the selection (a Silo selection never asks
+    // Jellyfin), so a discovery made under the old one is dropped.
+    ++m_signInDiscoveryGeneration;
+    m_signInDiscovery = {};
+    emit signInOptionsChanged();
 
     if (normalized != QStringLiteral("auto")) {
         const ProviderKind kind = normalized == QStringLiteral("silo")
@@ -2271,6 +2276,17 @@ void AuthenticationService::validateAccessToken(std::function<void(SessionValidi
 void AuthenticationService::initializeDeviceSignIn()
 {
     m_deviceSignIn = new DeviceSignInSession(this);
+    // A server that stops offering codes mid-flow makes the cached offer for
+    // its address stale: check the address again.
+    connect(m_deviceSignIn, &DeviceSignInSession::unavailable, this, [this]() {
+        const QString address = m_signInDiscovery.address;
+        ++m_signInDiscoveryGeneration;
+        m_signInDiscovery = {};
+        emit signInOptionsChanged();
+        if (!address.isEmpty()) {
+            checkSignInOptions(address);
+        }
+    });
     connect(m_deviceSignIn, &DeviceSignInSession::changed,
             this, &AuthenticationService::deviceSignInChanged);
     // Profile loading or credential storage can still fail after approval;
@@ -2587,6 +2603,7 @@ void AuthenticationService::startDeviceSignIn(const QString &serverAddress)
     target.canWithdraw = m_signInDiscovery.deviceCanWithdraw;
     if (m_signInDiscovery.quickConnect) {
         target.method = QStringLiteral("quickConnect");
+        target.unauthorizedMeansUnavailable = true;
     }
     m_deviceSignIn->start(target, [this, generation](
                                       const ProviderAuthenticationResult &authentication) {
