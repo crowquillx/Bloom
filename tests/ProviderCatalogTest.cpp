@@ -547,6 +547,12 @@ void ProviderCatalogTest::jellyfinPersonRequestsAndMapping()
     // pinned PersonKind value.
     const QString personTypes = searchQuery.queryItemValue(QStringLiteral("personTypes"));
     QCOMPARE(personTypes, QStringLiteral("Actor,Director,Writer,Producer,GuestStar"));
+    query.searchTerm = QStringLiteral("A+B");
+    const QUrlQuery plusQuery(QUrl(catalog->createRequest(ProviderCatalogOperation::PersonSearch,
+                                                          query).relativeEndpoint));
+    QCOMPARE(plusQuery.queryItemValue(QStringLiteral("searchTerm"), QUrl::FullyDecoded),
+             QStringLiteral("A+B"));
+    QVERIFY(plusQuery.query(QUrl::FullyEncoded).contains(QStringLiteral("A%2BB")));
     query.searchTerm = QStringLiteral("  ");
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::PersonSearch, query).supported);
     // People search needs no capability read on Jellyfin.
@@ -630,8 +636,14 @@ void ProviderCatalogTest::siloPersonRequestsAndMapping()
     QVERIFY(people.supported);
     QCOMPARE(people.relativeEndpoint,
              QStringLiteral("/api/v2/catalog/people?q=al%20pacino&limit=20&media_scope=video"));
+    search.searchTerm = QStringLiteral("A+B");
+    QCOMPARE(provider.createRequest(ProviderCatalogOperation::PersonSearch, search).relativeEndpoint,
+             QStringLiteral("/api/v2/catalog/people?q=A%2BB&limit=20&media_scope=video"));
     search.searchTerm.clear();
     QVERIFY(!provider.createRequest(ProviderCatalogOperation::PersonSearch, search).supported);
+    // A numeric person ID is not the schema's string ID.
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::Person,
+                                    QByteArrayLiteral(R"({"id":7,"name":"Al Pacino"})")).valid);
 
     const ProviderCatalogRequest capability
         = provider.createRequest(ProviderCatalogOperation::PersonSearchCapability, {});

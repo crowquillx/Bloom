@@ -855,7 +855,9 @@ private:
         }
         QUrlQuery parameters;
         parameters.addQueryItem(QStringLiteral("userId"), query.userId);
-        parameters.addQueryItem(QStringLiteral("searchTerm"), term);
+        // QUrlQuery leaves '+' as is, which the server reads as a space.
+        parameters.addQueryItem(QStringLiteral("searchTerm"),
+                                QString::fromUtf8(QUrl::toPercentEncoding(term)));
         parameters.addQueryItem(QStringLiteral("personTypes"),
                                 QStringLiteral("Actor,Director,Writer,Producer,GuestStar"));
         parameters.addQueryItem(QStringLiteral("limit"),

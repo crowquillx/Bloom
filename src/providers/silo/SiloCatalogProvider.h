@@ -375,11 +375,12 @@ private:
             // Only movie and series credits the viewer can see. Servers
             // without getCatalogSearchCapabilities.people_media_scope reject
             // the parameter; LibraryService reads that flag first.
+            // QUrlQuery leaves '+' as is, which the server reads as a space.
             QUrlQuery parameters;
-            parameters.addQueryItem(QStringLiteral("q"), term.left(200));
             appendLimit(parameters, query.limit);
             parameters.addQueryItem(QStringLiteral("media_scope"), QStringLiteral("video"));
-            return get(endpointWithQuery(QStringLiteral("/api/v2/catalog/people"), parameters));
+            return get(QStringLiteral("/api/v2/catalog/people?q=%1&").arg(encodedId(term.left(200)))
+                       + parameters.query(QUrl::FullyEncoded));
         }
         case ProviderCatalogOperation::PersonSearchCapability:
             return get(QStringLiteral("/api/v2/catalog/search/capabilities"));
@@ -427,7 +428,8 @@ public:
             ProviderCatalogResponse response;
             const QJsonObject object = QJsonDocument::fromJson(body).object();
             if (object.value(QStringLiteral("name")).toString().isEmpty()
-                || object.value(QStringLiteral("id")).toVariant().toString().isEmpty()) {
+                || !object.value(QStringLiteral("id")).isString()
+            || object.value(QStringLiteral("id")).toString().isEmpty()) {
                 response.error = QStringLiteral("Invalid Silo person response");
                 return response;
             }
