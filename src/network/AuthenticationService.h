@@ -85,7 +85,11 @@ public:
                                 const QString &userId,
                                 const QString &accessToken,
                                 const QString &username = QString());
+    /// Explicit sign-out: asks the server to end this session (best effort,
+    /// never awaited), then deletes the live connection's credentials.
     Q_INVOKABLE virtual void logout();
+    /// Discards the account state and its credentials without contacting the
+    /// server (abandoned sign-in, expired or revoked session).
     Q_INVOKABLE void clearAccountState();
     Q_INVOKABLE void clearProfileState();
     Q_INVOKABLE void switchProfile();
@@ -145,6 +149,10 @@ public:
     QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
                                      const QString &connectionId,
                                      const QString &itemId) const;
+    /// The live session's authenticated identity route (Silo
+    /// `/api/v2/account/me`, Jellyfin `/Users/{id}`); empty without an account.
+    /// It answers 401 when the server refuses the access token.
+    QString sessionValidationEndpoint() const;
     bool isAuthenticated() const
     {
         return !m_accessToken.isEmpty() && !m_userId.isEmpty()
@@ -178,7 +186,8 @@ public:
     /// Leaves the active session without deleting its credentials (used to
     /// sign in to an additional server). Emits loggedOut.
     void suspendSession();
-    /// Deletes stored credentials for a connection that is not active.
+    /// Deletes stored credentials for a connection that is not active. A
+    /// pooled session (merged-space member) is also logged out on its server.
     void removeStoredCredentials(const ServerConnection &connection);
     /// Renews a connection's access token with its refresh token: the live
     /// session's, or a pooled member's. Concurrent calls for one connection
@@ -269,6 +278,8 @@ private:
     // Pooled renewals use their own transport: session switches cancel
     // m_transport, which must not abort another member's renewal.
     std::unique_ptr<HttpTransport> m_renewalTransport;
+    // Server logouts outlive the local sign-out, which cancels m_transport.
+    std::unique_ptr<HttpTransport> m_logoutTransport;
     // Connection whose live-session refresh is in flight on m_transport.
     QString m_liveRenewalConnectionId;
     // Bumped when a connection's sign-in is replaced (new login) or deleted;
@@ -403,4 +414,15 @@ private:
     void clearProfileStateInternal(bool persist);
     void clearAccountStateInternal(bool removeCredentials, bool emitLogout);
     void handleUnauthorized(bool deferLogout);
+    // Fire-and-forget CallerLogout with credentials captured before they are
+    // discarded. Never retried, never awaited, failures only logged. When the
+    // access token has expired (401) and a refresh token is given, the token
+    // is refreshed once and the logout sent once more with it; the rotated
+    // tokens are dropped.
+    void sendServerLogout(IProviderAdapter *adapter,
+                          const std::optional<ProviderRequestContext> &context,
+                          const QString &refreshToken = QString());
+    void postServerLogout(IProviderAdapter *adapter,
+                          const ProviderRequestContext &context,
+                          const QString &refreshToken);
 };

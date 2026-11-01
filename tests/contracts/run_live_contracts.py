@@ -472,6 +472,30 @@ class MediaBrowserV1Probe:
             revoke_observed = "missing" if revoke.status in {404, 405} else "partial"
             record("sessions.revoke", revoke_observed, f"device deletion probe returned HTTP {revoke.status}")
 
+        if allow_mutations:
+            logout_device_id = "bloom-contract-logout-target"
+            logout_login = self.transport.request(
+                "POST",
+                "/Users/AuthenticateByName",
+                headers=self.headers(token="", device_id=logout_device_id),
+                json_body={"Username": self.username, "Pw": self.password},
+            )
+            logout_payload = logout_login.json() if logout_login.status == 200 else {}
+            logout_token = logout_payload.get("AccessToken", "") if isinstance(logout_payload, dict) else ""
+            if logout_token:
+                logout_headers = self.headers(token=logout_token, device_id=logout_device_id)
+                logout = self.transport.request("POST", "/Sessions/Logout", headers=logout_headers)
+                logged_out_validation = self.transport.request(
+                    "GET", f"/Users/{urllib.parse.quote(self.user_id)}", headers=logout_headers
+                )
+                logout_ok = logout.status in {200, 204} and logged_out_validation.status == 401
+                logout_observed = "supported" if logout_ok else self._outcome_for_missing(logout) if logout.status >= 400 else "partial"
+                record("auth.logout", logout_observed, f"logout HTTP {logout.status}; logged-out token validation HTTP {logged_out_validation.status}")
+            else:
+                record("auth.logout", "partial", "could not create an isolated secondary session to log out")
+        else:
+            record("auth.logout", "inconclusive", "logout probe skipped; pass --allow-mutations to create and log out an isolated session")
+
         series_id = self.variables.get("seriesId", item_id)
         themes = self.request("GET", f"/Items/{urllib.parse.quote(series_id)}/ThemeSongs?{urllib.parse.urlencode({'UserId': self.user_id})}")
         theme_items = self._items(themes.json() if themes.status == 200 else None)

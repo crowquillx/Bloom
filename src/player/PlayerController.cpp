@@ -398,10 +398,9 @@ PlayerController::~PlayerController()
     m_autoplayPlaybackInfoTimeoutTimer->stop();
     m_isRecovering = false;
     m_recoveryTimer->stop();
-    if (m_recoveryReply) {
-        QObject::disconnect(m_recoveryReply, nullptr, this, nullptr);
-        m_recoveryReply->abort();
-        m_recoveryReply.clear();
+    if (m_recoveryPing) {
+        m_recoveryPing->cancel();
+        m_recoveryPing.clear();
     }
     cancelPendingDisplayRestore();
     resetTerminalTransitionState(true);
@@ -4357,9 +4356,9 @@ void PlayerController::cancelRecovery()
     if (wasActive != isPlaybackActive()) {
         emit isPlaybackActiveChanged();
     }
-    if (m_recoveryReply) {
-        m_recoveryReply->abort();
-        m_recoveryReply.clear();
+    if (m_recoveryPing) {
+        m_recoveryPing->cancel();
+        m_recoveryPing.clear();
     }
 }
 
@@ -4372,26 +4371,18 @@ void PlayerController::onRecoveryTick()
     emit recoveryAttemptCountChanged();
     qCDebug(lcPlayback) << "PlayerController: Recovery ping attempt" << m_recoveryAttemptCount;
 
-    QNetworkReply *reply = m_libraryService->pingServer();
-    if (!reply) {
-        m_recoveryTimer->start(kRecoveryPingIntervalMs);
-        return;
-    }
-    m_recoveryReply = reply;
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        if (m_recoveryReply == reply) {
-            m_recoveryReply.clear();
-        }
-        reply->deleteLater();
-        const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (reply->error() == QNetworkReply::NoError) {
+    const auto answered = std::make_shared<bool>(false);
+    HttpRequestHandle *ping = m_libraryService->pingServer(
+        this, [this, answered](ServerReachability reachability) {
+        *answered = true;
+        m_recoveryPing.clear();
+        if (reachability == ServerReachability::Reachable) {
             qCDebug(lcPlayback) << "PlayerController: Recovery ping succeeded";
             if (m_isRecovering && m_playbackState == Error && !m_terminalTransitionActive) {
                 cancelRecovery();
                 resumeFromRecoveryContext();
             }
-        } else if (httpStatus == 401) {
+        } else if (reachability == ServerReachability::SessionExpired) {
             qCDebug(lcPlayback) << "PlayerController: Recovery ping got 401, auth expired";
             if (m_isRecovering) {
                 cancelRecovery();
@@ -4403,13 +4394,25 @@ void PlayerController::onRecoveryTick()
                 }
             }
         } else {
-            qCDebug(lcPlayback) << "PlayerController: Recovery ping failed:"
-                                << redactNetworkLogText(reply->errorString());
+            qCDebug(lcPlayback) << "PlayerController: Recovery ping failed";
             if (m_isRecovering) {
                 m_recoveryTimer->start(kRecoveryPingIntervalMs);
             }
         }
     });
+    if (!ping) {
+        m_recoveryTimer->start(kRecoveryPingIntervalMs);
+        return;
+    }
+    // A session change cancels the shared transport without an answer; keep
+    // pinging instead of stalling recovery. A newer ping already in flight
+    // (recovery restarted before this one was deleted) keeps the chain.
+    connect(ping, &QObject::destroyed, this, [this, answered]() {
+        if (!*answered && m_isRecovering && !m_recoveryTimer->isActive() && !m_recoveryPing) {
+            m_recoveryTimer->start(kRecoveryPingIntervalMs);
+        }
+    });
+    m_recoveryPing = ping;
 }
 
 void PlayerController::resumeFromRecoveryContext()
