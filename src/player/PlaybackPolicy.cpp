@@ -972,12 +972,16 @@ bool sleepTimerFiresAtPlaybackEnd(int choice, SleepTimerPlaybackEnd end)
         && end == SleepTimerPlaybackEnd::Finished;
 }
 
-int sleepTimerChoiceForNewPlayback(int currentChoice, int defaultChoice, bool continuesFromUpNext)
+int sleepTimerChoiceForNewPlayback(int currentChoice, int defaultChoice, SleepTimerStart start)
 {
-    if (continuesFromUpNext) {
-        return sleepTimerKind(currentChoice) == SleepTimerKind::Duration
-            ? normalizeSleepTimerChoice(currentChoice)
-            : kSleepTimerOff;
+    const SleepTimerKind kind = sleepTimerKind(currentChoice);
+    switch (start) {
+    case SleepTimerStart::New:
+        break;
+    case SleepTimerStart::UpNext:
+        return kind == SleepTimerKind::Duration ? normalizeSleepTimerChoice(currentChoice) : kSleepTimerOff;
+    case SleepTimerStart::EpisodeSkip:
+        return normalizeSleepTimerChoice(currentChoice);
     }
     return normalizeSleepTimerChoice(defaultChoice);
 }

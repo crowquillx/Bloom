@@ -337,6 +337,8 @@ FocusScope {
                     id: stillWatchingRow
                     label: qsTr("Ask If I'm Still Watching")
                     description: qsTr("After this many episodes autoplay in a row with no input, ask before playing the next one")
+                    // Only autoplay chains episodes, so the setting rests while it is off.
+                    dimmed: !ConfigManager.autoplayNextEpisode
                     options: root.stillWatchingOptions
                     selectedValue: String(ConfigManager.stillWatchingEpisodeThreshold)
                     upTarget: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : mergeHomeRowsSwitch

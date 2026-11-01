@@ -49,7 +49,15 @@ Keyboard defaults
 | Stats (`playback.stats`) | Advanced Playback | I |
 | Stats Once (`playback.statsOnce`) | Advanced Playback | Shift+I |
 
-- Playback navigation/select/back, previous/next chapter, skip segment, mute, audio/subtitle cycling, and the sleep timer have no keyboard default. `playback.sleepTimer` opens the Sleep Timer page of the playback settings pop-out; under external mpv, which has no Bloom overlay, it steps through the choices and shows each on mpv's OSD.
+- Playback navigation/select/back, previous/next chapter, skip segment, mute, audio/subtitle cycling, and the sleep timer have no keyboard default. `playback.sleepTimer` opens the Sleep Timer page of the playback settings pop-out during embedded playback.
+- Under `external-mpv-ipc`, mpv's window has focus and Bloom's runtime context stays `navigation`, so playback actions (including `playback.sleepTimer`) do not reach Bloom; a Bloom keyboard binding only fires while Bloom's own window has focus, where it steps through the sleep-timer choices on mpv's OSD. Bind the sleep timer in mpv instead, in `~/.config/Bloom/mpv/input.conf`:
+
+  ```
+  Z      script-message bloom-sleep-timer        # step through Off, 15 … 90 min, end of item
+  Ctrl+z script-message bloom-sleep-timer off    # or: end, 15, 30, 45, 60, 90
+  ```
+
+  `bloom-skip-intro` and `bloom-skip-outro` work the same way (see [media segments](media-segments.md)).
 - Fixed playback keys that are not actions: Esc dismisses the playback overlay or stops playback, Return/Enter triggers an active skip prompt or brings up the controls, Left/Right seek 10 seconds (or move overlay focus), Up/Down move overlay focus, and 0-9 open mpv stats pages. Each of these yields to a user binding of the same key in the playback context.
 - F11 and Alt+Enter toggle fullscreen everywhere.
 
@@ -60,7 +68,8 @@ Card actions
 - While a removal can be undone, "Undo removal" ends the menu, and the actions key anywhere on Home opens a menu with just that entry. The undo toast names the key ("To undo, press Start and choose Undo removal", from the current `nav.menu` binding: the controller's when one is connected, else the keyboard's), and its timeout waits while the menu or the dialog is open. Picking Undo after it expired says it can no longer be undone. The toast's Undo button is for the pointer and takes no keyboard focus.
 
 Input observed for playback
-- `PlayerController` filters application events to restart the "Still watching?" episode count and to cancel a sleep-timer grace countdown: key presses (including keys synthesized for controller navigation), mouse button presses, wheel, touch and tablet presses, and pointer movement to a new position. Controller playback actions count through `actionTriggeredWithContext`. Under external mpv only a pause or resume in mpv's window is visible to Bloom. See [Still watching? and the sleep timer](playback.md).
+- `PlayerController` filters application events to restart the "Still watching?" episode count and to cancel a sleep-timer grace countdown: key presses, including keys that match a window `Shortcut` (Qt delivers those as `ShortcutOverride` and `Shortcut` events, never as a key press) and keys synthesized for controller navigation; mouse button presses; wheel; touch and tablet presses; and pointer travel of at least 8 logical pixels from the last reference point. The pointer entering a window or a window activating resets the reference point without counting, so jitter and resent hovers do not count. Controller playback actions count through `actionTriggeredWithContext`.
+- Under external mpv, Bloom sees a pause or resume made in mpv's window and the `bloom-*` script messages bound in mpv's `input.conf` (above); both count. Other scripts' messages do not, since scripts send them on their own, and seeks, volume and track changes made with mpv's own keys cannot be told apart from Bloom's commands. See [Still watching? and the sleep timer](playback.md).
 
 Settings UI
 - Settings > Input edits bindings by context and device.

@@ -2,6 +2,10 @@
 #include <QtTest/QSignalSpy>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QEnterEvent>
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQuickWindow>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -678,6 +682,12 @@ private slots:
     void sleepTimerGraceIsCancelledByInput();
     void sleepTimerEndOfItemSkipsUpNext();
     void sleepTimerSurvivesUpNextOnlyForDurations();
+    void playbackShortcutKeysCountAsInput();
+    void bloomScriptMessagesCountAsInputAndDriveSleepTimer();
+    void pointerJitterIsNotInput();
+    void sleepTimerGraceAtPlaybackEndSkipsUpNext();
+    void sleepTimerDurationEndsWithoutUpNext();
+    void sleepTimerCarriesThroughEpisodeSkipReplacement();
 
 private:
     static int resolveUpNextAutoplay(PlayerController &controller, int nextEpisodeNumber);
@@ -6587,6 +6597,427 @@ void PlayerControllerAutoplayContextTest::sleepTimerSurvivesUpNextOnlyForDuratio
     controller.clearPendingAutoplayContext();
     controller.clearNextEpisodePrefetchState();
     controller.resetTerminalTransitionState(true);
+}
+
+namespace {
+
+// Counts what reaches the application's event filters, to show which events
+// a key matching a Shortcut produces.
+class InputEventCounter final : public QObject
+{
+public:
+    int keyPresses = 0;
+    int shortcutEvents = 0;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::KeyPress) {
+            ++keyPresses;
+        } else if (event->type() == QEvent::Shortcut) {
+            ++shortcutEvents;
+        }
+        return QObject::eventFilter(watched, event);
+    }
+};
+
+} // namespace
+
+void PlayerControllerAutoplayContextTest::playbackShortcutKeysCountAsInput()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    // Main.qml handles playback keys (arrows, Enter, Space, digits, bound
+    // actions) with window Shortcuts, as this scene does with Right.
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(QByteArrayLiteral(
+                          "import QtQuick\n"
+                          "Window {\n"
+                          "    width: 320; height: 240\n"
+                          "    property int activations: 0\n"
+                          "    Item { anchors.fill: parent; focus: true }\n"
+                          "    Shortcut { sequence: \"Right\"; onActivated: activations++ }\n"
+                          "}\n"),
+                      QUrl(QStringLiteral("qrc:/PlaybackShortcutScene.qml")));
+    std::unique_ptr<QObject> root(component.create());
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    InputEventCounter counter;
+    qApp->installEventFilter(&counter);
+    qApp->installEventFilter(&controller);
+    const auto removeFilters = qScopeGuard([&counter, &controller]() {
+        qApp->removeEventFilter(&controller);
+        qApp->removeEventFilter(&counter);
+    });
+
+    // The key runs the Shortcut and never arrives as a KeyPress, yet it is
+    // input for the still-watching count.
+    controller.m_autoplayChainCount = 2;
+    QTest::keyClick(window, Qt::Key_Right);
+    QCOMPARE(window->property("activations").toInt(), 1);
+    QCOMPARE(counter.keyPresses, 0);
+    QVERIFY(counter.shortcutEvents >= 1);
+    QCOMPARE(controller.autoplayChainCount(), 0);
+
+    // The same key cancels a sleep-timer grace countdown.
+    controller.m_currentItemId = QStringLiteral("movie-1");
+    controller.m_playbackState = PlayerController::Playing;
+    backend.setRunning(true);
+    controller.setSleepTimer(30);
+    controller.m_sleepTimerRemainingSeconds = 1;
+    controller.onSleepTimerTick();
+    backend.emitPause(true);
+    QVERIFY(controller.sleepTimerGraceActive());
+    QTest::keyClick(window, Qt::Key_Right);
+    QCOMPARE(window->property("activations").toInt(), 2);
+    QVERIFY(!controller.sleepTimerGraceActive());
+    QCOMPARE(controller.sleepTimerChoice(), 0);
+    QCOMPARE(controller.playbackState(), PlayerController::Paused);
+    QCOMPARE(backend.stopCallCount, 0);
+}
+
+void PlayerControllerAutoplayContextTest::bloomScriptMessagesCountAsInputAndDriveSleepTimer()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_currentItemId = QStringLiteral("episode-1");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_playbackState = PlayerController::Playing;
+    backend.setRunning(true);
+
+    // An input.conf binding in the external mpv window is user input.
+    controller.m_autoplayChainCount = 2;
+    emit backend.scriptMessage(QStringLiteral("bloom-skip-intro"), {});
+    QCOMPARE(controller.autoplayChainCount(), 0);
+
+    // Messages other scripts broadcast on their own are not.
+    controller.m_autoplayChainCount = 2;
+    emit backend.scriptMessage(QStringLiteral("uosc-version"), {QStringLiteral("5.0")});
+    QCOMPARE(controller.autoplayChainCount(), 2);
+
+    // bloom-sleep-timer steps through the choices and shows each on the OSD.
+    backend.variantCommands.clear();
+    emit backend.scriptMessage(QStringLiteral("bloom-sleep-timer"), {});
+    QCOMPARE(controller.autoplayChainCount(), 0);
+    QCOMPARE(controller.sleepTimerChoice(), 15);
+    QVERIFY(hasShowTextCommand(backend));
+    emit backend.scriptMessage(QStringLiteral("bloom-sleep-timer"), {});
+    QCOMPARE(controller.sleepTimerChoice(), 30);
+
+    // An argument sets a choice directly; unknown ones are ignored.
+    emit backend.scriptMessage(QStringLiteral("bloom-sleep-timer"), {QStringLiteral("end")});
+    QCOMPARE(controller.sleepTimerChoice(), Bloom::PlaybackPolicy::kSleepTimerEndOfItem);
+    QCOMPARE(controller.sleepTimerEndOfItemLabel(), QStringLiteral("End of this episode"));
+    emit backend.scriptMessage(QStringLiteral("bloom-sleep-timer"), {QStringLiteral("90")});
+    QCOMPARE(controller.sleepTimerChoice(), 90);
+    emit backend.scriptMessage(QStringLiteral("bloom-sleep-timer"), {QStringLiteral("20")});
+    QCOMPARE(controller.sleepTimerChoice(), 90);
+    emit backend.scriptMessage(QStringLiteral("bloom-sleep-timer"), {QStringLiteral("off")});
+    QCOMPARE(controller.sleepTimerChoice(), 0);
+
+    // A script message cancels a grace countdown like any other input.
+    controller.setSleepTimer(45);
+    controller.m_sleepTimerRemainingSeconds = 1;
+    controller.onSleepTimerTick();
+    QVERIFY(controller.sleepTimerGraceActive());
+    emit backend.scriptMessage(QStringLiteral("bloom-skip-outro"), {});
+    QVERIFY(!controller.sleepTimerGraceActive());
+    QCOMPARE(backend.stopCallCount, 0);
+
+    // Without playback there is nothing to time.
+    controller.m_playbackState = PlayerController::Idle;
+    emit backend.scriptMessage(QStringLiteral("bloom-sleep-timer"), {});
+    QCOMPARE(controller.sleepTimerChoice(), 0);
+
+    // Movies and extras get their own end-of-item label.
+    controller.m_currentSeriesId.clear();
+    QCOMPARE(controller.sleepTimerEndOfItemLabel(), QStringLiteral("End of this movie"));
+    controller.m_currentContentKind = Bloom::PlaybackPolicy::PlaybackContentKind::Extra;
+    QCOMPARE(controller.sleepTimerEndOfItemLabel(), QStringLiteral("End of this video"));
+}
+
+void PlayerControllerAutoplayContextTest::pointerJitterIsNotInput()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    const auto move = [&controller](qreal x, qreal y) {
+        const QPointF position(x, y);
+        QMouseEvent event(QEvent::MouseMove, position, position, position,
+                          Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+        controller.eventFilter(&controller, &event);
+    };
+
+    controller.m_autoplayChainCount = 2;
+    move(100, 100);
+    // A sensor wobbling by a pixel or two around a resting point is not
+    // movement, however long it goes on.
+    move(102, 101);
+    move(99, 98);
+    move(101, 103);
+    move(103, 100);
+    QCOMPARE(controller.autoplayChainCount(), 2);
+    // Travel past the threshold from the reference point is.
+    move(106, 100);
+    move(108, 100);
+    QCOMPARE(controller.autoplayChainCount(), 0);
+
+    // Entering a window takes a new reference without counting, so a stale
+    // position from before the pointer left does not read as a jump.
+    controller.m_autoplayChainCount = 2;
+    const QPointF entered(600, 400);
+    QEnterEvent enter(entered, entered, entered);
+    controller.eventFilter(&controller, &enter);
+    move(601, 401);
+    QCOMPARE(controller.autoplayChainCount(), 2);
+
+    // Window activation forgets the reference; the next move only records it.
+    QEvent activate(QEvent::WindowActivate);
+    controller.eventFilter(&controller, &activate);
+    move(20, 20);
+    QCOMPARE(controller.autoplayChainCount(), 2);
+    move(22, 21);
+    QCOMPARE(controller.autoplayChainCount(), 2);
+    move(40, 20);
+    QCOMPARE(controller.autoplayChainCount(), 0);
+}
+
+void PlayerControllerAutoplayContextTest::sleepTimerGraceAtPlaybackEndSkipsUpNext()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(true);
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_currentItemId = QStringLiteral("episode-1");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 99.5;
+    controller.m_playbackState = PlayerController::Playing;
+    backend.setRunning(true);
+
+    // The timer runs out in the last second; the file ends before the pause
+    // applies, past the completion threshold.
+    controller.setSleepTimer(15);
+    controller.m_sleepTimerRemainingSeconds = 1;
+    controller.onSleepTimerTick();
+    QVERIFY(controller.sleepTimerGraceActive());
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+
+    // The timer ended this playback: no Up Next, no autoplay, timer off.
+    QVERIFY(!controller.m_shouldAutoplay);
+    QVERIFY(!controller.m_waitingForNextEpisodeAtPlaybackEnd);
+    QVERIFY(!controller.sleepTimerGraceActive());
+    QCOMPARE(controller.sleepTimerChoice(), 0);
+    QCOMPARE(controller.sleepTimerRemainingSeconds(), 0);
+    QVERIFY(!controller.m_sleepTimerTickTimer->isActive());
+    QCOMPARE(libraryService.requestedSeriesIds.size(), 0);
+    controller.resetTerminalTransitionState(true);
+}
+
+void PlayerControllerAutoplayContextTest::sleepTimerDurationEndsWithoutUpNext()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(true);
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    const auto endPlayback = [&controller](const QString &seriesId, double position) {
+        controller.resetTerminalTransitionState(true);
+        controller.m_hasEvaluatedCompletionForAttempt = false;
+        controller.m_currentItemId = seriesId.isEmpty() ? QStringLiteral("movie-1") : QStringLiteral("episode-1");
+        controller.m_currentSeriesId = seriesId;
+        controller.m_duration = 100.0;
+        controller.m_currentPosition = position;
+        controller.m_playbackState = PlayerController::Playing;
+        controller.setSleepTimer(45);
+        QVERIFY(controller.m_sleepTimerTickTimer->isActive());
+        // mpv ending the file (or quitting with q, which mpv also reports
+        // as an end) reaches the controller as a playback end.
+        controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    };
+
+    // A movie that ends opens no Up Next, so the timer ends with it.
+    endPlayback(QString(), 99.0);
+    QVERIFY(!controller.m_shouldAutoplay);
+    QCOMPARE(controller.sleepTimerChoice(), 0);
+    QVERIFY(!controller.m_sleepTimerTickTimer->isActive());
+
+    // So does quitting an episode in mpv's window before the threshold.
+    endPlayback(QStringLiteral("series-1"), 40.0);
+    QVERIFY(!controller.m_shouldAutoplay);
+    QCOMPARE(controller.sleepTimerChoice(), 0);
+    QVERIFY(!controller.m_sleepTimerTickTimer->isActive());
+
+    // An episode that opens Up Next keeps the duration, but nothing ticks
+    // until the next playback is active.
+    endPlayback(QStringLiteral("series-1"), 99.0);
+    QVERIFY(controller.m_shouldAutoplay);
+    QCOMPARE(controller.sleepTimerChoice(), 45);
+    controller.setPlaybackState(PlayerController::Idle);
+    QVERIFY(!controller.m_sleepTimerTickTimer->isActive());
+    controller.setPlaybackState(PlayerController::Loading);
+    QVERIFY(controller.m_sleepTimerTickTimer->isActive());
+    controller.setPlaybackState(PlayerController::Idle);
+
+    // Leaving Up Next without playing ends it.
+    controller.releaseDeferredPostPlaybackDisplayRestore();
+    QCOMPARE(controller.sleepTimerChoice(), 0);
+    QVERIFY(!controller.m_sleepTimerTickTimer->isActive());
+
+    controller.clearPendingAutoplayContext();
+    controller.clearNextEpisodePrefetchState();
+    controller.resetTerminalTransitionState(true);
+}
+
+void PlayerControllerAutoplayContextTest::sleepTimerCarriesThroughEpisodeSkipReplacement()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(true);
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    backend.emitStopStateChangeSynchronously = false;
+    backend.setRunning(true);
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    const auto playEpisode = [&controller](const QString &itemId) {
+        controller.m_currentItemId = itemId;
+        controller.m_currentSeriesId = QStringLiteral("series-1");
+        controller.m_currentSeasonId = QStringLiteral("season-1");
+        controller.m_playbackState = PlayerController::Playing;
+    };
+    // The overlay's Next: a request that continues watching, then the
+    // resolved stream replacing the running item without a terminal
+    // transition (scheduleReplacementPlayback).
+    const auto skipTo = [&controller, &backend](int episodeNumber) {
+        QVariantMap episode = stillWatchingEpisode(episodeNumber);
+        controller.requestAdjacentEpisodePlayback(episode);
+        controller.m_pendingPlaybackRequests.clear();
+        const QString itemId = episode.value(QStringLiteral("itemId")).toString();
+        controller.playUrl(QStringLiteral("https://example.invalid/%1").arg(itemId),
+                           itemId, 0, QStringLiteral("series-1"), QStringLiteral("season-1"));
+        QCoreApplication::processEvents();
+        QVERIFY(!controller.m_terminalTransitionActive);
+        QCOMPARE(controller.currentItemId(), itemId);
+        QCOMPARE(controller.playbackState(), PlayerController::Loading);
+        QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/%1").arg(itemId));
+        backend.setRunning(true);
+    };
+
+    // "End of this episode" moves to the episode the user skipped to...
+    playEpisode(QStringLiteral("episode-1"));
+    controller.setSleepTimer(Bloom::PlaybackPolicy::kSleepTimerEndOfItem);
+    skipTo(2);
+    QCOMPARE(controller.sleepTimerChoice(), Bloom::PlaybackPolicy::kSleepTimerEndOfItem);
+
+    // ...and ends after it, without Up Next.
+    controller.m_hasEvaluatedCompletionForAttempt = false;
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 99.0;
+    controller.m_playbackState = PlayerController::Playing;
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(!controller.m_shouldAutoplay);
+    QCOMPARE(controller.sleepTimerChoice(), 0);
+    controller.resetTerminalTransitionState(true);
+
+    // A duration keeps its remaining time through Previous as well.
+    backend.setRunning(true);
+    playEpisode(QStringLiteral("episode-3"));
+    controller.setSleepTimer(45);
+    controller.m_sleepTimerRemainingSeconds = 600;
+    skipTo(2);
+    QCOMPARE(controller.sleepTimerChoice(), 45);
+    QCOMPARE(controller.sleepTimerRemainingSeconds(), 600);
+    QVERIFY(controller.m_sleepTimerTickTimer->isActive());
+
+    controller.m_pendingPlaybackRequests.clear();
+    controller.clearPendingAutoplayContext();
+    controller.clearNextEpisodePrefetchState();
 }
 
 QTEST_MAIN(PlayerControllerAutoplayContextTest)

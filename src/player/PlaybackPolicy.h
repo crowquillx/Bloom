@@ -290,10 +290,21 @@ enum class SleepTimerPlaybackEnd {
 [[nodiscard]] bool sleepTimerSurvivesPlaybackEnd(int choice, SleepTimerPlaybackEnd end);
 /// Whether an end-of-item timer fires as this playback finishes.
 [[nodiscard]] bool sleepTimerFiresAtPlaybackEnd(int choice, SleepTimerPlaybackEnd end);
-/// The choice for a new playback. Starting the next episode from Up Next
-/// keeps the running timer; any other start begins from the default.
+/// How a new playback relates to the one before it, for the sleep timer.
+enum class SleepTimerStart {
+    /// Any start that is not continuing a viewing session.
+    New,
+    /// The next episode from Up Next, after the previous one ended.
+    UpNext,
+    /// The previous/next episode controls, replacing the playing episode.
+    EpisodeSkip
+};
+/// The choice for a new playback. Up Next keeps a running duration (an
+/// end-of-item timer already fired there); the episode controls keep a
+/// duration or an end-of-item timer, which then ends after the episode the
+/// user skipped to; any other start begins from the default.
 [[nodiscard]] int sleepTimerChoiceForNewPlayback(int currentChoice,
                                                  int defaultChoice,
-                                                 bool continuesFromUpNext);
+                                                 SleepTimerStart start);
 
 } // namespace Bloom::PlaybackPolicy

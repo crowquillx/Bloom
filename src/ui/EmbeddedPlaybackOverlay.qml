@@ -404,10 +404,7 @@ FocusScope {
     // Choices come from PlayerController: 0 off, -1 end of item, else minutes.
     function sleepTimerChoiceLabel(choice) {
         if (choice === 0) return qsTr("Off")
-        if (choice === -1) {
-            return PlayerController.hasEpisodeNavigation ? qsTr("End of this episode")
-                                                         : qsTr("End of this movie")
-        }
+        if (choice === -1) return PlayerController.sleepTimerEndOfItemLabel
         return qsTr("%1 min").arg(choice)
     }
 

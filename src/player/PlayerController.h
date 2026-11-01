@@ -133,6 +133,8 @@ class PlayerController : public QObject
     Q_PROPERTY(int sleepTimerRemainingSeconds READ sleepTimerRemainingSeconds NOTIFY sleepTimerChanged)
     Q_PROPERTY(bool sleepTimerGraceActive READ sleepTimerGraceActive NOTIFY sleepTimerChanged)
     Q_PROPERTY(int sleepTimerGraceRemainingSeconds READ sleepTimerGraceRemainingSeconds NOTIFY sleepTimerChanged)
+    // "End of this episode", "End of this movie" or "End of this video" (an extra).
+    Q_PROPERTY(QString sleepTimerEndOfItemLabel READ sleepTimerEndOfItemLabel NOTIFY sleepTimerChanged)
 
 public:
     /// Playback states for the state machine
@@ -282,6 +284,8 @@ public:
      * or playback context is intentionally replaced.
      */
     Q_INVOKABLE void clearPendingAutoplayContext();
+    /// Up Next closed without starting playback: releases a parked display
+    /// restore and ends a running sleep timer.
     Q_INVOKABLE void releaseDeferredPostPlaybackDisplayRestore();
 
     /**
@@ -321,8 +325,10 @@ public:
     int sleepTimerRemainingSeconds() const { return m_sleepTimerRemainingSeconds; }
     bool sleepTimerGraceActive() const { return m_sleepTimerGraceActive; }
     int sleepTimerGraceRemainingSeconds() const { return m_sleepTimerGraceRemainingSeconds; }
+    QString sleepTimerEndOfItemLabel() const;
     /// User input (key, button, click, wheel, pointer movement, controller
-    /// action, or a pause/resume made in the external mpv window). Restarts
+    /// action, or a pause/resume or bloom-* script message from the external
+    /// mpv window). Restarts
     /// the "Still watching?" episode count and cancels a sleep-timer grace
     /// countdown.
     Q_INVOKABLE void notePlaybackUserInput();
@@ -1057,6 +1063,9 @@ private:
     // Episodes the Up Next countdown started in a row without user input.
     int m_autoplayChainCount = 0;
     bool m_stillWatchingPromptActive = false;
+    // Pointer travel from the reference point that counts as movement, in
+    // logical pixels; smaller moves are sensor jitter or resent hovers.
+    static constexpr qreal kPointerMovementThreshold = 8.0;
     bool m_lastPointerPositionKnown = false;
     QPointF m_lastPointerGlobalPosition;
     // Sleep timer. Duration timers count playing time only.

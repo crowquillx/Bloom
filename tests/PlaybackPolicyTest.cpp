@@ -850,15 +850,19 @@ void PlaybackPolicyTest::sleepTimerSurvivesOnlyDurationsThroughUpNext()
     QVERIFY(!PlayerPolicy::sleepTimerSurvivesPlaybackEnd(0, End::Finished));
     QVERIFY(!PlayerPolicy::sleepTimerFiresAtPlaybackEnd(0, End::Finished));
 
-    // Up Next (or the episode controls) keeps a running duration; any other
-    // start begins from the default.
-    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(45, 0, true), 45);
-    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(endOfItem, 30, true), 0);
-    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 30, true), 0);
-    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(45, 0, false), 0);
-    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 60, false), 60);
-    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, endOfItem, false), endOfItem);
-    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 22, false), 0);
+    // Up Next keeps a running duration; the episode controls keep a duration
+    // or an end-of-item timer; any other start begins from the default.
+    using Start = PlayerPolicy::SleepTimerStart;
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(45, 0, Start::UpNext), 45);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(endOfItem, 30, Start::UpNext), 0);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 30, Start::UpNext), 0);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(45, 0, Start::EpisodeSkip), 45);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(endOfItem, 30, Start::EpisodeSkip), endOfItem);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 30, Start::EpisodeSkip), 0);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(45, 0, Start::New), 0);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 60, Start::New), 60);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, endOfItem, Start::New), endOfItem);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 22, Start::New), 0);
 }
 
 QTEST_APPLESS_MAIN(PlaybackPolicyTest)
