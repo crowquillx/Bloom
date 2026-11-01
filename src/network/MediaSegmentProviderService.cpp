@@ -324,6 +324,8 @@ QList<MediaSegmentInfo> MediaSegmentProviderService::parseIntroDbSegments(const 
 QList<MediaSegmentInfo> MediaSegmentProviderService::mergeSegmentsByType(const QList<MediaSegmentInfo> &baseSegments,
                                                                          const QList<MediaSegmentInfo> &candidateSegments)
 {
+    // Every base range stays, including several of one type. A candidate
+    // fills only types the base lacks, with all of its ranges of that type.
     QList<MediaSegmentInfo> merged = baseSegments;
     QSet<MediaSegmentType> presentTypes;
     for (const MediaSegmentInfo &segment : baseSegments) {
@@ -332,7 +334,6 @@ QList<MediaSegmentInfo> MediaSegmentProviderService::mergeSegmentsByType(const Q
     for (const MediaSegmentInfo &segment : candidateSegments) {
         if (!isSupportedFillType(segment.type) || presentTypes.contains(segment.type)) continue;
         merged.append(segment);
-        presentTypes.insert(segment.type);
     }
     return merged;
 }

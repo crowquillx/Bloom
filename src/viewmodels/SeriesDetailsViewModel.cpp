@@ -5,10 +5,13 @@
 #include "../utils/DetailViewCache.h"
 #include "../utils/ExternalRatingsHelper.h"
 #include <QDateTime>
+#include <algorithm>
+#include <QLocale>
 #include <QDir>
 #include <QFile>
 #include <QDebug>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QUrlQuery>
@@ -594,6 +597,10 @@ QString EpisodesModel::getImageUrl(const QVariantMap &item) const
 SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
     : BaseViewModel(parent)
 {
+    m_nextAiringTimer = new QTimer(this);
+    m_nextAiringTimer->setSingleShot(true);
+    connect(m_nextAiringTimer, &QTimer::timeout, this, &SeriesDetailsViewModel::refreshNextAiring);
+
     m_libraryService = ServiceLocator::tryGet<LibraryService>();
     
     // Set service on child models
@@ -628,6 +635,14 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
                 this, &SeriesDetailsViewModel::onWatchlistStatusChanged);
         connect(m_libraryService, &LibraryService::watchlistStatusFailed,
                 this, &SeriesDetailsViewModel::onWatchlistStatusFailed);
+        connect(m_libraryService, &LibraryService::notInterestedSupportChanged,
+                this, &SeriesDetailsViewModel::notInterestedSupportedChanged);
+        connect(m_libraryService, &LibraryService::notInterestedStatusChanged,
+                this, &SeriesDetailsViewModel::onNotInterestedStatusChanged);
+        connect(m_libraryService, &LibraryService::notInterestedStatusFailed,
+                this, &SeriesDetailsViewModel::onNotInterestedStatusFailed);
+        connect(m_libraryService, &LibraryService::nextAiringLoaded,
+                this, &SeriesDetailsViewModel::onNextAiringLoaded);
         connect(m_libraryService,
                 qOverload<const QString &, const QVariantMap &, const QString &>(&LibraryService::canonicalItemLoaded),
                 this, &SeriesDetailsViewModel::onEpisodeDetailsLoaded);
@@ -681,6 +696,10 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
     m_connectionId = requestConnectionId;
     emit seriesIdChanged();
     emit watchlistSupportedChanged();
+    emit notInterestedSupportedChanged();
+    if (m_libraryService) {
+        m_libraryService->loadNotInterestedCapability();
+    }
     
     // Try cache first (serve stale-while-revalidate)
     QJsonObject cachedSeries;
@@ -910,6 +929,162 @@ bool SeriesDetailsViewModel::watchlistSupported() const
     return m_libraryService && m_libraryService->supportsWatchlist();
 }
 
+bool SeriesDetailsViewModel::notInterestedSupported() const
+{
+    return m_libraryService && m_libraryService->supportsNotInterested();
+}
+
+void SeriesDetailsViewModel::toggleNotInterested()
+{
+    if (!m_libraryService || m_seriesId.isEmpty() || m_notInterestedPending
+        || !notInterestedSupported()) {
+        return;
+    }
+    // Optimistic: the action follows the press; a refusal restores it.
+    m_notInterestedPending = true;
+    m_notInterested = !m_notInterested;
+    emit notInterestedChanged();
+    m_libraryService->setItemNotInterested(m_seriesId, m_notInterested);
+}
+
+void SeriesDetailsViewModel::onNotInterestedStatusChanged(const QString &itemId, bool notInterested)
+{
+    if (itemId != m_seriesId) {
+        return;
+    }
+    m_notInterestedPending = false;
+    if (m_notInterested != notInterested) {
+        m_notInterested = notInterested;
+        emit notInterestedChanged();
+    }
+    if (!m_seriesData.isEmpty()) {
+        m_seriesData.insert(QStringLiteral("notInterested"), notInterested);
+        QJsonObject userState = m_seriesData.value(QStringLiteral("userState")).toObject();
+        userState.insert(QStringLiteral("notInterested"), notInterested);
+        m_seriesData.insert(QStringLiteral("userState"), userState);
+        storeSeriesCache(m_seriesId, m_seriesData);
+    }
+}
+
+void SeriesDetailsViewModel::onNotInterestedStatusFailed(const QString &itemId,
+                                                         bool notInterested,
+                                                         const QString &error)
+{
+    if (itemId != m_seriesId || !m_notInterestedPending) {
+        return;
+    }
+    qCWarning(lcViewModels) << "SeriesDetailsViewModel: not interested change failed:" << error;
+    m_notInterestedPending = false;
+    m_notInterested = !notInterested;
+    emit notInterestedChanged();
+    emit notInterestedUpdateFailed(notInterested ? tr("Couldn't mark this as not interested.")
+                                                 : tr("Couldn't undo not interested."));
+}
+
+void SeriesDetailsViewModel::onNextAiringLoaded(const QString &seriesId, const QVariantMap &airing)
+{
+    if (seriesId != m_seriesId) {
+        return;
+    }
+    m_nextAiringPending = false;
+    setNextAiring(airing);
+}
+
+bool SeriesDetailsViewModel::airingStillAhead(const QVariantMap &airing) const
+{
+    if (airing.isEmpty()) {
+        return false;
+    }
+    QVariantMap candidate = airing;
+    candidate.insert(QStringLiteral("seriesId"), m_seriesId);
+    return !LibraryService::nextAiringFor(QVariantList{QVariant(candidate)}, m_seriesId,
+                                          QDateTime::currentDateTime()).isEmpty();
+}
+
+void SeriesDetailsViewModel::setNextAiring(const QVariantMap &airing)
+{
+    // Only an airing still ahead shows; a card's or cache's may have passed.
+    m_nextAiring = airingStillAhead(airing) ? airing : QVariantMap();
+    scheduleNextAiringRefresh();
+    // Also when unchanged: a released reservation must reach the hero.
+    emit nextAiringChanged();
+}
+
+void SeriesDetailsViewModel::scheduleNextAiringRefresh()
+{
+    m_nextAiringTimer->stop();
+    if (m_nextAiring.isEmpty()) {
+        return;
+    }
+    const QDateTime now = QDateTime::currentDateTime();
+    QDateTime next = now.date().addDays(1).startOfDay();
+    const QDateTime instant = QDateTime::fromString(
+        m_nextAiring.value(QStringLiteral("airAt")).toString(), Qt::ISODate);
+    if (instant.isValid() && instant > now && instant < next) {
+        next = instant;
+    }
+    // A second late, so the new day or the airing has begun.
+    m_nextAiringTimer->start(static_cast<int>(
+        std::clamp<qint64>(now.msecsTo(next) + 1000, 1000, 24LL * 60 * 60 * 1000)));
+}
+
+void SeriesDetailsViewModel::refreshNextAiring()
+{
+    const QVariantMap previous = m_nextAiring;
+    setNextAiring(previous);
+    // The airing went: the calendar names the one after it.
+    if (!previous.isEmpty() && m_nextAiring.isEmpty() && m_libraryService
+        && !m_seriesId.isEmpty() && m_libraryService->supportsNextAiring()) {
+        m_nextAiringPending = true;
+        emit nextAiringChanged();
+        m_libraryService->getNextAiring(m_seriesId);
+    }
+}
+
+QString SeriesDetailsViewModel::nextAiringLabel() const
+{
+    return nextAiringLabel(m_nextAiring, QDateTime::currentDateTime());
+}
+
+QString SeriesDetailsViewModel::nextAiringLabel(const QVariantMap &airing, const QDateTime &now)
+{
+    if (airing.isEmpty()) {
+        return {};
+    }
+    const QDateTime instant = QDateTime::fromString(
+        airing.value(QStringLiteral("airAt")).toString(), Qt::ISODate);
+    // An instant is shown on the viewer's clock; a bare day is already the
+    // day it is listed under.
+    const QDate day = instant.isValid()
+        ? instant.toLocalTime().date()
+        : QDate::fromString(airing.value(QStringLiteral("airDate")).toString(), Qt::ISODate);
+    if (!day.isValid()) {
+        return {};
+    }
+    const QLocale locale;
+    const QDate today = now.toLocalTime().date();
+    QString when;
+    if (day == today || day == today.addDays(1)) {
+        const QString dayName = day == today ? tr("today") : tr("tomorrow");
+        when = instant.isValid()
+            ? tr("%1 at %2").arg(dayName,
+                                 locale.toString(instant.toLocalTime().time(), QLocale::ShortFormat))
+            : dayName;
+    } else {
+        when = locale.toString(day, QStringLiteral("ddd, MMM d"));
+    }
+
+    const int season = airing.value(QStringLiteral("seasonNumber"), -1).toInt();
+    const int episode = airing.value(QStringLiteral("episodeNumber"), -1).toInt();
+    if (season >= 0 && episode >= 0) {
+        return tr("S%1 E%2 airs %3").arg(season).arg(episode).arg(when);
+    }
+    if (season >= 0) {
+        return tr("Season %1 airs %2").arg(season).arg(when);
+    }
+    return tr("Next episode airs %1").arg(when);
+}
+
 void SeriesDetailsViewModel::toggleWatchlist()
 {
     if (!m_libraryService || m_seriesId.isEmpty() || m_watchlistPending
@@ -1068,6 +1243,12 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     m_isFavorite = false;
     m_inWatchlist = false;
     m_watchlistPending = false;
+    m_notInterested = false;
+    m_notInterestedPending = false;
+    m_nextAiring.clear();
+    m_nextAiringRequested = false;
+    m_nextAiringPending = false;
+    m_nextAiringTimer->stop();
     m_imdbId.clear();
     m_tmdbId.clear();
     m_people.clear();
@@ -1084,6 +1265,7 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
 
     if (!preserveArtwork) {
         // Clear ratings data
+        m_serverRatings.clear();
         m_mdbListRatings.clear();
         m_rawMdbListRatings.clear();
         m_aniListRating.clear();
@@ -1137,6 +1319,8 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     emit isFavoriteChanged();
     emit tmdbIdChanged();
     emit inWatchlistChanged();
+    emit notInterestedChanged();
+    emit nextAiringChanged();
     emit peopleChanged();
     emit genresChanged();
     emit similarItemsChanged();
@@ -1188,7 +1372,8 @@ void SeriesDetailsViewModel::fetchMdbListRatings(const QString &imdbId, const QS
 
 void SeriesDetailsViewModel::compileRatings()
 {
-    const QVariantMap combined = ExternalRatingsHelper::mergeRatings(m_rawMdbListRatings, m_aniListRating);
+    const QVariantMap combined = ExternalRatingsHelper::withServerRatings(
+        m_serverRatings, ExternalRatingsHelper::mergeRatings(m_rawMdbListRatings, m_aniListRating));
     if (m_mdbListRatings != combined) {
         m_mdbListRatings = combined;
         emit mdbListRatingsChanged();
@@ -1848,6 +2033,9 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QVariantMap &data)
     if (!m_watchlistPending) {
         m_inWatchlist = data.value(QStringLiteral("inWatchlist")).toBool();
     }
+    if (!m_notInterestedPending) {
+        m_notInterested = data.value(QStringLiteral("notInterested")).toBool();
+    }
     m_officialRating = data.value(QStringLiteral("officialRating")).toString();
     m_recursiveItemCount = data.value(QStringLiteral("recursiveItemCount")).toInt();
     m_status = data.value(QStringLiteral("status")).toString();
@@ -1872,6 +2060,7 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QVariantMap &data)
     emit isFavoriteChanged();
     emit officialRatingChanged();
     emit inWatchlistChanged();
+    emit notInterestedChanged();
     emit recursiveItemCountChanged();
     emit statusChanged();
     emit endDateChanged();
@@ -1880,6 +2069,28 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QVariantMap &data)
     emit backdropUrlChanged();
     emit peopleChanged();
     emit genresChanged();
+
+    // The details may already name the next airing; otherwise a series
+    // that is still running asks the provider's calendar once.
+    const QVariantMap detailAiring = data.value(QStringLiteral("nextAiring")).toMap();
+    if (airingStillAhead(detailAiring)) {
+        setNextAiring(detailAiring);
+    }
+    if (m_nextAiring.isEmpty() && !m_nextAiringRequested && m_libraryService
+        && !m_seriesId.isEmpty() && m_libraryService->supportsNextAiring()) {
+        const QString status = m_status.toLower();
+        if (status != QStringLiteral("ended") && status != QStringLiteral("cancelled")
+            && status != QStringLiteral("canceled")) {
+            m_nextAiringRequested = true;
+            m_nextAiringPending = true;
+            emit nextAiringChanged();
+            // May answer at once (cached calendar, unsupported provider).
+            m_libraryService->getNextAiring(m_seriesId);
+        }
+    }
+
+    m_serverRatings = data.value(QStringLiteral("serverRatings")).toList();
+    compileRatings();
 
     const QVariantMap providerIds = data.value(QStringLiteral("providerIds")).toMap();
     const QString imdbId = providerIds.value(QStringLiteral("Imdb")).toString();

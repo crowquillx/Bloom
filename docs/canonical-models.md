@@ -20,7 +20,7 @@ Bloom-owned canonical models separate UI/player code from provider wire formats.
 
 - `MediaRef`
 - `ArtworkRef`
-- `UserMediaState` (`watched`, `favorite`, `inWatchlist` where the provider has a watchlist, `positionMs`, `unplayedItemCount`, `lastPlayedAt`)
+- `UserMediaState` (`watched`, `favorite`, `inWatchlist` where the provider has a watchlist, `notInterested` where the provider has that mark, `positionMs`, `unplayedItemCount`, `lastPlayedAt`)
 - `Person`
 - `Chapter`
 - `StreamRequest`
@@ -68,6 +68,12 @@ A movie's or series' local extras (trailers, featurettes, deleted scenes, ...) a
 - `MediaExtras::preferredTrailer` picks the extra Play Trailer starts: the first `trailer`, else the first `teaser`.
 
 See [provider compatibility](provider-compatibility.md#catalog-and-conditional-requests) for the wire rules and [playback](playback.md) for how extras play.
+
+## Ratings and airings
+
+Items may carry `serverRatings`: the ratings the media server shows on a title page, in its display order. Each entry has `source` (`imdb`, `tmdb`, `rottenTomatoesCritic`, `rottenTomatoesAudience`, or a plugin's own source name), `name` (the server's plain-text mark), `score` on a 0-100 scale, and `display` (the score as the source writes it, such as `8.3` or `83%`). Silo fills it from `ratings` on details, else from the fixed `rating_imdb`, `rating_tmdb`, and `rating_rt_*` fields; Jellyfin does not. The `ratings` map (`imdb`, `tmdb`, `rottenTomatoesCritic`, `rottenTomatoesAudience`) stays for poster badges. Detail pages show `serverRatings` first and add MDBList and AniList ratings only for sources the server does not show (`ExternalRatingsHelper::withServerRatings`). Every rating the view models publish carries `sourceKey` (`ExternalRatingsHelper::ratingSourceKey`, the one table of source spellings such as `myanimelist`/`mal` and `popcorn`/`rottenTomatoesAudience`), and server entries carry `fromServer`. `RatingMetadataChip` picks its logo by `sourceKey`, shows `display` when present (a score of 0 included) and falls back to `name` for a source without a logo.
+
+An airing map describes the next episode to air: `type`, `airDate` (`YYYY-MM-DD`), `airAt` (a UTC instant, only when the network's time and zone are known), `seasonNumber` and `episodeNumber` (-1 when absent), `episodeTitle`, and `badges`. Items may carry one as `nextAiring` (Silo's card `upcoming_event`; its `airDate` is the source date and it has no instant). `LibraryService::getNextAiring` answers one from the provider's calendar (`supportsNextAiring`), where `airDate` is the viewer's local day. See [provider compatibility](provider-compatibility.md#catalog-and-conditional-requests).
 
 ## Migrated surfaces
 

@@ -675,6 +675,14 @@ private:
      * @returns `true` if a seek was performed to the segment end, `false` if no applicable segment was found.
      */
     bool seekToSegmentEnd(MediaSegmentType segmentType);
+    // The current item's ranges of one type, touching or overlapping ones
+    // merged (PlaybackPolicy::mergeSkipRanges).
+    QList<Bloom::PlaybackPolicy::SkipRange> skipRanges(MediaSegmentType type) const;
+    // Identifies one merged skip range for m_autoSkippedSegments.
+    static QString segmentSkipKey(MediaSegmentType type, const Bloom::PlaybackPolicy::SkipRange &range);
+    // How far ahead of the position a skip may reach for a range that has
+    // not begun yet (one starting a moment after playback starts).
+    static constexpr qint64 kSkipAheadGraceMs = 2000;
     /**
      * Schedule a debounced persistence of the current playback volume state to configuration/storage.
      */
@@ -1151,8 +1159,14 @@ private:
     QList<MediaSegmentInfo> m_currentSegments;
     bool m_isInIntroSegment = false;
     bool m_isInOutroSegment = false;
-    bool m_hasAutoSkippedIntroForCurrentItem = false;
-    bool m_hasAutoSkippedOutroForCurrentItem = false;
+    // Intro and credits ranges auto-skip already skipped for this item
+    // (segmentSkipKey), so a seek back into one does not skip it again
+    // while a later range of the same type still skips.
+    QSet<QString> m_autoSkippedSegments;
+    // The merged intro and credits ranges holding the position (empty when
+    // none), so entering a new range of the same type is noticed.
+    QString m_activeIntroSkipKey;
+    QString m_activeOutroSkipKey;
     TrickplayTileInfo m_currentTrickplayInfo;
     bool m_hasTrickplayInfo = false;
     LocalSeekPreview *m_localSeekPreview = nullptr;

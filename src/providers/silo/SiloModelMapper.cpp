@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <QCryptographicHash>
 #include <QDate>
+#include <QDateTime>
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonParseError>
@@ -322,6 +323,119 @@ QVariantList markerVariants(const QJsonObject &wire)
         }
     }
     return result;
+}
+
+// Bloom's rating chip source for a Silo rating source. Plugin sources keep
+// their own name, and the chip falls back to the server's mark for them.
+QString ratingSource(const QString &wireSource)
+{
+    if (wireSource == QStringLiteral("rt_critic")) {
+        return QStringLiteral("rottenTomatoesCritic");
+    }
+    if (wireSource == QStringLiteral("rt_audience")) {
+        return QStringLiteral("rottenTomatoesAudience");
+    }
+    return wireSource;
+}
+
+// The ratings a title page shows, in display order, each with its source,
+// the server's plain-text mark, a 0-100 score and the display text. Details
+// carry `ratings`, already in the server's order and limited to the sources
+// an administrator shows. Without it (cards, older servers) the fixed
+// rating fields stand in, IMDb and TMDB on their 0-10 scale.
+QVariantList serverRatings(const QJsonObject &wireItem)
+{
+    QVariantList result;
+    const QJsonValue wireRatings = wireItem.value(QStringLiteral("ratings"));
+    if (wireRatings.isArray()) {
+        for (const QJsonValue &value : wireRatings.toArray()) {
+            const QJsonObject rating = value.toObject();
+            const QString source = rating.value(QStringLiteral("source")).toString().trimmed();
+            const QString display = rating.value(QStringLiteral("display")).toString().trimmed();
+            const QJsonValue score = rating.value(QStringLiteral("score"));
+            if (source.isEmpty() || display.isEmpty() || !score.isDouble()
+                || !std::isfinite(score.toDouble())) {
+                continue;
+            }
+            const QString name = rating.value(QStringLiteral("name")).toString().trimmed();
+            result.append(QVariantMap{
+                {QStringLiteral("source"), ratingSource(source)},
+                {QStringLiteral("name"), name.isEmpty() ? source : name},
+                {QStringLiteral("score"), std::clamp(score.toDouble(), 0.0, 100.0)},
+                {QStringLiteral("display"), display}});
+        }
+        return result;
+    }
+    const auto addTenPoint = [&result, &wireItem](const QString &key, const QString &source,
+                                                  const QString &name) {
+        const double value = wireItem.value(key).toDouble();
+        if (!wireItem.value(key).isDouble() || !std::isfinite(value) || value <= 0.0) {
+            return;
+        }
+        result.append(QVariantMap{
+            {QStringLiteral("source"), source},
+            {QStringLiteral("name"), name},
+            {QStringLiteral("score"), std::clamp(value * 10.0, 0.0, 100.0)},
+            {QStringLiteral("display"), QString::number(value, 'f', 1)}});
+    };
+    const auto addPercent = [&result, &wireItem](const QString &key, const QString &source,
+                                                 const QString &name) {
+        const qint64 value = jsonInteger(wireItem.value(key));
+        if (value <= 0 || value > 100) {
+            return;
+        }
+        result.append(QVariantMap{
+            {QStringLiteral("source"), source},
+            {QStringLiteral("name"), name},
+            {QStringLiteral("score"), static_cast<double>(value)},
+            {QStringLiteral("display"), QStringLiteral("%1%").arg(value)}});
+    };
+    addTenPoint(QStringLiteral("rating_imdb"), QStringLiteral("imdb"), QStringLiteral("IMDb"));
+    addTenPoint(QStringLiteral("rating_tmdb"), QStringLiteral("tmdb"), QStringLiteral("TMDB"));
+    addPercent(QStringLiteral("rating_rt_critic"), QStringLiteral("rottenTomatoesCritic"),
+               QStringLiteral("Rotten Tomatoes"));
+    addPercent(QStringLiteral("rating_rt_audience"), QStringLiteral("rottenTomatoesAudience"),
+               QStringLiteral("Popcornmeter"));
+    return result;
+}
+
+// One airing: its kind, the calendar day it falls on, the instant when the
+// network's time and zone are known, and the episode it brings.
+QVariantMap airing(const QJsonObject &wire, const QString &airDate, const QString &airAt)
+{
+    const QDate date = QDate::fromString(airDate, Qt::ISODate);
+    if (!date.isValid()) {
+        return {};
+    }
+    QVariantMap result{
+        {QStringLiteral("type"), wire.value(QStringLiteral("type")).toString()},
+        {QStringLiteral("airDate"), date.toString(Qt::ISODate)},
+        {QStringLiteral("seasonNumber"),
+         static_cast<int>(jsonInteger(wire.value(QStringLiteral("season_number")), -1))},
+        {QStringLiteral("episodeNumber"),
+         static_cast<int>(jsonInteger(wire.value(QStringLiteral("episode_number")), -1))},
+        {QStringLiteral("episodeTitle"), wire.value(QStringLiteral("episode_title")).toString()},
+        {QStringLiteral("badges"), stringList(wire.value(QStringLiteral("badges")))}};
+    QDateTime instant = QDateTime::fromString(airAt, Qt::ISODateWithMs);
+    if (!instant.isValid()) {
+        instant = QDateTime::fromString(airAt, Qt::ISODate);
+    }
+    if (instant.isValid()) {
+        result.insert(QStringLiteral("airAt"), instant.toUTC().toString(Qt::ISODate));
+    }
+    return result;
+}
+
+// A card's upcoming_event. Its air_date is the source's date and air_time
+// the network's wall clock with no zone, so the airing carries no instant.
+QVariantMap upcomingEvent(const QJsonObject &wireItem)
+{
+    const QJsonValue event = wireItem.value(QStringLiteral("upcoming_event"));
+    if (!event.isObject()) {
+        return {};
+    }
+    const QJsonObject wire = event.toObject();
+    return airing(wire, wire.value(QStringLiteral("air_date")).toString(), QString());
 }
 
 QVariantList subtitles(const QJsonArray &wireSubtitles)
@@ -1119,6 +1233,7 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         ? stateValue(QStringLiteral("is_favorite")).toBool()
         : stateValue(QStringLiteral("favorite")).toBool();
     state.inWatchlist = stateValue(QStringLiteral("in_watchlist")).toBool();
+    state.notInterested = stateValue(QStringLiteral("not_interested")).toBool();
     state.positionMs = secondsToMilliseconds(
         stateValue(QStringLiteral("position_seconds")).toDouble());
     state.unplayedItemCount = stateValue(QStringLiteral("unplayed_count")).toInt();
@@ -1248,6 +1363,7 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("watched"), state.watched},
         {QStringLiteral("favorite"), state.favorite},
         {QStringLiteral("inWatchlist"), state.inWatchlist},
+        {QStringLiteral("notInterested"), state.notInterested},
         {QStringLiteral("positionMs"), state.positionMs},
         {QStringLiteral("unplayedItemCount"), state.unplayedItemCount},
         {QStringLiteral("isInProgress"),
@@ -1286,6 +1402,14 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("rottenTomatoesCritic"), wireItem.value(QStringLiteral("rating_rt_critic")).toInt()},
         {QStringLiteral("rottenTomatoesAudience"), wireItem.value(QStringLiteral("rating_rt_audience")).toInt()}
     };
+    const QVariantList ratingList = serverRatings(wireItem);
+    if (!ratingList.isEmpty()) {
+        result[QStringLiteral("serverRatings")] = ratingList;
+    }
+    const QVariantMap nextAiring = upcomingEvent(wireItem);
+    if (!nextAiring.isEmpty()) {
+        result[QStringLiteral("nextAiring")] = nextAiring;
+    }
     // Poster badge inputs: the best file's technical summary plus the card's
     // advisory age, original language and series lifecycle.
     if (wireItem.value(QStringLiteral("overlay_summary")).isObject()) {
@@ -1865,12 +1989,8 @@ QList<MediaSegmentInfo> SiloModelMapper::mediaSegments(const QString &itemId,
 {
     QList<MediaSegmentInfo> result;
     const QString fileId = identityString(wireSegments.value(QStringLiteral("file_id")));
-    for (const QString &name : {QStringLiteral("intro"), QStringLiteral("credits"),
-                                QStringLiteral("recap"), QStringLiteral("preview")}) {
-        if (!wireSegments.value(name).isObject()) {
-            continue;
-        }
-        const QJsonObject wire = wireSegments.value(name).toObject();
+    const auto append = [&result, &itemId, &fileId](const QString &name, const QJsonObject &wire,
+                                                    int occurrence) {
         const QJsonValue start = wire.contains(QStringLiteral("start_seconds"))
             ? wire.value(QStringLiteral("start_seconds")) : wire.value(QStringLiteral("start"));
         const QJsonValue end = wire.contains(QStringLiteral("end_seconds"))
@@ -1879,11 +1999,16 @@ QList<MediaSegmentInfo> SiloModelMapper::mediaSegments(const QString &itemId,
             || !secondsToMillisecondsRepresentable(start.toDouble())
             || !secondsToMillisecondsRepresentable(end.toDouble())
             || end.toDouble() <= start.toDouble()) {
-            continue;
+            return;
         }
 
         MediaSegmentInfo segment;
-        segment.id = fileId.isEmpty() ? QString() : fileId + QLatin1Char(':') + name;
+        if (!fileId.isEmpty()) {
+            segment.id = fileId + QLatin1Char(':') + name;
+            if (occurrence > 0) {
+                segment.id += QLatin1Char(':') + QString::number(occurrence);
+            }
+        }
         segment.itemId = itemId;
         segment.startMs = secondsToMilliseconds(start.toDouble());
         segment.endMs = secondsToMilliseconds(end.toDouble());
@@ -1903,6 +2028,72 @@ QList<MediaSegmentInfo> SiloModelMapper::mediaSegments(const QString &itemId,
             segment.typeString = QStringLiteral("Preview");
         }
         result.append(segment);
+    };
+
+    const QStringList kinds{QStringLiteral("intro"), QStringLiteral("credits"),
+                            QStringLiteral("recap"), QStringLiteral("preview")};
+    // marker_segments lists every effective occurrence in source-time order,
+    // so a kind can repeat (an intro after a cold open and another midway).
+    // The singular fields hold one range per kind and carry provenance,
+    // which an occurrence with the same range keeps.
+    const QJsonArray occurrences = wireSegments.value(QStringLiteral("marker_segments")).toArray();
+    if (!occurrences.isEmpty()) {
+        QHash<QString, int> seen;
+        for (const QJsonValue &value : occurrences) {
+            QJsonObject wire = value.toObject();
+            const QString kind = wire.value(QStringLiteral("kind")).toString();
+            if (!kinds.contains(kind)) {
+                continue;
+            }
+            const QJsonObject singular = wireSegments.value(kind).toObject();
+            if (singular.value(QStringLiteral("start_seconds")) == wire.value(QStringLiteral("start_seconds"))
+                && singular.value(QStringLiteral("end_seconds")) == wire.value(QStringLiteral("end_seconds"))) {
+                wire.insert(QStringLiteral("source"), singular.value(QStringLiteral("source")));
+                wire.insert(QStringLiteral("confidence"), singular.value(QStringLiteral("confidence")));
+            }
+            const int countBefore = static_cast<int>(result.size());
+            append(kind, wire, seen.value(kind));
+            if (result.size() > countBefore) {
+                seen[kind] += 1;
+            }
+        }
+        if (!result.isEmpty()) {
+            return result;
+        }
+    }
+    for (const QString &name : kinds) {
+        if (wireSegments.value(name).isObject()) {
+            append(name, wireSegments.value(name).toObject(), 0);
+        }
+    }
+    return result;
+}
+
+QVariantList SiloModelMapper::calendarAirings(const QJsonArray &wireDays)
+{
+    QVariantList result;
+    for (const QJsonValue &dayValue : wireDays) {
+        const QJsonObject day = dayValue.toObject();
+        for (const QJsonValue &eventValue : day.value(QStringLiteral("items")).toArray()) {
+            const QJsonObject event = eventValue.toObject();
+            const QString seriesId = identityString(event.value(QStringLiteral("series_id")));
+            if (seriesId.isEmpty()) {
+                continue; // a movie release
+            }
+            QVariantMap mapped = airing(
+                event,
+                event.value(QStringLiteral("local_air_date"))
+                    .toString(day.value(QStringLiteral("date")).toString()),
+                event.value(QStringLiteral("air_at")).toString());
+            if (mapped.isEmpty()) {
+                continue;
+            }
+            mapped.insert(QStringLiteral("seriesId"), seriesId);
+            mapped.insert(QStringLiteral("itemId"),
+                          identityString(event.value(QStringLiteral("content_id"))));
+            mapped.insert(QStringLiteral("watched"), event.value(QStringLiteral("watched")).toBool());
+            result.append(mapped);
+        }
     }
     return result;
 }

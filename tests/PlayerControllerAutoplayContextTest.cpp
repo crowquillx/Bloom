@@ -615,6 +615,7 @@ private slots:
     void extraKindSurvivesRetryRecoveryAndVersionSwitch();
     void expiringSessionsDeferLaterMultipartSegments();
     void pausedPlaybackSendsMinuteHeartbeat();
+    void autoSkipSkipsEachSeparateIntroOnce();
     void inPlaceReloadKeepsHeadersPlaylistAndOrigins();
     void lostServerSessionRecoversOrLeaves();
     void adjacentEpisodesCrossSeasonBoundaries();
@@ -3390,6 +3391,78 @@ void PlayerControllerAutoplayContextTest::expiringSessionsDeferLaterMultipartSeg
 
     controller.requestDeferredSegmentDescriptor();
     QCOMPARE(backend.appendedUrls.size(), 1);
+}
+
+void PlayerControllerAutoplayContextTest::autoSkipSkipsEachSeparateIntroOnce()
+{
+    ConfigManager config;
+    config.setAutoSkipIntro(true);
+    config.setAutoSkipOutro(false);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    const auto intro = [](qint64 startMs, qint64 endMs) {
+        MediaSegmentInfo segment;
+        segment.type = MediaSegmentType::Intro;
+        segment.startMs = startMs;
+        segment.endMs = endMs;
+        return segment;
+    };
+    const auto seeks = [&backend]() {
+        QList<double> targets;
+        for (const QVariantList &command : std::as_const(backend.variantCommands)) {
+            if (command.value(0).toString() == QStringLiteral("seek")) {
+                targets.append(command.value(1).toDouble());
+            }
+        }
+        return targets;
+    };
+
+    controller.m_playbackState = PlayerController::Playing;
+    // Two intros back to back count as one; a third comes midway.
+    controller.m_currentSegments = {intro(60000, 90000), intro(90000, 120000),
+                                    intro(1300000, 1330000)};
+
+    controller.m_currentPosition = 61.0;
+    controller.updateSkipSegmentState();
+    QCOMPARE(seeks(), QList<double>{120.0});
+    controller.m_currentPosition = 120.0;
+    controller.updateSkipSegmentState();
+    QVERIFY(!controller.m_isInIntroSegment);
+
+    // The separate intro later in the file skips as well.
+    controller.m_currentPosition = 1300.5;
+    controller.updateSkipSegmentState();
+    QCOMPARE(seeks(), (QList<double>{120.0, 1330.0}));
+
+    // Seeking back into a skipped intro leaves it playing.
+    controller.m_currentPosition = 70.0;
+    controller.updateSkipSegmentState();
+    QVERIFY(controller.m_isInIntroSegment);
+    QCOMPARE(seeks().size(), 2);
+
+    // Between intros, a skip request does not jump to the next one.
+    controller.m_currentPosition = 500.0;
+    controller.updateSkipSegmentState();
+    controller.skipIntro();
+    QCOMPARE(seeks().size(), 2);
+    // One about to start is skipped.
+    controller.m_currentPosition = 1299.0;
+    controller.skipIntro();
+    QCOMPARE(seeks().last(), 1330.0);
+    QCOMPARE(seeks().size(), 3);
 }
 
 void PlayerControllerAutoplayContextTest::pausedPlaybackSendsMinuteHeartbeat()

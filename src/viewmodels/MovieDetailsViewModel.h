@@ -41,6 +41,10 @@ class MovieDetailsViewModel : public BaseViewModel
     // watchlist (Silo).
     Q_PROPERTY(bool watchlistSupported READ watchlistSupported NOTIFY watchlistSupportedChanged)
     Q_PROPERTY(bool inWatchlist READ inWatchlist NOTIFY inWatchlistChanged)
+    // "Not interested" for the profile's recommendations; the action shows
+    // only where the provider offers it to the profile (Silo).
+    Q_PROPERTY(bool notInterestedSupported READ notInterestedSupported NOTIFY notInterestedSupportedChanged)
+    Q_PROPERTY(bool notInterested READ notInterested NOTIFY notInterestedChanged)
     
     Q_PROPERTY(QString officialRating READ officialRating NOTIFY officialRatingChanged)
     Q_PROPERTY(qint64 durationMs READ durationMs NOTIFY durationMsChanged)
@@ -79,6 +83,8 @@ public:
     bool isWatched() const { return m_isWatched; }
     bool watchlistSupported() const;
     bool inWatchlist() const { return m_inWatchlist; }
+    bool notInterestedSupported() const;
+    bool notInterested() const { return m_notInterested; }
     
     QString officialRating() const { return m_officialRating; }
     qint64 durationMs() const { return m_durationMs; }
@@ -128,6 +134,14 @@ public:
     Q_INVOKABLE void toggleWatchlist();
 
     /**
+     * @brief Mark the movie "Not interested", or take the mark back.
+     *
+     * Updates `notInterested` at once and restores it if the server refuses
+     * (`notInterestedUpdateFailed`). Ignored while a change is in flight.
+     */
+    Q_INVOKABLE void toggleNotInterested();
+
+    /**
      * @brief Clear all data and reset state.
      * @param preserveArtwork If true, keep existing logo/poster/backdrop URLs until new data arrives.
      */
@@ -164,6 +178,9 @@ signals:
     void watchlistSupportedChanged();
     void inWatchlistChanged();
     void watchlistUpdateFailed(const QString &message);
+    void notInterestedSupportedChanged();
+    void notInterestedChanged();
+    void notInterestedUpdateFailed(const QString &message);
     
     void officialRatingChanged();
     void durationMsChanged();
@@ -208,6 +225,8 @@ private slots:
     void onErrorOccurred(const QString &endpoint, const QString &error);
     void onWatchlistStatusChanged(const QString &itemId, bool inWatchlist);
     void onWatchlistStatusFailed(const QString &itemId, bool inWatchlist, const QString &error);
+    void onNotInterestedStatusChanged(const QString &itemId, bool notInterested);
+    void onNotInterestedStatusFailed(const QString &itemId, bool notInterested, const QString &error);
 
 private:
     void updateMovieMetadata(const QVariantMap &data);
@@ -234,6 +253,8 @@ private:
     bool m_isWatched = false;
     bool m_inWatchlist = false;
     bool m_watchlistPending = false;
+    bool m_notInterested = false;
+    bool m_notInterestedPending = false;
     
     QString m_officialRating;
     qint64 m_durationMs = 0;
@@ -254,7 +275,9 @@ private:
 
     QJsonObject m_movieData;
     
-    // MDBList
+    // The media server's ratings (canonical serverRatings), then MDBList
+    // and AniList for other sources.
+    QVariantList m_serverRatings;
     QVariantMap m_mdbListRatings;
     QVariantMap m_rawMdbListRatings;
     QVariantMap m_aniListRating;

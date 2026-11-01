@@ -78,6 +78,11 @@ public:
         case ProviderCatalogOperation::Watchlist:
         case ProviderCatalogOperation::SetWatchlist:
             return unsupported(QStringLiteral("Jellyfin has no watchlist distinct from favorites"));
+        case ProviderCatalogOperation::NotInterestedCapability:
+        case ProviderCatalogOperation::SetNotInterested:
+            return unsupported(QStringLiteral("Jellyfin has no Not interested state"));
+        case ProviderCatalogOperation::UpcomingAirings:
+            return unsupported(QStringLiteral("Bloom reads no Jellyfin airing calendar"));
         case ProviderCatalogOperation::MediaRequestStatus:
         case ProviderCatalogOperation::MediaRequestSearch:
         case ProviderCatalogOperation::MediaRequestDetail:
@@ -1056,6 +1061,9 @@ private:
         case ProviderCatalogOperation::HomeCapabilities: return QStringLiteral("home capabilities");
         case ProviderCatalogOperation::Watchlist: return QStringLiteral("watchlist");
         case ProviderCatalogOperation::SetWatchlist: return QStringLiteral("watchlist state");
+        case ProviderCatalogOperation::NotInterestedCapability: return QStringLiteral("not interested capability");
+        case ProviderCatalogOperation::SetNotInterested: return QStringLiteral("not interested state");
+        case ProviderCatalogOperation::UpcomingAirings: return QStringLiteral("upcoming airings");
         case ProviderCatalogOperation::MediaRequestStatus: return QStringLiteral("request capability");
         case ProviderCatalogOperation::MediaRequestSearch: return QStringLiteral("request search");
         case ProviderCatalogOperation::MediaRequestDetail: return QStringLiteral("request detail");

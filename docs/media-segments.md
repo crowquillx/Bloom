@@ -11,7 +11,8 @@ Precedence
 - Native Silo server segments win per segment type.
 - Jellyfin core server segments win per segment type when the Jellyfin provider is active. An empty core response is valid and allows configured external providers to fill missing types.
 - External provider order defaults to TheIntroDB, then IntroDB.
-- `mergeSegmentsByType` keeps the first server segment for each type and only adds a later provider's type when no server segment of that type exists. For example, a server intro plus TheIntroDB intro/credits keeps the server intro and adds only credits.
+- `mergeSegmentsByType` keeps every server segment, including several of one type, and adds a later provider's segments only for types no earlier source supplied (all of that provider's ranges of such a type). For example, a server intro plus TheIntroDB intro/credits keeps the server intro and adds only credits.
+- The player first joins overlapping or touching ranges of one type (`PlaybackPolicy::mergeSkipRanges`), so two intros back to back are one skip to the end of both. It then skips the merged range that holds the position (`PlaybackPolicy::skipRangeIndex`), or one starting at most 2 seconds ahead (an intro at the very start of the file); otherwise a skip request, including the `bloom-skip-intro` and `bloom-skip-outro` script messages, does nothing. A second intro never jumps back to the first one's end, nor does a skip from between ranges jump far ahead. Auto-skip applies once to each merged intro or credits range of an item, keyed by type and start, so a later separate intro is skipped on entry too, even when reached by seeking straight from another intro.
 Provider parsing
 - TheIntroDB v4 uses `GET https://api.theintrodb.org/v4/media`. Bloom sends one identity in this order of preference: `tvdb_id`, `tmdb_id`, then `imdb_id`. Reads are anonymous and do not send media-server credentials.
 - Episode lookups load the parent series metadata and use its provider IDs. Episode-level provider IDs identify an episode, so Bloom does not use them as series IDs, including when the series lookup fails.
@@ -38,4 +39,4 @@ Adding a provider
 parameters, and the series metadata flow for Jellyfin and Silo with a controlled
 network manager. These tests do not prove live timestamp coverage or playback.
 
-Silo v2 markers retain opaque string file IDs. Watch state also exposes per-version markers and `marker_segments`. The dedicated marker read remains authoritative for the selected file; this migration does not change external-provider precedence.
+Silo v2 markers retain opaque string file IDs. A file's markers carry one singular `intro`, `credits`, `recap`, and `preview` range plus `marker_segments`, every effective occurrence in source-time order, so a kind can repeat (an intro after a cold open and another midway). When `marker_segments` is not empty, `SiloModelMapper::mediaSegments` maps each occurrence to its own segment (IDs `file:kind`, then `file:kind:1`, ...); an occurrence matching the singular range keeps that range's `source` and `confidence`. Otherwise the singular fields are used. The dedicated marker read remains authoritative for the selected file.

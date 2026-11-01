@@ -22,8 +22,9 @@ class LibraryService;
  * - Answers for another connection than the newest request are ignored.
  * - A refresh that keeps the same rows in the same order updates their
  *   titles and items in place, so the shelves keep their delegates.
- * - A successful watchlist change refreshes rows already loaded, and so
- *   does a favorite change when the provider has the Favorites row.
+ * - A successful watchlist or Not interested change refreshes rows already
+ *   loaded, and so does a favorite change when the provider has the
+ *   Favorites row.
  *
  * Merged spaces show no curated rows: Home calls `clear()` instead.
  */

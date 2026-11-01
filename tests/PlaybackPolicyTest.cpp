@@ -85,6 +85,8 @@ private slots:
     void evaluatesCompletionAndPrefetchThresholds();
     void validatesPrefetchedEpisodesAndContexts();
     void classifiesEndFileReasons();
+    void picksSkipRangeForPosition();
+    void mergesTouchingAndOverlappingSkipRanges();
     void resolvesAdjacentEpisodesWithinSeason();
     void resolvesAdjacentSeasonsSkippingSpecials();
     void buildsPlaybackVersionOptions();
@@ -647,6 +649,58 @@ void PlaybackPolicyTest::buildsPlaybackVersionOptions()
     const QVariantList unselected = PlayerPolicy::playbackVersionOptions(sources, QString());
     QVERIFY(!unselected.at(0).toMap().value(QStringLiteral("selected")).toBool());
     QVERIFY(!unselected.at(1).toMap().value(QStringLiteral("selected")).toBool());
+}
+
+void PlaybackPolicyTest::picksSkipRangeForPosition()
+{
+    // Two intros: after a cold open and midway (a double episode).
+    const QList<PlayerPolicy::SkipRange> ranges{{60000, 90000}, {1300000, 1330000}};
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 70000, 2000), 0);
+    // Inside the second intro, skipping goes to its end, not the first's.
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 1310000, 2000), 1);
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 1300000, 2000), 1);
+    // Just before a range: that range; far before or between: nothing.
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 58500, 2000), 0);
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 0, 2000), -1);
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 90000, 2000), -1);
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 1298000, 2000), 1);
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 1297999, 2000), -1);
+    // Past every range: nothing to skip.
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 1330000, 2000), -1);
+    QCOMPARE(PlayerPolicy::skipRangeIndex({}, 0, 2000), -1);
+    // Unordered input and empty ranges.
+    const QList<PlayerPolicy::SkipRange> unordered{{500, 400}, {9000, 9500}, {3000, 3500}};
+    QCOMPARE(PlayerPolicy::skipRangeIndex(unordered, 1500, 2000), 2);
+    QCOMPARE(PlayerPolicy::skipRangeIndex(unordered, 1500, 0), -1);
+}
+
+void PlaybackPolicyTest::mergesTouchingAndOverlappingSkipRanges()
+{
+    const auto starts = [](const QList<PlayerPolicy::SkipRange> &ranges) {
+        QList<qint64> values;
+        for (const PlayerPolicy::SkipRange &range : ranges) {
+            values << range.startMs << range.endMs;
+        }
+        return values;
+    };
+    // Adjacent: two intros back to back are one skip to the end of both.
+    QCOMPARE(starts(PlayerPolicy::mergeSkipRanges({{30000, 60000}, {0, 30000}})),
+             (QList<qint64>{0, 60000}));
+    // Overlapping, including one inside another.
+    QCOMPARE(starts(PlayerPolicy::mergeSkipRanges({{0, 40000}, {30000, 60000}, {35000, 45000}})),
+             (QList<qint64>{0, 60000}));
+    // Separate ranges stay separate, ordered; empty ones are dropped.
+    QCOMPARE(starts(PlayerPolicy::mergeSkipRanges(
+                 {{1300000, 1330000}, {70000, 70000}, {60000, 90000}})),
+             (QList<qint64>{60000, 90000, 1300000, 1330000}));
+    QVERIFY(PlayerPolicy::mergeSkipRanges({}).isEmpty());
+
+    // Skipping from inside the first of two adjacent intros clears both.
+    const QList<PlayerPolicy::SkipRange> merged =
+        PlayerPolicy::mergeSkipRanges({{0, 30000}, {30000, 60000}});
+    const int index = PlayerPolicy::skipRangeIndex(merged, 10000, 2000);
+    QCOMPARE(index, 0);
+    QCOMPARE(merged.at(index).endMs, qint64(60000));
 }
 
 void PlaybackPolicyTest::classifiesEndFileReasons()

@@ -18,6 +18,7 @@ private slots:
     void parsesIntroDbClockStringSegments();
     void dropsIntroDbInvalidStringSegments();
     void mergeKeepsServerSegmentAndFillsMissingType();
+    void mergeKeepsRepeatedRangesOfEachType();
     void emptyProviderIdsProduceNoSegments();
 };
 
@@ -262,6 +263,50 @@ void MediaSegmentProviderServiceTest::mergeKeepsServerSegmentAndFillsMissingType
     QCOMPARE(merged.at(0).startSeconds(), 10.0);
     QCOMPARE(merged.at(1).type, MediaSegmentType::Outro);
     QCOMPARE(merged.at(1).source, QStringLiteral("theintrodb"));
+}
+
+void MediaSegmentProviderServiceTest::mergeKeepsRepeatedRangesOfEachType()
+{
+    const auto segment = [](MediaSegmentType type, const QString &source, qint64 startSeconds,
+                            qint64 endSeconds) {
+        MediaSegmentInfo info;
+        info.itemId = QStringLiteral("episode-1");
+        info.type = type;
+        info.source = source;
+        info.startMs = startSeconds * 1000LL;
+        info.endMs = endSeconds * 1000LL;
+        return info;
+    };
+    // Silo can return several ranges of one type (an intro after a cold
+    // open and another midway); all of them stay.
+    const QList<MediaSegmentInfo> server{
+        segment(MediaSegmentType::Intro, QStringLiteral("scanner"), 60, 90),
+        segment(MediaSegmentType::Intro, QString(), 1300, 1330)};
+    // An external provider fills only types the server lacks, with every
+    // range it has of that type.
+    const QList<MediaSegmentInfo> external{
+        segment(MediaSegmentType::Intro, QStringLiteral("theintrodb"), 0, 30),
+        segment(MediaSegmentType::Outro, QStringLiteral("theintrodb"), 1700, 1750),
+        segment(MediaSegmentType::Outro, QStringLiteral("theintrodb"), 3500, 3600)};
+
+    QList<MediaSegmentInfo> merged = MediaSegmentProviderService::mergeSegmentsByType(server, external);
+    QCOMPARE(merged.size(), 4);
+    QCOMPARE(merged.at(0).startMs, 60000);
+    QCOMPARE(merged.at(1).startMs, 1300000);
+    QCOMPARE(merged.at(2).type, MediaSegmentType::Outro);
+    QCOMPARE(merged.at(3).type, MediaSegmentType::Outro);
+    QCOMPARE(merged.at(3).startMs, 3500000);
+    QVERIFY(MediaSegmentProviderService::hasMissingSupportedSegmentTypes(server));
+
+    // PlaybackService merges the provider chain's result into the server
+    // list again; that repeats nothing.
+    merged = MediaSegmentProviderService::mergeSegmentsByType(server, merged);
+    QCOMPARE(merged.size(), 4);
+
+    // A later provider adds nothing for a type an earlier one filled.
+    const QList<MediaSegmentInfo> later{
+        segment(MediaSegmentType::Outro, QStringLiteral("introdb"), 3400, 3600)};
+    QCOMPARE(MediaSegmentProviderService::mergeSegmentsByType(merged, later).size(), 4);
 }
 
 void MediaSegmentProviderServiceTest::emptyProviderIdsProduceNoSegments()

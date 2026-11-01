@@ -76,6 +76,9 @@ struct UserMediaState {
     bool favorite = false;
     // On the profile's watchlist (providers with a watchlist only).
     bool inWatchlist = false;
+    // Marked "Not interested" for the profile's recommendations (providers
+    // with that state only).
+    bool notInterested = false;
     qint64 positionMs = 0;
     int unplayedItemCount = 0;
     QString lastPlayedAt;

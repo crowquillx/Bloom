@@ -1,6 +1,7 @@
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QtTest/QtTest>
+#include <QScopeGuard>
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -11,6 +12,7 @@
 #include <QPointer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTimeZone>
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
@@ -213,6 +215,15 @@ private slots:
     void siloItemExtrasAnswerEmptyWithoutRequests();
     void personReadsMapCanonicalPeopleAndTitles();
     void peopleSearchFollowsTheSearchCapability();
+    void notInterestedRequestsAndCapabilityParse();
+    void notInterestedServiceGatesOnProfileCapability();
+    void notInterestedReadCancelledWithSessionIsAskedAgain();
+    void nextAiringSharesAndCachesOneCalendarRead();
+    void nextAiringRetriesUnknownZoneAsOffset();
+    void upcomingAiringsReadTheViewerCalendar();
+    void nextAiringPicksEarliestAiringStillAhead();
+    void markerSegmentsKeepRepeatedRanges();
+    void serverRatingsFollowServerOrder();
 };
 
 void SiloCatalogServiceTest::theIntroDbV4Requests_data()
@@ -2485,6 +2496,506 @@ void SiloCatalogServiceTest::peopleSearchFollowsTheSearchCapability()
         QTest::qWait(50);
         QCOMPARE(loaded.count(), 1);
     }
+}
+
+void SiloCatalogServiceTest::notInterestedRequestsAndCapabilityParse()
+{
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery state;
+    state.itemId = QStringLiteral("series/the wire");
+    state.stateValue = true;
+
+    // markNotInterested and unmarkNotInterested are natural_idempotent.
+    ProviderCatalogRequest request
+        = provider.createRequest(ProviderCatalogOperation::SetNotInterested, state);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Put);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint,
+             QStringLiteral("/api/v2/not-interested/series%2Fthe%20wire"));
+    QVERIFY(request.body.isEmpty());
+    state.stateValue = false;
+    request = provider.createRequest(ProviderCatalogOperation::SetNotInterested, state);
+    QCOMPARE(request.method, ProviderHttpMethod::Delete);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::SetNotInterested, {}).supported);
+    QVERIFY(provider.parseResponse(ProviderCatalogOperation::SetNotInterested, {}).valid);
+
+    request = provider.createRequest(ProviderCatalogOperation::NotInterestedCapability, {});
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/capabilities/not-interested"));
+
+    const auto capability = [&provider](const QByteArray &body) {
+        return provider.parseResponse(ProviderCatalogOperation::NotInterestedCapability, body);
+    };
+    ProviderCatalogResponse response = capability(
+        QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true})"));
+    QVERIFY(response.valid);
+    QVERIFY(response.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
+    response = capability(QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":false})"));
+    QVERIFY(response.valid);
+    QVERIFY(!response.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
+    response = capability(QByteArrayLiteral(R"({"revision":"r1","state":"disabled","allowed":true})"));
+    QVERIFY(response.valid);
+    QVERIFY(!response.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
+    QVERIFY(!capability(QByteArrayLiteral(R"({"state":"available"})")).valid);
+
+    // Item details carry the mark as canonical user state.
+    const QVariantMap mapped = SiloModelMapper::mediaItem(
+        QJsonDocument::fromJson(QByteArrayLiteral(
+            R"({"content_id":"series:wire","type":"series","title":"The Wire",)"
+            R"("user_state":{"played":false,"is_favorite":false,"in_watchlist":false,"not_interested":true}})"))
+            .object(),
+        QStringLiteral("connection-1"));
+    QVERIFY(mapped.value(QStringLiteral("notInterested")).toBool());
+    QVERIFY(mapped.value(QStringLiteral("userState")).toMap()
+                .value(QStringLiteral("notInterested")).toBool());
+
+    SiloProviderAdapter silo;
+    QVERIFY(silo.supportsCapability(ProviderCapability::NotInterested));
+    JellyfinProviderAdapter jellyfin;
+    QVERIFY(!jellyfin.supportsCapability(ProviderCapability::NotInterested));
+    QVERIFY(!jellyfin.catalogProvider()
+                 ->createRequest(ProviderCatalogOperation::SetNotInterested, state).supported);
+}
+
+void SiloCatalogServiceTest::notInterestedServiceGatesOnProfileCapability()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QSignalSpy support(&service, &LibraryService::notInterestedSupportChanged);
+    QSignalSpy changed(&service, &LibraryService::notInterestedStatusChanged);
+    QSignalSpy failed(&service, &LibraryService::notInterestedStatusFailed);
+    // Hidden until the profile's capability document allows it.
+    QVERIFY(!service.supportsNotInterested());
+
+    manager.responses = {
+        { 200, QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true})"), false }
+    };
+    qsizetype firstRequest = manager.requests.size();
+    service.loadNotInterestedCapability();
+    // A second page asking while the read is in flight shares it.
+    service.loadNotInterestedCapability();
+    QTRY_COMPARE_WITH_TIMEOUT(support.count(), 1, 1000);
+    QVERIFY(service.supportsNotInterested());
+    QCOMPARE(manager.requests.size(), firstRequest + 1);
+    const RecordedRequest read = manager.requests.at(firstRequest);
+    QCOMPARE(read.request.url().path(), QStringLiteral("/api/v2/capabilities/not-interested"));
+    QCOMPARE(read.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
+    // Read once per connection and profile.
+    service.loadNotInterestedCapability();
+    QCOMPARE(manager.requests.size(), firstRequest + 1);
+
+    manager.responses = { { 204, QByteArray(), false }, { 204, QByteArray(), false } };
+    firstRequest = manager.requests.size();
+    service.setItemNotInterested(QStringLiteral("movie:heat-1995"), true);
+    QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 1, 1000);
+    QCOMPARE(changed.first().at(0).toString(), QStringLiteral("movie:heat-1995"));
+    QCOMPARE(changed.first().at(1).toBool(), true);
+    const RecordedRequest mark = manager.requests.at(firstRequest);
+    QCOMPARE(mark.operation, QNetworkAccessManager::PutOperation);
+    QCOMPARE(mark.request.url().path(), QStringLiteral("/api/v2/not-interested/movie:heat-1995"));
+    QCOMPARE(mark.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
+    QVERIFY(mark.body.isEmpty());
+
+    service.setItemNotInterested(QStringLiteral("movie:heat-1995"), false);
+    QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 2, 1000);
+    QCOMPARE(changed.at(1).at(1).toBool(), false);
+    QCOMPARE(manager.requests.at(firstRequest + 1).operation,
+             QNetworkAccessManager::DeleteOperation);
+
+    manager.responses = {
+        { 422, QByteArrayLiteral(R"({"type":"about:blank","title":"Unprocessable","status":422})"), false }
+    };
+    service.setItemNotInterested(QStringLiteral("episode:x"), true);
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+    QCOMPARE(failed.first().at(0).toString(), QStringLiteral("episode:x"));
+    QCOMPARE(failed.first().at(1).toBool(), true);
+    QCOMPARE(changed.count(), 2);
+}
+
+void SiloCatalogServiceTest::notInterestedReadCancelledWithSessionIsAskedAgain()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QSignalSpy support(&service, &LibraryService::notInterestedSupportChanged);
+    const QByteArray allowed = QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true})");
+    manager.responses = { { 200, allowed, true } };
+    const qsizetype firstRequest = manager.requests.size();
+    service.loadNotInterestedCapability();
+    QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), firstRequest + 1, 1000);
+
+    // The session changes while the read is out, which cancels it; the
+    // next page asks again instead of waiting on it forever.
+    emit auth.userIdChanged();
+    manager.responses = { { 200, allowed, false } };
+    service.loadNotInterestedCapability();
+    QTRY_COMPARE_WITH_TIMEOUT(support.count(), 1, 1000);
+    QVERIFY(service.supportsNotInterested());
+    QCOMPARE(manager.requests.size(), firstRequest + 2);
+    // The cancelled read finishing late changes nothing.
+    if (manager.replies.at(firstRequest)) {
+        manager.replies.at(firstRequest)->complete();
+    }
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(support.count(), 1);
+}
+
+namespace {
+
+QByteArray calendarBody(const QDate &day)
+{
+    const QString date = day.toString(Qt::ISODate);
+    const auto event = [&date](const QString &series, int episode) {
+        return QJsonObject{{QStringLiteral("content_id"), QStringLiteral("episode:%1-%2").arg(series).arg(episode)},
+                           {QStringLiteral("type"), QStringLiteral("episode")},
+                           {QStringLiteral("title"), series},
+                           {QStringLiteral("series_id"), QStringLiteral("series:") + series},
+                           {QStringLiteral("season_number"), 1},
+                           {QStringLiteral("episode_number"), episode},
+                           {QStringLiteral("air_date"), date},
+                           {QStringLiteral("local_air_date"), date},
+                           {QStringLiteral("watched"), false},
+                           {QStringLiteral("badges"), QJsonArray{}}};
+    };
+    return QJsonDocument(QJsonObject{{QStringLiteral("events"), QJsonArray{QJsonObject{
+        {QStringLiteral("date"), date},
+        {QStringLiteral("items"), QJsonArray{event(QStringLiteral("a"), 2),
+                                             event(QStringLiteral("b"), 5)}}}}}})
+        .toJson(QJsonDocument::Compact);
+}
+
+} // namespace
+
+void SiloCatalogServiceTest::nextAiringSharesAndCachesOneCalendarRead()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QVERIFY(service.supportsNextAiring());
+    QSignalSpy loaded(&service, &LibraryService::nextAiringLoaded);
+    const QDate today = QDate::currentDate();
+    const auto airingFor = [&loaded](const QString &seriesId) {
+        for (const QList<QVariant> &arguments : std::as_const(loaded)) {
+            if (arguments.at(0).toString() == seriesId) {
+                return arguments.at(1).toMap();
+            }
+        }
+        return QVariantMap{{QStringLiteral("missing"), true}};
+    };
+
+    // A failed read answers every waiting page with nothing and is not kept.
+    qsizetype firstRequest = manager.requests.size();
+    manager.responses = { { 404, QByteArrayLiteral(R"({"type":"about:blank","status":404})"), false } };
+    service.getNextAiring(QStringLiteral("series:a"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    QVERIFY(airingFor(QStringLiteral("series:a")).isEmpty());
+    loaded.clear();
+
+    // Pages asking while the calendar is read share the one read.
+    manager.responses = { { 200, calendarBody(today.addDays(3)), true } };
+    firstRequest = manager.requests.size();
+    service.getNextAiring(QStringLiteral("series:a"));
+    service.getNextAiring(QStringLiteral("series:b"));
+    service.getNextAiring(QStringLiteral("series:a"));
+    QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), firstRequest + 1, 1000);
+    const QUrl url = manager.requests.at(firstRequest).request.url();
+    QCOMPARE(url.path(), QStringLiteral("/api/v2/calendar"));
+    QCOMPARE(QUrlQuery(url).queryItemValue(QStringLiteral("start")), today.toString(Qt::ISODate));
+    QCOMPARE(manager.requests.at(firstRequest).request.rawHeader("X-Profile-Id"),
+             QByteArrayLiteral("profile-1"));
+    QCOMPARE(loaded.count(), 0);
+    manager.replies.at(firstRequest)->complete();
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+    QCOMPARE(airingFor(QStringLiteral("series:a")).value(QStringLiteral("episodeNumber")).toInt(), 2);
+    QCOMPARE(airingFor(QStringLiteral("series:b")).value(QStringLiteral("episodeNumber")).toInt(), 5);
+
+    // Another series page answers from the kept calendar, at once.
+    service.getNextAiring(QStringLiteral("series:c"));
+    QCOMPARE(loaded.count(), 3);
+    QVERIFY(airingFor(QStringLiteral("series:c")).isEmpty());
+    service.getNextAiring(QStringLiteral("series:b"));
+    QCOMPARE(loaded.count(), 4);
+    QCOMPARE(manager.requests.size(), firstRequest + 1);
+
+    // A new session drops the kept calendar.
+    emit auth.userIdChanged();
+    manager.responses = { { 200, calendarBody(today.addDays(3)), false } };
+    service.getNextAiring(QStringLiteral("series:a"));
+    QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), firstRequest + 2, 1000);
+}
+
+void SiloCatalogServiceTest::nextAiringRetriesUnknownZoneAsOffset()
+{
+    // A zone with a fixed whole-hour offset (UTC+9) that the server is
+    // made to reject.
+    const QByteArray previousZone = qgetenv("TZ");
+    const bool hadZone = qEnvironmentVariableIsSet("TZ");
+    qputenv("TZ", "Asia/Tokyo");
+    const auto restoreZone = qScopeGuard([&]() {
+        if (hadZone) {
+            qputenv("TZ", previousZone);
+        } else {
+            qunsetenv("TZ");
+        }
+    });
+    if (QTimeZone::systemTimeZoneId() != QByteArrayLiteral("Asia/Tokyo")) {
+        QSKIP("The system zone does not follow TZ here");
+    }
+    // Without zone data (the Nix build sandbox) Bloom already sends the
+    // offset zone first, so there is nothing to retry.
+    if (!QTimeZone::isTimeZoneIdAvailable(QByteArrayLiteral("Asia/Tokyo"))) {
+        QSKIP("No time zone data for Asia/Tokyo here");
+    }
+
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QSignalSpy loaded(&service, &LibraryService::nextAiringLoaded);
+    const qsizetype firstRequest = manager.requests.size();
+    manager.responses = {
+        { 422, QByteArrayLiteral(R"({"type":"https://silo.example.test/problems/validation_failed","status":422,)"
+                                 R"("errors":[{"location":"query.timezone","code":"invalid"}]})"), false },
+        { 200, calendarBody(QDate::currentDate().addDays(2)), false } };
+    service.getNextAiring(QStringLiteral("series:b"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    QCOMPARE(manager.requests.size(), firstRequest + 2);
+    QCOMPARE(QUrlQuery(manager.requests.at(firstRequest).request.url())
+                 .queryItemValue(QStringLiteral("timezone"), QUrl::FullyDecoded),
+             QStringLiteral("Asia/Tokyo"));
+    // Etc/GMT zones invert the sign: UTC+9 is Etc/GMT-9.
+    QCOMPARE(QUrlQuery(manager.requests.at(firstRequest + 1).request.url())
+                 .queryItemValue(QStringLiteral("timezone"), QUrl::FullyDecoded),
+             QStringLiteral("Etc/GMT-9"));
+    QCOMPARE(loaded.first().at(1).toMap().value(QStringLiteral("episodeNumber")).toInt(), 5);
+}
+
+void SiloCatalogServiceTest::upcomingAiringsReadTheViewerCalendar()
+{
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery query;
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::UpcomingAirings, query).supported);
+    query.calendarStart = QDate(2026, 11, 1);
+    query.timeZoneId = QStringLiteral("Etc/GMT+5");
+    const ProviderCatalogRequest request
+        = provider.createRequest(ProviderCatalogOperation::UpcomingAirings, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    // At most 31 days, and the '+' of the zone survives the query string.
+    QCOMPARE(request.relativeEndpoint,
+             QStringLiteral("/api/v2/calendar?start=2026-11-01&end=2026-12-01&timezone=Etc%2FGMT%2B5"));
+    query.timeZoneId.clear();
+    QCOMPARE(provider.createRequest(ProviderCatalogOperation::UpcomingAirings, query).relativeEndpoint,
+             QStringLiteral("/api/v2/calendar?start=2026-11-01&end=2026-12-01"));
+
+    const ProviderCatalogResponse response = provider.parseResponse(
+        ProviderCatalogOperation::UpcomingAirings,
+        QByteArrayLiteral(
+            R"({"events":[{"date":"2026-11-05","items":[)"
+            R"({"content_id":"movie:dune-3","type":"movie","title":"Dune","air_date":"2026-11-05","local_air_date":"2026-11-05","watched":false,"badges":[]},)"
+            R"({"content_id":"episode:sev-s02e05","type":"episode","title":"Severance","series_id":"series:severance",)"
+            R"("season_number":2,"episode_number":5,"episode_title":"Trojan Horse","air_date":"2026-11-05",)"
+            R"("air_time":"21:00","air_timezone":"America/New_York","air_at":"2026-11-06T02:00:00Z",)"
+            R"("local_air_date":"2026-11-05","watched":false,"badges":["finale"]}]}]})"));
+    QVERIFY(response.valid);
+    const QVariantList airings = response.capabilityMetadata.value(QStringLiteral("airings")).toList();
+    QCOMPARE(airings.size(), 1);
+    const QVariantMap airing = airings.first().toMap();
+    QCOMPARE(airing.value(QStringLiteral("seriesId")).toString(), QStringLiteral("series:severance"));
+    QCOMPARE(airing.value(QStringLiteral("itemId")).toString(), QStringLiteral("episode:sev-s02e05"));
+    QCOMPARE(airing.value(QStringLiteral("seasonNumber")).toInt(), 2);
+    QCOMPARE(airing.value(QStringLiteral("episodeNumber")).toInt(), 5);
+    QCOMPARE(airing.value(QStringLiteral("episodeTitle")).toString(), QStringLiteral("Trojan Horse"));
+    QCOMPARE(airing.value(QStringLiteral("airDate")).toString(), QStringLiteral("2026-11-05"));
+    QCOMPARE(airing.value(QStringLiteral("airAt")).toString(), QStringLiteral("2026-11-06T02:00:00Z"));
+    QCOMPARE(airing.value(QStringLiteral("badges")).toStringList(), QStringList{QStringLiteral("finale")});
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::UpcomingAirings,
+                                    QByteArrayLiteral(R"({"events":null})")).valid);
+
+    // A card's upcoming_event has no zone, so it maps without an instant.
+    const QVariantMap card = SiloModelMapper::mediaItem(
+        QJsonDocument::fromJson(QByteArrayLiteral(
+            R"({"content_id":"series:severance","type":"series","title":"Severance",)"
+            R"("upcoming_event":{"type":"episode","air_date":"2026-11-05","air_time":"21:00",)"
+            R"("season_number":2,"episode_number":5,"badges":[]}})"))
+            .object(),
+        QStringLiteral("connection-1"));
+    const QVariantMap next = card.value(QStringLiteral("nextAiring")).toMap();
+    QCOMPARE(next.value(QStringLiteral("airDate")).toString(), QStringLiteral("2026-11-05"));
+    QCOMPARE(next.value(QStringLiteral("seasonNumber")).toInt(), 2);
+    QVERIFY(!next.contains(QStringLiteral("airAt")));
+
+    SiloProviderAdapter silo;
+    QVERIFY(silo.supportsCapability(ProviderCapability::AiringCalendar));
+    JellyfinProviderAdapter jellyfin;
+    QVERIFY(!jellyfin.supportsCapability(ProviderCapability::AiringCalendar));
+}
+
+void SiloCatalogServiceTest::nextAiringPicksEarliestAiringStillAhead()
+{
+    const auto airing = [](const QString &seriesId, int episode, const QString &day,
+                           const QString &instant) {
+        QVariantMap map{{QStringLiteral("seriesId"), seriesId},
+                        {QStringLiteral("seasonNumber"), 1},
+                        {QStringLiteral("episodeNumber"), episode},
+                        {QStringLiteral("airDate"), day}};
+        if (!instant.isEmpty()) {
+            map.insert(QStringLiteral("airAt"), instant);
+        }
+        return map;
+    };
+    const QDateTime now(QDate(2026, 11, 5), QTime(12, 0), QTimeZone::UTC);
+    const QVariantList airings{
+        // Aired earlier today.
+        airing(QStringLiteral("series:a"), 1, QStringLiteral("2026-11-05"),
+               QStringLiteral("2026-11-05T02:00:00Z")),
+        airing(QStringLiteral("series:b"), 7, QStringLiteral("2026-11-05"),
+               QStringLiteral("2026-11-05T20:00:00Z")),
+        airing(QStringLiteral("series:a"), 3, QStringLiteral("2026-11-12"),
+               QStringLiteral("2026-11-12T20:00:00Z")),
+        airing(QStringLiteral("series:a"), 2, QStringLiteral("2026-11-06"), QString())};
+    QCOMPARE(LibraryService::nextAiringFor(airings, QStringLiteral("series:a"), now)
+                 .value(QStringLiteral("episodeNumber")).toInt(), 2);
+    QCOMPARE(LibraryService::nextAiringFor(airings, QStringLiteral("series:b"), now)
+                 .value(QStringLiteral("episodeNumber")).toInt(), 7);
+    QVERIFY(LibraryService::nextAiringFor(airings, QStringLiteral("series:c"), now).isEmpty());
+    // An airing without an instant counts for the whole of its day.
+    const QVariantList dayOnly{airing(QStringLiteral("series:d"), 4,
+                                      now.toLocalTime().date().toString(Qt::ISODate), QString())};
+    QCOMPARE(LibraryService::nextAiringFor(dayOnly, QStringLiteral("series:d"), now)
+                 .value(QStringLiteral("episodeNumber")).toInt(), 4);
+}
+
+void SiloCatalogServiceTest::markerSegmentsKeepRepeatedRanges()
+{
+    // marker_segments lists every occurrence; the singular fields keep one
+    // per kind and their provenance.
+    const QList<MediaSegmentInfo> segments = SiloModelMapper::mediaSegments(
+        QStringLiteral("episode-1"),
+        QJsonDocument::fromJson(QByteArrayLiteral(
+            R"({"file_id":"file-1",)"
+            R"("intro":{"start_seconds":60,"end_seconds":90,"source":"scanner","confidence":0.9},)"
+            R"("credits":{"start_seconds":2400,"end_seconds":2500,"source":"online"},)"
+            R"("recap":null,"preview":null,)"
+            R"("marker_segments":[)"
+            R"({"kind":"recap","start_seconds":0,"end_seconds":30},)"
+            R"({"kind":"intro","start_seconds":60,"end_seconds":90},)"
+            R"({"kind":"intro","start_seconds":1300,"end_seconds":1330},)"
+            R"({"kind":"credits","start_seconds":2400,"end_seconds":2500},)"
+            R"({"kind":"bogus","start_seconds":2600,"end_seconds":2700},)"
+            R"({"kind":"intro","start_seconds":1500,"end_seconds":1400}]})"))
+            .object());
+    QCOMPARE(segments.size(), 4);
+    QCOMPARE(segments.at(0).type, MediaSegmentType::Recap);
+    QCOMPARE(segments.at(1).type, MediaSegmentType::Intro);
+    QCOMPARE(segments.at(1).startMs, 60000);
+    QCOMPARE(segments.at(1).id, QStringLiteral("file-1:intro"));
+    QCOMPARE(segments.at(1).source, QStringLiteral("scanner"));
+    QCOMPARE(segments.at(2).type, MediaSegmentType::Intro);
+    QCOMPARE(segments.at(2).startMs, 1300000);
+    QCOMPARE(segments.at(2).endMs, 1330000);
+    QCOMPARE(segments.at(2).id, QStringLiteral("file-1:intro:1"));
+    QVERIFY(segments.at(2).source.isEmpty());
+    QCOMPARE(segments.at(3).type, MediaSegmentType::Outro);
+    QCOMPARE(segments.at(3).source, QStringLiteral("online"));
+
+    // Without occurrences the singular fields stand.
+    const QList<MediaSegmentInfo> singular = SiloModelMapper::mediaSegments(
+        QStringLiteral("episode-1"),
+        QJsonDocument::fromJson(QByteArrayLiteral(
+            R"({"file_id":"file-1","intro":{"start_seconds":5,"end_seconds":35},)"
+            R"("credits":null,"recap":null,"preview":null,"marker_segments":[]})"))
+            .object());
+    QCOMPARE(singular.size(), 1);
+    QCOMPARE(singular.first().type, MediaSegmentType::Intro);
+    QCOMPARE(singular.first().id, QStringLiteral("file-1:intro"));
+}
+
+void SiloCatalogServiceTest::serverRatingsFollowServerOrder()
+{
+    // The detail's ratings list is authoritative and keeps its order.
+    const QVariantMap detail = SiloModelMapper::mediaItem(
+        QJsonDocument::fromJson(QByteArrayLiteral(
+            R"({"content_id":"movie:heat","type":"movie","title":"Heat",)"
+            R"("rating_imdb":8.3,"rating_tmdb":7.9,"rating_rt_critic":83,)"
+            R"("ratings":[)"
+            R"({"source":"rt_critic","name":"Rotten Tomatoes","score":83,"display":"83%"},)"
+            R"({"source":"imdb","name":"IMDb","score":83,"display":"8.3"},)"
+            R"({"source":"letterboxd","name":"Letterboxd","score":82,"display":"4.1"},)"
+            R"({"source":"broken","name":"Broken","display":"?"}]})"))
+            .object(),
+        QStringLiteral("connection-1"));
+    const QVariantList ratings = detail.value(QStringLiteral("serverRatings")).toList();
+    QCOMPARE(ratings.size(), 3);
+    QCOMPARE(ratings.at(0).toMap().value(QStringLiteral("source")).toString(),
+             QStringLiteral("rottenTomatoesCritic"));
+    QCOMPARE(ratings.at(0).toMap().value(QStringLiteral("display")).toString(), QStringLiteral("83%"));
+    QCOMPARE(ratings.at(1).toMap().value(QStringLiteral("source")).toString(), QStringLiteral("imdb"));
+    QCOMPARE(ratings.at(1).toMap().value(QStringLiteral("display")).toString(), QStringLiteral("8.3"));
+    QCOMPARE(ratings.at(2).toMap().value(QStringLiteral("name")).toString(), QStringLiteral("Letterboxd"));
+    QCOMPARE(ratings.at(2).toMap().value(QStringLiteral("score")).toDouble(), 82.0);
+    // The fixed fields still feed poster badges.
+    QCOMPARE(detail.value(QStringLiteral("ratings")).toMap()
+                 .value(QStringLiteral("rottenTomatoesCritic")).toInt(), 83);
+
+    // Without the list (cards, older servers) the fixed fields stand in.
+    const QVariantMap card = SiloModelMapper::mediaItem(
+        QJsonDocument::fromJson(QByteArrayLiteral(
+            R"({"content_id":"movie:heat","type":"movie","title":"Heat",)"
+            R"("rating_imdb":8.3,"rating_tmdb":0,"rating_rt_audience":94})"))
+            .object(),
+        QStringLiteral("connection-1"));
+    const QVariantList fallback = card.value(QStringLiteral("serverRatings")).toList();
+    QCOMPARE(fallback.size(), 2);
+    QCOMPARE(fallback.at(0).toMap().value(QStringLiteral("source")).toString(), QStringLiteral("imdb"));
+    QCOMPARE(fallback.at(0).toMap().value(QStringLiteral("score")).toDouble(), 83.0);
+    QCOMPARE(fallback.at(0).toMap().value(QStringLiteral("display")).toString(), QStringLiteral("8.3"));
+    QCOMPARE(fallback.at(1).toMap().value(QStringLiteral("source")).toString(),
+             QStringLiteral("rottenTomatoesAudience"));
+    QCOMPARE(fallback.at(1).toMap().value(QStringLiteral("display")).toString(), QStringLiteral("94%"));
+
+    // An empty list means the server shows none.
+    const QVariantMap none = SiloModelMapper::mediaItem(
+        QJsonDocument::fromJson(QByteArrayLiteral(
+            R"({"content_id":"movie:heat","type":"movie","title":"Heat","rating_imdb":8.3,"ratings":[]})"))
+            .object(),
+        QStringLiteral("connection-1"));
+    QVERIFY(!none.contains(QStringLiteral("serverRatings")));
 }
 
 

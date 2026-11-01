@@ -395,6 +395,15 @@ FocusScope {
 
     function formatCommunityRating() {
         if (!communityRating || communityRating <= 0) return ""
+        // The server's own IMDb (else TMDB) score is already in its ratings.
+        const ratings = externalRatings["ratings"] || []
+        for (let i = 0; i < ratings.length; ++i) {
+            const rating = ratings[i]
+            if (rating && rating.fromServer
+                    && (rating.sourceKey === "imdb" || rating.sourceKey === "tmdb")) {
+                return ""
+            }
+        }
         return "★ " + communityRating.toFixed(1)
     }
 
@@ -416,6 +425,12 @@ FocusScope {
         for (let i = 0; i < ratings.length; ++i) {
             const rating = ratings[i]
             if (!rating) {
+                continue
+            }
+            // A server rating carries its display text, and a score of 0
+            // is a real rating there.
+            if (rating.display) {
+                filtered.push(rating)
                 continue
             }
             const value = rating.value
@@ -1424,6 +1439,20 @@ FocusScope {
             }
         }
 
+        // Only where the provider offers it to the profile (Silo).
+        BloomMenuItem {
+            id: notInterestedMenuItem
+            visible: MovieDetailsViewModel.notInterestedSupported
+            enabled: visible
+            height: visible ? implicitHeight : 0
+            text: MovieDetailsViewModel.notInterested ? qsTr("Interested Again") : qsTr("Not Interested")
+
+            onTriggered: {
+                MovieDetailsViewModel.toggleNotInterested()
+                contextMenu.close()
+            }
+        }
+
         MenuSeparator {
             contentItem: Rectangle {
                 implicitHeight: 1
@@ -1626,6 +1655,9 @@ FocusScope {
         function onWatchlistUpdateFailed(message) {
             if (root.sharedModelCurrent)
                 playbackToast.show(message)
+        }
+        function onNotInterestedUpdateFailed(message) {
+            playbackToast.show(message)
         }
     }
 

@@ -9,9 +9,13 @@
 #include "providers/IPlaybackProvider.h"
 #include "utils/ConfigManager.h"
 #include <QFutureWatcher>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QRandomGenerator>
+#include <QRegularExpression>
 #include <QSet>
+#include <QTimeZone>
 #include <QTimer>
 #include <QUrl>
 #include <QtConcurrent>
@@ -55,6 +59,55 @@ QString activeProfileId(const AuthenticationService *authService)
     ConfigManager *config = authService ? authService->configManager() : nullptr;
     const auto connection = config ? config->getActiveConnection() : std::nullopt;
     return connection.has_value() ? connection->profileId : QString();
+}
+
+// The viewer's IANA zone, or empty when the system names none the server
+// knows (an abbreviation, a bare offset, an unknown id).
+QString viewerTimeZoneId()
+{
+    const QByteArray id = QTimeZone::systemTimeZoneId();
+    if (id.isEmpty() || !QTimeZone::isTimeZoneIdAvailable(id)) {
+        return {};
+    }
+    static const QRegularExpression iana(
+        QStringLiteral(R"(^(?:UTC|[A-Za-z]+(?:/[A-Za-z0-9_+\-]+)+)$)"));
+    const QString name = QString::fromUtf8(id);
+    return iana.match(name).hasMatch() ? name : QString();
+}
+
+// The Etc zone for the viewer's current whole-hour offset. Etc/GMT names
+// invert the sign: UTC-5 is Etc/GMT+5. Empty for an offset off the hour,
+// which no Etc zone names.
+QString offsetTimeZoneId(const QDateTime &now)
+{
+    const int offset = now.offsetFromUtc();
+    if (offset % 3600 != 0) {
+        return {};
+    }
+    const int hours = offset / 3600;
+    if (hours == 0) {
+        return QStringLiteral("Etc/UTC");
+    }
+    if (hours < -12 || hours > 14) {
+        return {};
+    }
+    return QStringLiteral("Etc/GMT%1%2")
+        .arg(hours > 0 ? QLatin1Char('-') : QLatin1Char('+'))
+        .arg(qAbs(hours));
+}
+
+// Silo answers an unknown zone with a validation problem at query.timezone.
+bool rejectsTimeZone(const NetworkError &error)
+{
+    if (error.httpStatus != 400 && error.httpStatus != 422) {
+        return false;
+    }
+    const QJsonArray errors = QJsonDocument::fromJson(error.responseBody).object()
+        .value(QStringLiteral("errors")).toArray();
+    return std::any_of(errors.cbegin(), errors.cend(), [](const QJsonValue &value) {
+        return value.toObject().value(QStringLiteral("location")).toString()
+            == QStringLiteral("query.timezone");
+    });
 }
 
 QString cachedArtworkSource(const Bloom::ArtworkRef &artwork)
@@ -199,6 +252,15 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         m_inFlightChapterRequests.clear();
         m_peopleSearchScoped.clear();
         m_peopleSearchCapabilityRetry.clear();
+        // Cancelled reads answer nothing; a later page asks again.
+        m_notInterestedCapabilityReads.clear();
+        for (auto it = m_airingCalendarReads.cbegin(); it != m_airingCalendarReads.cend(); ++it) {
+            for (const QString &seriesId : it->seriesIds) {
+                emit nextAiringLoaded(seriesId, {});
+            }
+        }
+        m_airingCalendarReads.clear();
+        m_airingCalendars.clear();
     };
     connect(m_authService, &AuthenticationService::authenticationStepChanged,
             this, [this, invalidateRequests]() {
@@ -1425,6 +1487,226 @@ void LibraryService::setItemWatchlisted(const QString &itemId, bool inWatchlist)
         [this, itemId, inWatchlist](const NetworkError &error) {
             emit watchlistStatusFailed(itemId, inWatchlist, error.userMessage);
         });
+}
+
+bool LibraryService::supportsNotInterested() const
+{
+    if (!m_authService || !m_authService->isAuthenticated()
+        || !m_authService->supportsCapability(ProviderCapability::NotInterested)) {
+        return false;
+    }
+    return m_notInterestedAllowed.value(
+        activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService));
+}
+
+void LibraryService::loadNotInterestedCapability()
+{
+    if (!m_authService || !m_authService->isAuthenticated()
+        || !m_authService->supportsCapability(ProviderCapability::NotInterested)) {
+        return;
+    }
+    // The document is profile scoped: each profile may be allowed or not.
+    const QString key =
+        activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
+    if (m_notInterestedAllowed.contains(key)) {
+        return;
+    }
+    // A read sent before the session last changed was cancelled with it.
+    const auto inFlight = m_notInterestedCapabilityReads.constFind(key);
+    if (inFlight != m_notInterestedCapabilityReads.cend() && *inFlight == m_requestGeneration) {
+        return;
+    }
+    const quint64 generation = m_requestGeneration;
+    m_notInterestedCapabilityReads.insert(key, generation);
+    const auto finish = [this, key, generation]() {
+        const auto read = m_notInterestedCapabilityReads.constFind(key);
+        if (read == m_notInterestedCapabilityReads.cend() || *read != generation) {
+            return false;
+        }
+        m_notInterestedCapabilityReads.erase(read);
+        return true;
+    };
+    sendCatalogRequest(
+        QStringLiteral("getNotInterestedCapability"),
+        ProviderCatalogOperation::NotInterestedCapability,
+        baseCatalogQuery(),
+        [this, key, finish](const ProviderCatalogResponse &response) {
+            if (!finish()) {
+                return;
+            }
+            m_notInterestedAllowed.insert(
+                key, response.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
+            emit notInterestedSupportChanged();
+        },
+        [this, key, finish](const NetworkError &error) {
+            if (!finish()) {
+                return;
+            }
+            // A server without the route never offers it. Other failures
+            // leave the action hidden and ask again on the next page.
+            if (error.httpStatus == 404 || error.httpStatus == 405 || error.httpStatus == 501) {
+                m_notInterestedAllowed.insert(key, false);
+            }
+        });
+}
+
+void LibraryService::setItemNotInterested(const QString &itemId, bool notInterested)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.stateValue = notInterested;
+    sendCatalogRequest(
+        QStringLiteral("setItemNotInterested"),
+        ProviderCatalogOperation::SetNotInterested,
+        query,
+        [this, itemId, notInterested](const ProviderCatalogResponse &) {
+            emit notInterestedStatusChanged(itemId, notInterested);
+        },
+        [this, itemId, notInterested](const NetworkError &error) {
+            emit notInterestedStatusFailed(itemId, notInterested, error.userMessage);
+        });
+}
+
+bool LibraryService::supportsNextAiring() const
+{
+    return m_authService && m_authService->isAuthenticated()
+        && m_authService->supportsCapability(ProviderCapability::AiringCalendar);
+}
+
+void LibraryService::getNextAiring(const QString &seriesId)
+{
+    if (seriesId.isEmpty() || !supportsNextAiring()) {
+        emit nextAiringLoaded(seriesId, {});
+        return;
+    }
+    // The calendar's days are the viewer's own, so the window starts today
+    // in the system zone and the server reckons days in the same zone. A
+    // system zone the server would not know stands in as its whole-hour
+    // offset.
+    const QDate today = QDate::currentDate();
+    QString timeZoneId = viewerTimeZoneId();
+    const bool zoneFallbackAllowed = !timeZoneId.isEmpty();
+    if (timeZoneId.isEmpty()) {
+        timeZoneId = offsetTimeZoneId(QDateTime::currentDateTime());
+    }
+    const QString key = QStringList{activeConnectionId(m_authService),
+                                    activeProfileId(m_authService),
+                                    today.toString(Qt::ISODate), timeZoneId}
+                            .join(QLatin1Char('\n'));
+
+    const auto cached = m_airingCalendars.constFind(key);
+    if (cached != m_airingCalendars.cend()
+        && cached->fetchedAt.msecsTo(QDateTime::currentDateTimeUtc()) < kAiringCalendarTtlMs) {
+        emit nextAiringLoaded(seriesId,
+                              nextAiringFor(cached->airings, seriesId, QDateTime::currentDateTime()));
+        return;
+    }
+    // Pages asking while the calendar is read wait for the same answer.
+    auto inFlight = m_airingCalendarReads.find(key);
+    if (inFlight != m_airingCalendarReads.end() && inFlight->generation == m_requestGeneration) {
+        if (!inFlight->seriesIds.contains(seriesId)) {
+            inFlight->seriesIds.append(seriesId);
+        }
+        return;
+    }
+    m_airingCalendarReads.insert(key, {m_requestGeneration, {seriesId}});
+    readAiringCalendar(key, today, timeZoneId, zoneFallbackAllowed);
+}
+
+void LibraryService::readAiringCalendar(const QString &key,
+                                        const QDate &start,
+                                        const QString &timeZoneId,
+                                        bool zoneFallbackAllowed)
+{
+    const quint64 generation = m_requestGeneration;
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.calendarStart = start;
+    query.timeZoneId = timeZoneId;
+    sendCatalogRequest(
+        QStringLiteral("getNextAiring"),
+        ProviderCatalogOperation::UpcomingAirings,
+        query,
+        [this, key, generation](const ProviderCatalogResponse &response) {
+            finishAiringCalendarRead(
+                key, generation,
+                response.capabilityMetadata.value(QStringLiteral("airings")).toList(), true);
+        },
+        [this, key, generation, start, zoneFallbackAllowed](const NetworkError &error) {
+            // A zone the server does not know is retried once as the
+            // viewer's whole-hour offset.
+            if (zoneFallbackAllowed && rejectsTimeZone(error)) {
+                const QString fallback = offsetTimeZoneId(QDateTime::currentDateTime());
+                const auto read = m_airingCalendarReads.constFind(key);
+                if (!fallback.isEmpty() && read != m_airingCalendarReads.cend()
+                    && read->generation == generation) {
+                    readAiringCalendar(key, start, fallback, false);
+                    return;
+                }
+            }
+            // No chip, and nothing else on the page depends on it.
+            finishAiringCalendarRead(key, generation, {}, false);
+        });
+}
+
+void LibraryService::finishAiringCalendarRead(const QString &key,
+                                              quint64 generation,
+                                              const QVariantList &airings,
+                                              bool cache)
+{
+    const auto read = m_airingCalendarReads.constFind(key);
+    if (read == m_airingCalendarReads.cend() || read->generation != generation) {
+        return;
+    }
+    const QStringList seriesIds = read->seriesIds;
+    m_airingCalendarReads.erase(read);
+    if (cache) {
+        // A handful of keys at most (one per profile, day and zone).
+        if (m_airingCalendars.size() >= 8) {
+            m_airingCalendars.clear();
+        }
+        m_airingCalendars.insert(key, {airings, QDateTime::currentDateTimeUtc()});
+    }
+    const QDateTime now = QDateTime::currentDateTime();
+    for (const QString &seriesId : seriesIds) {
+        emit nextAiringLoaded(seriesId, nextAiringFor(airings, seriesId, now));
+    }
+}
+
+QVariantMap LibraryService::nextAiringFor(const QVariantList &airings,
+                                          const QString &seriesId,
+                                          const QDateTime &now)
+{
+    const QDate today = now.toLocalTime().date();
+    QVariantMap best;
+    QDateTime bestAt;
+    for (const QVariant &value : airings) {
+        const QVariantMap airing = value.toMap();
+        if (airing.value(QStringLiteral("seriesId")).toString() != seriesId) {
+            continue;
+        }
+        const QDate day = QDate::fromString(airing.value(QStringLiteral("airDate")).toString(),
+                                            Qt::ISODate);
+        const QDateTime instant = QDateTime::fromString(
+            airing.value(QStringLiteral("airAt")).toString(), Qt::ISODate);
+        // Without an instant an airing counts until its local day is over.
+        QDateTime at;
+        if (instant.isValid()) {
+            if (instant <= now) {
+                continue;
+            }
+            at = instant;
+        } else {
+            if (!day.isValid() || day < today) {
+                continue;
+            }
+            at = day.startOfDay();
+        }
+        if (best.isEmpty() || at < bestAt) {
+            best = airing;
+            bestAt = at;
+        }
+    }
+    return best;
 }
 
 // ============================================================================

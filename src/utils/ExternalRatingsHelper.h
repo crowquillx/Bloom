@@ -7,6 +7,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
+#include <QSet>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVariantMap>
@@ -46,6 +47,85 @@ inline QVariantMap mergeRatings(const QVariantMap &rawRatings, const QVariantMap
 
     combined["ratings"] = ratings;
     return combined;
+}
+
+// The one table of rating sources: every spelling the media servers,
+// MDBList and AniList use for a source, mapped to the key ratings are
+// deduplicated by and RatingMetadataChip picks its logo and format by.
+// Unknown sources keep their own (lowercased) name.
+inline QString ratingSourceKey(const QString &source)
+{
+    QString normalized = source.trimmed().toLower();
+    normalized.remove(QLatin1Char(' '));
+    normalized.remove(QLatin1Char('_'));
+    normalized.remove(QLatin1Char('-'));
+    // Ordered: the first matching spelling decides.
+    struct Alias {
+        const char *spelling;
+        const char *key;
+    };
+    static constexpr Alias aliases[] = {
+        {"tomatoesaudience", "audience"},  // rottenTomatoesAudience
+        {"popcorn", "audience"},           // MDBList popcorn, Popcornmeter
+        {"tomatoes", "tomatoes"},          // rottenTomatoesCritic, MDBList tomatoes
+        {"imdb", "imdb"},
+        {"metacriticuser", "metacriticuser"},
+        {"metacritic", "metacritic"},
+        {"tmdb", "tmdb"},
+        {"trakt", "trakt"},
+        {"letterboxd", "letterboxd"},
+        {"myanimelist", "mal"},
+        {"anilist", "anilist"},
+        {"rogerebert", "rogerebert"},
+        {"kinopoisk", "kinopoisk"},
+        {"douban", "douban"},
+    };
+    for (const Alias &alias : aliases) {
+        if (normalized.contains(QLatin1String(alias.spelling))) {
+            return QLatin1String(alias.key);
+        }
+    }
+    if (normalized == QStringLiteral("mal")) {
+        return QStringLiteral("mal");
+    }
+    return normalized;
+}
+
+// Every rating carries its `sourceKey` for the rating chip.
+inline QVariantList withSourceKeys(const QVariantList &ratings)
+{
+    QVariantList result;
+    result.reserve(ratings.size());
+    for (const QVariant &value : ratings) {
+        QVariantMap rating = value.toMap();
+        rating.insert(QStringLiteral("sourceKey"),
+                      ratingSourceKey(rating.value(QStringLiteral("source")).toString()));
+        result.append(rating);
+    }
+    return result;
+}
+
+// The media server's own ratings come first, in the server's order and
+// marked `fromServer`; the external ratings follow for sources the server
+// does not show. Every rating carries its `sourceKey`.
+inline QVariantMap withServerRatings(const QVariantList &serverRatings, const QVariantMap &combined)
+{
+    QVariantMap result = combined;
+    QVariantList ratings;
+    QSet<QString> shown;
+    for (const QVariant &value : withSourceKeys(serverRatings)) {
+        QVariantMap rating = value.toMap();
+        rating.insert(QStringLiteral("fromServer"), true);
+        shown.insert(rating.value(QStringLiteral("sourceKey")).toString());
+        ratings.append(rating);
+    }
+    for (const QVariant &value : withSourceKeys(combined.value(QStringLiteral("ratings")).toList())) {
+        if (!shown.contains(value.toMap().value(QStringLiteral("sourceKey")).toString())) {
+            ratings.append(value);
+        }
+    }
+    result[QStringLiteral("ratings")] = ratings;
+    return result;
 }
 
 inline void fetchMdbListRatings(QNetworkAccessManager *networkManager,
