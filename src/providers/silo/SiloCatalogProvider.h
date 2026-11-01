@@ -11,6 +11,8 @@
 #include <QSet>
 #include <QDateTime>
 #include <QUrl>
+
+#include <algorithm>
 #include <QUrlQuery>
 #include <optional>
 #include <cmath>
@@ -41,31 +43,21 @@ public:
         return capabilities;
     }
 
-    // Silo's added_at rule takes a span ending now ("30d") rather than an
-    // inclusive minimum date. The span is counted in whole hours from the
-    // local start of minDate, rounded up, so it covers the whole first day
-    // and at most one more hour. Empty when minDate is in the future or
-    // beyond the span Silo accepts.
-    static QString addedSinceSpan(const QDate &minDate, const QDateTime &now)
+    // Silo's added_at rule is a timestamptz range. "Added since" is the
+    // local start of minDate as a UTC instant up to a fixed far bound, so
+    // every page of the same query sends identical rules (Silo binds paging
+    // cursors to them) and the server's clock does not move the cutoff.
+    static QJsonArray addedSinceRange(const QDate &minDate)
     {
-        if (!minDate.isValid() || !now.isValid()) {
+        if (!minDate.isValid()) {
             return {};
         }
-        const qint64 seconds = minDate.startOfDay().secsTo(now);
-        if (seconds < 0) {
-            return {};
-        }
-        const qint64 hours = qMax<qint64>(1, (seconds + 3599) / 3600);
-        if (hours > kMaxAddedSinceHours) {
-            return {};
-        }
-        return QString::number(hours) + QLatin1Char('h');
+        return QJsonArray{
+            minDate.startOfDay().toUTC().toString(Qt::ISODate),
+            QStringLiteral("9999-12-31T23:59:59Z")};
     }
 
 private:
-    // Silo refuses longer spans; this bound reaches thousands of years.
-    static constexpr qint64 kMaxAddedSinceHours = 100'000'000;
-
     static ProviderCatalogRequest createOperationRequest(
         ProviderCatalogOperation operation,
         const ProviderCatalogQuery &query)
@@ -790,11 +782,6 @@ private:
             || !query.seriesIds.isEmpty() || !query.excludeItemId.trimmed().isEmpty()) {
             return QStringLiteral("Silo catalog does not support the requested ID-set filter semantics");
         }
-        if (query.minDateLastSaved.isValid()
-            && addedSinceSpan(query.minDateLastSaved, QDateTime::currentDateTime()).isEmpty()) {
-            return QStringLiteral(
-                "Silo's added_at span cannot represent a future or unbounded minimum date");
-        }
         if (query.minPremiereDate.isValid() != query.maxPremiereDate.isValid()) {
             return QStringLiteral(
                 "Silo supports an inclusive premiere-date range, but not either inclusive boundary alone");
@@ -866,9 +853,8 @@ private:
                                      query.maxPremiereDate.toString(Qt::ISODate)}});
         }
         if (query.minDateLastSaved.isValid()) {
-            rules.append({QStringLiteral("added_at"), QStringLiteral("in_last"),
-                          addedSinceSpan(query.minDateLastSaved,
-                                         QDateTime::currentDateTime())});
+            rules.append({QStringLiteral("added_at"), QStringLiteral("between"),
+                          addedSinceRange(query.minDateLastSaved)});
         }
         if (query.minCommunityRating > 0.0) {
             rules.append({QStringLiteral("rating_imdb"), QStringLiteral("gte"),
@@ -1112,6 +1098,21 @@ private:
             || query.favorite != ProviderCatalogTriState::Any || query.unwatchedOnly;
     }
 
+    // Jellyfin's recursive library query restricted to movies or series is
+    // the flat list of titles that Silo's library catalog already is.
+    static bool isFlatLibraryTitleQuery(const ProviderCatalogQuery &query)
+    {
+        if (query.parentId.trimmed().isEmpty() || query.includeItemTypes.isEmpty()) {
+            return false;
+        }
+        return std::all_of(query.includeItemTypes.cbegin(), query.includeItemTypes.cend(),
+                           [](const QString &type) {
+                               const QString normalized = type.trimmed().toLower();
+                               return normalized == QStringLiteral("movie")
+                                   || normalized == QStringLiteral("series");
+                           });
+    }
+
     static ProviderCatalogRequest createCatalogRequest(const ProviderCatalogQuery &query,
                                                         bool allowPost)
     {
@@ -1119,7 +1120,7 @@ private:
         if (!error.isEmpty()) {
             return unsupported(error);
         }
-        if (query.recursive) {
+        if (query.recursive && !isFlatLibraryTitleQuery(query)) {
             return unsupported(QStringLiteral(
                 "Silo catalog does not expose a recursive-scope switch"));
         }

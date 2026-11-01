@@ -2093,6 +2093,7 @@ FocusScope {
             selectedNetworks = prevContext.selectedNetworks || []
             showFilterPanel = prevContext.showFilterPanel || false
             activeFilterCategory = prevContext.activeFilterCategory || ""
+            normalizeActiveFilterCategory()
             
             // Set pending grid position restoration for library grid
             // Only restore if we're going back to the library grid view (not series/season/episode views)
