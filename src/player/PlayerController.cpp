@@ -943,9 +943,12 @@ void PlayerController::applyPendingExternalSubtitleTracks()
         return;
     }
 
-    // Add non-selected tracks first so the selected external track is applied after
-    // mpv has seen every active-segment subtitle URL. The pending list is also used
-    // when the segment is activated before playback reaches Playing.
+    // Only the selected sidecar is loaded now. The others are registered so the
+    // menu can offer them, and are loaded with select semantics when chosen:
+    // mpv reports a sid only for the track it selects, so a sidecar added with
+    // `auto` would stay unmapped and be fetched again on selection. The pending
+    // list is also used when the segment is activated before playback reaches
+    // Playing.
     const QVariantList pendingTracks = m_pendingExternalSubtitleTracks;
     for (const QVariant &pendingVariant : pendingTracks) {
         const QVariantMap pending = pendingVariant.toMap();
@@ -957,6 +960,7 @@ void PlayerController::applyPendingExternalSubtitleTracks()
             pending.value(QStringLiteral("displayTitle")).toString(),
             pending.value(QStringLiteral("language")).toString(),
             pending.value(QStringLiteral("index"), -1).toInt(),
+            false,
             false);
     }
     for (const QVariant &pendingVariant : pendingTracks) {
@@ -4676,7 +4680,8 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
                                                         const QString &displayTitle,
                                                         const QString &language,
                                                         int sourceStreamIndexHint,
-                                                        bool select)
+                                                        bool select,
+                                                        bool loadInMpv)
 {
     const QString normalizedSubtitleUrl = subtitleUrl.trimmed();
     if (normalizedSubtitleUrl.isEmpty()) {
@@ -4751,6 +4756,9 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
         emit availableTracksChanged();
     }
     m_externalSubtitleTrackMap.insert(syntheticIndex, -1);
+    if (!loadInMpv) {
+        return;
+    }
     if (select) {
         m_pendingExternalSubtitleIndex = syntheticIndex;
     }

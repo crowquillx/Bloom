@@ -186,11 +186,18 @@ not branch the core catalog/playback contract by server version. In particular:
   excluded legacy Intro Skipper plugin endpoint;
 - remote session removal resolves the session's device and uses
   `DELETE /Devices?id=...`; the excluded per-session logout endpoint is not
-  used; and
+  used;
 - requests made through Bloom use the `Authorization: MediaBrowser ...`
   header. External consumers that cannot receive request headers use the
   current capitalized `ApiKey` query fallback; Bloom strips deprecated query
-  aliases and the obsolete `deviceProfileId` from provider-supplied stream URLs.
+  aliases and the obsolete `deviceProfileId` from provider-supplied stream URLs;
+  and
+- external subtitle files use the `DeliveryUrl` that PlaybackInfo returns for
+  the `External` subtitle profiles. On the server's origin its credential is
+  replaced by the session's current `ApiKey` and the rest of the query is kept
+  as sent; with `IsExternalUrl` only an http(s) URL is used. Without a usable
+  one, Bloom uses the non-obsolete `GetSubtitle` route
+  `/Videos/{itemId}/{mediaSourceId}/Subtitles/{index}/Stream.{format}`.
 
 The checked-in live Jellyfin fixture remains the stable 10.11.10 control. On
 2026-08-11, the pinned official Jellyfin 12 image above reported server version

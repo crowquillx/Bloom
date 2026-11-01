@@ -50,6 +50,7 @@ struct MediaStreamInfo
     Q_PROPERTY(int dolbyVisionLevel MEMBER dolbyVisionLevel)
     Q_PROPERTY(int dolbyVisionBlSignalCompatibilityId MEMBER dolbyVisionBlSignalCompatibilityId)
     Q_PROPERTY(QString videoDoViTitle MEMBER videoDoViTitle)
+    Q_PROPERTY(QString externalUrl MEMBER externalUrl)
 
 public:
     int index = -1;
@@ -83,6 +84,9 @@ public:
     int dolbyVisionLevel = 0;
     int dolbyVisionBlSignalCompatibilityId = 0;
     QString videoDoViTitle;
+    // Provider-relative location of an external subtitle file, as the server
+    // advertised it. Playback providers resolve and authorize it.
+    QString externalUrl;
 
     [[nodiscard]] QVariantMap toVariantMap() const;
 };

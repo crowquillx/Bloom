@@ -445,14 +445,14 @@
     {
       "id": "subtitles.delivery-url",
       "journey": "playback",
-      "bloomCaller": "PlaybackInfo parsing and PlayerController track selection",
+      "bloomCaller": "JellyfinModelMapper::mediaStream, JellyfinPlaybackProvider::createDescriptor and PlayerController sidecar sub-add",
       "method": "GET",
       "path": "PlaybackInfo MediaStreams[].DeliveryUrl",
       "requestSemantics": ["External subtitle tracks may advertise a provider URL"],
       "requiredSemantics": ["DeliveryUrl is preserved and resolved without changing opaque query parameters", "Selected external subtitle is supplied to mpv"],
       "expectations": {
-        "jellyfin-supported": {"outcome": "partial", "evidence": "Server advertises delivery URLs, but Bloom's current model does not preserve the field."},
-        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "Compat advertises and serves downloaded subtitles; Bloom currently drops DeliveryUrl."}
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Bloom's DeviceProfile requests External delivery for text sidecars; JellyfinPlaybackProvider resolves DeliveryUrl without rewriting its query, falls back to GetSubtitle, and PlayerController sub-adds the selected track."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "Compat advertises and serves downloaded subtitles; Bloom now preserves External DeliveryUrl, but compat delivery against the External profile is not validated."}
       }
     },
     {

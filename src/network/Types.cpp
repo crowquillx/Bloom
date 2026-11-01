@@ -77,6 +77,8 @@ QVariantMap MediaStreamInfo::toVariantMap() const
     streamMap["dolbyVisionLevel"] = dolbyVisionLevel;
     streamMap["dolbyVisionBlSignalCompatibilityId"] = dolbyVisionBlSignalCompatibilityId;
     streamMap["videoDoViTitle"] = videoDoViTitle;
+    if (!externalUrl.isEmpty())
+        streamMap["externalUrl"] = externalUrl;
     return streamMap;
 }
 

@@ -3,6 +3,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUrl>
@@ -564,6 +566,7 @@ private slots:
     void localPreviewsGenerateOnRequestAndYieldToServer();
     void autoplayRetainsDescriptorForLocalPreviews();
     void descriptorExternalSubtitleReusesItsSourceEntry();
+    void jellyfinDeliveryUrlSubtitleIsAddedToMpv();
     void seekPreviewSettingsGateServerAndLocalPreviews();
     void thresholdMetRequestsNextEpisodeDirectly();
     void userStopPastThresholdRequestsNextEpisode();
@@ -892,6 +895,138 @@ void PlayerControllerAutoplayContextTest::descriptorExternalSubtitleReusesItsSou
     QCOMPARE(controller.mpvSubtitleTrackForSourceIndex(2), 1);
     QCOMPARE(controller.mpvSubtitleTrackForSourceIndex(3), 2);
     QCOMPARE(controller.mpvSubtitleTrackForSourceIndex(7), -1);
+}
+
+void PlayerControllerAutoplayContextTest::jellyfinDeliveryUrlSubtitleIsAddedToMpv()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    const auto subtitle = [](int index, const QString &language, bool external,
+                             const QString &deliveryUrl) {
+        QJsonObject stream{
+            {QStringLiteral("Index"), index},
+            {QStringLiteral("Type"), QStringLiteral("Subtitle")},
+            {QStringLiteral("Codec"), QStringLiteral("subrip")},
+            {QStringLiteral("Language"), language},
+            {QStringLiteral("DisplayTitle"), language + QStringLiteral(" - SRT")},
+            {QStringLiteral("IsExternal"), external},
+            {QStringLiteral("DeliveryMethod"),
+             external ? QStringLiteral("External") : QStringLiteral("Embed")}
+        };
+        if (!deliveryUrl.isEmpty()) {
+            stream.insert(QStringLiteral("DeliveryUrl"), deliveryUrl);
+        }
+        return stream;
+    };
+    const PlaybackInfoResponse info = JellyfinModelMapper::playbackInfo({
+        {QStringLiteral("MediaSources"), QJsonArray{QJsonObject{
+            {QStringLiteral("Id"), QStringLiteral("source-1")},
+            {QStringLiteral("DirectStreamUrl"), QStringLiteral("/Videos/movie-1/stream?Static=true")},
+            {QStringLiteral("MediaStreams"), QJsonArray{
+                QJsonObject{{QStringLiteral("Index"), 0}, {QStringLiteral("Type"), QStringLiteral("Video")}},
+                QJsonObject{{QStringLiteral("Index"), 1}, {QStringLiteral("Type"), QStringLiteral("Audio")}},
+                subtitle(2, QStringLiteral("jpn"), false, {}),
+                subtitle(3, QStringLiteral("eng"), true,
+                         QStringLiteral("/Videos/movie-1/source-1/Subtitles/3/0/Stream.subrip?ApiKey=server-token")),
+                subtitle(4, QStringLiteral("fra"), true,
+                         QStringLiteral("/Videos/movie-1/source-1/Subtitles/4/0/Stream.subrip?ApiKey=server-token"))
+            }}
+        }}}
+    });
+    const QVariantMap source = info.getMediaSourcesVariant().first().toMap();
+    const JellyfinPlaybackProvider provider;
+    const Bloom::PlaybackDescriptor descriptor = provider.createDescriptor(
+        PlaybackProviderContext{QUrl(QStringLiteral("https://media.example.test/")),
+                                QStringLiteral("secret-token")},
+        Bloom::MediaRef{QStringLiteral("connection-1"), QStringLiteral("movie-1")},
+        source, 1, 3, 0, QStringLiteral("session-1"));
+
+    QVariantMap segment{
+        {QStringLiteral("itemId"), QStringLiteral("movie-1")},
+        {QStringLiteral("mediaSource"), source},
+        {QStringLiteral("audioIndex"), 1},
+        {QStringLiteral("subtitleIndex"), 3},
+        {QStringLiteral("availableSubtitleTracks"),
+         controller.buildAvailableTrackOptions(source, QStringLiteral("Subtitle"))}
+    };
+    controller.applyPlaybackDescriptorToSegment(segment, descriptor);
+
+    // Sidecars keep their source index and menu position; nothing is duplicated.
+    const QVariantList tracks = segment.value(QStringLiteral("availableSubtitleTracks")).toList();
+    QCOMPARE(tracks.size(), 3);
+    QList<int> indexes;
+    for (const QVariant &track : tracks) {
+        indexes.append(track.toMap().value(QStringLiteral("index")).toInt());
+    }
+    QCOMPARE(indexes, (QList<int>{2, 3, 4}));
+    QVERIFY(!tracks.at(0).toMap().value(QStringLiteral("isExternal")).toBool());
+    const QString englishUrl = QStringLiteral(
+        "https://media.example.test/Videos/movie-1/source-1/Subtitles/3/0/Stream.subrip?ApiKey=secret-token");
+    QCOMPARE(tracks.at(1).toMap().value(QStringLiteral("externalUrl")).toString(), englishUrl);
+    QCOMPARE(segment.value(QStringLiteral("subtitleIndex")).toInt(), 3);
+    QVERIFY(!segment.value(QStringLiteral("pinsSubtitleTrack")).toBool());
+    QVERIFY(!segment.value(QStringLiteral("url")).toString().contains(QStringLiteral("SubtitleStreamIndex")));
+
+    // mpv's own numbering covers only the embedded subtitle.
+    controller.updateTrackMappings(source);
+    QCOMPARE(controller.mpvSubtitleTrackForSourceIndex(2), 1);
+    QCOMPARE(controller.mpvSubtitleTrackForSourceIndex(3), -1);
+
+    controller.m_playbackSegments = {segment};
+    controller.m_activePlaybackSegmentIndex = 0;
+    controller.m_availableSubtitleTracks = tracks;
+    controller.m_playbackState = PlayerController::Playing;
+    controller.queueActiveSegmentExternalSubtitleTracks();
+
+    // Only the selected sidecar is loaded, with select so it is the subtitle
+    // mpv shows. The other one is registered and loaded when chosen.
+    QCOMPARE(backend.variantCommands.size(), 1);
+    const QVariantList selected = backend.variantCommands.at(0);
+    QCOMPARE(selected.at(0).toString(), QStringLiteral("sub-add"));
+    QCOMPARE(selected.at(1).toString(), englishUrl);
+    QCOMPARE(selected.at(2).toString(), QStringLiteral("select"));
+    QCOMPARE(selected.at(3).toString(), QStringLiteral("eng - SRT"));
+    QCOMPARE(selected.at(4).toString(), QStringLiteral("eng"));
+    QCOMPARE(controller.m_pendingExternalSubtitleIndex, 3);
+    QVERIFY(controller.m_externalSubtitleTrackMap.contains(3));
+    QCOMPARE(controller.m_externalSubtitleTrackMap.value(4), -1);
+
+    // mpv reports the selected sidecar's sid, which is recorded.
+    controller.syncBackendSubtitleTrack(2);
+    QCOMPARE(controller.m_externalSubtitleTrackMap.value(3), 2);
+    QCOMPARE(controller.selectedSubtitleTrack(), 3);
+    backend.variantCommands.clear();
+
+    // Choosing the other sidecar loads it once, with select.
+    controller.setSelectedSubtitleTrack(4);
+    QList<QVariantList> subAdds;
+    for (const QVariantList &command : backend.variantCommands) {
+        if (command.value(0).toString() == QStringLiteral("sub-add")) {
+            subAdds.append(command);
+        }
+    }
+    QCOMPARE(subAdds.size(), 1);
+    QVERIFY(subAdds.first().at(1).toString().contains(QStringLiteral("/Subtitles/4/0/")));
+    QCOMPARE(subAdds.first().at(2).toString(), QStringLiteral("select"));
+    QCOMPARE(subAdds.first().at(4).toString(), QStringLiteral("fra"));
+    controller.syncBackendSubtitleTrack(3);
+    QCOMPARE(controller.m_externalSubtitleTrackMap.value(4), 3);
+    QCOMPARE(controller.selectedSubtitleTrack(), 4);
+
+    // Switching back uses the recorded sid instead of fetching the file again.
+    backend.variantCommands.clear();
+    controller.setSelectedSubtitleTrack(3);
+    for (const QVariantList &command : backend.variantCommands) {
+        QVERIFY(command.value(0).toString() != QStringLiteral("sub-add"));
+    }
 }
 
 void PlayerControllerAutoplayContextTest::autoplayRetainsDescriptorForLocalPreviews()
@@ -4553,18 +4688,17 @@ void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntil
     QVERIFY(controller.m_externalSubtitleTrackMap.contains(-1000));
     QVERIFY(controller.m_externalSubtitleTrackMap.contains(-1001));
     QVERIFY(controller.m_pendingExternalSubtitleTracks.isEmpty());
-    QCOMPARE(backend.variantCommands.size(), 2);
+    // Only the selected sidecar is loaded; the alternate is registered for later.
+    QCOMPARE(backend.variantCommands.size(), 1);
     QCOMPARE(backend.variantCommands.at(0).at(0).toString(), QStringLiteral("sub-add"));
     QCOMPARE(backend.variantCommands.at(0).at(1).toString(),
-             QStringLiteral("https://example.invalid/part-2-alternate.vtt"));
-    QCOMPARE(backend.variantCommands.at(0).at(2).toString(), QStringLiteral("auto"));
-    QCOMPARE(backend.variantCommands.at(1).at(1).toString(),
              QStringLiteral("https://example.invalid/part-2-selected.vtt"));
-    QCOMPARE(backend.variantCommands.at(1).at(2).toString(), QStringLiteral("select"));
+    QCOMPARE(backend.variantCommands.at(0).at(2).toString(), QStringLiteral("select"));
+    QCOMPARE(controller.m_externalSubtitleTrackMap.value(-1001), -1);
 
     // Re-emitting the same playlist position must not add duplicate subtitle tracks.
     controller.onPlaylistPositionChanged(1);
-    QCOMPARE(backend.variantCommands.size(), 2);
+    QCOMPARE(backend.variantCommands.size(), 1);
 }
 
 void PlayerControllerAutoplayContextTest::endFileErrorWhileLoadingFailsWithoutTimeout()

@@ -43,4 +43,8 @@ public:
                                  const QString &connectionId,
                                  const QString &itemId);
     static QString artworkEndpoint(const Bloom::ArtworkRef &artwork);
+    // Removes Jellyfin credential query items (ApiKey and the legacy api_key,
+    // X-Emby-Token, X-MediaBrowser-Token aliases) and keeps every other part
+    // of the URL byte for byte.
+    static QString withoutQueryCredentials(const QString &url);
 };
