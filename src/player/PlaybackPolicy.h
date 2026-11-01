@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QList>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -221,5 +222,16 @@ enum class EndFileOutcome {
 /// failed file the same way.
 [[nodiscard]] EndFileOutcome classifyEndFile(EndFileReason reason,
                                              bool hasRemainingPlaylistItems);
+
+/// One skip range (an intro or credits marker), in milliseconds.
+struct SkipRange {
+    qint64 startMs = 0;
+    qint64 endMs = 0;
+};
+
+/// Index of the range a skip acts on: the one holding the position, else the
+/// first one still ahead of it; -1 when none is. A file can repeat a range
+/// type, so skipping never jumps back to an earlier range of that type.
+[[nodiscard]] int skipRangeIndex(const QList<SkipRange> &ranges, qint64 positionMs);
 
 } // namespace Bloom::PlaybackPolicy

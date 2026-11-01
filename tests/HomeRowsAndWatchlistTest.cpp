@@ -9,6 +9,7 @@
 #include "../src/viewmodels/HomeSectionsViewModel.h"
 #include "../src/viewmodels/MovieDetailsViewModel.h"
 #include "../src/viewmodels/SeriesDetailsViewModel.h"
+#include "../src/utils/ExternalRatingsHelper.h"
 
 #include "TestConfigIsolation.h"
 
@@ -40,6 +41,13 @@ public:
     {
         writes.append({itemId, inWatchlist});
     }
+    bool supportsNotInterested() const override { return notInterestedAllowed; }
+    void loadNotInterestedCapability() override { ++notInterestedCapabilityReads; }
+    void setItemNotInterested(const QString &itemId, bool notInterested) override
+    {
+        notInterestedWrites.append({itemId, notInterested});
+    }
+    void getNextAiring(const QString &seriesId) override { airingRequests.append(seriesId); }
 
     using LibraryService::getItem;
     void getItem(const QString &itemId) override { itemRequests.append(itemId); }
@@ -73,6 +81,23 @@ public:
     {
         emit errorOccurred(endpoint, error);
     }
+    void allowNotInterested()
+    {
+        notInterestedAllowed = true;
+        emit notInterestedSupportChanged();
+    }
+    void confirmNotInterested(const QString &itemId, bool notInterested)
+    {
+        emit notInterestedStatusChanged(itemId, notInterested);
+    }
+    void refuseNotInterested(const QString &itemId, bool notInterested)
+    {
+        emit notInterestedStatusFailed(itemId, notInterested, QStringLiteral("Unprocessable"));
+    }
+    void loadAiring(const QString &seriesId, const QVariantMap &airing)
+    {
+        emit nextAiringLoaded(seriesId, airing);
+    }
     void loadMovie(const QString &itemId, const QVariantMap &data)
     {
         emit canonicalItemLoaded(itemId, data);
@@ -97,6 +122,10 @@ public:
     bool watchlist = true;
     int homeRequests = 0;
     QList<WatchlistWrite> writes;
+    bool notInterestedAllowed = false;
+    int notInterestedCapabilityReads = 0;
+    QList<WatchlistWrite> notInterestedWrites;
+    QStringList airingRequests;
     QStringList itemRequests;
     QStringList extrasRequests;
 };
@@ -176,6 +205,13 @@ private slots:
     void movieExtrasComeFromServiceWhenDetailHasNone();
     void movieExtrasInDetailNeedNoRequest();
     void seriesExtrasExposeTrailer();
+
+    void homeRowsRefreshAfterNotInterestedChange();
+    void movieNotInterestedWaitsForCapabilityAndRollsBack();
+    void seriesNotInterestedToggleIsOptimisticAndRollsBack();
+    void seriesNextAiringComesFromDetailsOrCalendar();
+    void nextAiringLabelUsesLocalDays();
+    void serverRatingsLeadExternalRatings();
 
 private:
     QTemporaryDir m_configDirectory;
@@ -661,6 +697,199 @@ void HomeRowsAndWatchlistTest::seriesExtrasExposeTrailer()
                           {extra(QStringLiteral("clip-1"), QStringLiteral("clip"))});
     QCOMPARE(vm.extras().size(), 1);
     QVERIFY(vm.trailer().isEmpty());
+}
+
+void HomeRowsAndWatchlistTest::homeRowsRefreshAfterNotInterestedChange()
+{
+    HomeSectionsViewModel model(m_service);
+    model.refresh();
+    m_service->loadRows(QStringLiteral("connection-1"), {});
+    QCOMPARE(m_service->homeRequests, 1);
+    // Recommendation rows leave the title out once it is marked.
+    m_service->confirmNotInterested(QStringLiteral("movie:a"), true);
+    QCOMPARE(m_service->homeRequests, 2);
+    m_service->loadRows(QStringLiteral("connection-1"), {});
+    m_service->refuseNotInterested(QStringLiteral("movie:a"), false);
+    QCOMPARE(m_service->homeRequests, 2);
+}
+
+void HomeRowsAndWatchlistTest::movieNotInterestedWaitsForCapabilityAndRollsBack()
+{
+    MovieDetailsViewModel vm;
+    QSignalSpy supported(&vm, &MovieDetailsViewModel::notInterestedSupportedChanged);
+    vm.loadMovieDetails(QStringLiteral("movie-1"));
+    // The page asks for the profile's capability and stays hidden until then.
+    QCOMPARE(m_service->notInterestedCapabilityReads, 1);
+    QVERIFY(!vm.notInterestedSupported());
+    QVariantMap data = detail(QStringLiteral("movie-1"), QStringLiteral("Movie"), false);
+    data.insert(QStringLiteral("notInterested"), false);
+    m_service->loadMovie(QStringLiteral("movie-1"), data);
+    vm.toggleNotInterested();
+    QVERIFY(!vm.notInterested());
+    QVERIFY(m_service->notInterestedWrites.isEmpty());
+
+    const int before = static_cast<int>(supported.count());
+    m_service->allowNotInterested();
+    QCOMPARE(supported.count(), before + 1);
+    QVERIFY(vm.notInterestedSupported());
+
+    QSignalSpy failed(&vm, &MovieDetailsViewModel::notInterestedUpdateFailed);
+    vm.toggleNotInterested();
+    QVERIFY(vm.notInterested());
+    QCOMPARE(m_service->notInterestedWrites.size(), 1);
+    QCOMPARE(m_service->notInterestedWrites.first().itemId, QStringLiteral("movie-1"));
+    QCOMPARE(m_service->notInterestedWrites.first().inWatchlist, true);
+    // In flight: a second press is ignored and older details do not undo it.
+    vm.toggleNotInterested();
+    QCOMPARE(m_service->notInterestedWrites.size(), 1);
+    m_service->loadMovie(QStringLiteral("movie-1"), data);
+    QVERIFY(vm.notInterested());
+
+    m_service->refuseNotInterested(QStringLiteral("movie-1"), true);
+    QVERIFY(!vm.notInterested());
+    QCOMPARE(failed.count(), 1);
+    QVERIFY(!failed.first().at(0).toString().isEmpty());
+
+    vm.toggleNotInterested();
+    m_service->confirmNotInterested(QStringLiteral("movie-1"), true);
+    QVERIFY(vm.notInterested());
+    QCOMPARE(failed.count(), 1);
+
+    // The confirmed mark reaches the details cache for the next visit.
+    vm.clear();
+    QVERIFY(!vm.notInterested());
+    vm.loadMovieDetails(QStringLiteral("movie-1"));
+    QVERIFY(vm.notInterested());
+}
+
+void HomeRowsAndWatchlistTest::seriesNotInterestedToggleIsOptimisticAndRollsBack()
+{
+    m_service->connectionId.clear();
+    m_service->notInterestedAllowed = true;
+    SeriesDetailsViewModel vm;
+    vm.loadSeriesDetails(QStringLiteral("series-1"));
+    QCOMPARE(m_service->notInterestedCapabilityReads, 1);
+    QVERIFY(vm.notInterestedSupported());
+    QVariantMap data = detail(QStringLiteral("series-1"), QStringLiteral("Series"), false);
+    data.insert(QStringLiteral("notInterested"), true);
+    m_service->loadSeries(QStringLiteral("series-1"), data);
+    QVERIFY(vm.notInterested());
+
+    QSignalSpy failed(&vm, &SeriesDetailsViewModel::notInterestedUpdateFailed);
+    vm.toggleNotInterested();
+    QVERIFY(!vm.notInterested());
+    QCOMPARE(m_service->notInterestedWrites.size(), 1);
+    QCOMPARE(m_service->notInterestedWrites.first().inWatchlist, false);
+    m_service->refuseNotInterested(QStringLiteral("series-1"), false);
+    QVERIFY(vm.notInterested());
+    QCOMPARE(failed.count(), 1);
+
+    vm.toggleNotInterested();
+    m_service->confirmNotInterested(QStringLiteral("series-1"), false);
+    QVERIFY(!vm.notInterested());
+}
+
+void HomeRowsAndWatchlistTest::seriesNextAiringComesFromDetailsOrCalendar()
+{
+    m_service->connectionId.clear();
+    SeriesDetailsViewModel vm;
+    QSignalSpy changed(&vm, &SeriesDetailsViewModel::nextAiringChanged);
+
+    // A running series without an airing in its details asks the calendar once.
+    vm.loadSeriesDetails(QStringLiteral("series-1"));
+    QVariantMap data = detail(QStringLiteral("series-1"), QStringLiteral("Series"), false);
+    data.insert(QStringLiteral("status"), QStringLiteral("returning"));
+    m_service->loadSeries(QStringLiteral("series-1"), data);
+    m_service->loadSeries(QStringLiteral("series-1"), data);
+    QCOMPARE(m_service->airingRequests, QStringList{QStringLiteral("series-1")});
+    QVERIFY(vm.nextAiringLabel().isEmpty());
+    // The hero keeps the chip's slot while the answer is out.
+    QVERIFY(vm.expectsNextAiring());
+
+    const QVariantMap airing{{QStringLiteral("seasonNumber"), 2},
+                             {QStringLiteral("episodeNumber"), 5},
+                             {QStringLiteral("airDate"), QStringLiteral("2099-11-05")}};
+    // Another series' answer is not ours.
+    m_service->loadAiring(QStringLiteral("series-2"), airing);
+    QVERIFY(vm.nextAiring().isEmpty());
+    m_service->loadAiring(QStringLiteral("series-1"), airing);
+    QCOMPARE(vm.nextAiring(), airing);
+    QVERIFY(vm.nextAiringLabel().startsWith(QStringLiteral("S2 E5 airs ")));
+
+    // An ended series asks nothing.
+    vm.loadSeriesDetails(QStringLiteral("series-3"));
+    QVERIFY(vm.nextAiring().isEmpty());
+    QVariantMap ended = detail(QStringLiteral("series-3"), QStringLiteral("Series"), false);
+    ended.insert(QStringLiteral("status"), QStringLiteral("Ended"));
+    m_service->loadSeries(QStringLiteral("series-3"), ended);
+    QCOMPARE(m_service->airingRequests.size(), 1);
+    QVERIFY(!vm.expectsNextAiring());
+
+    // Details that name the airing need no calendar read.
+    vm.loadSeriesDetails(QStringLiteral("series-4"));
+    QVariantMap announced = detail(QStringLiteral("series-4"), QStringLiteral("Series"), false);
+    announced.insert(QStringLiteral("nextAiring"), airing);
+    m_service->loadSeries(QStringLiteral("series-4"), announced);
+    QCOMPARE(m_service->airingRequests.size(), 1);
+    QCOMPARE(vm.nextAiring(), airing);
+    QVERIFY(changed.count() > 0);
+}
+
+void HomeRowsAndWatchlistTest::nextAiringLabelUsesLocalDays()
+{
+    const QDateTime now(QDate(2026, 11, 3), QTime(12, 0));
+    QVERIFY(SeriesDetailsViewModel::nextAiringLabel({}, now).isEmpty());
+    QVariantMap airing{{QStringLiteral("seasonNumber"), 2},
+                       {QStringLiteral("episodeNumber"), 5},
+                       {QStringLiteral("airDate"), QStringLiteral("2026-11-06")}};
+    QCOMPARE(SeriesDetailsViewModel::nextAiringLabel(airing, now),
+             QStringLiteral("S2 E5 airs %1")
+                 .arg(QLocale().toString(QDate(2026, 11, 6), QStringLiteral("ddd, MMM d"))));
+    airing.insert(QStringLiteral("airDate"), QStringLiteral("2026-11-03"));
+    QCOMPARE(SeriesDetailsViewModel::nextAiringLabel(airing, now), QStringLiteral("S2 E5 airs today"));
+    airing.insert(QStringLiteral("airDate"), QStringLiteral("2026-11-04"));
+    QCOMPARE(SeriesDetailsViewModel::nextAiringLabel(airing, now),
+             QStringLiteral("S2 E5 airs tomorrow"));
+    // An instant is shown on the viewer's clock.
+    const QDateTime instant(QDate(2026, 11, 3), QTime(21, 30));
+    airing.insert(QStringLiteral("airAt"), instant.toUTC().toString(Qt::ISODate));
+    QCOMPARE(SeriesDetailsViewModel::nextAiringLabel(airing, now),
+             QStringLiteral("S2 E5 airs today at %1")
+                 .arg(QLocale().toString(QTime(21, 30), QLocale::ShortFormat)));
+    airing.remove(QStringLiteral("airAt"));
+    airing.insert(QStringLiteral("episodeNumber"), -1);
+    QVERIFY(SeriesDetailsViewModel::nextAiringLabel(airing, now).startsWith(QStringLiteral("Season 2 airs")));
+}
+
+void HomeRowsAndWatchlistTest::serverRatingsLeadExternalRatings()
+{
+    const QVariantList server{
+        QVariantMap{{QStringLiteral("source"), QStringLiteral("rottenTomatoesCritic")},
+                    {QStringLiteral("score"), 83.0},
+                    {QStringLiteral("display"), QStringLiteral("83%")}},
+        QVariantMap{{QStringLiteral("source"), QStringLiteral("imdb")},
+                    {QStringLiteral("score"), 83.0},
+                    {QStringLiteral("display"), QStringLiteral("8.3")}}};
+    const QVariantMap mdbList{{QStringLiteral("ratings"), QVariantList{
+        QVariantMap{{QStringLiteral("source"), QStringLiteral("imdb")}, {QStringLiteral("value"), 8.2}},
+        QVariantMap{{QStringLiteral("source"), QStringLiteral("tomatoes")}, {QStringLiteral("value"), 80}},
+        QVariantMap{{QStringLiteral("source"), QStringLiteral("metacritic")}, {QStringLiteral("value"), 76}}}}};
+    const QVariantList merged = ExternalRatingsHelper::withServerRatings(server, mdbList)
+                                    .value(QStringLiteral("ratings")).toList();
+    QCOMPARE(merged.size(), 3);
+    QCOMPARE(merged.at(0).toMap().value(QStringLiteral("source")).toString(),
+             QStringLiteral("rottenTomatoesCritic"));
+    QCOMPARE(merged.at(1).toMap().value(QStringLiteral("display")).toString(), QStringLiteral("8.3"));
+    QCOMPARE(merged.at(2).toMap().value(QStringLiteral("source")).toString(), QStringLiteral("metacritic"));
+    QCOMPARE(ExternalRatingsHelper::withServerRatings({}, mdbList), mdbList);
+
+    // The detail page shows the server's ratings without an MDBList key.
+    MovieDetailsViewModel vm;
+    vm.loadMovieDetails(QStringLiteral("movie-9"));
+    QVariantMap data = detail(QStringLiteral("movie-9"), QStringLiteral("Movie"), false);
+    data.insert(QStringLiteral("serverRatings"), server);
+    m_service->loadMovie(QStringLiteral("movie-9"), data);
+    QCOMPARE(vm.mdbListRatings().value(QStringLiteral("ratings")).toList(), server);
 }
 
 QTEST_MAIN(HomeRowsAndWatchlistTest)

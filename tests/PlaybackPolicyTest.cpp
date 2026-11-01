@@ -85,6 +85,7 @@ private slots:
     void evaluatesCompletionAndPrefetchThresholds();
     void validatesPrefetchedEpisodesAndContexts();
     void classifiesEndFileReasons();
+    void picksSkipRangeForPosition();
     void resolvesAdjacentEpisodesWithinSeason();
     void resolvesAdjacentSeasonsSkippingSpecials();
     void buildsPlaybackVersionOptions();
@@ -647,6 +648,25 @@ void PlaybackPolicyTest::buildsPlaybackVersionOptions()
     const QVariantList unselected = PlayerPolicy::playbackVersionOptions(sources, QString());
     QVERIFY(!unselected.at(0).toMap().value(QStringLiteral("selected")).toBool());
     QVERIFY(!unselected.at(1).toMap().value(QStringLiteral("selected")).toBool());
+}
+
+void PlaybackPolicyTest::picksSkipRangeForPosition()
+{
+    // Two intros: after a cold open and midway (a double episode).
+    const QList<PlayerPolicy::SkipRange> ranges{{60000, 90000}, {1300000, 1330000}};
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 70000), 0);
+    // Inside the second intro, skipping goes to its end, not the first's.
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 1310000), 1);
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 1300000), 1);
+    // Between or before ranges: the next one ahead.
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 0), 0);
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 90000), 1);
+    // Past every range: nothing to skip.
+    QCOMPARE(PlayerPolicy::skipRangeIndex(ranges, 1330000), -1);
+    QCOMPARE(PlayerPolicy::skipRangeIndex({}, 0), -1);
+    // Unordered input and empty ranges.
+    const QList<PlayerPolicy::SkipRange> unordered{{500, 400}, {9000, 9500}, {3000, 3500}};
+    QCOMPARE(PlayerPolicy::skipRangeIndex(unordered, 0), 2);
 }
 
 void PlaybackPolicyTest::classifiesEndFileReasons()

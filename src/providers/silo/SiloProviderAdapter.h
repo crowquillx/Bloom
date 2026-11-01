@@ -225,6 +225,8 @@ private:
         capabilities |= ProviderCapability::Watchlist;
         capabilities |= ProviderCapability::HomeSections;
         capabilities |= ProviderCapability::MediaRequests;
+        capabilities |= ProviderCapability::NotInterested;
+        capabilities |= ProviderCapability::AiringCalendar;
         return capabilities;
     }
 

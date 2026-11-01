@@ -83,8 +83,15 @@ public:
     static QList<ProviderAuthSession> authSessions(const QJsonArray &wireSessions);
     static QVariantMap nativeState(const QJsonObject &wireState,
                                    const QString &connectionId);
+    /// Skip ranges from a file's markers: every `marker_segments`
+    /// occurrence when the server lists them, else the singular intro,
+    /// credits, recap and preview fields.
     static QList<MediaSegmentInfo> mediaSegments(const QString &itemId,
                                                  const QJsonObject &wireSegments);
+    /// Series airings from the calendar's days, in order, as canonical
+    /// airing maps with `seriesId`, `itemId` and `watched`. Movie releases
+    /// are left out.
+    static QVariantList calendarAirings(const QJsonArray &wireDays);
 
     /// The viewer's poster badges from the effective `ui.card_overlays` and
     /// `ui.card_overlays_enabled` settings, falling back to the server-wide

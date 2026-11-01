@@ -862,4 +862,22 @@ EndFileOutcome classifyEndFile(EndFileReason reason, bool hasRemainingPlaylistIt
     return reason == EndFileReason::Error ? EndFileOutcome::Failed : EndFileOutcome::Ended;
 }
 
+int skipRangeIndex(const QList<SkipRange> &ranges, qint64 positionMs)
+{
+    int ahead = -1;
+    for (int index = 0; index < ranges.size(); ++index) {
+        const SkipRange &range = ranges.at(index);
+        if (range.endMs <= range.startMs || range.endMs <= positionMs) {
+            continue;
+        }
+        if (range.startMs <= positionMs) {
+            return index;
+        }
+        if (ahead < 0 || range.startMs < ranges.at(ahead).startMs) {
+            ahead = index;
+        }
+    }
+    return ahead;
+}
+
 } // namespace Bloom::PlaybackPolicy

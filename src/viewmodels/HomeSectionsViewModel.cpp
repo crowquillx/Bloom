@@ -30,6 +30,10 @@ void HomeSectionsViewModel::connectService()
             this, &HomeSectionsViewModel::onWatchlistStatusChanged);
     connect(m_libraryService, &LibraryService::favoriteStatusChanged,
             this, &HomeSectionsViewModel::onFavoriteStatusChanged);
+    // Recommendation rows leave out (or bring back) a title marked Not
+    // interested once the server rebuilds them.
+    connect(m_libraryService, &LibraryService::notInterestedStatusChanged,
+            this, &HomeSectionsViewModel::onWatchlistStatusChanged);
 }
 
 int HomeSectionsViewModel::rowCount(const QModelIndex &parent) const

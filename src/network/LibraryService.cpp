@@ -12,6 +12,7 @@
 #include <QJsonObject>
 #include <QRandomGenerator>
 #include <QSet>
+#include <QTimeZone>
 #include <QTimer>
 #include <QUrl>
 #include <QtConcurrent>
@@ -1425,6 +1426,130 @@ void LibraryService::setItemWatchlisted(const QString &itemId, bool inWatchlist)
         [this, itemId, inWatchlist](const NetworkError &error) {
             emit watchlistStatusFailed(itemId, inWatchlist, error.userMessage);
         });
+}
+
+bool LibraryService::supportsNotInterested() const
+{
+    if (!m_authService || !m_authService->isAuthenticated()
+        || !m_authService->supportsCapability(ProviderCapability::NotInterested)) {
+        return false;
+    }
+    return m_notInterestedAllowed.value(
+        activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService));
+}
+
+void LibraryService::loadNotInterestedCapability()
+{
+    if (!m_authService || !m_authService->isAuthenticated()
+        || !m_authService->supportsCapability(ProviderCapability::NotInterested)) {
+        return;
+    }
+    // The document is profile scoped: each profile may be allowed or not.
+    const QString key =
+        activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
+    if (m_notInterestedAllowed.contains(key) || m_notInterestedCapabilityReads.contains(key)) {
+        return;
+    }
+    m_notInterestedCapabilityReads.insert(key);
+    sendCatalogRequest(
+        QStringLiteral("getNotInterestedCapability"),
+        ProviderCatalogOperation::NotInterestedCapability,
+        baseCatalogQuery(),
+        [this, key](const ProviderCatalogResponse &response) {
+            m_notInterestedCapabilityReads.remove(key);
+            m_notInterestedAllowed.insert(
+                key, response.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
+            emit notInterestedSupportChanged();
+        },
+        [this, key](const NetworkError &error) {
+            m_notInterestedCapabilityReads.remove(key);
+            // A server without the route never offers it. Other failures
+            // leave the action hidden and ask again on the next page.
+            if (error.httpStatus == 404 || error.httpStatus == 405 || error.httpStatus == 501) {
+                m_notInterestedAllowed.insert(key, false);
+            }
+        });
+}
+
+void LibraryService::setItemNotInterested(const QString &itemId, bool notInterested)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.stateValue = notInterested;
+    sendCatalogRequest(
+        QStringLiteral("setItemNotInterested"),
+        ProviderCatalogOperation::SetNotInterested,
+        query,
+        [this, itemId, notInterested](const ProviderCatalogResponse &) {
+            emit notInterestedStatusChanged(itemId, notInterested);
+        },
+        [this, itemId, notInterested](const NetworkError &error) {
+            emit notInterestedStatusFailed(itemId, notInterested, error.userMessage);
+        });
+}
+
+void LibraryService::getNextAiring(const QString &seriesId)
+{
+    if (seriesId.isEmpty() || !m_authService || !m_authService->isAuthenticated()
+        || !m_authService->supportsCapability(ProviderCapability::AiringCalendar)) {
+        emit nextAiringLoaded(seriesId, {});
+        return;
+    }
+    // The calendar's days are the viewer's own, so the window starts today
+    // in the system zone and the server reckons days in the same zone.
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.calendarStart = QDate::currentDate();
+    query.timeZoneId = QString::fromUtf8(QTimeZone::systemTimeZoneId());
+    sendCatalogRequest(
+        QStringLiteral("getNextAiring"),
+        ProviderCatalogOperation::UpcomingAirings,
+        query,
+        [this, seriesId](const ProviderCatalogResponse &response) {
+            emit nextAiringLoaded(
+                seriesId,
+                nextAiringFor(response.capabilityMetadata.value(QStringLiteral("airings")).toList(),
+                              seriesId, QDateTime::currentDateTime()));
+        },
+        [this, seriesId](const NetworkError &) {
+            emit nextAiringLoaded(seriesId, {});
+        });
+}
+
+QVariantMap LibraryService::nextAiringFor(const QVariantList &airings,
+                                          const QString &seriesId,
+                                          const QDateTime &now)
+{
+    const QDate today = now.toLocalTime().date();
+    QVariantMap best;
+    QDateTime bestAt;
+    for (const QVariant &value : airings) {
+        const QVariantMap airing = value.toMap();
+        if (airing.value(QStringLiteral("seriesId")).toString() != seriesId) {
+            continue;
+        }
+        const QDate day = QDate::fromString(airing.value(QStringLiteral("airDate")).toString(),
+                                            Qt::ISODate);
+        const QDateTime instant = QDateTime::fromString(
+            airing.value(QStringLiteral("airAt")).toString(), Qt::ISODate);
+        // Without an instant an airing counts until its local day is over.
+        QDateTime at;
+        if (instant.isValid()) {
+            if (instant <= now) {
+                continue;
+            }
+            at = instant;
+        } else {
+            if (!day.isValid() || day < today) {
+                continue;
+            }
+            at = day.startOfDay();
+        }
+        if (best.isEmpty() || at < bestAt) {
+            best = airing;
+            bestAt = at;
+        }
+    }
+    return best;
 }
 
 // ============================================================================

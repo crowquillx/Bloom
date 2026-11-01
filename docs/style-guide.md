@@ -122,12 +122,17 @@ screens don't stretch the reading measure). Top to bottom:
    `fontSizeHero`, heavy, `displayLetterSpacing`, at most two lines.
 3. **Subtitle** (optional): episode name, `fontSizeMedium`, strong.
 4. **Metadata**: `MetadataLine` (year │ rating │ runtime │ ends at), then
-   `MetadataChip`s for quality (4K, Dolby Vision) and ratings.
+   `MetadataChip`s: status first (a series' next airing, "S2 E5 airs
+   Thu, Nov 6", through `DetailHero.statusBadges`), then quality (4K, Dolby
+   Vision) and ratings (the media server's first, in its order).
 5. **Synopsis**: `fontSizeBody`, `textPrimary` at 0.86 opacity, three lines
    at most, with Read More when the page supports it.
 6. **Actions**: one primary `ActionButton` (`variant: "primary"`, height
    `buttonHeightHero`, label `fontSizeMedium`), then secondary buttons, then
-   icon-only buttons. One primary per hero.
+   icon-only buttons. One primary per hero. Occasional actions (watched
+   state, "Not Interested", the mpv profile) go in the trailing "More
+   options" `BloomMenu`; an action the provider does not offer is hidden,
+   not disabled.
 7. **Progress** (optional): a slim bar under the primary action with
    "18 min left".
 
@@ -136,10 +141,10 @@ Detail pages (movie, series, season, episode) build this block with
 
 Nothing in the hero moves unless the user moves it. Anything that loads after
 the page's details keeps its slot reserved from the start: quality badges
-(playback info), external ratings (MDBList, AniList) and late footnotes such
-as a series' up-next episode. Set `reserveChipRow` and `reserveFootnote` on
-`DetailHero` for those, and `stableSynopsisHeight` where browsing changes the
-synopsis.
+(playback info), external ratings (MDBList, AniList), a series' next airing,
+and late footnotes such as a series' up-next episode. Set `reserveChipRow`
+and `reserveFootnote` on `DetailHero` for those, and `stableSynopsisHeight`
+where browsing changes the synopsis.
 
 The hero occupies about the top 60% of the screen. The first shelf sits fully
 in view below it, and the next shelf's header peeks in.

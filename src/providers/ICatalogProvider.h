@@ -50,6 +50,13 @@ enum class ProviderCatalogOperation {
     // The profile's watchlist, and adding or removing one item.
     Watchlist,
     SetWatchlist,
+    // Not interested (Silo): the profile's capability document, and marking
+    // or unmarking one movie or series (stateValue marks).
+    NotInterestedCapability,
+    SetNotInterested,
+    // Upcoming airings in the viewer's local days from calendarStart
+    // (Silo). capabilityMetadata carries canonical `airings` maps.
+    UpcomingAirings,
     // Server-side media requests (Silo): the viewer's request capability,
     // a title search, one title's request detail, submitting a request,
     // and the discovery rows. Responses carry Bloom-shaped maps in
@@ -159,6 +166,10 @@ struct ProviderCatalogQuery {
     QString browseKind;
     QString browseId;
     QString browseSort;
+    // Upcoming airings: the first local day of the window and the viewer's
+    // IANA time zone the days are reckoned in.
+    QDate calendarStart;
+    QString timeZoneId;
 
     ProviderCatalogTriState watched = ProviderCatalogTriState::Any;
     ProviderCatalogTriState favorite = ProviderCatalogTriState::Any;

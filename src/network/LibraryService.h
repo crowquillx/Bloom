@@ -9,6 +9,7 @@
 #include <QPointer>
 #include <QDate>
 #include <QDeadlineTimer>
+#include <QDateTime>
 #include <QVariantList>
 #include <QVariantMap>
 #include <functional>
@@ -165,6 +166,25 @@ public:
     // watchlistStatusFailed; an unsupported provider reports failure.
     Q_INVOKABLE virtual bool supportsWatchlist() const;
     Q_INVOKABLE virtual void setItemWatchlisted(const QString &itemId, bool inWatchlist);
+    // "Not interested" for a movie or series, for providers with
+    // ProviderCapability::NotInterested (Silo) whose capability document
+    // allows it for the selected profile. loadNotInterestedCapability reads
+    // that document once per connection and profile and announces the
+    // answer with notInterestedSupportChanged; supportsNotInterested is
+    // false until then. Results arrive as notInterestedStatusChanged or
+    // notInterestedStatusFailed.
+    Q_INVOKABLE virtual bool supportsNotInterested() const;
+    Q_INVOKABLE virtual void loadNotInterestedCapability();
+    Q_INVOKABLE virtual void setItemNotInterested(const QString &itemId, bool notInterested);
+    // The series' next airing in the viewer's next 30 local days, for
+    // providers with ProviderCapability::AiringCalendar (Silo). Answers
+    // nextAiringLoaded, with an empty map when none is known.
+    Q_INVOKABLE virtual void getNextAiring(const QString &seriesId);
+    // The earliest airing of seriesId among canonical airings that is still
+    // ahead of now: by its instant when known, else by its local day.
+    static QVariantMap nextAiringFor(const QVariantList &airings,
+                                     const QString &seriesId,
+                                     const QDateTime &now);
     Q_INVOKABLE virtual void getThemeSongs(const QString &seriesId);
 
     // Server-side media requests, for providers with
@@ -353,6 +373,10 @@ signals:
     void favoriteStatusChanged(const QString &itemId, bool isFavorite);
     void watchlistStatusChanged(const QString &itemId, bool inWatchlist);
     void watchlistStatusFailed(const QString &itemId, bool inWatchlist, const QString &error);
+    void notInterestedSupportChanged();
+    void notInterestedStatusChanged(const QString &itemId, bool notInterested);
+    void notInterestedStatusFailed(const QString &itemId, bool notInterested, const QString &error);
+    void nextAiringLoaded(const QString &seriesId, const QVariantMap &airing);
     void canonicalHomeSectionsLoaded(const QString &connectionId, const QVariantList &sections);
     void canonicalHomeSectionsFailed(const QString &connectionId, const QString &error);
     void themeSongPlaybackLoaded(const QString &seriesId, const QStringList &urls, bool requiresFreshGrant);
@@ -464,6 +488,10 @@ private:
     /// Per connection, the largest per-row card cap its Home layout read
     /// accepts (0 when it accepts none), once its capabilities were read.
     QHash<QString, int> m_homeSectionItemLimitMax;
+    // Not interested capability per connection and profile, and the reads
+    // in flight.
+    QHash<QString, bool> m_notInterestedAllowed;
+    QSet<QString> m_notInterestedCapabilityReads;
     // Newest search; a replaced search (new term or library exclusions)
     // must not publish results after it.
     quint64 m_searchGeneration = 0;

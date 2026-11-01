@@ -1424,6 +1424,20 @@ FocusScope {
             }
         }
 
+        // Only where the provider offers it to the profile (Silo).
+        BloomMenuItem {
+            id: notInterestedMenuItem
+            visible: MovieDetailsViewModel.notInterestedSupported
+            enabled: visible
+            height: visible ? implicitHeight : 0
+            text: MovieDetailsViewModel.notInterested ? qsTr("Interested Again") : qsTr("Not Interested")
+
+            onTriggered: {
+                MovieDetailsViewModel.toggleNotInterested()
+                contextMenu.close()
+            }
+        }
+
         MenuSeparator {
             contentItem: Rectangle {
                 implicitHeight: 1
@@ -1626,6 +1640,9 @@ FocusScope {
         function onWatchlistUpdateFailed(message) {
             if (root.sharedModelCurrent)
                 playbackToast.show(message)
+        }
+        function onNotInterestedUpdateFailed(message) {
+            playbackToast.show(message)
         }
     }
 

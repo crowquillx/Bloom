@@ -20,6 +20,10 @@
 class SiloCatalogProvider final : public ICatalogProvider
 {
 public:
+    // Days after the first one that an upcoming airings read covers; Silo
+    // accepts at most 31.
+    static constexpr int kAiringWindowDays = 30;
+
     using ICatalogProvider::parseResponse;
     ProviderCatalogRequest createRequest(
         ProviderCatalogOperation operation,
@@ -214,6 +218,35 @@ private:
                 request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
             }
             return request;
+        }
+        case ProviderCatalogOperation::NotInterestedCapability:
+            return get(QStringLiteral("/api/v2/capabilities/not-interested"));
+        case ProviderCatalogOperation::SetNotInterested: {
+            ProviderCatalogRequest request = mutationWithContentId(
+                query.stateValue ? ProviderHttpMethod::Put : ProviderHttpMethod::Delete,
+                QStringLiteral("/api/v2/not-interested/%1"), query.itemId);
+            // markNotInterested and unmarkNotInterested are declared
+            // natural_idempotent: marking a marked title changes nothing.
+            if (request.supported) {
+                request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
+            }
+            return request;
+        }
+        case ProviderCatalogOperation::UpcomingAirings: {
+            // The window is at most 31 days; the days are the viewer's own.
+            if (!query.calendarStart.isValid()) {
+                return unsupported(QStringLiteral("Silo's calendar needs a first day"));
+            }
+            QString endpoint = QStringLiteral("/api/v2/calendar?start=%1&end=%2")
+                                   .arg(query.calendarStart.toString(Qt::ISODate),
+                                        query.calendarStart.addDays(kAiringWindowDays)
+                                            .toString(Qt::ISODate));
+            // Encoded by hand: QUrlQuery leaves the '+' of zones such as
+            // Etc/GMT+5, which the server would read as a space.
+            if (!query.timeZoneId.trimmed().isEmpty()) {
+                endpoint += QStringLiteral("&timezone=") + encodedId(query.timeZoneId.trimmed());
+            }
+            return get(endpoint);
         }
         // Request routes are profile scoped: the request factory adds the
         // selected profile, whose permissions and limits apply.
@@ -452,7 +485,8 @@ public:
             response.valid = true;
             return response;
         }
-        if (operation == ProviderCatalogOperation::SetWatchlist) {
+        if (operation == ProviderCatalogOperation::SetWatchlist
+            || operation == ProviderCatalogOperation::SetNotInterested) {
             // 204 No Content on success.
             ProviderCatalogResponse response;
             response.valid = true;
@@ -471,6 +505,34 @@ public:
             response.capabilityMetadata.insert(
                 QStringLiteral("layoutHasWatchlist"), layoutHasWatchlist);
             response.total = static_cast<int>(response.rawItems.size());
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::NotInterestedCapability) {
+            ProviderCatalogResponse response;
+            const QJsonObject object = QJsonDocument::fromJson(body).object();
+            if (!object.value(QStringLiteral("state")).isString()
+                || !object.value(QStringLiteral("allowed")).isBool()) {
+                response.error = QStringLiteral("Invalid Silo not interested capability response");
+                return response;
+            }
+            response.capabilityMetadata.insert(
+                QStringLiteral("allowed"),
+                object.value(QStringLiteral("state")).toString() == QStringLiteral("available")
+                    && object.value(QStringLiteral("allowed")).toBool());
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::UpcomingAirings) {
+            ProviderCatalogResponse response;
+            const QJsonValue days = QJsonDocument::fromJson(body).object()
+                .value(QStringLiteral("events"));
+            if (!days.isArray()) {
+                response.error = QStringLiteral("Invalid Silo calendar response");
+                return response;
+            }
+            response.capabilityMetadata.insert(
+                QStringLiteral("airings"), SiloModelMapper::calendarAirings(days.toArray()));
             response.valid = true;
             return response;
         }

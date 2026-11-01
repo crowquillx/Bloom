@@ -13,8 +13,13 @@ Rectangle {
 
     readonly property string normalizedSource: normalizedRatingSource(originalSource)
     readonly property string logoSource: ratingLogoSource(normalizedSource, score)
-    readonly property string displayValue: ratingDisplayValue(normalizedSource, score)
-    readonly property string fallbackText: ratingFallbackLabel(normalizedSource, originalSource)
+    // A media server's rating carries its own display text and plain-text
+    // mark (`display`, `name`); other ratings are formatted here.
+    readonly property string displayValue: ratingData && ratingData.display
+                                           ? String(ratingData.display)
+                                           : ratingDisplayValue(normalizedSource, score)
+    readonly property string fallbackText: ratingFallbackLabel(normalizedSource,
+                                                               ratingData && ratingData.name ? ratingData.name : originalSource)
 
     // Ratings read as inline facts (logo + score) rather than bordered chips.
     implicitHeight: Math.round(40 * Theme.layoutScale)

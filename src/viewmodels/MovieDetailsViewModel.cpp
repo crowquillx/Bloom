@@ -148,6 +148,12 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
                 this, &MovieDetailsViewModel::onWatchlistStatusChanged);
         connect(m_libraryService, &LibraryService::watchlistStatusFailed,
                 this, &MovieDetailsViewModel::onWatchlistStatusFailed);
+        connect(m_libraryService, &LibraryService::notInterestedSupportChanged,
+                this, &MovieDetailsViewModel::notInterestedSupportedChanged);
+        connect(m_libraryService, &LibraryService::notInterestedStatusChanged,
+                this, &MovieDetailsViewModel::onNotInterestedStatusChanged);
+        connect(m_libraryService, &LibraryService::notInterestedStatusFailed,
+                this, &MovieDetailsViewModel::onNotInterestedStatusFailed);
         connect(m_libraryService, &LibraryService::itemPlayedStatusChanged,
                 this, [this](const QString &itemId, bool played) {
                     if (itemId != m_movieId) {
@@ -284,6 +290,10 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
     m_movieId = movieId;
     emit movieIdChanged();
     emit watchlistSupportedChanged();
+    emit notInterestedSupportedChanged();
+    if (m_libraryService) {
+        m_libraryService->loadNotInterestedCapability();
+    }
     
     // Try cache first
     QJsonObject cachedMovie;
@@ -394,6 +404,58 @@ void MovieDetailsViewModel::onWatchlistStatusFailed(const QString &itemId,
                                            : tr("Couldn't remove this from your watchlist."));
 }
 
+bool MovieDetailsViewModel::notInterestedSupported() const
+{
+    return m_libraryService && m_libraryService->supportsNotInterested();
+}
+
+void MovieDetailsViewModel::toggleNotInterested()
+{
+    if (!m_libraryService || m_movieId.isEmpty() || m_notInterestedPending
+        || !notInterestedSupported()) {
+        return;
+    }
+    // Optimistic: the action follows the press; a refusal restores it.
+    m_notInterestedPending = true;
+    m_notInterested = !m_notInterested;
+    emit notInterestedChanged();
+    m_libraryService->setItemNotInterested(m_movieId, m_notInterested);
+}
+
+void MovieDetailsViewModel::onNotInterestedStatusChanged(const QString &itemId, bool notInterested)
+{
+    if (itemId != m_movieId) {
+        return;
+    }
+    m_notInterestedPending = false;
+    if (m_notInterested != notInterested) {
+        m_notInterested = notInterested;
+        emit notInterestedChanged();
+    }
+    if (!m_movieData.isEmpty()) {
+        m_movieData.insert(QStringLiteral("notInterested"), notInterested);
+        QJsonObject userState = m_movieData.value(QStringLiteral("userState")).toObject();
+        userState.insert(QStringLiteral("notInterested"), notInterested);
+        m_movieData.insert(QStringLiteral("userState"), userState);
+        storeMovieCache(m_movieId, m_movieData);
+    }
+}
+
+void MovieDetailsViewModel::onNotInterestedStatusFailed(const QString &itemId,
+                                                        bool notInterested,
+                                                        const QString &error)
+{
+    if (itemId != m_movieId || !m_notInterestedPending) {
+        return;
+    }
+    qCWarning(lcViewModels) << "MovieDetailsViewModel: not interested change failed:" << error;
+    m_notInterestedPending = false;
+    m_notInterested = !notInterested;
+    emit notInterestedChanged();
+    emit notInterestedUpdateFailed(notInterested ? tr("Couldn't mark this as not interested.")
+                                                 : tr("Couldn't undo not interested."));
+}
+
 void MovieDetailsViewModel::clear(bool preserveArtwork)
 {
     m_movieId.clear();
@@ -408,6 +470,8 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     m_isWatched = false;
     m_inWatchlist = false;
     m_watchlistPending = false;
+    m_notInterested = false;
+    m_notInterestedPending = false;
     m_officialRating.clear();
     m_durationMs = 0;
     m_positionMs = 0;
@@ -428,6 +492,7 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     m_movieData = QJsonObject();
 
     if (!preserveArtwork) {
+        m_serverRatings.clear();
         m_mdbListRatings.clear();
         m_rawMdbListRatings.clear();
         m_currentAniListImdbId.clear();
@@ -452,6 +517,7 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     emit isWatchedChanged();
     emit officialRatingChanged();
     emit inWatchlistChanged();
+    emit notInterestedChanged();
     emit durationMsChanged();
     emit positionMsChanged();
     emit communityRatingChanged();
@@ -780,6 +846,9 @@ void MovieDetailsViewModel::updateMovieMetadata(const QVariantMap &data)
     if (!m_watchlistPending) {
         m_inWatchlist = data.value(QStringLiteral("inWatchlist")).toBool();
     }
+    if (!m_notInterestedPending) {
+        m_notInterested = data.value(QStringLiteral("notInterested")).toBool();
+    }
     m_genres = genresFromCanonical(data.value(QStringLiteral("genres")));
     m_people = mapCanonicalPeople(data.value(QStringLiteral("people")).toList());
 
@@ -809,10 +878,14 @@ void MovieDetailsViewModel::updateMovieMetadata(const QVariantMap &data)
     emit isWatchedChanged();
     emit positionMsChanged();
     emit inWatchlistChanged();
+    emit notInterestedChanged();
     emit logoUrlChanged();
     emit posterUrlChanged();
     emit backdropUrlChanged();
     
+    m_serverRatings = data.value(QStringLiteral("serverRatings")).toList();
+    compileRatings();
+
     const QVariantMap providerIds = data.value(QStringLiteral("providerIds")).toMap();
     const QString imdbId = providerIds.value(QStringLiteral("Imdb")).toString();
     const QString tmdbId = providerIds.value(QStringLiteral("Tmdb")).toString();
@@ -901,7 +974,8 @@ void MovieDetailsViewModel::fetchAniListRating(const QString &imdbId, const QStr
 
 void MovieDetailsViewModel::compileRatings()
 {
-    const QVariantMap combined = ExternalRatingsHelper::mergeRatings(m_rawMdbListRatings, m_aniListRating);
+    const QVariantMap combined = ExternalRatingsHelper::withServerRatings(
+        m_serverRatings, ExternalRatingsHelper::mergeRatings(m_rawMdbListRatings, m_aniListRating));
     if (m_mdbListRatings != combined) {
         m_mdbListRatings = combined;
         emit mdbListRatingsChanged();

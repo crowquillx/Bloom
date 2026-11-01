@@ -7,6 +7,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
+#include <QSet>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVariantMap>
@@ -46,6 +47,52 @@ inline QVariantMap mergeRatings(const QVariantMap &rawRatings, const QVariantMap
 
     combined["ratings"] = ratings;
     return combined;
+}
+
+// One key per rating source, matching the server's sources (imdb, tmdb,
+// rottenTomatoesCritic, rottenTomatoesAudience) to MDBList's (imdb, tmdb,
+// tomatoes, popcorn, ...).
+inline QString ratingSourceKey(const QString &source)
+{
+    QString normalized = source.toLower();
+    normalized.remove(QLatin1Char(' '));
+    normalized.remove(QLatin1Char('_'));
+    if (normalized.contains(QStringLiteral("tomatoes"))) {
+        return normalized.contains(QStringLiteral("audience")) ? QStringLiteral("audience")
+                                                                : QStringLiteral("tomatoes");
+    }
+    if (normalized.startsWith(QStringLiteral("popcorn"))) {
+        return QStringLiteral("audience");
+    }
+    if (normalized.contains(QStringLiteral("imdb"))) {
+        return QStringLiteral("imdb");
+    }
+    if (normalized.contains(QStringLiteral("tmdb"))) {
+        return QStringLiteral("tmdb");
+    }
+    return normalized;
+}
+
+// The media server's own ratings come first, in the server's order; the
+// external ratings follow for sources the server does not show.
+inline QVariantMap withServerRatings(const QVariantList &serverRatings, const QVariantMap &combined)
+{
+    if (serverRatings.isEmpty()) {
+        return combined;
+    }
+    QVariantMap result = combined;
+    QVariantList ratings = serverRatings;
+    QSet<QString> shown;
+    for (const QVariant &rating : serverRatings) {
+        shown.insert(ratingSourceKey(rating.toMap().value(QStringLiteral("source")).toString()));
+    }
+    for (const QVariant &rating : combined.value(QStringLiteral("ratings")).toList()) {
+        if (!shown.contains(ratingSourceKey(rating.toMap().value(QStringLiteral("source")).toString()))) {
+            ratings.append(rating);
+        }
+    }
+    result[QStringLiteral("ratings")] = ratings;
+    return result;
 }
 
 inline void fetchMdbListRatings(QNetworkAccessManager *networkManager,

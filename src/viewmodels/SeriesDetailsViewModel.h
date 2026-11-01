@@ -157,6 +157,17 @@ class SeriesDetailsViewModel : public BaseViewModel
     // watchlist (Silo).
     Q_PROPERTY(bool watchlistSupported READ watchlistSupported NOTIFY watchlistSupportedChanged)
     Q_PROPERTY(bool inWatchlist READ inWatchlist NOTIFY inWatchlistChanged)
+    // "Not interested" for the profile's recommendations; the action shows
+    // only where the provider offers it to the profile (Silo).
+    Q_PROPERTY(bool notInterestedSupported READ notInterestedSupported NOTIFY notInterestedSupportedChanged)
+    Q_PROPERTY(bool notInterested READ notInterested NOTIFY notInterestedChanged)
+    // The next episode to air (canonical airing map) and its hero chip
+    // text, e.g. "S2 E5 airs Thu, Nov 6"; empty when none is known.
+    Q_PROPERTY(QVariantMap nextAiring READ nextAiring NOTIFY nextAiringChanged)
+    Q_PROPERTY(QString nextAiringLabel READ nextAiringLabel NOTIFY nextAiringChanged)
+    // True once the page asked for the next airing or has one, so the hero
+    // keeps the chip's slot instead of moving when the answer arrives.
+    Q_PROPERTY(bool expectsNextAiring READ expectsNextAiring NOTIFY nextAiringChanged)
     Q_PROPERTY(QString tmdbId READ tmdbId NOTIFY tmdbIdChanged)
     Q_PROPERTY(QVariantList people READ people NOTIFY peopleChanged)
     Q_PROPERTY(QStringList genres READ genres NOTIFY genresChanged)
@@ -221,6 +232,15 @@ public:
     bool isFavorite() const { return m_isFavorite; }
     bool watchlistSupported() const;
     bool inWatchlist() const { return m_inWatchlist; }
+    bool notInterestedSupported() const;
+    bool notInterested() const { return m_notInterested; }
+    QVariantMap nextAiring() const { return m_nextAiring; }
+    QString nextAiringLabel() const;
+    bool expectsNextAiring() const { return m_nextAiringRequested || !m_nextAiring.isEmpty(); }
+    // "S2 E5 airs Thu, Nov 6" in the system locale: "today" or "tomorrow"
+    // (with the local time when the airing has an instant) for the next
+    // two days. Empty for an empty airing.
+    static QString nextAiringLabel(const QVariantMap &airing, const QDateTime &now);
     QString tmdbId() const { return m_tmdbId; }
     QVariantList people() const { return m_people; }
     QStringList genres() const { return m_genres; }
@@ -318,6 +338,13 @@ public:
      * (`watchlistUpdateFailed`). Ignored while a change is in flight.
      */
     Q_INVOKABLE void toggleWatchlist();
+    /**
+     * @brief Mark the series "Not interested", or take the mark back.
+     *
+     * Updates `notInterested` at once and restores it if the server refuses
+     * (`notInterestedUpdateFailed`). Ignored while a change is in flight.
+     */
+    Q_INVOKABLE void toggleNotInterested();
     Q_INVOKABLE void loadFocusedEpisodeDetails(const QString &episodeId);
     Q_INVOKABLE void clearFocusedEpisodeDetails();
     Q_INVOKABLE void loadFocusedEpisodeChapters(const QString &episodeId);
@@ -377,6 +404,10 @@ signals:
     void watchlistSupportedChanged();
     void inWatchlistChanged();
     void watchlistUpdateFailed(const QString &message);
+    void notInterestedSupportedChanged();
+    void notInterestedChanged();
+    void notInterestedUpdateFailed(const QString &message);
+    void nextAiringChanged();
     void tmdbIdChanged();
     void peopleChanged();
     void genresChanged();
@@ -442,6 +473,9 @@ private slots:
     void onExtrasFailed(const QString &connectionId,
                         const QString &itemId,
                         const QString &error);
+    void onNotInterestedStatusChanged(const QString &itemId, bool notInterested);
+    void onNotInterestedStatusFailed(const QString &itemId, bool notInterested, const QString &error);
+    void onNextAiringLoaded(const QString &seriesId, const QVariantMap &airing);
     void onSimilarItemsLoaded(const QString &connectionId,
                               const QString &itemId,
                               const QVariantList &items);
@@ -487,6 +521,10 @@ private:
     bool m_isFavorite = false;
     bool m_inWatchlist = false;
     bool m_watchlistPending = false;
+    bool m_notInterested = false;
+    bool m_notInterestedPending = false;
+    QVariantMap m_nextAiring;
+    bool m_nextAiringRequested = false;
     QString m_imdbId;
     QString m_tmdbId;
     QVariantList m_people;
@@ -506,7 +544,9 @@ private:
     QJsonObject m_seriesData;
     QString m_connectionId;
     
-    // MDBList
+    // The media server's ratings (canonical serverRatings), then MDBList
+    // and AniList for other sources.
+    QVariantList m_serverRatings;
     QVariantMap m_mdbListRatings;
     QVariantMap m_rawMdbListRatings;
     QVariantMap m_aniListRating;

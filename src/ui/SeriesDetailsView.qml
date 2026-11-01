@@ -711,8 +711,10 @@ FocusScope {
                     title: seriesName
                     metadataItems: [root.formatSeriesYears(), SeriesDetailsViewModel.officialRating, root.formatCounts()]
                     ratings: root.visibleExternalRatings()
+                    // The next episode to air, from the provider's calendar.
+                    statusBadges: [SeriesDetailsViewModel.nextAiringLabel]
                     // Ratings and the up-next episode load after the details.
-                    reserveChipRow: root.expectsExternalRatings
+                    reserveChipRow: root.expectsExternalRatings || SeriesDetailsViewModel.expectsNextAiring
                     reserveFootnote: true
                     detailItems: SeriesDetailsViewModel.genres || []
                     detailText: root.creatorsSummary() !== ""
@@ -1330,6 +1332,9 @@ FocusScope {
             if (root.sharedModelCurrent)
                 watchlistToast.show(message)
         }
+        function onNotInterestedUpdateFailed(message) {
+            watchlistToast.show(message)
+        }
     }
 
     Connections {
@@ -1503,6 +1508,20 @@ FocusScope {
                 } else {
                     SeriesDetailsViewModel.markAsWatched()
                 }
+                contextMenu.close()
+            }
+        }
+
+        // Only where the provider offers it to the profile (Silo).
+        BloomMenuItem {
+            id: notInterestedMenuItem
+            visible: SeriesDetailsViewModel.notInterestedSupported
+            enabled: visible
+            height: visible ? implicitHeight : 0
+            text: SeriesDetailsViewModel.notInterested ? qsTr("Interested Again") : qsTr("Not Interested")
+
+            onTriggered: {
+                SeriesDetailsViewModel.toggleNotInterested()
                 contextMenu.close()
             }
         }

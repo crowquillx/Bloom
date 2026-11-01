@@ -28,6 +28,8 @@ Column {
     property string subtitle: ""
     /// Facts for the MetadataLine (empty entries are skipped).
     property var metadataItems: []
+    /// Status labels shown as the first chips (e.g. "S2 E5 airs Thu, Nov 6").
+    property var statusBadges: []
     /// Quality labels shown as chips (e.g. "4K", "Dolby Vision").
     property var qualityBadges: []
     /// Rating maps for RatingMetadataChip.
@@ -147,7 +149,9 @@ Column {
 
     Item {
         readonly property int reservedHeight: Math.round(40 * Theme.layoutScale)
-        readonly property bool hasChips: qualityRepeater.visibleCount > 0 || ratingRepeater.count > 0
+        readonly property bool hasChips: statusRepeater.visibleCount > 0
+                                         || qualityRepeater.visibleCount > 0
+                                         || ratingRepeater.count > 0
 
         width: parent.width
         height: root.reserveChipRow ? reservedHeight : chipFlow.height
@@ -162,6 +166,25 @@ Column {
             Behavior on opacity {
                 enabled: Theme.uiAnimationsEnabled
                 NumberAnimation { duration: Theme.durationFade }
+            }
+
+            Repeater {
+                id: statusRepeater
+                readonly property int visibleCount: {
+                    var total = 0
+                    var badges = root.statusBadges || []
+                    for (var i = 0; i < badges.length; ++i) {
+                        if (badges[i])
+                            total++
+                    }
+                    return total
+                }
+                model: root.statusBadges
+
+                MetadataChip {
+                    required property var modelData
+                    text: modelData || ""
+                }
             }
 
             Repeater {

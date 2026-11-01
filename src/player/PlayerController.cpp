@@ -819,8 +819,7 @@ void PlayerController::enterIdleStateImmediate()
     m_currentSegments.clear();
     m_isInIntroSegment = false;
     m_isInOutroSegment = false;
-    m_hasAutoSkippedIntroForCurrentItem = false;
-    m_hasAutoSkippedOutroForCurrentItem = false;
+    m_autoSkippedSegments.clear();
     m_hasTrickplayInfo = false;
     m_currentTrickplayInfo = TrickplayTileInfo{};
     m_trickplayBinaryPath.clear();
@@ -3614,8 +3613,7 @@ void PlayerController::applyPlaybackSegment(int index, bool reportSegmentStart)
     m_currentSegments.clear();
     m_isInIntroSegment = false;
     m_isInOutroSegment = false;
-    m_hasAutoSkippedIntroForCurrentItem = false;
-    m_hasAutoSkippedOutroForCurrentItem = false;
+    m_autoSkippedSegments.clear();
     emit skipSegmentsChanged();
 
     m_hasTrickplayInfo = false;
@@ -3984,8 +3982,7 @@ void PlayerController::playTestVideo()
         m_currentSegments.clear();
         m_isInIntroSegment = false;
         m_isInOutroSegment = false;
-        m_hasAutoSkippedIntroForCurrentItem = false;
-        m_hasAutoSkippedOutroForCurrentItem = false;
+        m_autoSkippedSegments.clear();
         m_hasTrickplayInfo = false;
         m_currentTrickplayInfo = TrickplayTileInfo{};
         m_trickplayBinaryPath.clear();
@@ -4165,8 +4162,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_currentSegments.clear();
         m_isInIntroSegment = false;
         m_isInOutroSegment = false;
-        m_hasAutoSkippedIntroForCurrentItem = false;
-        m_hasAutoSkippedOutroForCurrentItem = false;
+        m_autoSkippedSegments.clear();
         m_hasTrickplayInfo = false;
         m_currentTrickplayInfo = TrickplayTileInfo{};
         m_trickplayBinaryPath.clear();
@@ -7192,8 +7188,10 @@ void PlayerController::updateSkipSegmentState()
 {
     const bool wasInIntro = m_isInIntroSegment;
     const bool wasInOutro = m_isInOutroSegment;
-    bool inIntro = false;
-    bool inOutro = false;
+    // A file can carry several ranges of one type; the one holding the
+    // position decides.
+    QString introKey;
+    QString outroKey;
 
     for (const auto &segment : std::as_const(m_currentSegments)) {
         if (segment.startMs < 0 || segment.endMs <= segment.startMs) {
@@ -7207,12 +7205,14 @@ void PlayerController::updateSkipSegmentState()
             continue;
         }
 
-        if (segment.type == MediaSegmentType::Intro) {
-            inIntro = true;
-        } else if (segment.type == MediaSegmentType::Outro) {
-            inOutro = true;
+        if (segment.type == MediaSegmentType::Intro && introKey.isEmpty()) {
+            introKey = segmentSkipKey(segment);
+        } else if (segment.type == MediaSegmentType::Outro && outroKey.isEmpty()) {
+            outroKey = segmentSkipKey(segment);
         }
     }
+    const bool inIntro = !introKey.isEmpty();
+    const bool inOutro = !outroKey.isEmpty();
 
     if (m_isInIntroSegment == inIntro && m_isInOutroSegment == inOutro) {
         return;
@@ -7225,41 +7225,52 @@ void PlayerController::updateSkipSegmentState()
                                     && m_playbackState != Idle
                                     && m_playbackState != Error;
 
-    // Auto-skip only on first entry into intro/outro segment for this playback item.
+    // Auto-skip only on first entry into each intro/outro range of this
+    // playback item.
     if (autoSkipAllowedNow
         && !wasInIntro
         && inIntro
-        && !m_hasAutoSkippedIntroForCurrentItem
+        && !m_autoSkippedSegments.contains(introKey)
         && m_config->getAutoSkipIntro()) {
-        m_hasAutoSkippedIntroForCurrentItem = true;
+        m_autoSkippedSegments.insert(introKey);
         skipIntro();
     } else if (autoSkipAllowedNow
                && !wasInOutro
                && inOutro
-               && !m_hasAutoSkippedOutroForCurrentItem
+               && !m_autoSkippedSegments.contains(outroKey)
                && m_config->getAutoSkipOutro()) {
-        m_hasAutoSkippedOutroForCurrentItem = true;
+        m_autoSkippedSegments.insert(outroKey);
         skipOutro();
     }
 
     emit skipSegmentsChanged();
 }
 
+QString PlayerController::segmentSkipKey(const MediaSegmentInfo &segment)
+{
+    return QStringLiteral("%1:%2").arg(static_cast<int>(segment.type)).arg(segment.startMs);
+}
+
 bool PlayerController::seekToSegmentEnd(MediaSegmentType segmentType)
 {
+    // Skip the range holding the position, else the next one ahead; never
+    // an earlier range of the same type.
+    QList<PlayerPolicy::SkipRange> ranges;
     for (const auto &segment : std::as_const(m_currentSegments)) {
-        if (segment.type != segmentType || segment.endMs <= 0) {
-            continue;
+        if (segment.type == segmentType) {
+            ranges.append({segment.startMs, segment.endMs});
         }
-
-        const double endSeconds = segment.endSeconds();
-        qCDebug(lcPlayback) << "PlayerController: Skipping segment type" << static_cast<int>(segmentType)
-                 << "seeking to" << endSeconds;
-        seek(endSeconds);
-        return true;
+    }
+    const int index = PlayerPolicy::skipRangeIndex(ranges, qRound64(m_currentPosition * 1000.0));
+    if (index < 0) {
+        return false;
     }
 
-    return false;
+    const double endSeconds = static_cast<double>(ranges.at(index).endMs) / 1000.0;
+    qCDebug(lcPlayback) << "PlayerController: Skipping segment type" << static_cast<int>(segmentType)
+             << "seeking to" << endSeconds;
+    seek(endSeconds);
+    return true;
 }
 
 void PlayerController::loadConfig()
@@ -7491,21 +7502,21 @@ void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<
             }
 
             if (segment.type == MediaSegmentType::Intro
-                && !m_hasAutoSkippedIntroForCurrentItem
+                && !m_autoSkippedSegments.contains(segmentSkipKey(segment))
                 && m_config->getAutoSkipIntro()
                 && startSeconds <= kEarlySegmentGraceSeconds
                 && m_currentPosition < endSeconds) {
-                m_hasAutoSkippedIntroForCurrentItem = true;
+                m_autoSkippedSegments.insert(segmentSkipKey(segment));
                 skipIntro();
                 break;
             }
 
             if (segment.type == MediaSegmentType::Outro
-                && !m_hasAutoSkippedOutroForCurrentItem
+                && !m_autoSkippedSegments.contains(segmentSkipKey(segment))
                 && m_config->getAutoSkipOutro()
                 && startSeconds <= kEarlySegmentGraceSeconds
                 && m_currentPosition < endSeconds) {
-                m_hasAutoSkippedOutroForCurrentItem = true;
+                m_autoSkippedSegments.insert(segmentSkipKey(segment));
                 skipOutro();
                 break;
             }

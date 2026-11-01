@@ -675,6 +675,8 @@ private:
      * @returns `true` if a seek was performed to the segment end, `false` if no applicable segment was found.
      */
     bool seekToSegmentEnd(MediaSegmentType segmentType);
+    // Identifies one skip range for m_autoSkippedSegments.
+    static QString segmentSkipKey(const MediaSegmentInfo &segment);
     /**
      * Schedule a debounced persistence of the current playback volume state to configuration/storage.
      */
@@ -1151,8 +1153,10 @@ private:
     QList<MediaSegmentInfo> m_currentSegments;
     bool m_isInIntroSegment = false;
     bool m_isInOutroSegment = false;
-    bool m_hasAutoSkippedIntroForCurrentItem = false;
-    bool m_hasAutoSkippedOutroForCurrentItem = false;
+    // Intro and credits ranges auto-skip already skipped for this item
+    // (segmentSkipKey), so a seek back into one does not skip it again
+    // while a later range of the same type still skips.
+    QSet<QString> m_autoSkippedSegments;
     TrickplayTileInfo m_currentTrickplayInfo;
     bool m_hasTrickplayInfo = false;
     LocalSeekPreview *m_localSeekPreview = nullptr;

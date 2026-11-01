@@ -49,7 +49,12 @@ enum class ProviderCapability {
     NextUpOptions = 1 << 14,
     // ProviderCatalogOperation::ResumeItems lists in-progress movies and
     // episodes beside Next Up (Jellyfin).
-    ResumeItems = 1 << 15
+    ResumeItems = 1 << 15,
+    // Marking a movie or series "Not interested" for the profile's
+    // recommendations. The profile's capability document still gates it.
+    NotInterested = 1 << 16,
+    // The upcoming airings calendar.
+    AiringCalendar = 1 << 17
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

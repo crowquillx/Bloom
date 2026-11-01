@@ -834,7 +834,9 @@
       "native.state.watched",
       "native.state.favorite",
       "native.state.watchlist",
+      "native.state.not-interested",
       "native.home.sections",
+      "native.home.calendar",
       "native.artwork.refetch",
       "native.playback.capability",
       "native.playback.start-v3",
@@ -1476,6 +1478,46 @@
         ]
       },
       {
+        "id": "native.state.not-interested",
+        "method": "GET/PUT/DELETE",
+        "path": "/api/v2/capabilities/not-interested and /api/v2/not-interested/{item_id}",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/capabilities/not-interested"
+          },
+          {
+            "method": "PUT",
+            "path": "/api/v2/not-interested/{item_id}"
+          },
+          {
+            "method": "DELETE",
+            "path": "/api/v2/not-interested/{item_id}"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "conditional",
+          "discovery": "getNotInterestedCapability for the selected profile: Bloom offers the action only when state is available and allowed holds, read once per connection and profile. Exposed as ProviderCapability::NotInterested on native Silo only."
+        },
+        "requestSemantics": [
+          "Profile-scoped mark by content identity of a movie or series with an empty body.",
+          "markNotInterested and unmarkNotInterested are natural_idempotent, so a lost response may be replayed."
+        ],
+        "requiredSemantics": [
+          "Marking a marked title changes nothing; the title ends marked or unmarked whatever the earlier state.",
+          "Item details carry user_state.not_interested, which seeds the detail page action.",
+          "Recommendation and discovery rows leave marked titles out as they are read, so Home rows refresh after a change."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/network/LibraryService.cpp"
+        ]
+      },
+      {
         "id": "native.home.sections",
         "method": "GET",
         "path": "/api/v2/home/capabilities and /api/v2/home/sections",
@@ -1511,6 +1553,38 @@
           "src/providers/silo/SiloCatalogProvider.h",
           "src/network/LibraryService.cpp",
           "src/viewmodels/HomeSectionsViewModel.cpp"
+        ]
+      },
+      {
+        "id": "native.home.calendar",
+        "method": "GET",
+        "path": "/api/v2/calendar",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/calendar"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operation; Bloom exposes it as ProviderCapability::AiringCalendar on native Silo only."
+        },
+        "requestSemantics": [
+          "Profile-scoped read of the viewer's local days from today through 30 days later, with the viewer's IANA timezone and no filter.",
+          "Series detail asks only when the details carry no upcoming_event and the series has not ended."
+        ],
+        "requiredSemantics": [
+          "Days arrive in order with items; an episode item carries series_id, season and episode numbers, local_air_date in the viewer's zone, and air_at when the network's time and zone are known.",
+          "The next airing is the earliest item of the series still ahead: by air_at when present, else by its local day."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/providers/silo/SiloModelMapper.cpp",
+          "src/network/LibraryService.cpp"
         ]
       },
       {
@@ -1773,7 +1847,8 @@
           "Selected file identity takes precedence over item fallback."
         ],
         "requiredSemantics": [
-          "File markers carry intro, credits, recap and preview intervals in seconds with provenance."
+          "File markers carry intro, credits, recap and preview intervals in seconds with provenance.",
+          "marker_segments lists every occurrence in source-time order, so a kind may repeat; when it is not empty it replaces the singular fields."
         ],
         "evidenceSources": [
           "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
