@@ -189,8 +189,11 @@ not branch the core catalog/playback contract by server version. In particular:
   the unlisted `EventName`, and stopped reports contain only
   `PlaybackStopInfo` fields;
 - session restore validates the stored token with `GET /Users/{userId}` and
-  accepts it only when the returned `UserDto.Id` matches the stored account;
-  the playback recovery ping uses the same route instead of `/System/Info`;
+  accepts it only when the returned `UserDto.Id` matches the stored account.
+  The login `AuthenticationResult.User` and that `UserDto` also supply
+  `Policy.IsAdministrator`, which Bloom keeps as the account's administrator
+  flag; the playback recovery ping uses the same route instead of
+  `/System/Info`;
 - sign-out sends `POST /Sessions/Logout` (`ReportSessionEnded`) once, best
   effort, before deleting the token. It deletes only that account's token;
   Jellyfin also ends the in-memory session of any other account using
@@ -199,9 +202,17 @@ not branch the core catalog/playback contract by server version. In particular:
   excluded legacy Intro Skipper plugin endpoint;
 - remote session removal resolves the session's device and uses
   `DELETE /Devices?id=...`; the excluded per-session logout endpoint is not
-  used;
+  used. Jellyfin allows that route only for administrators, so Bloom offers
+  it only when the account is not reported as a non-administrator, and maps a
+  `403` refusal to the same explanation (and hides the controls from then on);
 - requests made through Bloom use the `Authorization: MediaBrowser ...`
-  header. External consumers that cannot receive request headers use the
+  header with `Client="Bloom"`, the machine hostname as `Device` and the
+  stable installation `DeviceId`. Jellyfin splits that header on commas
+  outside quotes and URL-decodes each value, so the device name has control
+  characters removed, is capped at 64 characters, and is percent-encoded. It
+  falls back to `Bloom Device` when the hostname is empty. A new device name
+  never creates a new Jellyfin device entry, because the entry is keyed by
+  `DeviceId`. External consumers that cannot receive request headers use the
   current capitalized `ApiKey` query fallback; Bloom strips deprecated query
   aliases and the obsolete `deviceProfileId` from provider-supplied stream URLs;
   and

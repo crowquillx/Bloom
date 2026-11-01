@@ -24,6 +24,12 @@ SessionService::SessionService(AuthenticationService *authService, QObject *pare
                 this, &SessionService::sessionTypeChanged);
         connect(authService, &AuthenticationService::authenticatedChanged,
                 this, &SessionService::sessionTypeChanged);
+        connect(authService, &AuthenticationService::providerSelectionChanged,
+                this, &SessionService::canRevokeOtherSessionsChanged);
+        connect(authService, &AuthenticationService::authenticatedChanged,
+                this, &SessionService::canRevokeOtherSessionsChanged);
+        connect(authService, &AuthenticationService::accountPrivilegesChanged,
+                this, &SessionService::canRevokeOtherSessionsChanged);
         connect(authService, &AuthenticationService::loginError, this,
                 [this](const QString &error) {
             if (!authenticationSessionMode()
@@ -78,6 +84,25 @@ QString SessionService::sessionTypeDescription() const
     return authenticationSessionMode()
         ? tr("Devices signed in to this account")
         : tr("Devices currently connected for playback");
+}
+
+bool SessionService::canRevokeOtherSessions() const
+{
+    if (!m_authService) {
+        return false;
+    }
+    if (authenticationSessionMode()) {
+        return true;
+    }
+    return m_authService->accountIsAdministrator().value_or(true);
+}
+
+namespace {
+QString revokeRequiresAdministratorMessage()
+{
+    return SessionService::tr(
+        "Only a server administrator can sign out other devices.");
+}
 }
 
 void SessionService::syncAuthenticationSessions()
@@ -226,6 +251,12 @@ bool SessionService::beginSessionRevocation(const QString &sessionId,
         return false;
     }
 
+    if (!canRevokeOtherSessions()) {
+        finishBulkDispatch();
+        setErrorString(revokeRequiresAdministratorMessage());
+        return false;
+    }
+
     setIsLoading(true);
     setErrorString(QString());
 
@@ -275,7 +306,11 @@ bool SessionService::beginSessionRevocation(const QString &sessionId,
         },
         [this, deviceId](const NetworkError &error) {
             finishDeviceRevocation(deviceId);
-            setErrorString(error.userMessage);
+            // Privileges can change after sign-in; explain a server refusal
+            // instead of showing a bare HTTP error.
+            setErrorString(error.httpStatus == 403
+                               ? revokeRequiresAdministratorMessage()
+                               : error.userMessage);
         },
         options);
     return true;
@@ -289,6 +324,10 @@ void SessionService::revokeAllOtherSessions()
 
     if (authenticationSessionMode()) {
         setErrorString(tr("Bulk authentication-session revocation is not supported."));
+        return;
+    }
+    if (!canRevokeOtherSessions()) {
+        setErrorString(revokeRequiresAdministratorMessage());
         return;
     }
     if (m_isLoading) {

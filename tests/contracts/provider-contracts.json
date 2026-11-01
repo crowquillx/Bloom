@@ -31,7 +31,7 @@
       "id": "mediabrowser-v1",
       "description": "The Jellyfin/Emby-shaped wire contract currently consumed by Bloom.",
       "timeUnit": "ticks-100ns",
-      "authorizationProfile": "MediaBrowser Client=Bloom, Device=Desktop, DeviceId, Version, Token"
+      "authorizationProfile": "MediaBrowser Client=Bloom, Device=<percent-encoded hostname>, DeviceId, Version, Token"
     },
     {
       "id": "silo-native-v2",
@@ -421,7 +421,7 @@
       "bloomCaller": "SessionService::terminateSession",
       "method": "DELETE",
       "path": "/Devices?id={deviceId}",
-      "requestSemantics": ["Bloom resolves the selected playback session to DeviceId and deletes that remote device"],
+      "requestSemantics": ["Bloom resolves the selected playback session to DeviceId and deletes that remote device", "Offered only when the account is not reported as a non-administrator (UserDto.Policy.IsAdministrator); Jellyfin requires elevation"],
       "requiredSemantics": ["Sessions for the selected remote device are revoked while the caller's different device remains authenticated"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "OpenAPI-listed device revocation replaces the excluded legacy per-session logout route."},

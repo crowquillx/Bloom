@@ -22,6 +22,9 @@ struct ProviderAuthenticationResult {
     QString profileId;
     QString profileToken;
     QString username;
+    // Whether the account administers the server. Absent when the provider
+    // does not say; callers keep server-enforced actions available then.
+    std::optional<bool> isAdministrator;
     // Relative lifetime reported by the provider. Negative means unspecified.
     qint64 expiresInSeconds = -1;
 

@@ -23,6 +23,28 @@ bool isSensitiveQueryItem(const QString &name)
         || name.compare(QStringLiteral("access_token"), Qt::CaseInsensitive) == 0
         || name.compare(QStringLiteral("token"), Qt::CaseInsensitive) == 0;
 }
+
+// Jellyfin splits the MediaBrowser header on commas outside quotes and
+// URL-decodes each value, so a value is percent-encoded rather than quoted
+// raw. Control characters are dropped and the name is bounded so a hostile
+// or unusual hostname cannot break or bloat the header.
+QString headerDeviceName(const QString &deviceName)
+{
+    constexpr qsizetype MaxDeviceNameLength = 64;
+    QString cleaned;
+    cleaned.reserve(deviceName.size());
+    for (const QChar character : deviceName) {
+        if (character.category() != QChar::Other_Control
+            && character.category() != QChar::Other_Format) {
+            cleaned.append(character);
+        }
+    }
+    cleaned = cleaned.simplified().left(MaxDeviceNameLength).trimmed();
+    if (cleaned.isEmpty()) {
+        cleaned = QStringLiteral("Bloom Device");
+    }
+    return QString::fromLatin1(QUrl::toPercentEncoding(cleaned));
+}
 }
 
 QNetworkRequest JellyfinRequestFactory::createRequest(const ProviderRequestContext &context,
@@ -35,8 +57,9 @@ QNetworkRequest JellyfinRequestFactory::createRequest(const ProviderRequestConte
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
 
     QString authorization = QStringLiteral(
-        "MediaBrowser Client=\"Bloom\", Device=\"Desktop\", DeviceId=\"%1\", Version=\"%2\"")
-                                .arg(context.deviceId, QString::fromUtf8(BLOOM_VERSION));
+        "MediaBrowser Client=\"Bloom\", Device=\"%1\", DeviceId=\"%2\", Version=\"%3\"")
+                                .arg(headerDeviceName(context.deviceName), context.deviceId,
+                                     QString::fromUtf8(BLOOM_VERSION));
     if (!context.accessToken.isEmpty()) {
         authorization += QStringLiteral(", Token=\"%1\"").arg(context.accessToken);
     }
