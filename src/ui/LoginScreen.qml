@@ -34,10 +34,14 @@ FocusScope {
                                                  && signInOptions.server === serverField.text.trim()
     readonly property bool offerDeviceSignIn: authenticationStep === "credentials"
                                               && signInOptionsCurrent && signInOptions.deviceSignIn === true
+    // Jellyfin's code option is Quick Connect: the code goes into another
+    // Jellyfin app, with no link to open.
+    readonly property bool offerQuickConnect: offerDeviceSignIn && signInOptions.quickConnect === true
     readonly property bool passwordSignInAvailable: !signInOptionsCurrent
                                                     || signInOptions.passwordSignIn !== false
     readonly property string deviceState: deviceSignIn.state || "idle"
     readonly property bool showDeviceSignIn: authenticationStep === "credentials" && deviceState !== "idle"
+    readonly property bool quickConnectFlow: deviceSignIn.method === "quickConnect"
     readonly property bool deviceCodeLive: deviceState === "waiting"
     readonly property bool deviceCodeEnded: deviceState === "expired" || deviceState === "denied"
                                             || deviceState === "failed"
@@ -69,18 +73,24 @@ FocusScope {
     function deviceHeading() {
         switch (deviceState) {
         case "starting": return qsTr("Getting a code…")
-        case "waiting": return deviceSignIn.opened ? qsTr("Finish on your phone")
-                                                   : qsTr("Enter this code on your phone")
+        case "waiting":
+            if (quickConnectFlow)
+                return qsTr("Enter this code in Jellyfin")
+            return deviceSignIn.opened ? qsTr("Finish on your phone")
+                                       : qsTr("Enter this code on your phone")
         case "signingIn": return qsTr("Signing in…")
         case "expired": return qsTr("This code expired")
         case "denied": return qsTr("Sign-in was declined")
-        default: return qsTr("Couldn’t sign in with a code")
+        default: return quickConnectFlow ? qsTr("Couldn’t sign in with Quick Connect")
+                                         : qsTr("Couldn’t sign in with a code")
         }
     }
 
     function deviceDescription() {
         switch (deviceState) {
         case "waiting":
+            if (quickConnectFlow)
+                return qsTr("On a phone or computer where you’re signed in to Jellyfin, open Settings → Quick Connect and enter this code.")
             return deviceSignIn.opened
                     ? qsTr("Someone opened this code. Approve this device there to continue.")
                     : qsTr("On a phone or computer where you’re signed in to Silo, open the link below and approve this device.")
@@ -385,7 +395,8 @@ FocusScope {
             Layout.fillWidth: true
             text: authenticationStep === "profiles" ? qsTr("Silo profiles")
                   : authenticationStep === "pin" ? qsTr("Profile locked")
-                  : root.showDeviceSignIn ? qsTr("Sign in with a code")
+                  : root.showDeviceSignIn ? (root.quickConnectFlow ? qsTr("Sign in with Quick Connect")
+                                                                   : qsTr("Sign in with a code"))
                   : root.addingConnection ? qsTr("Add a server")
                   : qsTr("Welcome to Bloom")
             font.family: Theme.fontPrimary
@@ -616,14 +627,17 @@ FocusScope {
             }
 
             // Offered once the typed server is known to be Silo with device
-            // sign-in; on a server without passwords it is the only way in.
+            // sign-in or Jellyfin with Quick Connect; on a Silo server without
+            // passwords it is the only way in.
             ActionButton {
                 id: deviceSignInButton
                 visible: root.offerDeviceSignIn
                 variant: root.passwordSignInAvailable ? "secondary" : "primary"
                 iconGlyph: Icons.smartphone
-                text: qsTr("Sign in with a code")
-                accessibleLabel: qsTr("Sign in with a code from your phone")
+                text: root.offerQuickConnect ? qsTr("Sign in with Quick Connect") : qsTr("Sign in with a code")
+                accessibleLabel: root.offerQuickConnect
+                                 ? qsTr("Sign in with Quick Connect from another Jellyfin app")
+                                 : qsTr("Sign in with a code from your phone")
                 Layout.fillWidth: !root.passwordSignInAvailable
                 Layout.topMargin: root.passwordSignInAvailable ? Theme.spacingSmall : Theme.spacingLarge
                 Layout.preferredHeight: Theme.buttonHeightLarge
@@ -663,7 +677,7 @@ FocusScope {
             }
         }
 
-        // ---------- Sign in with a code (Silo device sign-in) ----------
+        // ---------- Sign in with a code (Silo device sign-in, Jellyfin Quick Connect) ----------
         ColumnLayout {
             id: deviceStep
             Layout.fillWidth: true
@@ -719,8 +733,9 @@ FocusScope {
                 }
             }
 
+            // Quick Connect has no link; the code is typed into a Jellyfin app.
             ColumnLayout {
-                visible: root.deviceCodeLive
+                visible: root.deviceCodeLive && (root.deviceSignIn.verificationUrl || "").length > 0
                 Layout.fillWidth: true
                 spacing: Math.round(4 * Theme.layoutScale)
 
@@ -783,7 +798,9 @@ FocusScope {
                          ? qsTr("The code is no longer valid.")
                          : root.deviceState === "denied"
                            ? qsTr("This device wasn’t approved.")
-                           : (root.deviceSignIn.errorMessage || qsTr("Sign-in with a code failed."))
+                           : (root.deviceSignIn.errorMessage
+                              || (root.quickConnectFlow ? qsTr("Sign-in with Quick Connect failed.")
+                                                        : qsTr("Sign-in with a code failed.")))
             }
 
             RowLayout {

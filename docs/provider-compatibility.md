@@ -53,12 +53,33 @@ Start and poll are `non_retryable`. The transport never replays them, because an
 | --- | --- |
 | `approved` with tokens | Signs in as after a password login. |
 | `denied` | Shows "Sign-in was declined". |
-| `expired`, `canceled`, or 404 | Shows "This code expired". |
+| `expired`, `canceled`, 404, or 401 | Shows "This code expired". |
 | `consumed` without tokens | Fails; the user gets a new code. |
 | 429 | Adds five seconds to the interval for the rest of the code (RFC 8628 `slow_down`). |
 | No response, 408, or 5xx | Retries after a growing delay; fails after three in a row. |
 
 A local deadline with no decision also ends as expired. Every ended state offers "Get a new code". Backing out, leaving the signed-out state, or starting another sign-in withdraws a live code with `cancelDeviceLogin` when the capability reports `cancel`. Cancel is naturally idempotent, so it is sent with one transient retry and its answer is ignored. Approved tokens go through the password-login path: provider profiles and PIN, `CredentialStore`, the refresh token, and the access-token lifetime from `expires_in`. Bloom never starts `remote_playback` requests and never approves devices.
+
+### Jellyfin Quick Connect
+
+Jellyfin's code sign-in is Quick Connect: `GetQuickConnectEnabled`, `InitiateQuickConnect`, `GetQuickConnectState`, and `AuthenticateWithQuickConnect`, all non-obsolete in the pinned OpenAPI contract. When the address on the login screen is not native Silo, or Jellyfin is the selected provider, Bloom reads `GET /QuickConnect/Enabled` with the same 10-second deadline and one retry as the other discovery reads. Only a bare JSON `true` offers "Sign in with Quick Connect". `false`, a failed read, or any other answer leaves the password form alone. The password form always stays, because Jellyfin has no `password_login: false` equivalent. An explicit Silo selection never asks.
+
+Every Quick Connect request carries the MediaBrowser authorization header with the stable Bloom `DeviceId` and no `Token`, the identity a password login uses. The resulting session is therefore the normal Bloom device.
+
+1. `POST /QuickConnect/Initiate` has an empty body and is never replayed. Its `QuickConnectResult` supplies `Secret` (kept in memory only) and `Code`. A 401 means Quick Connect was turned off, which Bloom shows as "not offering sign-in with a code right now".
+2. The screen shows the six-digit `Code` with no link, since Jellyfin has none. The person enters it in another Jellyfin app under Settings → Quick Connect. The result has no lifetime, so Bloom keeps a local deadline of ten minutes after Initiate, Jellyfin's own timeout, and counts it down.
+3. Bloom polls `GET /QuickConnect/Connect?secret=…` every five seconds. The poll is a safe read with one transient retry, so the transport may replay it. No response, 408, or 5xx three times in a row ends the code; each failure lengthens the next delay as on Silo. `JellyfinRequestFactory` redacts the `secret` query parameter in logs.
+4. `Authenticated: true` stops polling. Bloom then exchanges the secret exactly once with `POST /Users/AuthenticateWithQuickConnect` and body `{"Secret": "…"}`. The exchange is never retried, because it mints the session. Its `AuthenticationResult` has the `AuthenticateByName` shape and continues on the password-login path: `CredentialStore`, user validation on restore, and the Jellyfin session record.
+
+| Answer | Bloom |
+| --- | --- |
+| `Authenticated: false` | Keeps polling. |
+| `Authenticated: true` | Exchanges the secret once and signs in. |
+| Poll 404 or 401, or a result without `Secret` | Shows "This code expired". |
+| Local ten-minute deadline | Shows "This code expired". |
+| Exchange fails, or answers without `AccessToken` and `User.Id` | Fails; the user gets a new code. |
+
+Jellyfin has no cancel operation. Backing out, leaving the signed-out state, or starting another sign-in only stops polling, and the server forgets the request on its own timeout. Every ended state offers "Get a new code".
 
 `SiloRequestFactory` sends bearer authorization and selected `X-Profile-Id` and `X-Profile-Token` headers on same-origin requests. Login, refresh, discovery, device start/poll/cancel/capability, and PIN verification exclude stale authentication/profile headers as required. Profile-scoped catalog, capability, watch, marker, and playback requests require the selected profile. Credentials remain in `CredentialStore`; connection metadata contains no token.
 

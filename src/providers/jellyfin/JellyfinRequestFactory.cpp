@@ -21,7 +21,9 @@ bool isSensitiveQueryItem(const QString &name)
         || name.compare(QStringLiteral("X-Emby-Token"), Qt::CaseInsensitive) == 0
         || name.compare(QStringLiteral("X-MediaBrowser-Token"), Qt::CaseInsensitive) == 0
         || name.compare(QStringLiteral("access_token"), Qt::CaseInsensitive) == 0
-        || name.compare(QStringLiteral("token"), Qt::CaseInsensitive) == 0;
+        || name.compare(QStringLiteral("token"), Qt::CaseInsensitive) == 0
+        // Quick Connect secret: it is exchanged for an access token.
+        || name.compare(QStringLiteral("secret"), Qt::CaseInsensitive) == 0;
 }
 
 // Jellyfin splits the MediaBrowser header on commas outside quotes and

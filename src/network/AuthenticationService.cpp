@@ -2288,6 +2288,7 @@ QVariantMap AuthenticationService::signInOptions() const
         {QStringLiteral("silo"), m_signInDiscovery.silo},
         {QStringLiteral("passwordSignIn"), m_signInDiscovery.passwordSignIn},
         {QStringLiteral("deviceSignIn"), m_signInDiscovery.deviceSignIn},
+        {QStringLiteral("quickConnect"), m_signInDiscovery.quickConnect},
     };
 }
 
@@ -2326,25 +2327,37 @@ void AuthenticationService::checkSignInOptions(const QString &serverAddress)
     }
 
     IProviderAdapter *silo = providerForKind(ProviderKind::Silo);
-    if (m_providerSelection == QStringLiteral("jellyfin") || !silo || !silo->requestFactory()
-        || !networkManager()) {
-        // Only native Silo offers anything beyond the password form.
+    const bool discoversSilo = m_providerSelection != QStringLiteral("jellyfin") && silo
+        && silo->requestFactory();
+    if ((!discoversSilo && !discoversQuickConnect()) || !networkManager()) {
+        // Only native Silo and Jellyfin Quick Connect add to the password form.
         m_signInDiscovery.state = QStringLiteral("ready");
         emit signInOptionsChanged();
         return;
     }
     if (!m_discoveryTransport || m_discoveryTransport->networkManager() != networkManager()) {
         m_discoveryTransport = std::make_unique<HttpTransport>(networkManager());
-        const IProviderRequestFactory *factory = silo->requestFactory();
-        m_discoveryTransport->setUrlRedactor([factory](const QUrl &url) {
-            return factory->redactedUrl(url);
+        // Discovery reads are public and carry no secrets in the query.
+        m_discoveryTransport->setUrlRedactor([](const QUrl &url) {
+            return url.toString(QUrl::RemoveQuery | QUrl::RemoveUserInfo);
         });
     }
     m_signInDiscovery.state = QStringLiteral("checking");
     emit signInOptionsChanged();
 
     const auto [baseUrl, fallbackUrl] = resolveServerAddress(address);
-    discoverSilo(baseUrl, fallbackUrl, generation);
+    if (discoversSilo) {
+        discoverSilo(baseUrl, fallbackUrl, generation);
+    } else {
+        discoverQuickConnect(baseUrl, fallbackUrl, generation);
+    }
+}
+
+bool AuthenticationService::discoversQuickConnect() const
+{
+    IProviderAdapter *jellyfin = providerForKind(ProviderKind::Jellyfin);
+    return m_providerSelection != QStringLiteral("silo") && jellyfin
+        && jellyfin->requestFactory() && jellyfin->authenticator();
 }
 
 void AuthenticationService::discoverSilo(const QString &baseUrl,
@@ -2374,8 +2387,12 @@ void AuthenticationService::discoverSilo(const QString &baseUrl,
             const auto detected = silo->mapDetectionResult(
                 QJsonDocument::fromJson(reply->readAll()).object());
             if (!detected) {
-                // Jellyfin or another server: password sign-in only.
-                finishSignInDiscovery(QStringLiteral("ready"), generation);
+                // Jellyfin or another server.
+                if (discoversQuickConnect()) {
+                    discoverQuickConnect(baseUrl, QString(), generation);
+                } else {
+                    finishSignInDiscovery(QStringLiteral("ready"), generation);
+                }
                 return;
             }
             m_signInDiscovery.silo = true;
@@ -2389,7 +2406,11 @@ void AuthenticationService::discoverSilo(const QString &baseUrl,
             if (error.httpStatus != 0) {
                 // The server answered, just not as native Silo.
                 m_signInDiscovery.baseUrl = baseUrl;
-                finishSignInDiscovery(QStringLiteral("ready"), generation);
+                if (discoversQuickConnect()) {
+                    discoverQuickConnect(baseUrl, QString(), generation);
+                } else {
+                    finishSignInDiscovery(QStringLiteral("ready"), generation);
+                }
             } else if (!fallbackUrl.isEmpty()) {
                 discoverSilo(fallbackUrl, QString(), generation);
             } else {
@@ -2469,6 +2490,58 @@ void AuthenticationService::discoverSignInMethods(quint64 generation)
         discoveryRequestOptions(2));
 }
 
+void AuthenticationService::discoverQuickConnect(const QString &baseUrl,
+                                                 const QString &fallbackUrl,
+                                                 quint64 generation)
+{
+    IProviderAdapter *jellyfin = providerForKind(ProviderKind::Jellyfin);
+    const IProviderAuthenticator *authenticator = jellyfin->authenticator();
+    const auto endpoint = authenticator->deviceAuthorizationCapabilityEndpoint();
+    if (!endpoint) {
+        m_signInDiscovery.baseUrl = baseUrl;
+        finishSignInDiscovery(QStringLiteral("ready"), generation);
+        return;
+    }
+    ProviderRequestContext context = requestContext(false);
+    context.baseUrl = baseUrl;
+    const IProviderRequestFactory *factory = jellyfin->requestFactory();
+    m_discoveryTransport->sendWithRetry(
+        this,
+        *endpoint,
+        [this, factory, context, endpoint = *endpoint]() {
+            return networkManager()->get(factory->createRequest(context, endpoint));
+        },
+        [this, authenticator, baseUrl, generation](QNetworkReply *reply) {
+            if (generation != m_signInDiscoveryGeneration) {
+                return;
+            }
+            m_signInDiscovery.baseUrl = baseUrl;
+            const auto capability =
+                authenticator->parseDeviceAuthorizationCapability(reply->readAll());
+            // Quick Connect never replaces the password form.
+            m_signInDiscovery.quickConnect = capability && capability->available;
+            m_signInDiscovery.deviceSignIn = m_signInDiscovery.quickConnect;
+            m_signInDiscovery.deviceCanWithdraw = false;
+            finishSignInDiscovery(QStringLiteral("ready"), generation);
+        },
+        [this, baseUrl, fallbackUrl, generation](const NetworkError &error) {
+            if (generation != m_signInDiscoveryGeneration) {
+                return;
+            }
+            if (error.httpStatus != 0) {
+                // Not Jellyfin, or Quick Connect is unknown here: password only.
+                m_signInDiscovery.baseUrl = baseUrl;
+                finishSignInDiscovery(QStringLiteral("ready"), generation);
+            } else if (!fallbackUrl.isEmpty()) {
+                discoverQuickConnect(fallbackUrl, QString(), generation);
+            } else {
+                finishSignInDiscovery(QStringLiteral("unreachable"), generation);
+            }
+        },
+        // A first probe with an HTTP fallback left stays short.
+        discoveryRequestOptions(fallbackUrl.isEmpty() ? 2 : 1));
+}
+
 void AuthenticationService::finishSignInDiscovery(const QString &state, quint64 generation)
 {
     if (generation != m_signInDiscoveryGeneration) {
@@ -2485,21 +2558,23 @@ void AuthenticationService::finishSignInDiscovery(const QString &state, quint64 
 void AuthenticationService::startDeviceSignIn(const QString &serverAddress)
 {
     const QString address = serverAddress.trimmed();
-    IProviderAdapter *silo = providerForKind(ProviderKind::Silo);
+    IProviderAdapter *adapter = providerForKind(
+        m_signInDiscovery.quickConnect ? ProviderKind::Jellyfin : ProviderKind::Silo);
     if (address != m_signInDiscovery.address
         || m_signInDiscovery.state != QStringLiteral("ready")
-        || !m_signInDiscovery.deviceSignIn || !silo) {
+        || !m_signInDiscovery.deviceSignIn || !adapter) {
         emit loginError(tr("This server doesn't offer sign-in with a code."));
         return;
     }
 
     clearAccountStateInternal(false, false);
-    if (!activateProvider(silo)) {
+    if (!activateProvider(adapter)) {
         emit loginError(tr("The selected provider is not available."));
         return;
     }
     m_serverUrl = m_signInDiscovery.baseUrl;
     m_schemeFallbackUrl.clear();
+    // Jellyfin has no detection result, as after its password login.
     m_detectionResult = m_signInDiscovery.detection;
     emit serverUrlChanged();
 
@@ -2510,6 +2585,9 @@ void AuthenticationService::startDeviceSignIn(const QString &serverAddress)
     target.authenticator = m_providerAuthenticator;
     target.context = requestContext(false);
     target.canWithdraw = m_signInDiscovery.deviceCanWithdraw;
+    if (m_signInDiscovery.quickConnect) {
+        target.method = QStringLiteral("quickConnect");
+    }
     m_deviceSignIn->start(target, [this, generation](
                                       const ProviderAuthenticationResult &authentication) {
         if (generation != m_stateGeneration) {

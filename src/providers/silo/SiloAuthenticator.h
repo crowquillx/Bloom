@@ -291,7 +291,8 @@ public:
         result.expiresInSeconds = positiveInteger(object->value(QStringLiteral("expires_in")));
         result.intervalSeconds = positiveInteger(object->value(QStringLiteral("interval")));
         result.expiresAt = instant(object->value(QStringLiteral("expires_at")));
-        if (!result.isValid()) {
+        // Silo codes are approved on a page.
+        if (!result.isValid() || result.verificationUri.isEmpty()) {
             return std::nullopt;
         }
         return result;

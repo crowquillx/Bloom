@@ -14,6 +14,8 @@
 class HttpRequestHandle;
 class HttpTransport;
 class QNetworkAccessManager;
+class QNetworkReply;
+struct HttpRequestOptions;
 struct NetworkError;
 
 /**
@@ -21,8 +23,10 @@ struct NetworkError;
  *
  * Starts the provider's device authorization, polls at the server's pace
  * until the request is decided or its deadline passes, and withdraws a live
- * request when abandoned. Approved tokens go to the owner, which signs in
- * exactly as after a password login. The device code stays in memory only.
+ * request when abandoned. When the provider authorizes without tokens
+ * (Jellyfin Quick Connect), the device code is exchanged once for a login
+ * response. Approved tokens go to the owner, which signs in exactly as after
+ * a password login. The device code stays in memory only.
  * Requests run on a private transport so a session change on the shared
  * transport cannot silently drop a poll.
  */
@@ -48,6 +52,8 @@ public:
         // Unauthenticated context: base URL and device headers only.
         ProviderRequestContext context;
         bool canWithdraw = false;
+        // Flow shown to QML: "code" (Silo device login) or "quickConnect".
+        QString method = QStringLiteral("code");
     };
     using AuthorizedHandler = std::function<void(const ProviderAuthenticationResult &)>;
 
@@ -66,8 +72,8 @@ public:
     State state() const { return m_state; }
     bool isActive() const { return m_state != State::Idle; }
     int secondsRemaining() const;
-    /// QML projection: state, userCode, verificationUrl, verificationPage,
-    /// opened, secondsRemaining, errorMessage.
+    /// QML projection: state, method, userCode, verificationUrl,
+    /// verificationPage, opened, secondsRemaining, errorMessage.
     QVariantMap toVariantMap() const;
 
     /// Length of one server "second" in milliseconds; tests shorten it.
@@ -84,11 +90,18 @@ private:
     void poll();
     void handlePoll(const QByteArray &body);
     void handlePollError(const NetworkError &error);
+    void exchange();
+    void handleExchanged(const QByteArray &body);
+    void signIn(const ProviderAuthenticationResult &authentication);
     void moveDeadline(const QDateTime &serverExpiry);
     void tick();
     void finish(State state, const QString &message = {});
     void withdraw();
     void abortRequest();
+    HttpRequestHandle *send(const ProviderAuthenticationRequest &request,
+                            const HttpRequestOptions &options,
+                            std::function<void(QNetworkReply *)> onReply,
+                            std::function<void(const NetworkError &)> onError);
     void clear();
     void setState(State state, const QString &message = {});
     qint64 durationMs(qint64 seconds) const;
