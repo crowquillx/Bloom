@@ -55,7 +55,14 @@ Focus is two-tier:
 - **Carousel mode** (hero card focused): Left/Right changes the hero item. Enter/Return enters
   Play/Details. Down moves to the first shelf. Up moves to the navigation bar.
 - **Actions mode** (Play/Details focused): Left/Right moves between buttons. Enter/Return activates
-  the focused button. Esc or Up returns to carousel mode. Down moves to the first shelf.
+  the focused button. Esc or Up returns to carousel mode. Down moves to the first shelf. The Home
+  shelves recede to `Theme.recededOpacity` while actions mode lasts, so the hero reads as the
+  focused surface.
+
+The buttons claim Esc through `Keys.onShortcutOverride`, so in actions mode it returns to the
+carousel instead of opening Home's power menu; from carousel mode Esc keeps its usual role.
+Returning to the carousel clears the buttons' focus inside the hero's `FocusScope`, since
+`forceActiveFocus()` on a scope would otherwise hand focus straight back to the button.
 
 Leaving the hero resets to carousel mode. Auto-cycle pauses during focus, scrolling, and playback.
 

@@ -98,7 +98,7 @@ Every theme resolves to the same semantic roles. New QML should use these roles 
 | Text | `textPrimary`, `textSecondary`, `textTertiary`, `textOnAccent` | `textTertiary` is for eyebrow labels and hints |
 | Surfaces | `surfaceGlassStrong`, `surfaceDialog`, `surfaceBorder`, `surfaceBorderStrong` | Soft glass tinted by the theme's `surfaceTint`; light flavors use higher opacity |
 | Interactive fills | `surfaceInteractive`, `surfaceInteractiveHover`, `surfaceInteractivePressed`, `surfaceInteractiveDisabled` | Neutral fills for rows, chips and secondary controls |
-| Actions | `actionPrimary*`, `actionSecondary*`, `actionDestructive*`, `disabledOpacity` | The primary action is an inverse fill (`textPrimary` on `backgroundPrimary`), so it reads on any artwork and in every theme |
+| Actions | `actionPrimary*`, `actionSecondary*`, `actionDestructive*`, `disabledOpacity`, `recededOpacity` | The primary action is an inverse fill (`textPrimary` on `backgroundPrimary`), so it reads on any artwork and in every theme |
 | Focus | `focusRing`, `focusRingHalo`, `focusRingWidth`, `focusRingGap`, `focusScale` | White ring with a dark halo on dark themes; dark ring with a light halo on light flavors |
 | Selection | `selectionBackground`, `selectionIndicator`, `selectionText`, `selectionIndicatorWidth` | Accent tint and bar; never used to show focus |
 | Status | `errorColor`, `successColor`, `warningColor`, `favoriteColor` | |

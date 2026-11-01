@@ -447,6 +447,9 @@ QtObject {
     property color actionDestructiveBackgroundHover: withAlpha(colorDestructive, themeIsLight ? 0.18 : 0.28)
     property color actionDestructiveText: colorDestructive
     property real disabledOpacity: 0.42
+    // Content set back while a single surface holds focus, such as the Home
+    // shelves while the hero's actions are focused.
+    property real recededOpacity: 0.3
 
     // ============================
     // Focus vs. selection

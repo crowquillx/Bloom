@@ -731,6 +731,14 @@ FocusScope {
         scrollAnimation.restart()
     }
 
+    // While the hero's Play/Details actions hold focus the shelves recede, so
+    // the hero reads as the focused surface; Up or Esc returns to the
+    // carousel and brings them back.
+    property real shelfOpacity: heroBanner.actionsFocused ? Theme.recededOpacity : 1.0
+    Behavior on shelfOpacity {
+        NumberAnimation { duration: Theme.durationNormal; easing.type: Theme.easingStandard }
+    }
+
     NumberAnimation {
         id: scrollAnimation
         target: mainFlickable
@@ -786,6 +794,7 @@ FocusScope {
 
             ColumnLayout {
                 id: continueWatchingSection
+                opacity: root.shelfOpacity
                 Layout.fillWidth: true
                 spacing: Theme.sectionTitleSpacing
                 visible: continueWatchingModel.length > 0 && !ConfigManager.mergeContinueWatchingWithNextUp
@@ -828,6 +837,7 @@ FocusScope {
 
             ColumnLayout {
                 id: nextUpSection
+                opacity: root.shelfOpacity
                 Layout.fillWidth: true
                 spacing: Theme.sectionTitleSpacing
                 visible: displayedNextUpModel.length > 0
@@ -870,6 +880,7 @@ FocusScope {
 
             ColumnLayout {
                 id: recentlyAddedSection
+                opacity: root.shelfOpacity
                 Layout.fillWidth: true
                 spacing: Theme.sectionSpacing
 
@@ -935,6 +946,7 @@ FocusScope {
             // server's layout order. HomeSectionsViewModel picks them.
             ColumnLayout {
                 id: serverRowsSection
+                opacity: root.shelfOpacity
                 Layout.fillWidth: true
                 spacing: Theme.sectionSpacing
                 visible: !root.mergedMode && serverRowsRepeater.count > 0

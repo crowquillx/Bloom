@@ -196,12 +196,26 @@ FocusScope {
                 root.actionsFocused = false
         })
     }
+    // A FocusScope hands forceActiveFocus() to its focused child, so a
+    // button that keeps scope focus would take focus straight back and trap
+    // Left/Right on Play and Details. Clearing it leaves the carousel focused.
+    function releaseButtonFocus() {
+        var host = contentLoader.item
+        if (!host)
+            return
+        if (host.playButton)
+            host.playButton.focus = false
+        if (host.detailsButton)
+            host.detailsButton.focus = false
+    }
     function exitActions() {
         actionsFocused = false
+        releaseButtonFocus()
         root.forceActiveFocus()
     }
     function resetToCarousel() {
         actionsFocused = false
+        releaseButtonFocus()
     }
 
     readonly property real carouselBottomInset: heroModel.length > 1
@@ -381,6 +395,11 @@ FocusScope {
                 Keys.onLeftPressed: function(event) { event.accepted = true }
                 Keys.onUpPressed: function(event) { root.exitActions(); event.accepted = true }
                 Keys.onEscapePressed: function(event) { root.exitActions(); event.accepted = true }
+                // Esc returns to the carousel before Main's Home Esc shortcut
+                // (the power menu) can claim it.
+                Keys.onShortcutOverride: function(event) {
+                    event.accepted = event.key === Qt.Key_Escape
+                }
                 Keys.onDownPressed: function(event) {
                     root.resetToCarousel()
                     root.moveDownRequested()
@@ -405,6 +424,9 @@ FocusScope {
                 Keys.onRightPressed: function(event) { event.accepted = true }
                 Keys.onUpPressed: function(event) { root.exitActions(); event.accepted = true }
                 Keys.onEscapePressed: function(event) { root.exitActions(); event.accepted = true }
+                Keys.onShortcutOverride: function(event) {
+                    event.accepted = event.key === Qt.Key_Escape
+                }
                 Keys.onDownPressed: function(event) {
                     root.resetToCarousel()
                     root.moveDownRequested()
