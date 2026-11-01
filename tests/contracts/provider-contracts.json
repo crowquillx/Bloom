@@ -1922,7 +1922,7 @@
       {
         "id": "native.requests",
         "method": "GET/POST/PUT/DELETE",
-        "path": "/api/v2/requests/status and /api/v2/requests/search and /api/v2/requests/detail/{media_type}/{tmdb_id} and /api/v2/requests and /api/v2/requests/discover and /api/v2/requests/discover/{section} and /api/v2/requests/discover/genres and /api/v2/requests/discover/studios and /api/v2/requests/discover/networks and /api/v2/requests/discover/browse/genre/{slug} and /api/v2/requests/discover/browse/studio/{slug} and /api/v2/requests/discover/browse/network/{slug} and /api/v2/requests/mine and /api/v2/requests/{id}/cancel and /api/v2/requests/follows/{media_type}/{tmdb_id} and /api/v2/watchlist/titles/{media_type}/{tmdb_id}",
+        "path": "/api/v2/requests/status and /api/v2/requests/search and /api/v2/requests/detail/{media_type}/{tmdb_id} and /api/v2/requests and /api/v2/requests/discover and /api/v2/requests/discover/{section} and /api/v2/requests/discover/rows/{row_id} and /api/v2/requests/discover/genres and /api/v2/requests/discover/studios and /api/v2/requests/discover/networks and /api/v2/requests/discover/browse/genre/{slug} and /api/v2/requests/discover/browse/studio/{slug} and /api/v2/requests/discover/browse/network/{slug} and /api/v2/requests/mine and /api/v2/requests/{id}/cancel and /api/v2/requests/follows/{media_type}/{tmdb_id} and /api/v2/watchlist/titles/{media_type}/{tmdb_id}",
         "operations": [
           {
             "method": "GET",
@@ -1947,6 +1947,10 @@
           {
             "method": "GET",
             "path": "/api/v2/requests/discover/{section}"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/requests/discover/rows/{row_id}"
           },
           {
             "method": "GET",
@@ -2000,13 +2004,13 @@
         "outcome": "supported",
         "capability": {
           "state": "available",
-          "discovery": "getRequestStatus (FeatureStatus) for the selected profile: Bloom offers requests and Discover only when requests_enabled, allowed, and state available hold, and only while no Seerr API key is configured; follow_supported and watchlist_titles_supported gate following and watchlist titles. Exposed as ProviderCapability::MediaRequests on native Silo only."
+          "discovery": "getRequestStatus (FeatureStatus) for the selected profile: Bloom offers requests and Discover only when requests_enabled, allowed, and state available hold, and only while no Seerr API key is configured; follow_supported and watchlist_titles_supported gate following and watchlist titles; discover_rows_supported makes Discover follow row_order. Exposed as ProviderCapability::MediaRequests on native Silo only."
         },
         "requestSemantics": [
           "Every request route is profile scoped and carries the selected X-Profile-Id.",
           "Search sends a percent-encoded q and an optional 1-based page; details use media_type movie or series and the TMDB id.",
           "createRequest and cancelRequest are declared non_retryable, so neither POST is replayed; the create body carries media_type, tmdb_id and title, plus seasons only when the user picks them.",
-          "Discover reads the row collection, then later pages of one row by its enum key and next_page; browsing lists genres, studios and networks, then pages one by slug with media_type (genres only), sort and page.",
+          "Discover reads the row collection, then later pages of one row and next_page: a built-in row by its getDiscoverSection enum key, any other title row through getDiscoverRow; browsing lists genres, studios and networks, then pages one by slug with media_type (genres only), sort and page.",
           "The request list reads the first page of listMyRequests with limit 50.",
           "Following is natural_idempotent and may be replayed; watchlist title writes are non_retryable because they can request the title."
         ],
@@ -2017,6 +2021,8 @@
           "Bloom offers withdrawing an active pending or approved request, the viewer's own when read from the title detail.",
           "Following is offered for an active request made by someone else; watchlisting for titles the library lacks, warning when watchlist_requests also requests them.",
           "Studios browse movies and networks browse series; genres browse series only when series_supported.",
+          "With discover_rows_supported, Discover shows row_order's rows in order under their titles, skips types it does not know, and fills studios, networks and genres brand rows from the matching brand list, showing no brand list the layout leaves out; without it, the six built-in rows keep the response order.",
+          "A layout row trimmed to its limit drops next_page; a first page without one that shows fewer titles than total_results continues at page shown / 20 + 1, and repeated titles are dropped.",
           "Poster and backdrop paths are TMDB image paths resolved against the TMDB image CDN."
         ],
         "evidenceSources": [

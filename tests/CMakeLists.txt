@@ -856,6 +856,28 @@ set_tests_properties(ScreensaverFocusMemoryTest PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
 
+add_executable(DiscoveryListModelTest
+    DiscoveryListModelTest.cpp
+)
+
+target_compile_definitions(DiscoveryListModelTest PRIVATE
+    BLOOM_UI_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/ui"
+)
+
+target_link_libraries(DiscoveryListModelTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::Test
+)
+
+add_test(NAME DiscoveryListModelTest COMMAND DiscoveryListModelTest)
+set_tests_properties(DiscoveryListModelTest PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
+
 add_executable(DisplayManagerTest
     DisplayManagerTest.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp

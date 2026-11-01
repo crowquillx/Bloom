@@ -23,8 +23,11 @@
 class SiloMediaRequestMapper
 {
 public:
-    /// The discovery row keys `GET /requests/discover/{section}` accepts.
-    static bool isDiscoverSectionKey(const QString &key);
+    /// The six built-in row keys `GET /requests/discover/{section}` accepts.
+    static bool isBuiltInDiscoverRowKey(const QString &key);
+    /// A title row key `GET /requests/discover/rows/{row_id}` accepts: any
+    /// row of an admin's layout, not a brand row.
+    static bool isDiscoverRowKey(const QString &key);
     /// "movie" stays "movie"; Bloom's "tv" is Silo's "series". Empty when
     /// the type is neither.
     static QString wireMediaType(const QString &requestMediaType);
@@ -44,14 +47,17 @@ public:
 
     /// Parses a request operation's body into `capabilityMetadata`:
     /// - MediaRequestStatus: `available`, `requestsEnabled`, `allowed`,
-    ///   `state`, `seasonRequestsSupported`
+    ///   `state`, `seasonRequestsSupported`, `followSupported`,
+    ///   `watchlistTitlesSupported`, `watchlistRequests`,
+    ///   `discoverRowsSupported`
     /// - MediaRequestSearch: `items`, `page`, `totalPages`
     /// - MediaRequestDetail: `detail` (a discovery map with `seasons`,
     ///   `seasonCount`, `notRequestableReason`, `requestState`,
     ///   `requestedByViewer`, and `recommendations`)
     /// - CreateMediaRequest: `request` (`requestId`, `requestState`)
     /// - MediaRequestDiscover: `rows` (`key`, `title`, `items`, `page`,
-    ///   `nextPage`, `hasMore`)
+    ///   `nextPage`, `hasMore`) in response order, and, when the response
+    ///   has `row_order`, `layoutRows` (see layoutRows())
     /// - MediaRequestDiscoverSection: `row`
     /// - MediaRequestList: `items` (request maps), `hasMore`, `nextCursor`
     /// - CancelMediaRequest: `request` (a request map)
@@ -66,7 +72,16 @@ public:
     static QVariantList results(const QJsonArray &wireResults);
     static QVariantMap detail(const QJsonObject &wireDetail);
     static QVariantMap createdRequest(const QJsonObject &wireRequest);
-    static QVariantMap discoverRow(const QJsonObject &wireSection);
+    /// One title row. @p fromLayout marks a row read from an admin layout's
+    /// Discover page, where a row trimmed to its limit continues at page 1.
+    static QVariantMap discoverRow(const QJsonObject &wireSection, bool fromLayout = false);
+    /// The Discover page as an admin laid it out: @p wireRowOrder's rows in
+    /// order, under their layout titles. A title row is a discoverRow() from
+    /// @p wireSections, left out when it has no titles. A brand row is
+    /// `{key, title, browseKind}`, where `browseKind` ("genre", "studio",
+    /// or "network") names the browse categories that fill it. Row types
+    /// Bloom does not know are skipped.
+    static QVariantList layoutRows(const QJsonArray &wireRowOrder, const QJsonArray &wireSections);
     /// One of the viewer's requests: the discovery map for its title plus
     /// `requestId`, `requestState`, `requestedSeasons`, `createdAt`, and
     /// `canCancel` (an active request not yet being downloaded).

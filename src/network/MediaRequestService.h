@@ -95,8 +95,9 @@ public:
                                    int serverId,
                                    int profileId,
                                    const QString &rootFolderPath);
-    /// The discovery rows with their first page: Silo's own rows, or
-    /// Seerr's trending, popular, and upcoming movies and series.
+    /// The discovery rows with their first page: Silo's own rows (in its
+    /// admin's layout when the server has one), or Seerr's trending,
+    /// popular, and upcoming movies and series.
     Q_INVOKABLE void loadDiscover();
     /// One more page of a discovery row.
     Q_INVOKABLE void loadDiscoverRow(const QString &key, int page);
@@ -138,7 +139,12 @@ signals:
     /// @p operation is "search", "prepareRequest", "request", "cancel",
     /// "follow", or "watchlist".
     void errorOccurred(const QString &operation, const QString &error);
-    /// Rows of {key, title, items, page, nextPage, hasMore}.
+    /// Shelves in page order: title rows {key, title, items, page, nextPage,
+    /// hasMore} and brand rows {key, title, browseKind}, which the browse
+    /// categories of that kind ("genre", "studio", or "network") fill. When
+    /// Silo follows an admin layout, the brand rows stand where it puts
+    /// them, and a category it leaves out has none. Otherwise the three
+    /// brand rows, keyed "browse:<kind>" and untitled, follow the title rows.
     void discoverLoaded(const QVariantList &rows);
     void discoverFailed(const QString &error);
     void discoverRowLoaded(const QString &key, int page, const QVariantMap &row);
