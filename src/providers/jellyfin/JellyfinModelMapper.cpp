@@ -549,6 +549,9 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
         userData.value(QStringLiteral("PlaybackPositionTicks")).toVariant().toLongLong());
     state.unplayedItemCount = userData.value(QStringLiteral("UnplayedItemCount")).toInt();
     state.lastPlayedAt = userData.value(QStringLiteral("LastPlayedDate")).toString();
+    // UserItemDataDto.Likes: true, false, or null when neither.
+    const QJsonValue likes = userData.value(QStringLiteral("Likes"));
+    state.userLikes = likes.isBool() ? (likes.toBool() ? 1 : -1) : 0;
 
     QVariantMap item{
         {QStringLiteral("media"), Bloom::MediaRef{connectionId, itemId}.toVariantMap()},
@@ -585,6 +588,7 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("userState"), state.toVariantMap()},
         {QStringLiteral("watched"), state.watched},
         {QStringLiteral("favorite"), state.favorite},
+        {QStringLiteral("userLikes"), state.userLikes},
         {QStringLiteral("positionMs"), state.positionMs},
         {QStringLiteral("unplayedItemCount"), state.unplayedItemCount},
         {QStringLiteral("people"), people(wireItem.value(QStringLiteral("People")).toArray(), connectionId)}

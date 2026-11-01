@@ -148,6 +148,18 @@ enum class ProviderCatalogOperation {
     // document never leaves LibraryService.
     SubtitleAppearance,
     SetSubtitleAppearance,
+    // Titles recommended because the viewer watched itemId, without what
+    // they watched or rated since (Silo). rawItems holds wire catalog cards.
+    // Other providers report this unsupported; callers then read
+    // SimilarItems.
+    BecauseWatched,
+    // Personal ratings (Silo): the profile's capability document, read once
+    // per connection and profile. capabilityMetadata carries `allowed`.
+    UserRatingCapability,
+    // Sets the viewer's own rating of itemId to ratingValue, or clears it
+    // with 0: 1 to 5 stars where ProviderCapability::StarRatings, +1 (like)
+    // or -1 (dislike) where ProviderCapability::LikeRatings.
+    SetUserRating,
 };
 
 enum class ProviderHttpMethod {
@@ -240,6 +252,8 @@ struct ProviderCatalogQuery {
     bool includeHeavyFields = true;
     bool unwatchedOnly = false;
     bool stateValue = false;
+    // SetUserRating: the rating to set, or 0 to clear it.
+    int ratingValue = 0;
 
     bool useCacheValidation = false;
     QByteArray etag;

@@ -1344,6 +1344,20 @@ FocusScope {
     }
 
     Connections {
+        target: SeriesDetailsViewModel.userRating
+        function onUpdateFailed(message) {
+            if (root.sharedModelCurrent)
+                watchlistToast.show(message)
+        }
+    }
+
+    UserRatingDialog {
+        id: userRatingDialog
+        ratingState: SeriesDetailsViewModel.userRating
+        itemTitle: root.seriesName
+    }
+
+    Connections {
         target: SeriesDetailsViewModel.seasonsModel
 
         function onModelReset() {
@@ -1529,6 +1543,31 @@ FocusScope {
             onTriggered: {
                 SeriesDetailsViewModel.toggleNotInterested()
                 contextMenu.close()
+            }
+        }
+
+        // The viewer's own rating, where the provider has one: stars on
+        // Silo, like or dislike on Jellyfin.
+        BloomMenuItem {
+            id: ratingMenuItem
+            readonly property var ratingState: SeriesDetailsViewModel.userRating
+            visible: !!ratingState && ratingState.supported
+            enabled: visible
+            height: visible ? implicitHeight : 0
+            text: {
+                if (!ratingState || ratingState.value === 0)
+                    return qsTr("Rate…")
+                if (ratingState.scale === "likes")
+                    return ratingState.value > 0 ? qsTr("Your Rating: Liked") : qsTr("Your Rating: Disliked")
+                return ratingState.value === 1 ? qsTr("Your Rating: 1 Star")
+                                               : qsTr("Your Rating: %1 Stars").arg(ratingState.value)
+            }
+
+            onTriggered: {
+                contextMenu.close()
+                if (!root.sharedModelCurrent)
+                    return
+                Qt.callLater(function() { userRatingDialog.openFor(contextMenuButton) })
             }
         }
 

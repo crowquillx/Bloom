@@ -2,6 +2,7 @@
 
 #include "BaseViewModel.h"
 #include "ItemExtrasState.h"
+#include "UserRatingState.h"
 #include "network/Types.h"
 #include <QAbstractListModel>
 #include <QJsonArray>
@@ -162,6 +163,8 @@ class SeriesDetailsViewModel : public BaseViewModel
     // only where the provider offers it to the profile (Silo).
     Q_PROPERTY(bool notInterestedSupported READ notInterestedSupported NOTIFY notInterestedSupportedChanged)
     Q_PROPERTY(bool notInterested READ notInterested NOTIFY notInterestedChanged)
+    // The viewer's own rating of the series (stars or likes, per provider).
+    Q_PROPERTY(UserRatingState *userRating READ userRating CONSTANT)
     // The next episode to air (canonical airing map) and its hero chip
     // text, e.g. "S2 E5 airs Thu, Nov 6"; empty when none is known.
     Q_PROPERTY(QVariantMap nextAiring READ nextAiring NOTIFY nextAiringChanged)
@@ -237,6 +240,7 @@ public:
     bool inWatchlist() const { return m_inWatchlist; }
     bool notInterestedSupported() const;
     bool notInterested() const { return m_notInterested; }
+    UserRatingState *userRating() const { return m_userRating; }
     QVariantMap nextAiring() const { return m_nextAiring; }
     QString nextAiringLabel() const;
     bool expectsNextAiring() const { return m_nextAiringPending || !m_nextAiring.isEmpty(); }
@@ -526,6 +530,7 @@ private:
     bool m_watchlistPending = false;
     bool m_notInterested = false;
     bool m_notInterestedPending = false;
+    UserRatingState *m_userRating = nullptr;
     QVariantMap m_nextAiring;
     bool m_nextAiringRequested = false;
     bool m_nextAiringPending = false;

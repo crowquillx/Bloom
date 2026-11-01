@@ -42,9 +42,10 @@ configuration/transport → providers → network services.
   (`ActionButton`, `BloomMenu`, `DialogSurface`, `StateMessage`, ...) and
   semantic tokens in `src/ui/Theme.qml`, the single token source.
 - Follow `docs/style-guide.md`: every page sits on a `StageBackdrop`, cards are
-  `MediaCard`, and only Home, detail pages and Up Next carry a hero. The
-  `NavigationBar.qml` top bar floats over pages; non-hero pages start at
-  `Theme.pageMarginTop`, and Up at a page's top edge must reach the bar.
+  `MediaCard`, and only Home, detail pages and the post-playback screens (Up
+  Next, after-movie) carry a hero. The `NavigationBar.qml` top bar floats over
+  pages; non-hero pages start at `Theme.pageMarginTop`, and Up at a page's top
+  edge must reach the bar.
 - Full QML/focus conventions: `docs/developer_notes.md`.
 
 ## Ownership map

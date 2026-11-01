@@ -1679,37 +1679,44 @@ Window {
         updateNavigationSelection()
     }
     
+    // A library title's details page, opened from Search, Discover, a
+    // person page, or the after-movie screen.
+    function pushMovieDetails(movieData, operation) {
+        const libraryId = movieData.parentId || ""
+        stackView.push("LibraryScreen.qml", {
+            currentParentId: libraryId,
+            currentLibraryId: libraryId,
+            currentLibraryName: "",
+            currentMovieData: movieData,
+            showMovieDetails: true,
+            preferStackPopOnDirectBack: true
+        }, operation === undefined ? StackView.PushTransition : operation)
+    }
+
+    function pushSeriesDetails(seriesId, operation) {
+        stackView.push("LibraryScreen.qml", {
+            currentParentId: "",
+            currentLibraryId: "",
+            currentLibraryName: "",
+            currentSeriesId: seriesId,
+            showSeriesDetails: true,
+            preferStackPopOnDirectBack: true
+        }, operation === undefined ? StackView.PushTransition : operation)
+        // Load series details, seasons, and next episode
+        LibraryService.getSeriesDetails(seriesId)
+        LibraryService.getSeasons(seriesId)
+        LibraryService.getNextUnplayedEpisode(seriesId)
+    }
+
     // Search and Discover open library titles on their details pages.
     function connectDetailNavigation(screen) {
-        // Connect navigateToMovie signal - show movie details view
         screen.navigateToMovie.connect(function(movieData) {
             playPointerSelectSound()
-            const libraryId = movieData.parentId || ""
-            stackView.push("LibraryScreen.qml", {
-                currentParentId: libraryId,
-                currentLibraryId: libraryId,
-                currentLibraryName: "",
-                currentMovieData: movieData,
-                showMovieDetails: true,
-                preferStackPopOnDirectBack: true
-            })
+            window.pushMovieDetails(movieData)
         })
-
-        // Connect navigateToSeries signal - show series details view
         screen.navigateToSeries.connect(function(seriesId) {
             playPointerSelectSound()
-            stackView.push("LibraryScreen.qml", {
-                currentParentId: "",
-                currentLibraryId: "",
-                currentLibraryName: "",
-                currentSeriesId: seriesId,
-                showSeriesDetails: true,
-                preferStackPopOnDirectBack: true
-            })
-            // Load series details, seasons, and next episode
-            LibraryService.getSeriesDetails(seriesId)
-            LibraryService.getSeasons(seriesId)
-            LibraryService.getNextUnplayedEpisode(seriesId)
+            window.pushSeriesDetails(seriesId)
         })
     }
 
@@ -2014,6 +2021,44 @@ Window {
                 PlayerController.releaseDeferredPostPlaybackDisplayRestore()
                 PlayerController.clearPendingAutoplayContext()
             }
+        }
+
+        // A movie ended past the completion threshold. The after-movie
+        // screen goes on top of the page playback started from, so Done
+        // returns there. The screen releases the parked display restore
+        // whichever way it is left.
+        function onNavigateToAfterMovie(movieData) {
+            if (!movieData || !movieData.itemId) {
+                PlayerController.releaseDeferredPostPlaybackDisplayRestore()
+                return
+            }
+            var afterMovieScreen = stackView.push("AfterMovieScreen.qml", {
+                movieData: movieData
+            }, StackView.Immediate)
+            if (!afterMovieScreen) {
+                console.warn("[Main] Failed to create the after-movie screen")
+                PlayerController.releaseDeferredPostPlaybackDisplayRestore()
+                return
+            }
+            Qt.callLater(function() {
+                if (afterMovieScreen && afterMovieScreen.focusPrimaryAction)
+                    afterMovieScreen.focusPrimaryAction()
+            })
+            afterMovieScreen.doneRequested.connect(function() {
+                if (stackView.currentItem === afterMovieScreen)
+                    stackView.pop(null, StackView.Immediate)
+            })
+            // A recommended title replaces the screen, so Back from its
+            // page also returns where playback started.
+            afterMovieScreen.recommendationSelected.connect(function(itemData) {
+                if (stackView.currentItem !== afterMovieScreen)
+                    return
+                stackView.pop(null, StackView.Immediate)
+                if (itemData.mediaType === "Series")
+                    window.pushSeriesDetails(itemData.itemId, StackView.Immediate)
+                else
+                    window.pushMovieDetails(itemData, StackView.Immediate)
+            })
         }
         
         ignoreUnknownSignals: true

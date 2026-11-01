@@ -67,7 +67,14 @@ enum class ProviderCapability {
     // ProviderCatalogOperation::SubtitleAppearance reads the acting
     // profile's subtitle appearance on this device, and
     // SetSubtitleAppearance writes or removes this device's override (Silo).
-    SubtitleAppearance = 1 << 21
+    SubtitleAppearance = 1 << 21,
+    // A personal 1-5 star rating per movie or series
+    // (ProviderCatalogOperation::SetUserRating, Silo). The profile's
+    // capability document still gates it.
+    StarRatings = 1 << 22,
+    // A personal like or dislike per item (SetUserRating with +1 or -1,
+    // Jellyfin).
+    LikeRatings = 1 << 23
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 
