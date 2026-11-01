@@ -726,10 +726,12 @@ void WorkspaceRoutingTest::removingConnectionAffectsOnlyThatAccount()
     m_servers->requests.clear();
     QVERIFY(m_workspaces->removeConnection(QStringLiteral("bob")));
     QVERIFY(!m_config->getConnection(QStringLiteral("bob")).has_value());
-    // Jellyfin ends every session of a device on logout, and alice's live
-    // session on the same server shares Bloom's device ID, so bob's pooled
-    // session is left to expire instead.
-    QCOMPARE(m_servers->logouts().size(), 0);
+    // bob's pooled session is ended on the server; alice's token on the
+    // same server keeps working.
+    QCOMPARE(m_servers->logouts().size(), 1);
+    QCOMPARE(m_servers->logouts().constFirst().token, QStringLiteral("token-bob"));
+    QCOMPARE(m_servers->logouts().constFirst().operation, QNetworkAccessManager::PostOperation);
+    QVERIFY(!m_servers->accountsByToken.contains(QStringLiteral("token-bob")));
     QVERIFY(m_servers->accountsByToken.contains(QStringLiteral("token-alice")));
     QVERIFY(!m_auth->hasSessionForConnection(QStringLiteral("bob")));
     QTRY_COMPARE(credentials().read(connection(QStringLiteral("bob"), QStringLiteral("media.test"),
@@ -749,13 +751,13 @@ void WorkspaceRoutingTest::removingConnectionAffectsOnlyThatAccount()
 
     // dave is in no space, so no tokens are loaded to end its session with.
     QVERIFY(m_workspaces->removeConnection(QStringLiteral("dave")));
-    QCOMPARE(m_servers->logouts().size(), 0);
+    QCOMPARE(m_servers->logouts().size(), 1);
 
-    // carol, a pooled member on another server, is logged out.
+    // carol, a pooled member on another server, is logged out with her token.
     QVERIFY(m_workspaces->removeConnection(QStringLiteral("carol")));
-    QTRY_COMPARE(m_servers->logouts().size(), 1);
-    QCOMPARE(m_servers->logouts().constFirst().host, QStringLiteral("other.test"));
-    QCOMPARE(m_servers->logouts().constFirst().token, QStringLiteral("token-carol"));
+    QTRY_COMPARE(m_servers->logouts().size(), 2);
+    QCOMPARE(m_servers->logouts().at(1).host, QStringLiteral("other.test"));
+    QCOMPARE(m_servers->logouts().at(1).token, QStringLiteral("token-carol"));
 }
 
 void WorkspaceRoutingTest::pooledMemberArtworkUsesOwnServerAndToken()

@@ -421,14 +421,8 @@ private:
     // tokens are dropped.
     void sendServerLogout(IProviderAdapter *adapter,
                           const std::optional<ProviderRequestContext> &context,
-                          const QString &refreshToken = QString(),
-                          const QString &connectionId = QString());
+                          const QString &refreshToken = QString());
     void postServerLogout(IProviderAdapter *adapter,
                           const ProviderRequestContext &context,
                           const QString &refreshToken);
-    // Jellyfin ends every server session of a device on logout, and all of
-    // Bloom's connections share one device ID, so a Jellyfin logout would
-    // also end another account's session on the same server.
-    [[nodiscard]] bool sharesJellyfinDeviceSession(const QString &connectionId,
-                                                   const QString &baseUrl) const;
 };

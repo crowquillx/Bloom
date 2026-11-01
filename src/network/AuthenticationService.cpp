@@ -1199,7 +1199,7 @@ void AuthenticationService::removeStoredCredentials(const ServerConnection &conn
         if (const auto credentials = m_sessionPool->credentials(connection.connectionId)) {
             sendServerLogout(providerForKind(connection.providerKind),
                              requestContextForConnection(connection.connectionId),
-                             credentials->refreshToken, connection.connectionId);
+                             credentials->refreshToken);
         }
     }
     m_sessionPool->forget(connection.connectionId);
@@ -1934,25 +1934,18 @@ void AuthenticationService::logout()
 {
     // A session the server already refused has nothing left to revoke.
     if (!m_accessToken.isEmpty() && !m_sessionExpiredEmitted && !m_sessionExpiredPending) {
-        sendServerLogout(m_providerAdapter, requestContext(true), m_refreshToken,
-                         activeConnectionId());
+        sendServerLogout(m_providerAdapter, requestContext(true), m_refreshToken);
     }
     clearAccountStateInternal(true, true);
 }
 
 void AuthenticationService::sendServerLogout(
     IProviderAdapter *adapter, const std::optional<ProviderRequestContext> &context,
-    const QString &refreshToken, const QString &connectionId)
+    const QString &refreshToken)
 {
     if (!adapter || !adapter->requestFactory() || !context.has_value()
         || context->baseUrl.isEmpty() || context->accessToken.isEmpty()
         || !networkManager()) {
-        return;
-    }
-    if (adapter->providerKind() == ProviderKind::Jellyfin
-        && sharesJellyfinDeviceSession(connectionId, context->baseUrl)) {
-        qCInfo(lcAuth) << "Skipping server logout: another account on this Jellyfin server"
-                          " shares the device session";
         return;
     }
     if (!m_logoutTransport) {
@@ -2034,27 +2027,6 @@ void AuthenticationService::postServerLogout(IProviderAdapter *adapter,
                 refreshOptions);
         },
         options);
-}
-
-bool AuthenticationService::sharesJellyfinDeviceSession(const QString &connectionId,
-                                                         const QString &baseUrl) const
-{
-    if (!m_configManager) {
-        return false;
-    }
-    const QString server = normalizeUrl(baseUrl);
-    for (const ServerConnection &other : m_configManager->getConnections()) {
-        if (other.connectionId == connectionId || other.providerKind != ProviderKind::Jellyfin
-            || normalizeUrl(other.baseUrl) != server) {
-            continue;
-        }
-        // Only a session Bloom is holding open can be hurt.
-        const bool live = other.connectionId == activeConnectionId() && !m_accessToken.isEmpty();
-        if (live || m_sessionPool->credentials(other.connectionId).has_value()) {
-            return true;
-        }
-    }
-    return false;
 }
 
 void AuthenticationService::clearAccountState()
