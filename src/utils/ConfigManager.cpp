@@ -2813,7 +2813,7 @@ int ConfigManager::normalizeNextUpCutoffDays(int days)
     if (days <= 0) {
         return 0;
     }
-    int nearest = 30;
+    int nearest = 0;
     for (const int choice : {30, 90, 180, 365}) {
         if (qAbs(choice - days) < qAbs(nearest - days)) {
             nearest = choice;

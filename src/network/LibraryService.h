@@ -410,6 +410,8 @@ private:
     quint64 m_requestGeneration = 0;
     quint64 m_heroRequestGeneration = 0;
     quint64 m_homeSectionsGeneration = 0;
+    // Newest Next Up refresh; an older one must not publish after it.
+    quint64 m_nextUpGeneration = 0;
     /// Per connection, the largest per-row card cap its Home layout read
     /// accepts (0 when it accepts none), once its capabilities were read.
     QHash<QString, int> m_homeSectionItemLimitMax;

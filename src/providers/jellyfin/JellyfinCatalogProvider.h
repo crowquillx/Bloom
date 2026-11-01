@@ -293,18 +293,28 @@ private:
         return std::nullopt;
     }
 
-    static std::optional<QString> nativeSortOrder(const QString &canonicalOrder)
+    // One order per SortBy key: Jellyfin reuses the first order for keys
+    // without their own, so a tie-break key that must stay ascending gets
+    // an explicit one.
+    static std::optional<QString> nativeSortOrder(const QString &canonicalSort,
+                                                  const QString &canonicalOrder)
     {
+        QString order;
         if (canonicalOrder.isEmpty()) {
             return QString();
         }
         if (canonicalOrder == QStringLiteral("ascending")) {
-            return QStringLiteral("Ascending");
+            order = QStringLiteral("Ascending");
+        } else if (canonicalOrder == QStringLiteral("descending")) {
+            order = QStringLiteral("Descending");
+        } else {
+            return std::nullopt;
         }
-        if (canonicalOrder == QStringLiteral("descending")) {
-            return QStringLiteral("Descending");
+        if (canonicalSort == QStringLiteral("datePlayed")) {
+            // Never-played titles follow by name, A to Z.
+            return order + QStringLiteral(",Ascending");
         }
-        return std::nullopt;
+        return order;
     }
 
     static QStringList standardItemFields(bool includeHeavyFields)
@@ -384,7 +394,7 @@ private:
             return validation;
         }
         const std::optional<QString> sort = nativeSort(query.sortBy);
-        const std::optional<QString> sortOrder = nativeSortOrder(query.sortOrder);
+        const std::optional<QString> sortOrder = nativeSortOrder(query.sortBy, query.sortOrder);
         if (!sort || !sortOrder) {
             return unsupported(QStringLiteral("Unsupported Jellyfin catalog sort"));
         }
@@ -539,10 +549,12 @@ private:
         }
         QUrlQuery parameters;
         parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
-        addHomeCardParameters(parameters, 10);
-        // In-progress episodes come from the resume list (ResumeItems), so
-        // a series whose next episode is part-watched leaves Next Up.
-        parameters.addQueryItem(QStringLiteral("EnableResumable"), QStringLiteral("false"));
+        // Part-watched next episodes stay in Next Up, so a failed resume
+        // read still shows them; ContinueWatching::combine keeps the resume
+        // copy. The larger page leaves room for them beside the episodes
+        // still to start.
+        addHomeCardParameters(parameters, 20);
+        parameters.addQueryItem(QStringLiteral("EnableResumable"), QStringLiteral("true"));
         if (query.nextUpRewatching) {
             parameters.addQueryItem(QStringLiteral("EnableRewatching"), QStringLiteral("true"));
         }

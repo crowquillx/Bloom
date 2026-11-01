@@ -68,6 +68,10 @@ public:
     {
         emit watchlistStatusFailed(itemId, inWatchlist, QStringLiteral("Not Found"));
     }
+    void failRead(const QString &endpoint, const QString &error)
+    {
+        emit errorOccurred(endpoint, error);
+    }
     void loadMovie(const QString &itemId, const QVariantMap &data)
     {
         emit canonicalItemLoaded(itemId, data);
@@ -138,11 +142,13 @@ private slots:
     void homeRowsFailureKeepsShownRows();
     void homeRowsRefreshAfterWatchlistChange();
     void homeRowsRefreshAfterFavoriteChangeOnlyWithFavoritesRow();
+    void homeRowsRefreshAfterFavoriteChangeDuringFirstRead();
     void homeRowsClearForMergedSpaces();
 
     void movieWatchlistToggleIsOptimisticAndRollsBack();
     void movieWatchlistIsHiddenWithoutProviderSupport();
     void seriesWatchlistToggleIsOptimisticAndRollsBack();
+    void movieLoadIgnoresOtherReadsErrors();
 
 private:
     QTemporaryDir m_configDirectory;
@@ -336,6 +342,49 @@ void HomeRowsAndWatchlistTest::homeRowsRefreshAfterFavoriteChangeOnlyWithFavorit
     m_service->connectionId = QStringLiteral("connection-2");
     m_service->confirmFavorite(QStringLiteral("movie-a"), true);
     QCOMPARE(m_service->homeRequests, 3);
+}
+
+void HomeRowsAndWatchlistTest::homeRowsRefreshAfterFavoriteChangeDuringFirstRead()
+{
+    m_service->watchlist = false;
+    HomeSectionsViewModel model(m_service);
+
+    // The first read may have started before the change: it is replaced.
+    model.refresh();
+    QCOMPARE(m_service->homeRequests, 1);
+    m_service->confirmFavorite(QStringLiteral("movie-a"), true);
+    QCOMPARE(m_service->homeRequests, 2);
+    m_service->loadRows(QStringLiteral("connection-1"),
+                        {row(QStringLiteral("bloom:favorites"), QStringLiteral("Favorites"),
+                             {card(QStringLiteral("movie-a"), QStringLiteral("Movie"))})});
+    QCOMPARE(sectionIds(model), QStringList{QStringLiteral("bloom:favorites")});
+
+    // A read pending for another connection is left alone.
+    m_service->connectionId = QStringLiteral("connection-2");
+    model.refresh();
+    QCOMPARE(m_service->homeRequests, 3);
+    m_service->connectionId = QStringLiteral("connection-3");
+    m_service->confirmFavorite(QStringLiteral("movie-a"), false);
+    QCOMPARE(m_service->homeRequests, 3);
+}
+
+void HomeRowsAndWatchlistTest::movieLoadIgnoresOtherReadsErrors()
+{
+    MovieDetailsViewModel vm;
+    QSignalSpy loadError(&vm, &MovieDetailsViewModel::loadError);
+    vm.loadMovieDetails(QStringLiteral("movie-errors"));
+    QVERIFY(vm.isLoading());
+
+    // Home's background reads fail while the page loads: not its error.
+    m_service->failRead(QStringLiteral("getResumeItems"), QStringLiteral("Not Found"));
+    m_service->failRead(QStringLiteral("getHomeFavorites"), QStringLiteral("Not Found"));
+    QVERIFY(vm.isLoading());
+    QCOMPARE(loadError.count(), 0);
+
+    // The movie read's own failure is.
+    m_service->failRead(QStringLiteral("getItem"), QStringLiteral("Server error"));
+    QVERIFY(!vm.isLoading());
+    QCOMPARE(loadError.count(), 1);
 }
 
 void HomeRowsAndWatchlistTest::homeRowsClearForMergedSpaces()

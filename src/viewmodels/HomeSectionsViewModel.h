@@ -63,7 +63,7 @@ private slots:
 private:
     void connectService();
     void applyRows(const QVariantList &rows);
-    /// Refreshes rows loaded for the live connection.
+    /// Refreshes rows loaded or loading for the live connection.
     void refreshLoadedRows();
     static QString sectionIdOf(const QVariant &row);
 

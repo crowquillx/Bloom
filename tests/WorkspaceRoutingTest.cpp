@@ -183,6 +183,9 @@ public:
     // Holds refresh replies until a test delivers them.
     bool holdRefresh = false;
     QList<QPointer<FakeReply>> heldRefreshes;
+    // Holds Next Up replies until a test delivers them.
+    bool holdNextUp = false;
+    QList<QPointer<FakeReply>> heldNextUps;
     // Silo poster badge preferences: effective settings and overlay config.
     QByteArray overlaySettings = QByteArrayLiteral(R"({"revision":15,"items":[]})");
     int overlaySettingsStatus = 200;
@@ -331,7 +334,12 @@ protected:
                 .toJson(QJsonDocument::Compact);
         };
         if (url.path() == QStringLiteral("/Shows/NextUp")) {
-            return new FakeReply(request, 200, itemsEnvelope(account->nextUp), this);
+            auto *reply = new FakeReply(request, 200, itemsEnvelope(account->nextUp), this,
+                                        holdNextUp);
+            if (holdNextUp) {
+                heldNextUps.append(reply);
+            }
+            return reply;
         }
         if (url.path() == QStringLiteral("/UserItems/Resume")) {
             return new FakeReply(request, account->resumeStatus,
@@ -499,6 +507,7 @@ private slots:
     void jellyfinNextUpAddsResumeListAndOptions();
     void jellyfinHomeShowsFavoritesRowBehindItsSetting();
     void mergedNextUpAddsEachJellyfinMembersResumeList();
+    void olderNextUpRefreshNeverPublishesAfterNewerOne();
 
 private:
     void seedAccounts();
@@ -1778,7 +1787,7 @@ void WorkspaceRoutingTest::jellyfinNextUpAddsResumeListAndOptions()
         }
     }
     QCOMPARE(m_servers->requests.size(), 2);
-    QCOMPARE(nextUpQuery.queryItemValue(QStringLiteral("EnableResumable")), QStringLiteral("false"));
+    QCOMPARE(nextUpQuery.queryItemValue(QStringLiteral("EnableResumable")), QStringLiteral("true"));
     QVERIFY(!nextUpQuery.hasQueryItem(QStringLiteral("EnableRewatching")));
     QVERIFY(!nextUpQuery.hasQueryItem(QStringLiteral("NextUpDateCutoff")));
     QCOMPARE(resumeQuery.queryItemValue(QStringLiteral("UserId")), QStringLiteral("u-alice"));
@@ -1846,7 +1855,8 @@ void WorkspaceRoutingTest::jellyfinHomeShowsFavoritesRowBehindItsSetting()
     QCOMPARE(request.query.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
     QCOMPARE(request.query.queryItemValue(QStringLiteral("SortBy")),
              QStringLiteral("DatePlayed,SortName"));
-    QCOMPARE(request.query.queryItemValue(QStringLiteral("SortOrder")), QStringLiteral("Descending"));
+    QCOMPARE(request.query.queryItemValue(QStringLiteral("SortOrder")),
+             QStringLiteral("Descending,Ascending"));
     QCOMPARE(request.query.queryItemValue(QStringLiteral("Limit")), QStringLiteral("20"));
 
     // No favorites: no row.
@@ -1899,7 +1909,7 @@ void WorkspaceRoutingTest::mergedNextUpAddsEachJellyfinMembersResumeList()
             ++resumeReads;
         } else if (request.path == QStringLiteral("/Shows/NextUp")) {
             QCOMPARE(request.query.queryItemValue(QStringLiteral("EnableResumable")),
-                     QStringLiteral("false"));
+                     QStringLiteral("true"));
             QCOMPARE(request.query.queryItemValue(QStringLiteral("EnableRewatching")),
                      QStringLiteral("true"));
         }
@@ -1915,6 +1925,57 @@ void WorkspaceRoutingTest::mergedNextUpAddsEachJellyfinMembersResumeList()
     QVERIFY(degraded.contains(QStringLiteral("carol/episode-c2")));
     QVERIFY(degraded.contains(QStringLiteral("alice/movie-a")));
     QCOMPARE(sourceState(QStringLiteral("carol")), QStringLiteral("ready"));
+}
+
+void WorkspaceRoutingTest::olderNextUpRefreshNeverPublishesAfterNewerOne()
+{
+    Account &alice = m_servers->accountsByToken[QStringLiteral("token-alice")];
+    m_servers->holdNextUp = true;
+
+    // Single space: the first refresh answers last and is dropped.
+    LibraryService library(m_auth.get());
+    QSignalSpy loaded(&library, &LibraryService::canonicalNextUpLoaded);
+    alice.nextUp = {playable(QStringLiteral("episode-old"), QStringLiteral("Episode"), 0)};
+    library.getNextUp();
+    QTRY_COMPARE(m_servers->heldNextUps.size(), 1);
+    alice.nextUp = {playable(QStringLiteral("episode-new"), QStringLiteral("Episode"), 0)};
+    library.getNextUp();
+    QTRY_COMPARE(m_servers->heldNextUps.size(), 2);
+    m_servers->heldNextUps.at(1)->deliver();
+    QTRY_COMPARE(loaded.count(), 1);
+    QCOMPARE(orderedRefs(loaded.first().at(1).toList()),
+             QStringList{QStringLiteral("alice/episode-new")});
+    m_servers->heldNextUps.at(0)->deliver();
+    QTest::qWait(50);
+    QCOMPARE(loaded.count(), 1);
+
+    // Merged space: the same for the fan-out.
+    m_servers->holdNextUp = false;
+    QVERIFY(!createMergedWorkspace().isEmpty());
+    waitForMembersReady();
+    m_servers->holdNextUp = true;
+    m_servers->heldNextUps.clear();
+    QSignalSpy merged(m_merged.get(), &MergedCatalogService::nextUpLoaded);
+    alice.nextUp = {playable(QStringLiteral("episode-old"), QStringLiteral("Episode"), 0)};
+    m_merged->getNextUp();
+    // One Next Up read per member (alice, bob and carol).
+    constexpr qsizetype firstFanOut = 3;
+    QTRY_COMPARE(m_servers->heldNextUps.size(), firstFanOut);
+    alice.nextUp = {playable(QStringLiteral("episode-new"), QStringLiteral("Episode"), 0)};
+    m_merged->getNextUp();
+    QTRY_COMPARE(m_servers->heldNextUps.size(), 2 * firstFanOut);
+    for (qsizetype i = firstFanOut; i < m_servers->heldNextUps.size(); ++i) {
+        m_servers->heldNextUps.at(i)->deliver();
+    }
+    QTRY_COMPARE(merged.count(), 1);
+    QStringList refs = orderedRefs(merged.first().at(0).toList());
+    QVERIFY(refs.contains(QStringLiteral("alice/episode-new")));
+    QVERIFY(!refs.contains(QStringLiteral("alice/episode-old")));
+    for (qsizetype i = 0; i < firstFanOut; ++i) {
+        m_servers->heldNextUps.at(i)->deliver();
+    }
+    QTest::qWait(50);
+    QCOMPARE(merged.count(), 1);
 }
 
 QTEST_GUILESS_MAIN(WorkspaceRoutingTest)

@@ -404,8 +404,14 @@ void ConfigManagerThemeTest::homeRowSettingsDefaultNormalizeAndPersist()
     QCOMPARE(config.getNextUpCutoffDays(), 365);
     config.setNextUpCutoffDays(-5);
     QCOMPARE(config.getNextUpCutoffDays(), 0);
+    // Off is a choice too: a day or two is nearer to off than to 30.
+    config.setNextUpCutoffDays(30);
+    config.setNextUpCutoffDays(1);
+    QCOMPARE(config.getNextUpCutoffDays(), 0);
+    config.setNextUpCutoffDays(16);
+    QCOMPARE(config.getNextUpCutoffDays(), 30);
     config.setNextUpCutoffDays(180);
-    QCOMPARE(cutoffSpy.count(), 4);
+    QCOMPARE(cutoffSpy.count(), 7);
 
     config.setHomeFavoritesRowEnabled(false);
     config.setHomeFavoritesRowEnabled(false);

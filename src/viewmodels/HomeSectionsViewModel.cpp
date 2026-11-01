@@ -151,10 +151,18 @@ void HomeSectionsViewModel::onFavoriteStatusChanged(const QString &itemId, bool 
 
 void HomeSectionsViewModel::refreshLoadedRows()
 {
-    // Only rows loaded for the live connection are refreshed; Home loads
-    // fresh rows itself otherwise.
-    if (m_libraryService && !m_connectionId.isEmpty()
-        && m_connectionId == m_libraryService->getActiveConnectionId()) {
+    // Only rows loaded or loading for the live connection are refreshed;
+    // Home loads fresh rows itself otherwise. A read in flight may predate
+    // the change, so it is replaced too.
+    if (!m_libraryService) {
+        return;
+    }
+    const QString activeConnectionId = m_libraryService->getActiveConnectionId();
+    if (activeConnectionId.isEmpty()) {
+        return;
+    }
+    if (m_connectionId == activeConnectionId
+        || (m_requestPending && m_pendingConnectionId == activeConnectionId)) {
         refresh();
     }
 }

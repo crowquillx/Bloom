@@ -75,8 +75,11 @@ void ProviderCatalogTest::jellyfinCanonicalSortKeysMapAtProviderBoundary()
         QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
         const QUrlQuery parameters{QUrl(request.relativeEndpoint)};
         QCOMPARE(parameters.queryItemValue(QStringLiteral("SortBy")), native);
+        // The name tie-break of datePlayed stays A to Z (one order per key).
         QCOMPARE(parameters.queryItemValue(QStringLiteral("SortOrder")),
-                 QStringLiteral("Descending"));
+                 canonical == QStringLiteral("datePlayed")
+                     ? QStringLiteral("Descending,Ascending")
+                     : QStringLiteral("Descending"));
     }
 
     ProviderCatalogQuery invalid;
@@ -371,8 +374,8 @@ void ProviderCatalogTest::jellyfinNextUpOptionsAndResumeList()
     ProviderCatalogQuery query;
     query.userId = QStringLiteral("user-1");
 
-    // Next Up leaves in-progress episodes to the resume list and sends no
-    // option the viewer did not choose.
+    // Next Up keeps part-watched episodes (the resume copy wins later) and
+    // sends no option the viewer did not choose.
     ProviderCatalogRequest request = catalog->createRequest(ProviderCatalogOperation::NextUp, query);
     QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
     QCOMPARE(request.method, ProviderHttpMethod::Get);
@@ -380,11 +383,11 @@ void ProviderCatalogTest::jellyfinNextUpOptionsAndResumeList()
     QUrlQuery parameters{QUrl(request.relativeEndpoint)};
     QCOMPARE(QUrl(request.relativeEndpoint).path(), QStringLiteral("/Shows/NextUp"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
-    QCOMPARE(parameters.queryItemValue(QStringLiteral("Limit")), QStringLiteral("10"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("Limit")), QStringLiteral("20"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("Fields")),
              QStringLiteral("Path,Overview,ParentId"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableUserData")), QStringLiteral("true"));
-    QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableResumable")), QStringLiteral("false"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableResumable")), QStringLiteral("true"));
     QVERIFY(!parameters.hasQueryItem(QStringLiteral("EnableRewatching")));
     QVERIFY(!parameters.hasQueryItem(QStringLiteral("NextUpDateCutoff")));
 

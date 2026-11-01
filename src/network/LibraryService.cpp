@@ -767,6 +767,7 @@ bool LibraryService::supportsNextUpOptions() const
 void LibraryService::getNextUp()
 {
     const QString connectionId = activeConnectionId(m_authService);
+    const quint64 generation = ++m_nextUpGeneration;
     ProviderCatalogQuery nextUpQuery = baseCatalogQuery();
     applyNextUpOptions(nextUpQuery,
                        m_authService ? m_authService->configManager() : nullptr,
@@ -778,7 +779,10 @@ void LibraryService::getNextUp()
             QStringLiteral("getNextUp"),
             ProviderCatalogOperation::NextUp,
             nextUpQuery,
-            [this, connectionId](const ProviderCatalogResponse &response) {
+            [this, connectionId, generation](const ProviderCatalogResponse &response) {
+                if (generation != m_nextUpGeneration) {
+                    return;
+                }
                 // One list from the server (Silo's Home layout), kept in
                 // its order.
                 emit canonicalNextUpLoaded(
@@ -797,8 +801,9 @@ void LibraryService::getNextUp()
         int outstanding = 2;
     };
     auto pending = std::make_shared<Pending>();
-    const auto finish = [this, connectionId, pending]() {
-        if (--pending->outstanding > 0 || pending->nextUpFailed) {
+    const auto finish = [this, connectionId, generation, pending]() {
+        if (--pending->outstanding > 0 || pending->nextUpFailed
+            || generation != m_nextUpGeneration) {
             return;
         }
         emit canonicalNextUpLoaded(

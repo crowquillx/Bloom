@@ -45,8 +45,9 @@ void ContinueWatchingTest::resumeItemsLeadByLastPlayed()
 {
     // Jellyfin's resume list (a movie and an episode) and its Next Up.
     const QVariantList resume{
-        item(QStringLiteral("movie-old"), 1000, QStringLiteral("2026-10-20T08:00:00.1234567Z")),
-        item(QStringLiteral("episode-new"), 2000, QStringLiteral("2026-10-31T21:30:00Z")),
+        item(QStringLiteral("movie-old"), 1000, QStringLiteral("2026-10-20T08:00:00Z")),
+        // Jellyfin's seven-digit fraction: an unparsed date would sort last.
+        item(QStringLiteral("episode-new"), 2000, QStringLiteral("2026-10-31T21:30:00.1234567Z")),
     };
     const QVariantList nextUp{
         item(QStringLiteral("episode-next-b"), 0),

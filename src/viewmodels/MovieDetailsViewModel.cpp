@@ -651,7 +651,11 @@ void MovieDetailsViewModel::onMovieChaptersFailed(const QString &connectionId,
 
 void MovieDetailsViewModel::onErrorOccurred(const QString &endpoint, const QString &error)
 {
-    Q_UNUSED(endpoint)
+    // Only the movie read fails the page; other reads (Home's background
+    // rows, playback state) report their own errors.
+    if (endpoint != QStringLiteral("getItem")) {
+        return;
+    }
     if (m_loadingMovie) {
         m_loadingMovie = false;
         setLoading(false);

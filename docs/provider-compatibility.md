@@ -258,31 +258,43 @@ both for Continue Watching and Next Up:
   `EnableImageTypes`, so its cards have the same shape. Jellyfin orders it by
   last played, newest first. In-progress movies, which `/Shows/NextUp` never
   returns, therefore reach Continue Watching.
-- `GET /Shows/NextUp` sends `EnableResumable=false`: a series whose next
-  episode is part-watched leaves Next Up, and the resume list shows that
-  episode instead, as in Jellyfin's own clients. `EnableRewatching=true`
+- `GET /Shows/NextUp` sends `Limit=20` and `EnableResumable=true`, so a
+  part-watched next episode stays in Next Up and still shows when the
+  resume read fails. Both lists name it then, and the resume copy wins the
+  dedupe; the page is twice Bloom's former 10 so those episodes leave room
+  for the ones still to start. `EnableResumable` is sent explicitly because
+  Silo's compatibility listener defaults it to false. `EnableRewatching=true`
   and `NextUpDateCutoff` (midnight UTC, the chosen number of days ago) are
   sent only when the viewer turns on the Next Up options
   (`ConfigManager::nextUpRewatching`, `nextUpCutoffDays`).
 - `LibraryService::getNextUp` reads both side by side and publishes one list
-  through `ContinueWatching::combine`: each item once (by `MediaRef`),
-  in-progress items first, most recently played first, then Next Up in its
-  own order. Home splits that list by `positionMs` into the two rows. A
-  failed resume read leaves Next Up alone; a failed Next Up read keeps the
-  rows already shown. Providers report the resume list and the options
-  through `ProviderCapability::ResumeItems` and `NextUpOptions`; Silo has
-  neither, keeps its single Home-layout read in the server's order, and
-  answers `ResumeItems` unsupported.
+  through `ContinueWatching::combine`: each item once (by `MediaRef`, the
+  resume copy first), in-progress items first, most recently played first,
+  then Next Up in its own order. Home splits that list by `positionMs` into
+  the two rows. A failed resume read leaves Next Up alone; a failed Next Up
+  read keeps the rows already shown. A newer refresh supersedes an older
+  one, whose answers are dropped (also in merged spaces). Providers report
+  the resume list and the options through `ProviderCapability::ResumeItems`
+  and `NextUpOptions`; native Silo has neither, keeps its single Home-layout
+  read in the server's order, and answers `ResumeItems` unsupported.
 - Jellyfin has no watchlist, so `LibraryService::getHomeSections` adds a
   "Favorites" row (`bloom:favorites`) for providers without
   `ProviderCapability::Watchlist` when `ConfigManager::homeFavoritesRowEnabled`
   is on (the default). It reuses the `/Items` operation with
   `IsFavorite=true`, `IncludeItemTypes=Movie,Series`, `Recursive=true`,
-  `SortBy=DatePlayed,SortName`, `SortOrder=Descending`, and `Limit=20`, so
-  only movies and series appear (`LibraryKinds`). No favorites adds no row.
+  `SortBy=DatePlayed,SortName`, `SortOrder=Descending,Ascending`, and
+  `Limit=20`, so only movies and series appear (`LibraryKinds`). Jellyfin
+  applies one order per `SortBy` key and reuses the first for keys without
+  one, so the name tie-break gets its own `Ascending`: never-played
+  favorites follow A to Z. No favorites adds no row.
   A favorite toggled on a details page refreshes it, as a watchlist change
   refreshes Silo's rows. Merged spaces show no Favorites row, like Silo's
   curated rows.
+- Silo's Jellyfin compatibility listener (pinned `8044eb8`) serves the same
+  reads: it registers `GET /UserItems/Resume`, honors `enableResumable`
+  and `nextUpDateCutoff` on Next Up, and filters `IsFavorite`. It honors
+  only the first `SortBy` key and maps `DatePlayed` to `created_at`, so
+  there the Favorites row lists the newest-added favorites first.
 
 The checked-in live Jellyfin fixture remains the stable 10.11.10 control. On
 2026-08-11, the pinned official Jellyfin 12 image above reported server version

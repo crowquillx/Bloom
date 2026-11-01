@@ -248,6 +248,7 @@ void MergedCatalogService::getNextUp()
     if (!isActive()) {
         return;
     }
+    const quint64 generation = ++m_nextUpGeneration;
     ProviderCatalogQuery nextUpQuery;
     LibraryService::applyNextUpOptions(nextUpQuery, m_configManager, QDate::currentDate());
     fanOut([this, nextUpQuery](const Member &member, SourceCompletion completion) {
@@ -294,7 +295,10 @@ void MergedCatalogService::getNextUp()
             }
             finish();
         });
-    }, [this](const QList<MergedSourceResult> &results) {
+    }, [this, generation](const QList<MergedSourceResult> &results) {
+        if (generation != m_nextUpGeneration) {
+            return;
+        }
         if (allFailed(results)) {
             emit nextUpFailed(combinedError(results));
         }

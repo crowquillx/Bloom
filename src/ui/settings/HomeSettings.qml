@@ -10,14 +10,32 @@ FocusScope {
     property Item _lastFocusedItem: null
     // Next Up options and the Favorites row apply to some providers only
     // (Jellyfin); Silo applies its own Next Up rules and has a watchlist.
-    readonly property bool nextUpOptionsSupported: AuthenticationService.authenticated
+    // They follow the live provider, which a merged space can switch
+    // without signing out (connectionActivated).
+    property int _liveConnectionRevision: 0
+    readonly property bool nextUpOptionsSupported: _liveConnectionRevision >= 0
+                                                   && AuthenticationService.authenticated
                                                    && LibraryService.supportsNextUpOptions()
-    readonly property bool favoritesRowSupported: AuthenticationService.authenticated
+    readonly property bool favoritesRowSupported: _liveConnectionRevision >= 0
+                                                  && AuthenticationService.authenticated
                                                   && LibraryService.supportsHomeFavoritesRow()
+    readonly property bool homeRowControlsShown: nextUpOptionsSupported || favoritesRowSupported
+
+    Connections {
+        target: AuthenticationService
+        function onConnectionActivated(connectionId) { root._liveConnectionRevision++ }
+    }
 
     function enterFromRail() { (_lastFocusedItem || preferredEntryItem).forceActiveFocus() }
     function restoreFocus() { enterFromRail() }
     function ensure(item) { flickable.ensureFocusVisible(item); _lastFocusedItem = item }
+    // The last control also brings the notes below it into view when the
+    // Home Rows controls are hidden.
+    function ensureWithTrailingNotes(item) {
+        ensure(item)
+        if (!homeRowControlsShown)
+            flickable.ensureFocusVisible(favoritesNote)
+    }
     function sourceIndex() {
         var values = ["recentlyAdded", "continueWatching", "upNext", "library", "mixed"]
         return Math.max(0, values.indexOf(ConfigManager.heroBannerSource))
@@ -273,9 +291,12 @@ FocusScope {
                     KeyNavigation.up: hideMoviesRow; KeyNavigation.down: unwatchedRow
                 }
                 SettingsToggleRow {
-                    id: unwatchedRow; label: qsTr("Library: unwatched only"); checked: ConfigManager.heroBannerLibraryUnwatchedOnly; ensureVisible: root.ensure
+                    id: unwatchedRow; label: qsTr("Library: unwatched only"); checked: ConfigManager.heroBannerLibraryUnwatchedOnly; ensureVisible: root.ensureWithTrailingNotes
                     onToggled: ConfigManager.heroBannerLibraryUnwatchedOnly = value
-                    KeyNavigation.up: hideSeriesRow; KeyNavigation.down: rewatchingRow
+                    // Hidden rows are skipped; with none below, Down stays.
+                    KeyNavigation.up: hideSeriesRow
+                    KeyNavigation.down: root.nextUpOptionsSupported ? rewatchingRow
+                                        : root.favoritesRowSupported ? favoritesRow : null
                 }
                 Text {
                     text: qsTr("Library source uses all visible libraries unless specific library IDs are configured.")
@@ -335,7 +356,7 @@ FocusScope {
                         onActivated: function(index) { applyDaysAt(index) }
                         onActiveFocusChanged: if (activeFocus) root.ensure(this)
                         KeyNavigation.up: rewatchingRow
-                        KeyNavigation.down: favoritesRow
+                        KeyNavigation.down: root.favoritesRowSupported ? favoritesRow : null
                     }
                 }
                 Text {
@@ -351,9 +372,10 @@ FocusScope {
                     description: qsTr("Show your favorite movies and series on Home.")
                     checked: ConfigManager.homeFavoritesRowEnabled; ensureVisible: root.ensure
                     onToggled: function(value) { ConfigManager.homeFavoritesRowEnabled = value }
-                    KeyNavigation.up: cutoffCombo
+                    KeyNavigation.up: root.nextUpOptionsSupported ? cutoffCombo : unwatchedRow
                 }
                 Text {
+                    id: favoritesNote
                     visible: !root.favoritesRowSupported
                     text: qsTr("This server shows your watchlist on Home instead of a Favorites row.")
                     color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall; font.family: Theme.fontPrimary
