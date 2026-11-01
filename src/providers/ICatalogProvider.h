@@ -76,6 +76,18 @@ enum class ProviderCatalogOperation {
     // extras inside the item detail (Silo) leave both unsupported.
     SpecialFeatures,
     LocalTrailers,
+    // One person (itemId) with biography, life dates and photo; their
+    // movies and series, newest first, one page at a time (startIndex or
+    // cursor); and people whose name matches searchTerm. Responses carry
+    // wire people in rawItem/rawItems; the adapter maps them
+    // (IProviderAdapter::mapPerson). PersonSearchCapability reads whether
+    // people search can be limited to movie and series credits the viewer
+    // may see (capabilityMetadata `peopleMediaScope`); providers whose
+    // people search always is answer it unsupported.
+    Person,
+    PersonItems,
+    PersonSearch,
+    PersonSearchCapability,
 };
 
 enum class ProviderHttpMethod {

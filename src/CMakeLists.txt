@@ -72,6 +72,9 @@ qt_add_executable(Bloom
     viewmodels/UpNextRecommendationsViewModel.cpp
     viewmodels/HomeSectionsViewModel.h
     viewmodels/HomeSectionsViewModel.cpp
+    viewmodels/PersonViewModel.h
+    viewmodels/PersonViewModel.cpp
+    ui/PersonViewModelRegistration.h
     ui/UiSoundController.h
     ui/UiSoundController.cpp
     ui/ScreensaverController.h
@@ -195,6 +198,7 @@ qt_add_qml_module(Bloom
         ui/settings/RenameProfileDialog.qml
         ui/settings/ImportMpvConfigDialog.qml
         ui/SearchScreen.qml
+        ui/PersonScreen.qml
         ui/DiscoverScreen.qml
         ui/BrowseScreen.qml
         ui/DiscoveryCard.qml

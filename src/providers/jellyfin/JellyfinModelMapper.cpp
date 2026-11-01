@@ -2,6 +2,7 @@
 #include "models/MediaExtras.h"
 #include <QHash>
 
+#include <QDate>
 #include <QDateTime>
 #include <QUrl>
 #include <QJsonDocument>
@@ -671,6 +672,57 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
     }
     item[QStringLiteral("artwork")] = artwork;
     return item;
+}
+
+QVariantMap JellyfinModelMapper::person(const QJsonObject &wirePerson,
+                                        const QString &connectionId)
+{
+    Bloom::Person person;
+    person.media = {connectionId, wirePerson.value(QStringLiteral("Id")).toString()};
+    person.name = wirePerson.value(QStringLiteral("Name")).toString();
+    if (person.media.itemId.isEmpty() || person.name.isEmpty()) {
+        return {};
+    }
+    person.kind = wirePerson.value(QStringLiteral("Type")).toString();
+    person.overview = wirePerson.value(QStringLiteral("Overview")).toString();
+    // Jellyfin keeps a person's birth in PremiereDate and death in EndDate,
+    // as midnight UTC timestamps.
+    const auto calendarDate = [&wirePerson](const QString &key) {
+        const QString value = wirePerson.value(key).toString();
+        const QDate date = QDate::fromString(value.left(10), Qt::ISODate);
+        return date.isValid() ? date.toString(Qt::ISODate) : QString();
+    };
+    person.birthDate = calendarDate(QStringLiteral("PremiereDate"));
+    person.deathDate = calendarDate(QStringLiteral("EndDate"));
+    const QJsonArray locations = wirePerson.value(QStringLiteral("ProductionLocations")).toArray();
+    if (!locations.isEmpty()) {
+        person.birthplace = locations.first().toString();
+    }
+    person.providerIds =
+        wirePerson.value(QStringLiteral("ProviderIds")).toObject().toVariantMap();
+    const QString imageTag = wirePerson.value(QStringLiteral("ImageTags")).toObject()
+                                 .value(QStringLiteral("Primary")).toString();
+    if (!imageTag.isEmpty() && !connectionId.isEmpty()) {
+        person.artwork.connectionId = connectionId;
+        person.artwork.itemId = person.media.itemId;
+        person.artwork.kind = Bloom::ArtworkKind::Person;
+        person.artwork.tag = imageTag;
+    }
+    return person.toVariantMap();
+}
+
+QVariantList JellyfinModelMapper::personList(const QJsonArray &wirePeople,
+                                             const QString &connectionId)
+{
+    QVariantList result;
+    result.reserve(wirePeople.size());
+    for (const QJsonValue &value : wirePeople) {
+        const QVariantMap mapped = person(value.toObject(), connectionId);
+        if (!mapped.isEmpty()) {
+            result.append(mapped);
+        }
+    }
+    return result;
 }
 
 QVariantList JellyfinModelMapper::mediaItems(const QJsonArray &wireItems,

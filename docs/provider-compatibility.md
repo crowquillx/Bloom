@@ -108,6 +108,8 @@ Rows load in the background with the other Home rows and refresh with them: afte
 
 The watchlist is a per-profile list separate from favorites. Movie and series pages show "Add to Watchlist" / "On Watchlist" when the provider reports `ProviderCapability::Watchlist` (native Silo only; Jellyfin has none). The state comes from the item's `user_state.in_watchlist` (canonical `inWatchlist`). `PUT` and `DELETE /api/v2/watchlist/{item_id}` change it with an empty body. Both are `natural_idempotent` in the contract, so the transport may replay them after a lost response. The button changes at once and reverts with a message when the server refuses.
 
+Person pages read `GET /api/v2/catalog/people/{id}` (`getPerson`, without `prefetch`) for the name, biography, life dates, birthplace, photo and provider IDs, and the person's titles through `GET /api/v2/catalog?source=person&person_id={id}&type=video&sort=-year` (the order Silo's web app uses), with the artwork widths, paged by `page.next_cursor`. People search uses `GET /api/v2/catalog/people?q=…&limit=…&media_scope=video`, which `listPeople` accepts only when `GET /api/v2/catalog/search/capabilities` reports `people_media_scope`; it then returns only people with movie or series credits the viewer can see. Bloom reads that flag once per connection. Without it Search shows no people, because an unscoped search also returns authors and people from libraries the profile cannot open, and older servers reject the parameter with `422`. `listPeople` and `getPerson` declare no artwork widths, so photos keep their 500 px default.
+
 Series and season collections omit `type`. The mapper treats an untyped card with `episode_number` as an episode, and one with `season_number` and `episode_count` as a season numbered by `season_number`.
 
 Artwork URLs are signed links to one stored size variant per image. Each read picks the narrowest variant at least as wide as the request's `poster_width`, `backdrop_width`, `logo_width`, `still_width`, or `photo_width`, else the original. Without them Silo uses per-surface defaults: 300 px posters and backdrops on catalog pages and structured queries, 300 px stills on episode rows (season episode lists), and 500 px posters with 1920 px backdrops on Home and details. Those defaults upscale on a large screen. `SiloArtworkSizes` sends `poster_width=1000`, `backdrop_width=3840`, `logo_width=1280`, and `still_width=1280` (sizes for a 4K screen, matching Bloom's 2x `maxWidth` requests to Jellyfin) on every catalog, Home, library section, similar, and watchlist read, and on the artwork refresh read. Episode stills (the series page and Up Next episode cards) get the 1280 px rung; photos keep their 500 px default. Silo answers `422` to parameters a route does not declare, so library discovery, filters, theme reads, settings, and writes never carry them. The mapper tags each artwork reference with a hash of the URL path without its signed query. The image cache key therefore changes when the variant or the artwork changes, but not when the signature rotates.
@@ -209,6 +211,13 @@ not branch the core catalog/playback contract by server version. In particular:
 - user-scoped catalog operations use `/UserViews`, `/Items`, `/Items/Latest`,
   `/Items?Ids={id}`, `/UserPlayedItems/{id}`, and `/UserFavoriteItems/{id}` with
   `UserId` where the operation declares it;
+- person pages read the person by ID with `GET /Items/{itemId}?userId=`
+  (`GetItem`), not the name-keyed `/Persons/{name}`, since names are not
+  unique, and their titles with `GET /Items?PersonIds={id}` limited to
+  `Movie,Series`, recursive, sorted by `PremiereDate,SortName` descending then
+  ascending, with `StartIndex`/`Limit` paging. People search uses
+  `GET /Persons` (`GetPersons`) with `searchTerm`, `limit` and Primary images;
+  `/Search/Hints` is not used because it also answers music and books;
 - item `Fields` values are limited to the OpenAPI `ItemFields` enum, and direct
   item reads do not send the unlisted `Fields` parameter;
 - `PlaybackInfoDto.UserId` is sent in the POST body, playback progress omits

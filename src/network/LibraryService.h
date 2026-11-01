@@ -200,6 +200,18 @@ public:
                                     const QStringList &excludedLibraryIds = {});
     Q_INVOKABLE virtual void getRandomItems(int limit = 20);
 
+    // People. getPerson reads one person's biography, life dates and photo.
+    // getPersonItems reads one page of their movies and series, newest
+    // first: pass the previous page's nextCursor (Silo) or the next
+    // startIndex (Jellyfin); requestKey comes back with the answer.
+    // searchPeople finds people by name in movie and series credits; a
+    // provider that cannot limit people search to those answers no people.
+    Q_INVOKABLE virtual void getPerson(const QString &personId);
+    virtual void getPersonItems(const QString &personId, int startIndex,
+                                const QString &cursor, int limit,
+                                const QString &requestKey);
+    Q_INVOKABLE virtual void searchPeople(const QString &searchTerm, int limit = 20);
+
     // Hero Banner: random library sample (Movies + Series). When parentIds is empty,
     // all libraries are sampled. When unwatchedOnly is true, only unplayed items are
     // returned. Used by the Home screen "Library" hero source.
@@ -350,6 +362,29 @@ signals:
     void canonicalSearchResultsFailed(const QString &connectionId,
                                       const QString &searchTerm,
                                       const QString &error);
+    void canonicalPersonLoaded(const QString &connectionId,
+                               const QString &personId,
+                               const QVariantMap &person);
+    void canonicalPersonFailed(const QString &connectionId,
+                               const QString &personId,
+                               const QString &error);
+    void canonicalPersonItemsLoaded(const QString &connectionId,
+                                    const QString &personId,
+                                    const QString &requestKey,
+                                    const QVariantList &items,
+                                    int totalRecordCount,
+                                    bool hasMore,
+                                    const QString &nextCursor);
+    void canonicalPersonItemsFailed(const QString &connectionId,
+                                    const QString &personId,
+                                    const QString &requestKey,
+                                    const QString &error);
+    void canonicalPeopleSearchLoaded(const QString &connectionId,
+                                     const QString &searchTerm,
+                                     const QVariantList &people);
+    void canonicalPeopleSearchFailed(const QString &connectionId,
+                                     const QString &searchTerm,
+                                     const QString &error);
     void canonicalRandomItemsLoaded(const QString &connectionId,
                                     const QVariantList &items);
     void canonicalRandomItemsFailed(const QString &connectionId,
@@ -431,6 +466,10 @@ private:
     // Newest search; a replaced search (new term or library exclusions)
     // must not publish results after it.
     quint64 m_searchGeneration = 0;
+    // Newest people search, and per connection whether people search can be
+    // limited to movie and series credits (providers that read it).
+    quint64 m_peopleSearchGeneration = 0;
+    QHash<QString, bool> m_peopleSearchScoped;
     /// Libraries of unsupported types per connection, from the last views
     /// listing; search leaves them out (LibraryKinds).
     QHash<QString, QStringList> m_unsupportedLibraryIds;

@@ -91,6 +91,15 @@ public:
         case ProviderCatalogOperation::MediaRequestBrowseCategories:
         case ProviderCatalogOperation::MediaRequestBrowse:
             return unsupported(QStringLiteral("Jellyfin has no server-side media requests"));
+        case ProviderCatalogOperation::Person:
+            return personRequest(query);
+        case ProviderCatalogOperation::PersonItems:
+            return personItemsRequest(query);
+        case ProviderCatalogOperation::PersonSearch:
+            return personSearchRequest(query);
+        case ProviderCatalogOperation::PersonSearchCapability:
+            return unsupported(QStringLiteral(
+                "Jellyfin people search needs no capability read"));
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -160,6 +169,17 @@ public:
         }
 
         const QJsonObject root = document.object();
+        if (operation == ProviderCatalogOperation::Person) {
+            if (root.value(QStringLiteral("Id")).toString().isEmpty()
+                || root.value(QStringLiteral("Name")).toString().isEmpty()) {
+                response.error = QStringLiteral("Jellyfin person response has no Id or Name");
+                return response;
+            }
+            response.rawItem = root;
+            response.valid = true;
+            return response;
+        }
+
         if (operation == ProviderCatalogOperation::Item
             || operation == ProviderCatalogOperation::Chapters
             || operation == ProviderCatalogOperation::HeroOverviews
@@ -778,6 +798,70 @@ private:
         return supportedRequest(endpoint);
     }
 
+    // GetItem by ID: names are not unique, so the name-keyed /Persons/{name}
+    // route could answer another person.
+    static ProviderCatalogRequest personRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, true, QStringLiteral("person"));
+        if (!validation.supported) {
+            return validation;
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("userId"), query.userId);
+        return supportedRequest(endpointWithQuery(
+            QStringLiteral("/Items/%1").arg(encodedPathSegment(query.itemId)), parameters));
+    }
+
+    // The person's movies and series, newest first, one page at a time.
+    static ProviderCatalogRequest personItemsRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, true, QStringLiteral("person items"));
+        if (!validation.supported) {
+            return validation;
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
+        parameters.addQueryItem(QStringLiteral("PersonIds"), query.itemId);
+        parameters.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Movie,Series"));
+        parameters.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
+        parameters.addQueryItem(QStringLiteral("SortBy"), QStringLiteral("PremiereDate,SortName"));
+        parameters.addQueryItem(QStringLiteral("SortOrder"), QStringLiteral("Descending,Ascending"));
+        parameters.addQueryItem(QStringLiteral("Fields"),
+                                QStringLiteral("Overview,PrimaryImageAspectRatio,ChildCount"));
+        parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
+        parameters.addQueryItem(QStringLiteral("EnableImageTypes"),
+                                QStringLiteral("Primary,Backdrop,Thumb,Logo"));
+        parameters.addQueryItem(QStringLiteral("StartIndex"),
+                                QString::number(qMax(0, query.startIndex)));
+        parameters.addQueryItem(QStringLiteral("Limit"),
+                                QString::number(query.limit > 0 ? query.limit : 50));
+        return supportedRequest(endpointWithQuery(QStringLiteral("/Items"), parameters));
+    }
+
+    // GetPersons, not /Search/Hints, which also answers music and books.
+    static ProviderCatalogRequest personSearchRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, false, QStringLiteral("people search"));
+        if (!validation.supported) {
+            return validation;
+        }
+        const QString term = query.searchTerm.trimmed();
+        if (term.isEmpty()) {
+            return unsupported(QStringLiteral("Jellyfin people search requires a search term"));
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("userId"), query.userId);
+        parameters.addQueryItem(QStringLiteral("searchTerm"), term);
+        parameters.addQueryItem(QStringLiteral("limit"),
+                                QString::number(query.limit > 0 ? query.limit : 20));
+        parameters.addQueryItem(QStringLiteral("enableImages"), QStringLiteral("true"));
+        parameters.addQueryItem(QStringLiteral("enableImageTypes"), QStringLiteral("Primary"));
+        return supportedRequest(endpointWithQuery(QStringLiteral("/Persons"), parameters));
+    }
+
     static ProviderCatalogRequest randomItemsRequest(const ProviderCatalogQuery &query)
     {
         const ProviderCatalogRequest validation = requireIds(
@@ -981,6 +1065,10 @@ private:
         case ProviderCatalogOperation::MediaRequestBrowse: return QStringLiteral("browse");
         case ProviderCatalogOperation::SpecialFeatures: return QStringLiteral("special features");
         case ProviderCatalogOperation::LocalTrailers: return QStringLiteral("local trailers");
+        case ProviderCatalogOperation::Person: return QStringLiteral("person");
+        case ProviderCatalogOperation::PersonItems: return QStringLiteral("person items");
+        case ProviderCatalogOperation::PersonSearch: return QStringLiteral("people search");
+        case ProviderCatalogOperation::PersonSearchCapability: return QStringLiteral("people search capability");
         }
         return QStringLiteral("catalog");
     }

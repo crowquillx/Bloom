@@ -48,6 +48,12 @@ public:
                                    const QString &connectionId);
     static QVariantList mediaItems(const QJsonArray &wireItems,
                                    const QString &connectionId);
+    /// A catalog Person (getPerson, listPeople) as a canonical person; empty
+    /// when it has no ID or name.
+    static QVariantMap person(const QJsonObject &wirePerson,
+                              const QString &connectionId);
+    static QVariantList personList(const QJsonArray &wirePeople,
+                                   const QString &connectionId);
     /// The token-free tag of a signed artwork URL: a hash of its path, which
     /// names the stored size variant and its content.
     static QString artworkTag(const QString &url);

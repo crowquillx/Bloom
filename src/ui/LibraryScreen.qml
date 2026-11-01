@@ -9,6 +9,10 @@ FocusScope {
     id: root
 
     property string navigationId: currentLibraryId !== "" ? "library:" + currentLibraryId : "media"
+    /// A cast or crew card asked for its person's page; Main pushes it.
+    signal personRequested(var person)
+    /// Set by Main once personRequested is connected.
+    property bool personNavigationConnected: false
     property string currentParentId: ""
     property string currentLibraryId: ""   // The root library ID (for profile resolution)
     property string currentLibraryName: ""  // Name of the current library for display
@@ -709,6 +713,10 @@ FocusScope {
                 handleSelection(itemData)
             }
             
+            onPersonSelected: function(person) {
+                root.personRequested(person)
+            }
+
             onBackRequested: {
                 exitSeriesDetails()
             }
@@ -744,6 +752,10 @@ FocusScope {
                 showSeriesDetailsFromSeasonView(episodeId)
             }
 
+            onPersonSelected: function(person) {
+                root.personRequested(person)
+            }
+
             onBackRequested: {
                 exitSeasonView()
             }
@@ -777,6 +789,10 @@ FocusScope {
                 handleSelection(itemData)
             }
              
+            onPersonSelected: function(person) {
+                root.personRequested(person)
+            }
+
             onBackRequested: {
                 exitMovieDetails()
             }

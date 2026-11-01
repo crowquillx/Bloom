@@ -1060,6 +1060,34 @@ target_link_libraries(HomeRowsAndWatchlistTest
 
 add_test(NAME HomeRowsAndWatchlistTest COMMAND HomeRowsAndWatchlistTest)
 
+add_executable(PersonViewModelTest
+    PersonViewModelTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/PersonViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(PersonViewModelTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(PersonViewModelTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME PersonViewModelTest COMMAND PersonViewModelTest)
+
 add_executable(MediaRequestServiceTest
     MediaRequestServiceTest.cpp
 )
@@ -1168,6 +1196,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     TrackPreferencesManagerTest
     SimilarItemsRetryTest
     HomeRowsAndWatchlistTest
+    PersonViewModelTest
     MediaRequestServiceTest
     UpNextRecommendationsViewModelTest
     UpdateServiceTest

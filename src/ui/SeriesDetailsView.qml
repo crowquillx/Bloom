@@ -84,6 +84,18 @@ FocusScope {
     signal itemSelected(var itemData)
     signal backRequested()
     signal returnStateConsumed()
+    signal personSelected(var person)
+
+    // Cast and crew open the person's page (personSelected). Coming back,
+    // focus lands on the card that opened it instead of the hero.
+    property bool returnFocusToCast: false
+
+    function openPerson(person) {
+        if (!person || !person.personId)
+            return
+        returnFocusToCast = true
+        root.personSelected(person)
+    }
 
     focus: true
 
@@ -514,6 +526,11 @@ FocusScope {
     onActiveFocusChanged: {
         if (!activeFocus) {
             return
+        }
+        if (returnFocusToCast) {
+            returnFocusToCast = false
+            if (restoreFocusToArea("cast", castList.currentIndex))
+                return
         }
         if ((restoringFocusFromNavigation && savedFocusItem)
                 || restoringFocusFromReturnState
@@ -1047,13 +1064,26 @@ FocusScope {
                         itemData: modelData
                         isFocused: ListView.isCurrentItem && ListView.view.activeFocus
                         onActiveFocusChanged: if (activeFocus) castList.currentIndex = index
+                        onClicked: {
+                            castList.currentIndex = index
+                            castList.forceActiveFocus()
+                            root.openPerson(modelData)
+                        }
                     }
 
                     onActiveFocusChanged: if (activeFocus) root.scrollToSection(castSection)
                     Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(castList, -1) }
                     Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(castList, 1) }
-                    Keys.onReturnPressed: (event) => { event.accepted = true }
-                    Keys.onEnterPressed: (event) => { event.accepted = true }
+                    Keys.onReturnPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < castAndCrew.length)
+                            root.openPerson(castAndCrew[currentIndex])
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < castAndCrew.length)
+                            root.openPerson(castAndCrew[currentIndex])
+                        event.accepted = true
+                    }
                 }
             }
 

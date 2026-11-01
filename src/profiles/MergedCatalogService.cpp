@@ -373,6 +373,102 @@ void MergedCatalogService::search(const QString &searchTerm, int limit)
     });
 }
 
+void MergedCatalogService::searchPeople(const QString &searchTerm, int limit)
+{
+    const QString term = searchTerm.trimmed();
+    if (!isActive()) {
+        emit peopleSearchFailed(term, tr("No combined space is active."));
+        return;
+    }
+    if (term.isEmpty()) {
+        emit peopleSearchLoaded(term, {});
+        return;
+    }
+    ProviderCatalogQuery query;
+    query.searchTerm = term;
+    query.limit = limit;
+    fanOut([this, query](const Member &member, SourceCompletion completion) {
+        requestMemberPeople(member, query, std::move(completion));
+    }, [this, term](const QList<MergedSourceResult> &results) {
+        if (allFailed(results)) {
+            emit peopleSearchFailed(term, combinedError(results));
+            return;
+        }
+        // People are not deduplicated across sources: one name on two
+        // servers may be two people, and each page reads its own server.
+        emit peopleSearchLoaded(term, m_policy->merge(MergedCatalogOperation::Search, results));
+    });
+}
+
+void MergedCatalogService::requestMemberPeople(const Member &member,
+                                               const ProviderCatalogQuery &query,
+                                               SourceCompletion completion)
+{
+    // People search is auxiliary to title search: it never changes a
+    // source's state.
+    const auto search = [this, member, query, completion]() {
+        sendMemberRequest(member, ProviderCatalogOperation::PersonSearch, query, false, false,
+                          [this, member, completion](const ProviderCatalogResponse *response,
+                                                     IProviderAdapter *adapter,
+                                                     const QString &error) {
+            if (!response) {
+                completion(failedResult(member, error));
+                return;
+            }
+            MergedSourceResult result;
+            result.memberId = member.memberId;
+            result.connectionId = member.connectionId;
+            result.label = member.label;
+            result.priority = member.priority;
+            result.succeeded = true;
+            result.items = adapter->mapPeople(response->rawItems, member.connectionId);
+            completion(result);
+        });
+    };
+    const auto unscoped = [this, member, completion]() {
+        MergedSourceResult result = failedResult(member, QString());
+        result.succeeded = true;
+        completion(result);
+    };
+
+    const IProviderAdapter *adapter = m_authService
+        ? m_authService->providerForConnection(member.connectionId) : nullptr;
+    const ICatalogProvider *catalog = adapter ? adapter->catalogProvider() : nullptr;
+    if (!catalog
+        || !catalog->createRequest(ProviderCatalogOperation::PersonSearchCapability,
+                                   ProviderCatalogQuery{}).supported) {
+        search();
+        return;
+    }
+    const auto known = m_peopleSearchScoped.constFind(member.connectionId);
+    if (known != m_peopleSearchScoped.constEnd()) {
+        if (known.value()) {
+            search();
+        } else {
+            unscoped();
+        }
+        return;
+    }
+    sendMemberRequest(member, ProviderCatalogOperation::PersonSearchCapability,
+                      ProviderCatalogQuery{}, false, false,
+                      [this, member, completion, search, unscoped](
+                          const ProviderCatalogResponse *response, IProviderAdapter *,
+                          const QString &error) {
+        if (!response) {
+            completion(failedResult(member, error));
+            return;
+        }
+        const bool scoped =
+            response->capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool();
+        m_peopleSearchScoped.insert(member.connectionId, scoped);
+        if (scoped) {
+            search();
+        } else {
+            unscoped();
+        }
+    });
+}
+
 void MergedCatalogService::loadSourceLibraries(const QString &connectionId)
 {
     const std::optional<Member> target = readableMember(connectionId);

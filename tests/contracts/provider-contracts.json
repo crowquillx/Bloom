@@ -110,7 +110,8 @@
     "optional.notifications",
     "optional.downloads",
     "optional.audiobooks",
-    "optional.ebooks"
+    "optional.ebooks",
+    "catalog.people"
   ],
   "contracts": [
     {
@@ -759,6 +760,19 @@
         "jellyfin-supported": {"outcome": "not-applicable", "evidence": "Bloom's current client has no ebook reader or provider-neutral ebook contract."},
         "silo-8044eb8-compat": {"outcome": "not-applicable", "evidence": "Silo type mapping alone is not a pinned compatibility ebook contract."}
       }
+    },
+    {
+      "id": "catalog.people",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getPerson, getPersonItems and searchPeople",
+      "method": "GET",
+      "path": "/Items/{itemId} and /Items and /Persons",
+      "requestSemantics": ["The person is read by item ID through GetItem, never by name through /Persons/{name}, because names are not unique", "Filmography uses PersonIds with IncludeItemTypes Movie,Series, Recursive, SortBy PremiereDate,SortName (descending, then ascending), StartIndex and Limit", "People search uses GetPersons with searchTerm, limit and Primary images instead of /Search/Hints, which also answers music and books"],
+      "requiredSemantics": ["The person carries Id, Name, Overview, PremiereDate (birth), EndDate (death), ProductionLocations and a Primary image tag", "Filmography pages carry TotalRecordCount and StartIndex so Bloom knows whether another page exists", "Search results are Person items with Id and Name; the person page shows only movie and series titles"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "GetItem, GetItems with PersonIds, and GetPersons are non-obsolete operations in the pinned Jellyfin 12 OpenAPI document."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Not verified on the 8044eb8 compatibility build, so Bloom makes no claim there; native Silo serves person pages through its v2 people routes (native.catalog.people)."}
+      }
     }
   ],
   "nativeSiloContract": {
@@ -815,6 +829,7 @@
       "native.catalog.page",
       "native.catalog.query",
       "native.catalog.detail",
+      "native.catalog.people",
       "native.catalog.hierarchy",
       "native.state.watched",
       "native.state.favorite",
@@ -1274,6 +1289,52 @@
           "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
         ],
         "liveProbe": true
+      },
+      {
+        "id": "native.catalog.people",
+        "method": "GET",
+        "path": "/api/v2/catalog/people/{id} and /api/v2/catalog and /api/v2/catalog/search/capabilities and /api/v2/catalog/people",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/catalog/people/{id}"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/catalog"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/catalog/search/capabilities"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/catalog/people"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operations; people search also needs getCatalogSearchCapabilities.people_media_scope, read once per connection."
+        },
+        "requestSemantics": [
+          "getPerson reads one person by opaque ID, without prefetch.",
+          "A person's titles are listCatalogItems with source=person, person_id, type=video and sort=-year, paged by page.next_cursor, with the artwork width parameters.",
+          "listPeople sends q, limit at most 100 and media_scope=video only when people_media_scope is true; otherwise Bloom shows no people, because unscoped results include other media and credits the viewer cannot see."
+        ],
+        "requiredSemantics": [
+          "A person has id and name, and optionally bio, birth_date and death_date as calendar dates, birthplace, photo_url and provider IDs.",
+          "listPeople answers an items array of people; listCatalogItems answers items with page.has_more and page.next_cursor."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/providers/silo/SiloModelMapper.cpp",
+          "src/network/LibraryService.cpp",
+          "src/viewmodels/PersonViewModel.cpp"
+        ]
       },
       {
         "id": "native.catalog.hierarchy",

@@ -81,6 +81,18 @@ public:
         return SiloModelMapper::mediaItems(wireItems, connectionId);
     }
 
+    QVariantMap mapPerson(const QJsonObject &wirePerson,
+                          const QString &connectionId) const override
+    {
+        return SiloModelMapper::person(wirePerson, connectionId);
+    }
+
+    QVariantList mapPeople(const QJsonArray &wirePeople,
+                           const QString &connectionId) const override
+    {
+        return SiloModelMapper::personList(wirePeople, connectionId);
+    }
+
     QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
                                      const QString &connectionId,
                                      const QString &itemId) const override

@@ -102,3 +102,15 @@ The rows a Silo profile curates for its Home page, which `HomeScreen.qml` shows 
 
 ## Continue Watching and Next Up
 Home's two first shelves come from one list, `LibraryService::canonicalNextUpLoaded` (or `MergedCatalog.nextUpLoaded` in merged spaces). The order is decided in C++: for providers with a resume list (Jellyfin), `ContinueWatching::combine` (`src/models/ContinueWatching.*`, `Bloom::Models`) puts each item once (an episode in both lists keeps its resume copy), in-progress items first by last played, then Next Up in its order; Silo's list keeps the server's order. Only the newest refresh publishes; an older one that answers later is dropped. `HomeScreen.qml` only splits it by `positionMs` into Continue Watching and Next Up, or shows it whole when `mergeContinueWatchingWithNextUp` is on, and restores focus with `Qt.callLater` after each update. `ContinueWatchingTest` covers the ordering; `WorkspaceRoutingTest` covers the single and merged reads and stale refreshes.
+
+## PersonViewModel
+The data behind `PersonScreen.qml`: one person and the movies and series they appear in on the live connection. It is a creatable QML type (`PersonViewModel`, registered through `ui/PersonViewModelRegistration.h`), so each person page owns one and stacked person pages keep their own state.
+
+- **Load**: `load(person)` takes the canonical person map a cast card or a people search result carries. Its name and photo show at once; a credit's `role` and `kind` are dropped. The page then reads `LibraryService::getPerson` and the first page of `getPersonItems` on the live connection. A person whose `connectionId` is another source's is refused with an error (merged spaces route to the owning connection before the page opens).
+- **Properties**: `person` (the seed, replaced key by key by the read; a seed photo stays when the read has none), `personId`, `connectionId`, `movies`, `series`, `hasMore`, `loadingMore`. The list rows are the filmography in server order, with roles `itemData`, `itemId`, `mediaType` and `name`.
+- **Filtering**: only `Movie` and `Series` items are kept (LibraryKinds), each item ID once across pages.
+- **Paging**: pages of 60. `loadMore()` reads the next page while `hasMore`, one at a time, continuing from the server's cursor (Silo) or the number of items the server has sent, before filtering (Jellyfin). New titles are appended (`rowsInserted`). An empty page ends paging.
+- **Loading and errors**: `isLoading` covers the details and the first page. A failed first page sets `hasError`/`errorMessage`; failed details keep the seed with no error; a failed later page keeps the titles and `hasMore`, so the next `loadMore()` tries again. `reload()` starts over.
+- **Ownership**: each load and page has its own request key; answers for another connection, person or an older load are ignored.
+- **Tests**: `PersonViewModelTest` covers loading, the seed, filtering and de-duplication, paging by count and cursor, errors and retries, stale answers, and refusing another source's person. `ProviderCatalogTest` and `SiloCatalogServiceTest` cover the provider requests and mapping.
+

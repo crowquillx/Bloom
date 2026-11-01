@@ -4,12 +4,12 @@ import QtQuick.Layouts
 import BloomUI
 
 /**
- * SearchScreen - search movies and shows across the active space.
+ * SearchScreen - search movies, shows and people across the active space.
  *
  * Browse archetype (docs/style-guide.md): an ambient stage that picks up the
  * focused result's backdrop, a PageHeader, a large search field, then results
- * as poster shelves (Shows, Movies, Requests). Before a search, a shelf of random
- * suggestions from the active library.
+ * as shelves (Shows, Movies, People, Requests). Before a search, a shelf of
+ * random suggestions from the active library. A person opens their page.
  *
  * Keys: the field is the first focus. Down moves into the first shelf, Up and
  * Down move between shelves, Up from the first shelf returns to the field, and
@@ -24,6 +24,7 @@ FocusScope {
     // Navigation signals
     signal navigateToMovie(var movieData)
     signal navigateToSeries(var seriesId)
+    signal navigateToPerson(var person)
 
     // ========================================
     // Properties
@@ -34,7 +35,13 @@ FocusScope {
     property var movieResults: []
     property var seriesResults: []
     property var requestResults: []
+    /// People whose name matches; hidden when people search fails.
+    property var peopleResults: []
+    property bool waitingForPeopleSearch: false
+    property string pendingPeopleConnectionId: ""
+    property string pendingPeopleSearchTerm: ""
     readonly property bool isSearching: waitingForLibrarySearch || waitingForRequestSearch
+                                        || waitingForPeopleSearch
     property bool hasSearched: false
     property bool waitingForLibrarySearch: false
     property bool waitingForRequestSearch: false
@@ -55,6 +62,8 @@ FocusScope {
     // Same request width as Home posters, so both pages share image-cache entries.
     readonly property int posterRequestWidth: 640
     readonly property real shelfScrollOffset: Math.round(56 * Theme.layoutScale)
+    readonly property int peopleCardWidth: Math.round(176 * Theme.layoutScale)
+    readonly property int peopleCardHeight: Math.round(320 * Theme.layoutScale)
 
     /// Last focused field or shelf; restored after the navigation bar or a
     /// details page hands focus back.
@@ -72,10 +81,18 @@ FocusScope {
         sourceRouter.run(item.connectionId || "", function() { root.navigateToMovie(item) })
     }
 
+    function openPerson(person) {
+        if (!person || !person.personId)
+            return
+        sourceRouter.run(person.connectionId || "", function() { root.navigateToPerson(person) })
+    }
+
     function openResult(item, list) {
         if (!item)
             return
-        if (item.source === "request") {
+        if (item.personId) {
+            openPerson(item)
+        } else if (item.source === "request") {
             requestDialog.openForItem(item, list)
         } else if (item.mediaType === "Series") {
             openSeries(item)
@@ -110,6 +127,28 @@ FocusScope {
         else
             LibraryService.search(term, 50, typeof Workspaces !== "undefined"
                                   ? Workspaces.searchHiddenLibraryIds(pendingLibraryConnectionId) : [])
+        startPeopleSearch(term)
+    }
+
+    function startPeopleSearch(term) {
+        pendingPeopleConnectionId = mergedMode ? "" : LibraryService.getActiveConnectionId()
+        pendingPeopleSearchTerm = term
+        waitingForPeopleSearch = true
+        peopleResults = []
+        if (mergedMode)
+            MergedCatalog.searchPeople(term, 20)
+        else
+            LibraryService.searchPeople(term, 20)
+    }
+
+    function applyPeopleSearchResults(term, people) {
+        waitingForPeopleSearch = false
+        pendingPeopleConnectionId = ""
+        pendingPeopleSearchTerm = ""
+        if (term !== searchTerm.trim())
+            return
+        peopleResults = people || []
+        Qt.callLater(repairFocus)
     }
 
     function runSearchNow() {
@@ -136,6 +175,10 @@ FocusScope {
             movieResults = []
             seriesResults = []
             requestResults = []
+            peopleResults = []
+            waitingForPeopleSearch = false
+            pendingPeopleConnectionId = ""
+            pendingPeopleSearchTerm = ""
             stageDebounce.stop()
             stageSource = ""
         }
@@ -213,7 +256,7 @@ FocusScope {
     // Shelves in focus order (visible, non-empty ones only).
     function shelfLists() {
         var lists = []
-        var candidates = [suggestionsList, seriesList, moviesList, requestList]
+        var candidates = [suggestionsList, seriesList, moviesList, peopleList, requestList]
         for (var i = 0; i < candidates.length; i++) {
             var list = candidates[i]
             if (list.parent && list.parent.visible && list.count > 0)
@@ -377,6 +420,23 @@ FocusScope {
             }
             root.applyLibrarySearchResults(term, [], [], true, error)
         }
+
+        function onCanonicalPeopleSearchLoaded(connectionId, term, people) {
+            if (root.mergedMode || connectionId !== root.pendingPeopleConnectionId
+                    || term !== root.pendingPeopleSearchTerm) {
+                return
+            }
+            root.applyPeopleSearchResults(
+                        term, connectionId === LibraryService.getActiveConnectionId() ? people : [])
+        }
+
+        function onCanonicalPeopleSearchFailed(connectionId, term, error) {
+            if (root.mergedMode || connectionId !== root.pendingPeopleConnectionId
+                    || term !== root.pendingPeopleSearchTerm) {
+                return
+            }
+            root.applyPeopleSearchResults(term, [])
+        }
     }
 
     Connections {
@@ -395,6 +455,18 @@ FocusScope {
             root.applyLibrarySearchResults(term, [], [], true, error)
         }
 
+        function onPeopleSearchLoaded(term, people) {
+            if (!root.mergedMode || term !== root.pendingPeopleSearchTerm)
+                return
+            root.applyPeopleSearchResults(term, people)
+        }
+
+        function onPeopleSearchFailed(term, error) {
+            if (!root.mergedMode || term !== root.pendingPeopleSearchTerm)
+                return
+            root.applyPeopleSearchResults(term, [])
+        }
+
         // Editing the space's sources drops in-flight member requests and
         // invalidates shown results; search the new source list again.
         function onActiveChanged() {
@@ -404,6 +476,7 @@ FocusScope {
             // Results from a removed or disabled source must not stay selectable.
             root.movieResults = []
             root.seriesResults = []
+            root.peopleResults = []
             root.startLibrarySearch(term)
             Qt.callLater(root.repairFocus)
         }
@@ -541,8 +614,8 @@ FocusScope {
                     if (root.hasSearched && !root.librarySearchFailed && root.libraryResultCount > 0)
                         return root.libraryResultCount === 1 ? qsTr("1 result in your libraries")
                                                                : qsTr("%1 results in your libraries").arg(root.libraryResultCount)
-                    return root.mergedMode ? qsTr("Movies and shows from every source in this space")
-                                           : qsTr("Movies and shows in your libraries")
+                    return root.mergedMode ? qsTr("Movies, shows and people from every source in this space")
+                                           : qsTr("Movies, shows and people in your libraries")
                 }
             }
 
@@ -587,7 +660,7 @@ FocusScope {
                             id: searchInput
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            placeholderText: qsTr("Search movies and shows")
+                            placeholderText: qsTr("Search movies, shows and people")
                             placeholderTextColor: Theme.textTertiary
                             font.pixelSize: Theme.fontSizeMedium
                             font.family: Theme.fontPrimary
@@ -597,7 +670,7 @@ FocusScope {
                             leftPadding: 0
                             rightPadding: 0
                             focus: true
-                            Accessible.name: qsTr("Search movies and shows")
+                            Accessible.name: qsTr("Search movies, shows and people")
 
                             onTextChanged: {
                                 root.searchTerm = text
@@ -716,6 +789,7 @@ FocusScope {
                 message: qsTr("Nothing in your libraries matches “%1”.").arg(root.searchTerm.trim())
                 visible: root.hasSearched && !root.waitingForLibrarySearch && !root.librarySearchFailed
                          && root.libraryResultCount === 0
+                         && root.peopleResults.length === 0 && !root.waitingForPeopleSearch
                          && root.requestResults.length === 0 && !root.waitingForRequestSearch
             }
 
@@ -727,7 +801,7 @@ FocusScope {
                 kind: "empty"
                 iconGlyph: Icons.search
                 title: qsTr("Find something to watch")
-                message: qsTr("Type a title to search your movies and shows.")
+                message: qsTr("Type a title or a name to search your movies, shows and people.")
                 visible: !root.hasSearched && !root.waitingForLibrarySearch
                          && root.searchTerm.trim().length === 0 && root.suggestions.length === 0
             }
@@ -863,6 +937,73 @@ FocusScope {
                         if (activeFocus) {
                             root.lastFocusTarget = moviesList
                             root.scrollToSection(moviesSection)
+                        }
+                    }
+                }
+            }
+
+            ColumnLayout {
+                id: peopleSection
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.sectionSpacing
+                spacing: Theme.sectionTitleSpacing
+                visible: root.hasSearched && root.peopleResults.length > 0
+
+                SectionHeader {
+                    text: qsTr("People")
+                    detail: String(root.peopleResults.length)
+                    Layout.leftMargin: Theme.pageMarginX
+                    Layout.rightMargin: Theme.pageMarginX
+                    Layout.fillWidth: true
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
+                }
+
+                ShelfList {
+                    id: peopleList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    cardHeight: root.peopleCardHeight
+                    model: root.peopleResults
+
+                    // Merged spaces name each person's source under the name.
+                    delegate: PersonCard {
+                        required property var modelData
+                        required property int index
+                        width: root.peopleCardWidth
+                        height: root.peopleCardHeight
+                        itemData: ({
+                            personId: modelData.personId,
+                            connectionId: modelData.connectionId,
+                            name: modelData.name,
+                            artwork: modelData.artwork,
+                            subtitle: modelData.sourceLabel || ""
+                        })
+                        isFocused: ListView.isCurrentItem && ListView.view.activeFocus
+                        onActiveFocusChanged: if (activeFocus) peopleList.currentIndex = index
+                        onClicked: {
+                            peopleList.currentIndex = index
+                            peopleList.forceActiveFocus()
+                            root.openPerson(modelData)
+                        }
+                    }
+
+                    Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(peopleList, -1) }
+                    Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(peopleList, 1) }
+                    Keys.onReturnPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.peopleResults.length)
+                            root.openPerson(root.peopleResults[currentIndex])
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < root.peopleResults.length)
+                            root.openPerson(root.peopleResults[currentIndex])
+                        event.accepted = true
+                    }
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            root.lastFocusTarget = peopleList
+                            root.scrollToSection(peopleSection)
                         }
                     }
                 }

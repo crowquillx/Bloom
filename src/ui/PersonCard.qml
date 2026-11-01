@@ -9,12 +9,22 @@ FocusScope {
 
     required property var itemData
     property bool isFocused: false
+    /// Whether activating the card opens the person's page; credits
+    /// without a person ID cannot.
+    readonly property bool opensPerson: !!(itemData && itemData.personId)
+
+    /// A pointer click; keyboard activation is handled by the list.
+    signal clicked()
     property bool isHovered: InputModeManager.pointerActive && personMouseArea.containsMouse
     readonly property int posterFrameWidth: width
     readonly property int posterFrameHeight: Math.round(posterFrameWidth * 1.5)
 
     implicitWidth: Math.round(176 * Theme.layoutScale)
     implicitHeight: Math.round(320 * Theme.layoutScale)
+
+    Accessible.role: opensPerson ? Accessible.Button : Accessible.ListItem
+    Accessible.name: itemData ? (itemData.name || "") : ""
+    Accessible.description: castSubtitleLabel.text
 
     scale: isFocused ? Theme.focusScale : 1.0
     transformOrigin: Item.Center
@@ -120,6 +130,10 @@ FocusScope {
         id: personMouseArea
         anchors.fill: parent
         hoverEnabled: true
-        onClicked: personCard.forceActiveFocus()
+        cursorShape: personCard.opensPerson ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: {
+            personCard.forceActiveFocus()
+            personCard.clicked()
+        }
     }
 }

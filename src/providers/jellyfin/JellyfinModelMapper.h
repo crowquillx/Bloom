@@ -44,6 +44,12 @@ public:
     static QVariantList extras(const QJsonArray &wireItems,
                                const QString &connectionId,
                                const QString &parentId);
+    // A Person item (GetItem, GetPersons) as a canonical person; empty when
+    // it has no ID or name.
+    static QVariantMap person(const QJsonObject &wirePerson,
+                              const QString &connectionId);
+    static QVariantList personList(const QJsonArray &wirePeople,
+                                   const QString &connectionId);
     static Bloom::Chapter chapter(const QJsonObject &wireChapter,
                                   const QString &connectionId,
                                   const QString &itemId,
