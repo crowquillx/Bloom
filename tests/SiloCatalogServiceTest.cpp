@@ -2769,6 +2769,11 @@ void SiloCatalogServiceTest::nextAiringRetriesUnknownZoneAsOffset()
     if (QTimeZone::systemTimeZoneId() != QByteArrayLiteral("Asia/Tokyo")) {
         QSKIP("The system zone does not follow TZ here");
     }
+    // Without zone data (the Nix build sandbox) Bloom already sends the
+    // offset zone first, so there is nothing to retry.
+    if (!QTimeZone::isTimeZoneIdAvailable(QByteArrayLiteral("Asia/Tokyo"))) {
+        QSKIP("No time zone data for Asia/Tokyo here");
+    }
 
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
