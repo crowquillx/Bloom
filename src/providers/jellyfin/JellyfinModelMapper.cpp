@@ -206,6 +206,13 @@ MediaStreamInfo JellyfinModelMapper::mediaStream(const QJsonObject &wireStream)
     info.dolbyVisionBlSignalCompatibilityId = wireInt(
         wireStream.value(QStringLiteral("DvBlSignalCompatibilityId")));
     info.videoDoViTitle = wireStream.value(QStringLiteral("VideoDoViTitle")).toString();
+    // DeliveryUrl belongs to the delivery method the DeviceProfile selected;
+    // only an External delivery is a file mpv can load beside the stream.
+    if (info.isExternal
+        && wireStream.value(QStringLiteral("DeliveryMethod")).toString().compare(
+               QStringLiteral("External"), Qt::CaseInsensitive) == 0) {
+        info.externalUrl = wireStream.value(QStringLiteral("DeliveryUrl")).toString().trimmed();
+    }
     return info;
 }
 

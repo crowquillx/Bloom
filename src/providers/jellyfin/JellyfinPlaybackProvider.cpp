@@ -6,6 +6,8 @@
 #include <QUrlQuery>
 #include <QJsonArray>
 
+#include <algorithm>
+
 namespace {
 
 // Jellyfin's DeviceProfile defaults MaxStreamingBitrate to 8 Mbps, which forces
@@ -48,10 +50,75 @@ QUrl resolveProviderUrl(const QUrl &serverUrl, const QString &providerUrl)
     return base.resolved(QUrl(relativePath));
 }
 
-Bloom::PlaybackTrack mapTrack(const QVariantMap &stream)
+bool sameOrigin(const QUrl &left, const QUrl &right)
+{
+    const auto port = [](const QUrl &url) {
+        return url.port(url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0
+                            ? 443 : 80);
+    };
+    return left.scheme().compare(right.scheme(), Qt::CaseInsensitive) == 0
+        && left.host().compare(right.host(), Qt::CaseInsensitive) == 0
+        && port(left) == port(right);
+}
+
+bool hasQueryCredential(const QUrl &url)
+{
+    for (const auto &item : QUrlQuery(url).queryItems()) {
+        for (const QLatin1String name : {QLatin1String("ApiKey"), QLatin1String("api_key"),
+                 QLatin1String("X-Emby-Token"), QLatin1String("X-MediaBrowser-Token")}) {
+            if (item.first.compare(name, Qt::CaseInsensitive) == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Text subtitle formats mpv loads as sidecar files. Jellyfin reports .srt and
+// .vtt files under either name, so both spellings are listed.
+const QStringList &sidecarSubtitleFormats()
+{
+    static const QStringList formats{
+        QStringLiteral("srt"), QStringLiteral("subrip"), QStringLiteral("ass"),
+        QStringLiteral("ssa"), QStringLiteral("vtt"), QStringLiteral("webvtt")};
+    return formats;
+}
+
+// mpv fetches sidecars itself, so the URL has to carry its own credential.
+// The server's DeliveryUrl usually does; its query is kept byte for byte and
+// only gains ApiKey when it reaches the server without one. URLs on another
+// origin never receive the token.
+QUrl externalSubtitleUrl(const PlaybackProviderContext &context,
+                         const QString &providerUrl)
+{
+    if (!context.serverUrl.isValid()) {
+        return {};
+    }
+    QUrl url = resolveProviderUrl(context.serverUrl, providerUrl);
+    const QString scheme = url.scheme().toLower();
+    if (!url.isValid() || (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))
+        || url.host().isEmpty()) {
+        return {};
+    }
+    if (sameOrigin(url, context.serverUrl) && !context.accessToken.isEmpty()
+        && !hasQueryCredential(url)) {
+        QByteArray encoded = url.toEncoded(QUrl::RemoveFragment);
+        encoded += url.hasQuery() ? '&' : '?';
+        encoded += "ApiKey=" + QUrl::toPercentEncoding(context.accessToken);
+        url = QUrl::fromEncoded(encoded);
+    }
+    return url;
+}
+
+Bloom::PlaybackTrack mapTrack(const PlaybackProviderContext &context,
+                              const Bloom::MediaRef &media,
+                              const QString &mediaSourceId,
+                              const QVariantMap &stream)
 {
     Bloom::PlaybackTrack track;
-    track.trackId = QString::number(stream.value(QStringLiteral("index"), -1).toInt());
+    const int index = stream.value(QStringLiteral("index"), -1).toInt();
+    track.trackId = QString::number(index);
+    track.sourceIndex = index;
     track.kind = stream.value(QStringLiteral("type")).toString().toLower();
     track.language = stream.value(QStringLiteral("language")).toString();
     track.codec = stream.value(QStringLiteral("codec")).toString();
@@ -62,6 +129,23 @@ Bloom::PlaybackTrack mapTrack(const QVariantMap &stream)
     track.isHearingImpaired = stream.value(QStringLiteral("isHearingImpaired")).toBool();
     if (track.kind == QStringLiteral("audio"))
         track.audio = Bloom::AudioSourceMetadata::fromVariantMap(stream);
+    if (track.kind == QStringLiteral("subtitle") && track.isExternal) {
+        const QString deliveryUrl = stream.value(QStringLiteral("externalUrl")).toString().trimmed();
+        const QString format = track.codec.trimmed().toLower();
+        if (!deliveryUrl.isEmpty()) {
+            track.externalUrl = externalSubtitleUrl(context, deliveryUrl);
+        } else if (index >= 0 && !media.itemId.isEmpty() && !mediaSourceId.isEmpty()
+                   && sidecarSubtitleFormats().contains(format)) {
+            // Without a DeliveryUrl, GetSubtitle serves the file unchanged
+            // when the requested format is the stream's own codec.
+            track.externalUrl = externalSubtitleUrl(
+                context,
+                QStringLiteral("/Videos/%1/%2/Subtitles/%3/Stream.%4")
+                    .arg(QString::fromLatin1(QUrl::toPercentEncoding(media.itemId)),
+                         QString::fromLatin1(QUrl::toPercentEncoding(mediaSourceId)),
+                         QString::number(index), format));
+        }
+    }
     return track;
 }
 
@@ -111,7 +195,8 @@ Bloom::PlaybackDescriptor JellyfinPlaybackProvider::createDescriptor(
     descriptor.reporting = {true, true, true, true};
 
     for (const QVariant &streamValue : providerSource.value(QStringLiteral("mediaStreams")).toList()) {
-        const Bloom::PlaybackTrack track = mapTrack(streamValue.toMap());
+        const Bloom::PlaybackTrack track = mapTrack(
+            context, media, descriptor.mediaVersionId, streamValue.toMap());
         if (track.kind == QStringLiteral("audio")) {
             descriptor.audioTracks.append(track);
         } else if (track.kind == QStringLiteral("subtitle")) {
@@ -177,7 +262,15 @@ Bloom::PlaybackDescriptor JellyfinPlaybackProvider::createDescriptor(
         query.addQueryItem(QStringLiteral("AudioStreamIndex"),
                            QString::number(selectedAudioTrack));
     }
-    if (selectedSubtitleTrack >= 0
+    // A sidecar subtitle is shown by mpv; asking the stream for it as well
+    // would have a transcode burn it in.
+    const bool selectedSubtitleIsSidecar = std::any_of(
+        descriptor.subtitleTracks.cbegin(), descriptor.subtitleTracks.cend(),
+        [&descriptor](const Bloom::PlaybackTrack &track) {
+            return track.trackId == descriptor.selectedSubtitleTrackId
+                && !track.externalUrl.isEmpty();
+        });
+    if (selectedSubtitleTrack >= 0 && !selectedSubtitleIsSidecar
         && !query.hasQueryItem(QStringLiteral("SubtitleStreamIndex"))) {
         query.addQueryItem(QStringLiteral("SubtitleStreamIndex"),
                            QString::number(selectedSubtitleTrack));
@@ -247,6 +340,16 @@ PlaybackInfoRequest JellyfinPlaybackProvider::createPlaybackInfoRequest(
         {QStringLiteral("Method"), QStringLiteral("Embed")},
         {QStringLiteral("Container"), QStringLiteral("mp4,mov")}
     });
+    // Jellyfin matches embedded streams against the Embed profiles first, so
+    // these only apply to sidecar files. They give each one a DeliveryUrl mpv
+    // can load; without them the server plans an external track as Encode,
+    // and a default sidecar then costs direct play.
+    for (const QString &format : sidecarSubtitleFormats()) {
+        subtitleProfiles.append(QJsonObject{
+            {QStringLiteral("Format"), format},
+            {QStringLiteral("Method"), QStringLiteral("External")}
+        });
+    }
     request.body.insert(QStringLiteral("DeviceProfile"), QJsonObject{
         {QStringLiteral("Name"), QStringLiteral("Bloom")},
         {QStringLiteral("MaxStreamingBitrate"), kMaxStreamingBitrate},
