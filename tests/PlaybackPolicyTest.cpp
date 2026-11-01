@@ -87,6 +87,10 @@ private slots:
     void classifiesEndFileReasons();
     void picksSkipRangeForPosition();
     void mergesTouchingAndOverlappingSkipRanges();
+    void countsAutoplayChainForStillWatching();
+    void normalizesStillWatchingThresholds();
+    void normalizesSleepTimerChoices();
+    void sleepTimerSurvivesOnlyDurationsThroughUpNext();
     void resolvesAdjacentEpisodesWithinSeason();
     void resolvesAdjacentSeasonsSkippingSpecials();
     void buildsPlaybackVersionOptions();
@@ -756,6 +760,109 @@ void PlaybackPolicyTest::validatesPrefetchedEpisodesAndContexts()
     QVERIFY(PlayerPolicy::nextEpisodeRequestContext(
                 {}, QStringLiteral("series"), QStringLiteral("episode"))
                 .isEmpty());
+}
+
+void PlaybackPolicyTest::countsAutoplayChainForStillWatching()
+{
+    // Threshold 3: a manual start, then three countdown starts with no
+    // input; the end of the third autoplayed episode asks.
+    int count = PlayerPolicy::autoplayChainCountAfterStart(7, false);
+    QCOMPARE(count, 0);
+    for (int autoplayed = 1; autoplayed <= 3; ++autoplayed) {
+        QVERIFY(!PlayerPolicy::shouldAskStillWatching(count, 3));
+        count = PlayerPolicy::autoplayChainCountAfterStart(count, true);
+        QCOMPARE(count, autoplayed);
+    }
+    QVERIFY(PlayerPolicy::shouldAskStillWatching(count, 3));
+
+    // Input restarts the chain; so does a manual start such as Continue.
+    QCOMPARE(PlayerPolicy::autoplayChainCountAfterUserInput(), 0);
+    QVERIFY(!PlayerPolicy::shouldAskStillWatching(PlayerPolicy::autoplayChainCountAfterUserInput(), 3));
+    QCOMPARE(PlayerPolicy::autoplayChainCountAfterStart(count, false), 0);
+    // A negative count never leaks into the next autoplay.
+    QCOMPARE(PlayerPolicy::autoplayChainCountAfterStart(-4, true), 1);
+
+    // Off never asks; each threshold asks at exactly that many.
+    QVERIFY(!PlayerPolicy::shouldAskStillWatching(100, 0));
+    for (int threshold = 2; threshold <= 5; ++threshold) {
+        QVERIFY(!PlayerPolicy::shouldAskStillWatching(threshold - 1, threshold));
+        QVERIFY(PlayerPolicy::shouldAskStillWatching(threshold, threshold));
+        QVERIFY(PlayerPolicy::shouldAskStillWatching(threshold + 1, threshold));
+    }
+}
+
+void PlaybackPolicyTest::normalizesStillWatchingThresholds()
+{
+    QCOMPARE(PlayerPolicy::stillWatchingThresholdChoices(), (QList<int>{0, 2, 3, 4, 5}));
+    QCOMPARE(PlayerPolicy::kStillWatchingDefaultThreshold, 3);
+    QCOMPARE(PlayerPolicy::normalizeStillWatchingThreshold(0), 0);
+    QCOMPARE(PlayerPolicy::normalizeStillWatchingThreshold(-3), 0);
+    QCOMPARE(PlayerPolicy::normalizeStillWatchingThreshold(1), 2);
+    QCOMPARE(PlayerPolicy::normalizeStillWatchingThreshold(4), 4);
+    QCOMPARE(PlayerPolicy::normalizeStillWatchingThreshold(12), 5);
+    // An out-of-range threshold asks at its normalized value.
+    QVERIFY(PlayerPolicy::shouldAskStillWatching(2, 1));
+    QVERIFY(!PlayerPolicy::shouldAskStillWatching(4, 12));
+    QVERIFY(PlayerPolicy::shouldAskStillWatching(5, 12));
+}
+
+void PlaybackPolicyTest::normalizesSleepTimerChoices()
+{
+    QCOMPARE(PlayerPolicy::sleepTimerChoices(), (QList<int>{0, 15, 30, 45, 60, 90, -1}));
+    QCOMPARE(PlayerPolicy::normalizeSleepTimerChoice(45), 45);
+    QCOMPARE(PlayerPolicy::normalizeSleepTimerChoice(-1), PlayerPolicy::kSleepTimerEndOfItem);
+    QCOMPARE(PlayerPolicy::normalizeSleepTimerChoice(20), PlayerPolicy::kSleepTimerOff);
+    QCOMPARE(PlayerPolicy::normalizeSleepTimerChoice(-2), PlayerPolicy::kSleepTimerOff);
+
+    QCOMPARE(PlayerPolicy::sleepTimerKind(0), PlayerPolicy::SleepTimerKind::Off);
+    QCOMPARE(PlayerPolicy::sleepTimerKind(17), PlayerPolicy::SleepTimerKind::Off);
+    QCOMPARE(PlayerPolicy::sleepTimerKind(90), PlayerPolicy::SleepTimerKind::Duration);
+    QCOMPARE(PlayerPolicy::sleepTimerKind(-1), PlayerPolicy::SleepTimerKind::EndOfItem);
+
+    QCOMPARE(PlayerPolicy::sleepTimerDurationSeconds(15), 15 * 60);
+    QCOMPARE(PlayerPolicy::sleepTimerDurationSeconds(90), 90 * 60);
+    QCOMPARE(PlayerPolicy::sleepTimerDurationSeconds(-1), 0);
+    QCOMPARE(PlayerPolicy::sleepTimerDurationSeconds(0), 0);
+    QVERIFY(PlayerPolicy::kSleepTimerGraceSeconds > 0);
+}
+
+void PlaybackPolicyTest::sleepTimerSurvivesOnlyDurationsThroughUpNext()
+{
+    using End = PlayerPolicy::SleepTimerPlaybackEnd;
+    const int endOfItem = PlayerPolicy::kSleepTimerEndOfItem;
+
+    // A duration survives the episode ending (Up Next, autoplay) and a
+    // failure (recovery), not a stop.
+    QVERIFY(PlayerPolicy::sleepTimerSurvivesPlaybackEnd(30, End::Finished));
+    QVERIFY(PlayerPolicy::sleepTimerSurvivesPlaybackEnd(30, End::Failed));
+    QVERIFY(!PlayerPolicy::sleepTimerSurvivesPlaybackEnd(30, End::Stopped));
+    QVERIFY(!PlayerPolicy::sleepTimerFiresAtPlaybackEnd(30, End::Finished));
+
+    // End of item fires when the item finishes and is then used up; a stop
+    // cancels it; recovery of the same item keeps it.
+    QVERIFY(PlayerPolicy::sleepTimerFiresAtPlaybackEnd(endOfItem, End::Finished));
+    QVERIFY(!PlayerPolicy::sleepTimerFiresAtPlaybackEnd(endOfItem, End::Stopped));
+    QVERIFY(!PlayerPolicy::sleepTimerFiresAtPlaybackEnd(endOfItem, End::Failed));
+    QVERIFY(!PlayerPolicy::sleepTimerSurvivesPlaybackEnd(endOfItem, End::Finished));
+    QVERIFY(!PlayerPolicy::sleepTimerSurvivesPlaybackEnd(endOfItem, End::Stopped));
+    QVERIFY(PlayerPolicy::sleepTimerSurvivesPlaybackEnd(endOfItem, End::Failed));
+
+    QVERIFY(!PlayerPolicy::sleepTimerSurvivesPlaybackEnd(0, End::Finished));
+    QVERIFY(!PlayerPolicy::sleepTimerFiresAtPlaybackEnd(0, End::Finished));
+
+    // Up Next keeps a running duration; the episode controls keep a duration
+    // or an end-of-item timer; any other start begins from the default.
+    using Start = PlayerPolicy::SleepTimerStart;
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(45, 0, Start::UpNext), 45);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(endOfItem, 30, Start::UpNext), 0);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 30, Start::UpNext), 0);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(45, 0, Start::EpisodeSkip), 45);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(endOfItem, 30, Start::EpisodeSkip), endOfItem);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 30, Start::EpisodeSkip), 0);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(45, 0, Start::New), 0);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 60, Start::New), 60);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, endOfItem, Start::New), endOfItem);
+    QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 22, Start::New), 0);
 }
 
 QTEST_APPLESS_MAIN(PlaybackPolicyTest)

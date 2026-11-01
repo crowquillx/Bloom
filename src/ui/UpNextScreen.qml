@@ -20,6 +20,11 @@ import BloomUI
  *
  * Without a next episode the same layout offers Back to Series, Home, and a
  * row of recommended series. All navigation is keyboard/gamepad accessible.
+ *
+ * After several autoplayed episodes in a row without input (see
+ * PlayerController.stillWatchingPromptActive) the screen asks "Still
+ * watching?" instead: no countdown, Continue plays the queued episode and
+ * Stop (or Back) returns to the series.
  */
 FocusScope {
     id: root
@@ -33,7 +38,10 @@ FocusScope {
     property int lastAudioIndex: -1
     property int lastSubtitleIndex: -1
     property bool autoplay: false
+    // "Still watching?" prompt: replaces the countdown and the season row.
+    property bool stillWatching: false
     readonly property bool hasNextEpisode: episodeId !== "" && !episodeData.noNextEpisode
+    readonly property bool stillWatchingPrompt: stillWatching && hasNextEpisode
 
     // Set by Main.qml once a play request is accepted; input is ignored and
     // the countdown ring turns into a spinner until playback covers the screen.
@@ -44,7 +52,8 @@ FocusScope {
     readonly property bool handlesOwnBackNavigation: true
 
     // ---- Signals emitted back to Main.qml ----
-    signal playRequested()
+    // `startedByAutoplay` is true only when the countdown ran out.
+    signal playRequested(bool startedByAutoplay)
     signal episodeRequested(var episodeData)
     signal moreEpisodesRequested()
     signal backToHomeRequested()
@@ -93,8 +102,9 @@ FocusScope {
     // ---- Countdown ----
     readonly property int countdownTotal: Math.max(1, typeof ConfigManager !== "undefined"
                                                    ? ConfigManager.autoplayCountdownSeconds : 10)
-    property int countdown: hasNextEpisode && autoplay ? countdownTotal : -1
-    readonly property bool countdownActive: hasNextEpisode && autoplay && countdown > 0 && !starting
+    readonly property bool countsDown: hasNextEpisode && autoplay && !stillWatchingPrompt
+    property int countdown: countsDown ? countdownTotal : -1
+    readonly property bool countdownActive: countsDown && countdown > 0 && !starting
     readonly property bool showCountdownSlot: countdownActive || (hasNextEpisode && starting)
 
     Timer {
@@ -106,7 +116,7 @@ FocusScope {
             root.countdown--
             if (root.countdown <= 0) {
                 countdownTimer.stop()
-                root.playQueued()
+                root.playQueued(true)
             }
         }
     }
@@ -136,10 +146,10 @@ FocusScope {
         root.countdown = -1
     }
 
-    function playQueued() {
+    function playQueued(startedByAutoplay) {
         if (root.starting || !root.hasNextEpisode) return
         cancelCountdown()
-        playRequested()
+        playRequested(startedByAutoplay === true)
     }
 
     function playEpisode(episode) {
@@ -307,6 +317,7 @@ FocusScope {
             Text {
                 width: parent.width
                 text: !root.hasNextEpisode ? qsTr("You're all caught up")
+                      : root.stillWatchingPrompt ? qsTr("Still watching?")
                       : (root.heroIsQueued ? qsTr("Next Episode") : qsTr("Episode"))
                 font.pixelSize: Theme.fontSizeCaption
                 font.family: Theme.fontPrimary
@@ -375,9 +386,11 @@ FocusScope {
 
             Text {
                 width: parent.width
-                readonly property string overviewText: root.hasNextEpisode
-                                                       ? (root.heroEpisode.overview || "")
-                                                       : qsTr("You can return to the series or head back home.")
+                readonly property string overviewText: root.stillWatchingPrompt
+                                                       ? qsTr("Autoplay paused after several episodes in a row. Continue with the next episode, or stop here.")
+                                                       : root.hasNextEpisode
+                                                         ? (root.heroEpisode.overview || "")
+                                                         : qsTr("You can return to the series or head back home.")
                 visible: overviewText !== ""
                 text: overviewText
                 font.pixelSize: Theme.fontSizeBody
@@ -511,12 +524,15 @@ FocusScope {
                     labelPixelSize: Theme.fontSizeMedium
                     iconPixelSize: Theme.iconSizeLarge
                     sidePadding: Math.round(40 * Theme.layoutScale)
-                    text: root.hasNextEpisode
-                          ? qsTr("Play %1").arg(root.episodeLabel(root.episodeData))
-                          : qsTr("Back to Series")
+                    text: root.stillWatchingPrompt ? qsTr("Continue")
+                          : root.hasNextEpisode
+                            ? qsTr("Play %1").arg(root.episodeLabel(root.episodeData))
+                            : qsTr("Back to Series")
                     iconGlyph: root.hasNextEpisode ? Icons.playArrow : Icons.viewList
-                    accessibleLabel: root.hasNextEpisode
-                                     ? qsTr("Play %1").arg(root.episodeTitle(root.episodeData)) : ""
+                    accessibleLabel: root.stillWatchingPrompt
+                                     ? qsTr("Continue with %1").arg(root.episodeTitle(root.episodeData))
+                                     : root.hasNextEpisode
+                                       ? qsTr("Play %1").arg(root.episodeTitle(root.episodeData)) : ""
                     focus: true
 
                     KeyNavigation.right: secondaryButton
@@ -538,10 +554,13 @@ FocusScope {
                     labelPixelSize: Theme.fontSizeMedium
                     iconPixelSize: Theme.iconSizeLarge
                     sidePadding: Math.round(36 * Theme.layoutScale)
-                    text: root.hasNextEpisode ? "" : qsTr("Home")
-                    iconGlyph: root.hasNextEpisode ? Icons.close : Icons.home
-                    accessibleLabel: root.hasNextEpisode ? qsTr("Close") : ""
-                    toolTipText: root.hasNextEpisode ? qsTr("Back to episodes") : ""
+                    text: root.stillWatchingPrompt ? qsTr("Stop")
+                          : root.hasNextEpisode ? "" : qsTr("Home")
+                    iconGlyph: root.stillWatchingPrompt ? Icons.stop
+                               : root.hasNextEpisode ? Icons.close : Icons.home
+                    accessibleLabel: root.stillWatchingPrompt ? qsTr("Stop and return to the series")
+                                     : root.hasNextEpisode ? qsTr("Close") : ""
+                    toolTipText: root.hasNextEpisode && !root.stillWatchingPrompt ? qsTr("Back to episodes") : ""
                     enabled: !root.starting
 
                     KeyNavigation.left: primaryButton
@@ -562,8 +581,10 @@ FocusScope {
         // ---- Bottom shelf: rest of the season, or recommendations ----
         ColumnLayout {
             id: cardRow
-            readonly property bool hasCards: root.hasNextEpisode ? root.upcomingEpisodes.length > 0
-                                                                 : root.hasRecommendations
+            // The still-watching prompt offers only Continue and Stop.
+            readonly property bool hasCards: root.stillWatchingPrompt ? false
+                                             : root.hasNextEpisode ? root.upcomingEpisodes.length > 0
+                                                                   : root.hasRecommendations
             readonly property var activeList: root.hasNextEpisode ? episodesList : recommendationsList
 
             anchors.left: parent.left

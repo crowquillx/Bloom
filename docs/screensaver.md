@@ -10,7 +10,8 @@ Components
 
 Arming contract
 - `canArm()` requires `effectiveEnabled && m_appWindowVisible && m_auth->isAuthenticated() && !playbackBlocksScreensaver()`.
-- `playbackBlocksScreensaver()` returns true when `PlayerController` is in `Playing`, `Loading`, or `Buffering` state, OR when `PlayerController::awaitingNextEpisodeResolution()` is true (i.e. the Up Next overlay is awaiting the next-episode resolution). When any of these become true, the controller calls `dismiss()` (if active) and reschedules, so the screensaver cannot arm behind the Up Next overlay.
+- `playbackBlocksScreensaver()` returns true when `PlayerController` is in `Playing`, `Loading`, or `Buffering` state, OR when `PlayerController::awaitingNextEpisodeResolution()` is true (i.e. the Up Next overlay is awaiting the next-episode resolution), OR while the sleep timer's grace countdown runs (`sleepTimerGraceActive()`; playback is paused then, but the countdown must stay visible). When any of these become true, the controller calls `dismiss()` (if active) and reschedules, so the screensaver cannot arm behind the Up Next overlay or the countdown.
+- The "Still watching?" prompt on Up Next waits without a timeout, so the screensaver arms over it as over any idle screen; dismissing it restores the remembered focus (normally Continue).
 - The app-level event filter calls `dismiss()` (and swallows the event) on the first activity event while active; otherwise it calls `schedule()`. `noteActivity()` is the invokable equivalent.
 - `AuthenticationService` `loggedOut`/`sessionExpired` dismiss and reschedule; `loginSuccess` reschedules.
 - `appWindowVisible` is bound in `Main.qml` to `window.visible && window.visibility !== Window.Minimized` and dismissal/reschedule happens on hide.

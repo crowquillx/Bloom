@@ -53,6 +53,12 @@ ScreensaverController::ScreensaverController(QGuiApplication *app,
             }
             schedule();
         });
+        connect(m_player, &PlayerController::sleepTimerChanged, this, [this]() {
+            if (playbackBlocksScreensaver()) {
+                dismiss();
+            }
+            schedule();
+        });
         connect(m_player, &PlayerController::awaitingNextEpisodeResolutionChanged, this, [this]() {
             if (playbackBlocksScreensaver()) {
                 dismiss();
@@ -164,7 +170,9 @@ bool ScreensaverController::playbackBlocksScreensaver() const
     return state == PlayerController::Playing
            || state == PlayerController::Loading
            || state == PlayerController::Buffering
-           || m_player->awaitingNextEpisodeResolution();
+           || m_player->awaitingNextEpisodeResolution()
+           // The sleep timer's grace countdown pauses playback; keep it visible.
+           || m_player->sleepTimerGraceActive();
 }
 
 bool ScreensaverController::eventCountsAsActivity(QEvent *event) const

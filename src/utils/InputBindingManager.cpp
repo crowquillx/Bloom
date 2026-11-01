@@ -106,6 +106,7 @@ void InputBindingManager::initializeActions()
     add("playback.volumePanel", "playback", tr("Volume Panel"), tr("Open playback volume controls"), {keyBinding(Qt::Key_V)}, {"gamepad:back"});
     add("playback.audioSelector", "playback", tr("Audio Selector"), tr("Open audio track selector"), {keyBinding(Qt::Key_A)}, {"gamepad:y"});
     add("playback.subtitleSelector", "playback", tr("Subtitle Selector"), tr("Open subtitle selector"), {keyBinding(Qt::Key_S), keyBinding(Qt::Key_T), keyBinding(Qt::Key_C)}, {"gamepad:x"});
+    add("playback.sleepTimer", "playback", tr("Sleep Timer"), tr("Open the sleep timer (cycles it under external mpv)"), {}, {});
     add("playback.subtitleOverride", "advanced", tr("Subtitle Style Override"), tr("Toggle subtitle ASS override"), {keyBinding(Qt::Key_K)}, {"gamepad:left_stick_button"});
     add("playback.deband", "advanced", tr("Deband"), tr("Toggle mpv debanding"), {keyBinding(Qt::Key_B)}, {"gamepad:right_stick_button"});
     add("playback.stats", "advanced", tr("Stats"), tr("Toggle mpv stats"), {keyBinding(Qt::Key_I)}, {});

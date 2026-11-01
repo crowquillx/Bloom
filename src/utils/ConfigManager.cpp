@@ -1534,6 +1534,57 @@ QString ConfigManager::getPlaybackVersionPreference() const
         playbackSettingsObject(m_config).value(QStringLiteral("version_preference")).toString());
 }
 
+namespace {
+// Same values as Bloom::PlaybackPolicy (configuration cannot link the player
+// policy without a dependency cycle).
+int normalizeStillWatchingThresholdValue(int episodes)
+{
+    return episodes <= 0 ? 0 : std::clamp(episodes, 2, 5);
+}
+
+int normalizeSleepTimerDefaultValue(int choice)
+{
+    static const QList<int> choices{0, 15, 30, 45, 60, 90, -1};
+    return choices.contains(choice) ? choice : 0;
+}
+} // namespace
+
+void ConfigManager::setStillWatchingEpisodeThreshold(int episodes)
+{
+    const int normalized = normalizeStillWatchingThresholdValue(episodes);
+    if (normalized == getStillWatchingEpisodeThreshold()) {
+        return;
+    }
+
+    setPlaybackSetting(m_config, QStringLiteral("still_watching_episodes"), normalized);
+    save();
+    emit stillWatchingEpisodeThresholdChanged();
+}
+
+int ConfigManager::getStillWatchingEpisodeThreshold() const
+{
+    const QJsonValue value = playbackSettingsObject(m_config).value(QStringLiteral("still_watching_episodes"));
+    return value.isDouble() ? normalizeStillWatchingThresholdValue(value.toInt()) : 3;
+}
+
+void ConfigManager::setSleepTimerDefault(int choice)
+{
+    const int normalized = normalizeSleepTimerDefaultValue(choice);
+    if (normalized == getSleepTimerDefault()) {
+        return;
+    }
+
+    setPlaybackSetting(m_config, QStringLiteral("sleep_timer_default"), normalized);
+    save();
+    emit sleepTimerDefaultChanged();
+}
+
+int ConfigManager::getSleepTimerDefault() const
+{
+    return normalizeSleepTimerDefaultValue(
+        playbackSettingsObject(m_config).value(QStringLiteral("sleep_timer_default")).toInt(0));
+}
+
 void ConfigManager::setServerTrickplayEnabled(bool enabled)
 {
     if (enabled == getServerTrickplayEnabled()) {

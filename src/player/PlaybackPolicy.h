@@ -243,4 +243,68 @@ struct SkipRange {
                                  qint64 positionMs,
                                  qint64 aheadToleranceMs);
 
+/// "Still watching?" rule. The chain count is the number of episodes in a
+/// row that the Up Next countdown started with no user input since. A
+/// threshold of 0 turns the prompt off; other values are 2 to 5.
+inline constexpr int kStillWatchingDefaultThreshold = 3;
+[[nodiscard]] QList<int> stillWatchingThresholdChoices();
+/// Off (0) stays off; anything else snaps into 2..5.
+[[nodiscard]] int normalizeStillWatchingThreshold(int threshold);
+/// Count after a playback starts: an autoplay adds one, a manual start
+/// (button, Continue, a page, a remote command) starts over at zero.
+[[nodiscard]] int autoplayChainCountAfterStart(int currentCount, bool startedByAutoplay);
+/// Count after user input during or between episodes.
+[[nodiscard]] constexpr int autoplayChainCountAfterUserInput() { return 0; }
+/// Whether the Up Next countdown that would start the next episode asks
+/// "Still watching?" instead.
+[[nodiscard]] bool shouldAskStillWatching(int chainCount, int threshold);
+
+/// Sleep timer. A choice is 0 (off), -1 (end of the current episode or
+/// movie), or a duration in minutes from sleepTimerChoices().
+inline constexpr int kSleepTimerOff = 0;
+inline constexpr int kSleepTimerEndOfItem = -1;
+inline constexpr int kSleepTimerGraceSeconds = 30;
+enum class SleepTimerKind {
+    Off,
+    Duration,
+    EndOfItem
+};
+/// Off, 15, 30, 45, 60, 90, then end of item, in menu order.
+[[nodiscard]] QList<int> sleepTimerChoices();
+/// Unknown values read as off.
+[[nodiscard]] int normalizeSleepTimerChoice(int choice);
+[[nodiscard]] SleepTimerKind sleepTimerKind(int choice);
+[[nodiscard]] int sleepTimerDurationSeconds(int choice);
+/// How a playback ends, for the sleep timer.
+enum class SleepTimerPlaybackEnd {
+    /// The item played to its end (Up Next may follow).
+    Finished,
+    /// The user (or the timer itself) stopped playback.
+    Stopped,
+    /// Playback failed; recovery may continue the same session.
+    Failed
+};
+/// Whether an armed timer stays armed after playback ends this way. An
+/// end-of-item timer fires at the end instead; a duration survives the
+/// trip through Up Next; stopping cancels either.
+[[nodiscard]] bool sleepTimerSurvivesPlaybackEnd(int choice, SleepTimerPlaybackEnd end);
+/// Whether an end-of-item timer fires as this playback finishes.
+[[nodiscard]] bool sleepTimerFiresAtPlaybackEnd(int choice, SleepTimerPlaybackEnd end);
+/// How a new playback relates to the one before it, for the sleep timer.
+enum class SleepTimerStart {
+    /// Any start that is not continuing a viewing session.
+    New,
+    /// The next episode from Up Next, after the previous one ended.
+    UpNext,
+    /// The previous/next episode controls, replacing the playing episode.
+    EpisodeSkip
+};
+/// The choice for a new playback. Up Next keeps a running duration (an
+/// end-of-item timer already fired there); the episode controls keep a
+/// duration or an end-of-item timer, which then ends after the episode the
+/// user skipped to; any other start begins from the default.
+[[nodiscard]] int sleepTimerChoiceForNewPlayback(int currentChoice,
+                                                 int defaultChoice,
+                                                 SleepTimerStart start);
+
 } // namespace Bloom::PlaybackPolicy
