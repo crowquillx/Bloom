@@ -139,10 +139,12 @@ signals:
     /// @p operation is "search", "prepareRequest", "request", "cancel",
     /// "follow", or "watchlist".
     void errorOccurred(const QString &operation, const QString &error);
-    /// Rows of {key, title, items, page, nextPage, hasMore}, in page order.
-    /// When Silo follows an admin layout, brand rows {key, title, browseKind}
-    /// stand where the layout puts genres, studios, or networks; without one,
-    /// none do and the page appends its browse categories.
+    /// Shelves in page order: title rows {key, title, items, page, nextPage,
+    /// hasMore} and brand rows {key, title, browseKind}, which the browse
+    /// categories of that kind ("genre", "studio", or "network") fill. When
+    /// Silo follows an admin layout, the brand rows stand where it puts
+    /// them, and a category it leaves out has none. Otherwise the three
+    /// brand rows, keyed "browse:<kind>" and untitled, follow the title rows.
     void discoverLoaded(const QVariantList &rows);
     void discoverFailed(const QString &error);
     void discoverRowLoaded(const QString &key, int page, const QVariantMap &row);

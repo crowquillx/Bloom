@@ -68,6 +68,20 @@ QString seerrDiscoverTitle(const QString &key)
     return {};
 }
 
+// Without an admin layout, every browse category follows the title rows.
+QVariantList withBrowseRows(QVariantList rows)
+{
+    for (const QString &kind : {QStringLiteral("genre"), QStringLiteral("studio"),
+                                QStringLiteral("network")}) {
+        rows.append(QVariantMap{
+            {QStringLiteral("key"), QStringLiteral("browse:") + kind},
+            {QStringLiteral("title"), QString()},
+            {QStringLiteral("browseKind"), kind},
+        });
+    }
+    return rows;
+}
+
 } // namespace
 
 MediaRequestService::MediaRequestService(AuthenticationService *authService,
@@ -157,7 +171,7 @@ MediaRequestService::MediaRequestService(AuthenticationService *authService,
             if (rows.isEmpty()) {
                 emit discoverFailed(tr("Seerr returned no discovery rows"));
             } else {
-                emit discoverLoaded(rows);
+                emit discoverLoaded(withBrowseRows(rows));
             }
         };
         connect(m_seerrService, &SeerrService::discoverRowLoaded, this,
@@ -657,12 +671,14 @@ void MediaRequestService::loadDiscover()
             if (!finish(token)) {
                 return;
             }
-            // A server that follows an admin layout orders the rows and adds
-            // brand rows; older servers keep the built-in rows.
+            // A server that follows an admin layout orders the rows and
+            // places the brand rows, or leaves them out; older servers keep
+            // the built-in rows, followed by every browse category.
             const bool layout = siloFeature("discoverRowsSupported")
                 && result.contains(QStringLiteral("layoutRows"));
-            emit discoverLoaded(
-                result.value(layout ? QStringLiteral("layoutRows") : QStringLiteral("rows")).toList());
+            emit discoverLoaded(layout
+                ? result.value(QStringLiteral("layoutRows")).toList()
+                : withBrowseRows(result.value(QStringLiteral("rows")).toList()));
         },
         [this, token](const QString &error) {
             if (finish(token)) {

@@ -400,12 +400,17 @@ QVariantMap SiloMediaRequestMapper::discoverRow(const QJsonObject &wireSection, 
     // Rating backfill can consume several provider pages; next_page then
     // says where to continue.
     int nextPage = wireSection.value(QStringLiteral("next_page")).toInt(page + 1);
-    // A layout row trimmed to its limit loses its cursor, and the rest of
-    // its first page is only reachable by reading page 1 again. A short first
-    // page without a cursor is such a row.
+    // Silo trims a layout row to its limit (up to 100 titles, read from
+    // several source pages) and drops its cursor; firstRowPage in Silo's
+    // discover_rows.go. The titles past the limit are only reachable by
+    // reading those pages again. A page holds at most 20 titles, so every
+    // title on the pages before shown / 20 + 1 is already shown: continuing
+    // there skips nothing, and the page drops the titles it repeats. A row
+    // that already shows every title has nothing left to read.
+    const int totalResults = wireSection.value(QStringLiteral("total_results")).toInt();
     if (fromLayout && page == 1 && !wireSection.contains(QStringLiteral("next_page"))
-        && wireResults.size() < kRowPageSize && totalPages > 1) {
-        nextPage = 1;
+        && wireResults.size() < totalResults) {
+        nextPage = static_cast<int>(wireResults.size()) / kRowPageSize + 1;
     }
     return {
         {QStringLiteral("key"), wireSection.value(QStringLiteral("key")).toString()},

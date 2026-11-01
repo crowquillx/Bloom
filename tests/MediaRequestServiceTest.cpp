@@ -6,6 +6,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <memory>
+#include <utility>
 
 #include "../src/network/LibraryService.h"
 #include "../src/network/MediaRequestService.h"
@@ -132,14 +133,15 @@ QByteArray json(const QJsonObject &object)
 }
 
 QJsonObject wireSection(const QString &key, const QString &title, int resultCount,
-                        int page = 1, int totalPages = 5)
+                        int page = 1, int totalPages = 5, int totalResults = -1)
 {
     QJsonArray results;
     for (int i = 0; i < resultCount; ++i) {
         results.append(wireResult("movie", page * 100 + i + 1, "missing"));
     }
     return QJsonObject{{"key", key}, {"title", title}, {"page", page},
-                       {"total_pages", totalPages}, {"total_results", totalPages * 20},
+                       {"total_pages", totalPages},
+                       {"total_results", totalResults >= 0 ? totalResults : totalPages * 20},
                        {"results", results}};
 }
 
@@ -186,6 +188,7 @@ private slots:
     void siloDiscoverRowsPageAndDropEmptyRows();
     void siloDiscoverLayoutFollowsRowOrder();
     void siloAdminRowsPageThroughTheRowRoute();
+    void siloTrimmedRowsContinueWhereTheirTitlesEnd();
     void siloRequestManagementRoutes();
     void siloBrowseRoutes();
     void siloRequestsMapWithCancelRules();
@@ -208,6 +211,7 @@ private slots:
     void profileSwitchReadsTheCapabilityAgain();
     void siloDiscoverFollowsTheLayoutOnlyWhenSupported();
     void siloAdminRowPagesPastTheFirstPage();
+    void siloTrimmedRowRereadsItsFirstPage();
 
 private:
     std::unique_ptr<MediaRequestService> makeService();
@@ -550,6 +554,60 @@ void MediaRequestServiceTest::siloAdminRowsPageThroughTheRowRoute()
     }
 }
 
+void MediaRequestServiceTest::siloTrimmedRowsContinueWhereTheirTitlesEnd()
+{
+    // A layout row's first page with `count` of `totalResults` titles over
+    // `totalPages` pages, and where it continues.
+    struct Case {
+        const char *name;
+        int count;
+        int totalPages;
+        int totalResults;
+        int nextPage;
+        bool hasMore;
+    };
+    const Case cases[] = {
+        // Limit 90: pages 1-4 shown whole, page 5 in part.
+        {"90 titles", 90, 50, 1000, 5, true},
+        // Limit 45: page 3 in part.
+        {"45 titles", 45, 50, 1000, 3, true},
+        // Limit 40: page 3 is new.
+        {"40 titles", 40, 50, 1000, 3, true},
+        // Limit 8 of a long chart: the rest of page 1.
+        {"8 titles", 8, 5, 100, 1, true},
+        // Limit 10 of an 18-title list on one page: the rest of page 1.
+        {"10 of 18 titles", 10, 1, 18, 1, true},
+        // A full page continues at page 2, as without a layout.
+        {"20 titles", 20, 5, 100, 2, true},
+        // A short list shown whole has nothing more to read.
+        {"18 of 18 titles", 18, 1, 18, 2, false},
+    };
+    for (const Case &c : cases) {
+        const QJsonArray rowOrder{
+            QJsonObject{{"key", "r_list"}, {"type", "mdblist"}, {"title", "List"}}};
+        const QJsonArray items{wireSection("r_list", "List", c.count, 1, c.totalPages,
+                                           c.totalResults)};
+        const QVariantList rows = SiloMediaRequestMapper::layoutRows(rowOrder, items);
+        QCOMPARE(rows.size(), 1);
+        const QVariantMap row = rows.first().toMap();
+        QCOMPARE(row.value("items").toList().size(), c.count);
+        QVERIFY2(row.value("nextPage").toInt() == c.nextPage, c.name);
+        QVERIFY2(row.value("hasMore").toBool() == c.hasMore, c.name);
+    }
+
+    // A cursor from the server always wins.
+    QJsonObject withCursor = wireSection("r_list", "List", 12, 1, 50, 1000);
+    withCursor.insert("next_page", 3);
+    QCOMPARE(SiloMediaRequestMapper::discoverRow(withCursor, true).value("nextPage").toInt(), 3);
+    // Later pages and rows outside a layout keep page + 1.
+    QCOMPARE(SiloMediaRequestMapper::discoverRow(wireSection("r_list", "List", 12, 2, 50, 1000), true)
+                 .value("nextPage").toInt(),
+             3);
+    QCOMPARE(SiloMediaRequestMapper::discoverRow(wireSection("r_list", "List", 45, 1, 50, 1000))
+                 .value("nextPage").toInt(),
+             2);
+}
+
 void MediaRequestServiceTest::siloRequestManagementRoutes()
 {
     const SiloCatalogProvider provider;
@@ -807,7 +865,8 @@ void MediaRequestServiceTest::siloServesRequestsWithoutSeerr()
     m_library->answer(ProviderCatalogOperation::MediaRequestDiscover,
                       {{QStringLiteral("rows"), QVariantList{QVariantMap{{"key", "trending_movies"}}}}});
     QCOMPARE(rows.size(), 1);
-    QCOMPARE(rows.first().at(0).toList().size(), 1);
+    // The title row, then the three browse rows.
+    QCOMPARE(rows.first().at(0).toList().size(), 4);
 }
 
 void MediaRequestServiceTest::seerrTakesPriorityOverSilo()
@@ -1167,8 +1226,42 @@ void MediaRequestServiceTest::siloDiscoverFollowsTheLayoutOnlyWhenSupported()
         if (supported) {
             QCOMPARE(keys, (QStringList{"trending_movies", "studios", "r_k3x9", "genres"}));
         } else {
-            QCOMPARE(keys, (QStringList{"trending_movies", "r_k3x9", "popular_series"}));
+            // Every browse category follows the title rows, untitled.
+            QCOMPARE(keys, (QStringList{"trending_movies", "r_k3x9", "popular_series",
+                                        "browse:genre", "browse:studio", "browse:network"}));
+            const QVariantMap genres = loaded.first().at(0).toList().at(3).toMap();
+            QCOMPARE(genres.value("browseKind").toString(), QStringLiteral("genre"));
+            QVERIFY(genres.value("title").toString().isEmpty());
         }
+    }
+
+    // A layout without brand rows: the admin removed them, so no browse
+    // category comes back.
+    QJsonObject titlesOnly = layoutCollection();
+    titlesOnly.insert("row_order", QJsonArray{
+        QJsonObject{{"key", "r_k3x9"}, {"type", "mdblist"}, {"title", "Staff Picks"}},
+        QJsonObject{{"key", "trending_movies"}, {"type", "tmdb_chart"}, {"title", "Trending"}},
+    });
+    // An empty layout leaves the page empty.
+    QJsonObject empty = layoutCollection();
+    empty.insert("items", QJsonArray{});
+    empty.insert("row_order", QJsonArray{});
+    for (const auto &[collection, expected] :
+         {std::pair{titlesOnly, QStringList{"r_k3x9", "trending_movies"}},
+          std::pair{empty, QStringList{}}}) {
+        m_library->calls.clear();
+        auto service = makeService();
+        m_library->answer(ProviderCatalogOperation::MediaRequestStatus,
+                          allowedStatus(true, false, true));
+        QSignalSpy loaded(service.get(), &MediaRequestService::discoverLoaded);
+        service->loadDiscover();
+        const ProviderCatalogResponse response = SiloCatalogProvider().parseResponse(
+            ProviderCatalogOperation::MediaRequestDiscover, json(collection));
+        QVERIFY(response.valid);
+        m_library->answer(ProviderCatalogOperation::MediaRequestDiscover,
+                          response.capabilityMetadata);
+        QCOMPARE(loaded.size(), 1);
+        QCOMPARE(keysOf(loaded.first().at(0).toList()), expected);
     }
 }
 
@@ -1208,6 +1301,50 @@ void MediaRequestServiceTest::siloAdminRowPagesPastTheFirstPage()
     const QVariantMap last = pages.at(1).at(2).toMap();
     QCOMPARE(pages.at(1).at(1).toInt(), 3);
     QVERIFY(!last.value("hasMore").toBool());
+}
+
+void MediaRequestServiceTest::siloTrimmedRowRereadsItsFirstPage()
+{
+    auto service = makeService();
+    m_library->answer(ProviderCatalogOperation::MediaRequestStatus, allowedStatus(true, false, true));
+    const SiloCatalogProvider provider;
+
+    // The Discover page shows 10 of an 18-title list and says to read page 1.
+    QSignalSpy loaded(service.get(), &MediaRequestService::discoverLoaded);
+    service->loadDiscover();
+    const QJsonObject collection{
+        {"items", QJsonArray{wireSection("r_list", "List", 10, 1, 1, 18)}},
+        {"row_order", QJsonArray{
+            QJsonObject{{"key", "r_list"}, {"type", "mdblist"}, {"title", "List"}}}},
+    };
+    m_library->answer(ProviderCatalogOperation::MediaRequestDiscover,
+                      provider.parseResponse(ProviderCatalogOperation::MediaRequestDiscover,
+                                             json(collection))
+                          .capabilityMetadata);
+    QCOMPARE(loaded.size(), 1);
+    const QVariantMap first = loaded.first().at(0).toList().first().toMap();
+    QCOMPARE(first.value("nextPage").toInt(), 1);
+    QVERIFY(first.value("hasMore").toBool());
+
+    // Page 1 goes through the row route, with no page parameter...
+    QSignalSpy pages(service.get(), &MediaRequestService::discoverRowLoaded);
+    service->loadDiscoverRow(QStringLiteral("r_list"), first.value("nextPage").toInt());
+    const auto call = m_library->last(ProviderCatalogOperation::MediaRequestDiscoverSection);
+    QCOMPARE(call.query.page, 1);
+    QCOMPARE(provider.createRequest(call.operation, call.query).relativeEndpoint,
+             QStringLiteral("/api/v2/requests/discover/rows/r_list"));
+    // ...and comes back whole, with nothing after it.
+    const ProviderCatalogResponse response = provider.parseResponse(
+        call.operation, json(wireSection("r_list", "List", 18, 1, 1, 18)), {});
+    QVERIFY(response.valid);
+    m_library->answer(ProviderCatalogOperation::MediaRequestDiscoverSection,
+                      response.capabilityMetadata);
+    QCOMPARE(pages.size(), 1);
+    QCOMPARE(pages.first().at(1).toInt(), 1);
+    const QVariantMap again = pages.first().at(2).toMap();
+    QCOMPARE(again.value("items").toList().size(), 18);
+    QCOMPARE(again.value("nextPage").toInt(), 2);
+    QVERIFY(!again.value("hasMore").toBool());
 }
 
 void MediaRequestServiceTest::profileSwitchReadsTheCapabilityAgain()

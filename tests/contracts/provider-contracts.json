@@ -2021,7 +2021,8 @@
           "Bloom offers withdrawing an active pending or approved request, the viewer's own when read from the title detail.",
           "Following is offered for an active request made by someone else; watchlisting for titles the library lacks, warning when watchlist_requests also requests them.",
           "Studios browse movies and networks browse series; genres browse series only when series_supported.",
-          "With discover_rows_supported, Discover shows row_order's rows in order under their titles, skips types it does not know, and fills studios, networks and genres brand rows from the matching brand list; without it, the six built-in rows keep the response order.",
+          "With discover_rows_supported, Discover shows row_order's rows in order under their titles, skips types it does not know, and fills studios, networks and genres brand rows from the matching brand list, showing no brand list the layout leaves out; without it, the six built-in rows keep the response order.",
+          "A layout row trimmed to its limit drops next_page; a first page without one that shows fewer titles than total_results continues at page shown / 20 + 1, and repeated titles are dropped.",
           "Poster and backdrop paths are TMDB image paths resolved against the TMDB image CDN."
         ],
         "evidenceSources": [

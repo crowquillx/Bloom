@@ -14,7 +14,7 @@ import BloomUI
  * recent ones on Seerr), then the discovery rows (trending, popular,
  * upcoming) followed by genres, studios and networks to browse. A Silo
  * server with an admin-defined layout orders the rows itself and places the
- * browse rows among them. Only shown while
+ * browse rows among them, or leaves them out. Only shown while
  * MediaRequests.discoverAvailable. A title already in the library opens its
  * details page; any other title opens the request dialog. Each discovery row
  * loads its next page as focus nears its end; a browse card opens
@@ -34,33 +34,49 @@ FocusScope {
     // Properties
     // ========================================
 
-    /// Rows as delivered: title rows {key, title, items, page, nextPage,
-    /// hasMore} and, when Silo follows an admin layout, brand rows
-    /// {key, title, browseKind}.
+    /// Shelves in page order, as MediaRequests.discoverLoaded delivers them:
+    /// title rows {key, title, items, page, nextPage, hasMore} and brand rows
+    /// {key, title, browseKind}, which draw their browse group's cards. A
+    /// Silo admin layout places the brand rows itself, or leaves them out.
+    /// Browse groups arriving later fill brand rows in place, so loaded
+    /// pages and focus survive.
     property var rows: []
     property bool loading: false
     property string loadError: ""
     /// Groups of {kind, title, items} to browse.
     property var browseGroups: []
-    /// Shelves in page order. Brand rows draw their browse group's cards;
-    /// without any from the server, every group follows the title rows.
-    /// Browse groups arriving later fill brand rows in place, so loaded
-    /// pages and focus survive.
-    readonly property var sections: {
+    property bool browseLoading: false
+    property string browseError: ""
+    /// Some row has something to show: titles, or a brand row's categories.
+    readonly property bool hasRows: {
+        for (var i = 0; i < rows.length; ++i) {
+            var kind = rows[i].browseKind || ""
+            var group = kind !== "" ? browseGroupFor(kind) : null
+            if (kind === "" || (group && (group.items || []).length > 0))
+                return true
+        }
+        return false
+    }
+    /// Brand rows wait for the browse categories before the page is empty.
+    readonly property bool waitingForBrowse: {
+        if (!browseLoading)
+            return false
         for (var i = 0; i < rows.length; ++i) {
             if (rows[i].browseKind)
-                return rows
+                return true
         }
-        return rows.concat([
-            { key: "browse:genre", browseKind: "genre" },
-            { key: "browse:studio", browseKind: "studio" },
-            { key: "browse:network", browseKind: "network" }
-        ])
+        return false
     }
+    /// Why the page has nothing to show, when a read failed: Discover's, or
+    /// with brand rows only, the browse categories'.
+    readonly property string pageError: loadError !== "" ? loadError : browseError
     readonly property bool available: MediaRequests.discoverAvailable
 
     /// The shelf (or state action) that last held focus.
     property Item lastFocusTarget: null
+    /// The shelf the page focused by itself, until the viewer moves: rows
+    /// that arrive later above it take focus instead.
+    property ShelfList autoFocusShelf: null
     property string stageSource: ""
     property string pendingStageSource: ""
 
@@ -81,10 +97,14 @@ FocusScope {
             requestsModel.clear()
             loading = false
             loadError = ""
+            browseLoading = false
+            browseError = ""
             return
         }
         loading = true
         loadError = ""
+        browseLoading = true
+        browseError = ""
         MediaRequests.loadDiscover()
         MediaRequests.loadMyRequests()
         MediaRequests.loadBrowseCategories()
@@ -97,6 +117,7 @@ FocusScope {
     function openItem(item, list) {
         if (!item)
             return
+        autoFocusShelf = null
         var libraryItemId = item.libraryItemId || ""
         if (libraryItemId !== "") {
             if (item.mediaType === "Series") {
@@ -156,6 +177,7 @@ FocusScope {
     function focusFirstShelf() {
         var lists = shelfLists()
         if (lists.length > 0) {
+            autoFocusShelf = lists[0]
             lists[0].forceActiveFocus()
             return true
         }
@@ -169,6 +191,7 @@ FocusScope {
     // Moves focus to the shelf above/below. Up from the first shelf is left
     // unhandled so it reaches the navigation bar.
     function moveShelfFocus(fromList, delta) {
+        autoFocusShelf = null
         var lists = shelfLists()
         var index = lists.indexOf(fromList)
         var target = index + delta
@@ -195,6 +218,18 @@ FocusScope {
         scrollAnimation.restart()
     }
 
+    // Rows that arrive after the page took focus (the request list, browse
+    // categories) can land above the focused shelf. Until the viewer moves,
+    // focus goes to the top shelf.
+    function focusTopShelfIfUnmoved() {
+        if (!root.activeFocus || root.loading)
+            return
+        var focused = root.Window.activeFocusItem
+        var shelf = autoFocusShelf
+        if (focused === root || (shelf && shelf.activeFocus && shelf.currentIndex === 0))
+            focusFirstShelf()
+    }
+
     function restoreLastFocus() {
         var target = lastFocusTarget
         if (target && target.visible && target["count"] > 0) {
@@ -207,6 +242,7 @@ FocusScope {
 
     function saveFocusForNavigation() {
         // lastFocusTarget already tracks the focused shelf.
+        autoFocusShelf = null
     }
 
     function restoreFocusFromNavigation() {
@@ -226,6 +262,8 @@ FocusScope {
     StackView.onStatusChanged: {
         if (StackView.status === StackView.Active)
             Qt.callLater(root.restoreLastFocus)
+        else
+            root.autoFocusShelf = null
     }
 
     Connections {
@@ -257,6 +295,7 @@ FocusScope {
             // Seerr was configured, or the account or its request access
             // changed: nothing shown so far belongs to the new backend.
             root.lastFocusTarget = null
+            root.autoFocusShelf = null
             root.rows = []
             root.browseGroups = []
             requestsModel.clear()
@@ -268,10 +307,7 @@ FocusScope {
             requestsModel.clear()
             requestsModel.appendItems(requests)
             requestsList.currentIndex = Math.min(Math.max(index, 0), requestsModel.count - 1)
-            Qt.callLater(function() {
-                if (root.activeFocus && !root.loading && root.Window.activeFocusItem === root)
-                    root.focusFirstShelf()
-            })
+            Qt.callLater(root.focusTopShelfIfUnmoved)
         }
 
         function onMyRequestsFailed(error) {
@@ -280,10 +316,16 @@ FocusScope {
 
         function onBrowseCategoriesLoaded(groups) {
             root.browseGroups = groups || []
+            root.browseLoading = false
+            root.browseError = ""
+            Qt.callLater(root.focusTopShelfIfUnmoved)
         }
 
         function onBrowseCategoriesFailed(error) {
             console.warn("[DiscoverScreen] Browse categories failed to load:", error)
+            root.browseLoading = false
+            root.browseError = error || qsTr("The browse categories couldn't load.")
+            Qt.callLater(root.focusTopShelfIfUnmoved)
         }
 
         // A request made or cancelled anywhere changes the request list.
@@ -354,7 +396,7 @@ FocusScope {
                 Layout.topMargin: Theme.sectionSpacing * 2
                 Layout.leftMargin: Theme.pageMarginX
                 Layout.rightMargin: Theme.pageMarginX
-                visible: root.loading && root.rows.length === 0
+                visible: (root.loading || root.waitingForBrowse) && !root.hasRows
                 kind: "loading"
                 message: qsTr("Loading…")
             }
@@ -365,11 +407,11 @@ FocusScope {
                 Layout.topMargin: Theme.sectionSpacing * 2
                 Layout.leftMargin: Theme.pageMarginX
                 Layout.rightMargin: Theme.pageMarginX
-                visible: !root.loading && root.available && root.loadError !== ""
-                         && root.rows.length === 0
+                visible: !root.loading && !root.waitingForBrowse && root.available
+                         && root.pageError !== "" && !root.hasRows
                 kind: "error"
                 title: qsTr("Discover couldn't load")
-                message: root.loadError
+                message: root.pageError
                 actionText: qsTr("Try again")
                 onActionTriggered: root.load()
             }
@@ -379,8 +421,8 @@ FocusScope {
                 Layout.topMargin: Theme.sectionSpacing * 2
                 Layout.leftMargin: Theme.pageMarginX
                 Layout.rightMargin: Theme.pageMarginX
-                visible: !root.loading && root.available && root.loadError === ""
-                         && root.rows.length === 0
+                visible: !root.loading && !root.waitingForBrowse && root.available
+                         && root.pageError === "" && !root.hasRows
                 kind: "empty"
                 iconGlyph: Icons.explore
                 title: qsTr("Nothing to discover")
@@ -470,7 +512,7 @@ FocusScope {
 
             Repeater {
                 id: sectionRepeater
-                model: root.sections
+                model: root.rows
 
                 delegate: ColumnLayout {
                     id: rowSection
@@ -484,11 +526,6 @@ FocusScope {
                     readonly property var browseGroup: isBrowse ? root.browseGroupFor(browseKind) : null
                     readonly property var categories: browseGroup ? (browseGroup.items || []) : []
                     readonly property Item shelf: isBrowse ? browseList : rowList
-                    property int nextPage: modelData.nextPage || 0
-                    property bool hasMore: !!modelData.hasMore
-                    property int loadingPage: 0
-                    /// Pages in a row that brought only titles already shown.
-                    property int repeatedPages: 0
 
                     Layout.fillWidth: true
                     Layout.topMargin: Theme.sectionSpacing
@@ -496,12 +533,11 @@ FocusScope {
                     visible: isBrowse ? categories.length > 0 : rowItems.count > 0
 
                     function loadMoreIfNear(index) {
-                        if (isBrowse || !hasMore || loadingPage > 0 || nextPage < 1)
+                        if (isBrowse || index < rowItems.count - root.loadAheadCards)
                             return
-                        if (index >= rowItems.count - root.loadAheadCards) {
-                            loadingPage = nextPage
-                            MediaRequests.loadDiscoverRow(rowKey, nextPage)
-                        }
+                        var page = rowItems.beginNextPage()
+                        if (page > 0)
+                            MediaRequests.loadDiscoverRow(rowSection.rowKey, page)
                     }
 
                     DiscoveryListModel {
@@ -509,8 +545,11 @@ FocusScope {
                     }
 
                     Component.onCompleted: {
-                        if (!isBrowse)
-                            rowItems.appendItems(modelData.items || [])
+                        if (isBrowse)
+                            return
+                        rowItems.appendItems(modelData.items || [])
+                        rowItems.nextPage = modelData.nextPage || 0
+                        rowItems.hasMore = !!modelData.hasMore
                     }
 
                     Connections {
@@ -518,30 +557,17 @@ FocusScope {
                         enabled: !rowSection.isBrowse
 
                         function onDiscoverRowLoaded(key, page, row) {
-                            if (key !== rowSection.rowKey || page !== rowSection.loadingPage)
+                            if (key !== rowSection.rowKey)
                                 return
-                            rowSection.loadingPage = 0
-                            // Lists shift between reads, so a page can repeat
-                            // titles already shown. Keep following the
-                            // server's pages past those, three at most, and
-                            // never re-read the same page.
-                            var added = rowItems.appendItems(row.items || [])
-                            var next = row.nextPage || page + 1
-                            rowSection.repeatedPages = added > 0 ? 0 : rowSection.repeatedPages + 1
-                            rowSection.nextPage = next
-                            rowSection.hasMore = !!row.hasMore && next > page && rowSection.repeatedPages < 3
-                            if (added === 0 && rowSection.hasMore) {
-                                rowSection.loadingPage = next
+                            // A page of repeated titles reads on at once.
+                            var next = rowItems.acceptPage(page, row)
+                            if (next > 0)
                                 MediaRequests.loadDiscoverRow(rowSection.rowKey, next)
-                            }
                         }
 
                         function onDiscoverRowFailed(key, page, error) {
-                            if (key !== rowSection.rowKey || page !== rowSection.loadingPage)
-                                return
-                            console.warn("[DiscoverScreen] Loading more of", key, "failed:", error)
-                            rowSection.loadingPage = 0
-                            rowSection.hasMore = false
+                            if (key === rowSection.rowKey && rowItems.failPage(page))
+                                console.warn("[DiscoverScreen] Loading more of", key, "failed:", error)
                         }
 
                         // Show a request change on the card without reloading the row.
