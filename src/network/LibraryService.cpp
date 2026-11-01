@@ -2015,6 +2015,14 @@ void LibraryService::publishHomeSectionsWithBloomRows(const QString &connectionI
     QStringList sortedLibraries = recommendationLibraries;
     sortedLibraries.sort();
     const QString librarySet = sortedLibraries.join(QLatin1Char('\n'));
+    if (request.reloadRecommendations) {
+        // A newer refresh can replace this one before its read lands; it
+        // must read again rather than reuse what this reload replaces.
+        const auto stale = m_homeRecommendations.find(cacheKey);
+        if (stale != m_homeRecommendations.end()) {
+            stale->fetchedAtMs = 0;
+        }
+    }
     const auto cached = m_homeRecommendations.constFind(cacheKey);
     const bool reuseRecommendations = !recommendationLibraries.isEmpty()
         && !request.reloadRecommendations && cached != m_homeRecommendations.cend()

@@ -2488,24 +2488,44 @@ void WorkspaceRoutingTest::jellyfinHomeReusesRecommendationsUntilAskedAgain()
              (QStringList{QStringLiteral("Favorites"), QStringLiteral("Directed by Michael Mann")}));
     QCOMPARE(requestCount(m_servers->requests, QStringLiteral("/Movies/Recommendations")), 1);
 
+    // A plain refresh that replaces a requested reload before it lands still
+    // reads again instead of reusing the rows the reload replaces.
+    alice.recommendationsByLibrary.insert(QStringLiteral("lib-movies"), QJsonArray{
+        recommendation(QStringLiteral("HasLikedActor"), QStringLiteral("Robert De Niro"),
+                       {movie(QStringLiteral("m3"), QStringLiteral("Ronin"))})});
+    m_servers->requests.clear();
+    library.getHomeSections(libraries, true);
+    library.getHomeSections(libraries);
+    QTRY_COMPARE(loaded.count(), 4);
+    QCOMPARE(rowTitles(loaded.at(3).at(1).toList()),
+             (QStringList{QStringLiteral("Favorites"), QStringLiteral("Starring Robert De Niro")}));
+    QVERIFY(requestCount(m_servers->requests, QStringLiteral("/Movies/Recommendations")) >= 1);
+    QTest::qWait(50);
+    QCOMPARE(loaded.count(), 4);
+    alice.recommendationsByLibrary.insert(QStringLiteral("lib-movies"), QJsonArray{
+        recommendation(QStringLiteral("HasLikedDirector"), QStringLiteral("Michael Mann"),
+                       {movie(QStringLiteral("m2"), QStringLiteral("Thief"))})});
+    library.getHomeSections(libraries, true);
+    QTRY_COMPARE(loaded.count(), 5);
+
     // Other libraries shown: read.
     alice.recommendationsByLibrary.insert(QStringLiteral("lib-films"), QJsonArray{
         recommendation(QStringLiteral("HasLikedActor"), QStringLiteral("Bruce Willis"),
                        {movie(QStringLiteral("m5"), QStringLiteral("Die Hard"))})});
     m_servers->requests.clear();
     library.getHomeSections({QStringLiteral("lib-movies"), QStringLiteral("lib-films")});
-    QTRY_COMPARE(loaded.count(), 4);
+    QTRY_COMPARE(loaded.count(), 6);
     QCOMPARE(requestCount(m_servers->requests, QStringLiteral("/Movies/Recommendations")), 2);
-    QCOMPARE(rowTitles(loaded.at(3).at(1).toList()),
+    QCOMPARE(rowTitles(loaded.at(5).at(1).toList()),
              (QStringList{QStringLiteral("Favorites"), QStringLiteral("Directed by Michael Mann"),
                           QStringLiteral("Starring Bruce Willis")}));
 
     // The same libraries in another order: the rows follow, without a read.
     m_servers->requests.clear();
     library.getHomeSections({QStringLiteral("lib-films"), QStringLiteral("lib-movies")});
-    QTRY_COMPARE(loaded.count(), 5);
+    QTRY_COMPARE(loaded.count(), 7);
     QCOMPARE(requestCount(m_servers->requests, QStringLiteral("/Movies/Recommendations")), 0);
-    QCOMPARE(rowTitles(loaded.at(4).at(1).toList()),
+    QCOMPARE(rowTitles(loaded.at(6).at(1).toList()),
              (QStringList{QStringLiteral("Favorites"), QStringLiteral("Starring Bruce Willis"),
                           QStringLiteral("Directed by Michael Mann")}));
 }
