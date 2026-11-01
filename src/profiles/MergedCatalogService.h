@@ -172,13 +172,21 @@ private:
     QVariantList m_views;
     /// Libraries of unsupported types per member, from the last views fan-out.
     QHash<QString, QStringList> m_unsupportedLibraryIds;
-    /// Per member, whether its people search can be limited to movie and
-    /// series credits, once read; cleared with the epoch.
-    QHash<QString, bool> m_peopleSearchScoped;
-    /// Per member, until when a failed capability read is not repeated (its
-    /// people search adds no people meanwhile).
-    QHash<QString, QDeadlineTimer> m_peopleSearchCapabilityRetry;
-    static constexpr int PeopleSearchCapabilityRetryMs = 5 * 60 * 1000;
+    /// Per member, its catalog search capability document (whether its
+    /// people search can be limited to movie and series credits), read once
+    /// by the searches that wait on it; cleared with the epoch. A failed
+    /// read is not repeated until retryAfter (its people search adds no
+    /// people meanwhile).
+    struct SearchCapabilities {
+        bool known = false;
+        bool peopleMediaScope = false;
+        bool failed = false;
+        bool reading = false;
+        QDeadlineTimer retryAfter;
+        QList<std::function<void(const SearchCapabilities &, const QString *)>> waiters;
+    };
+    QHash<QString, SearchCapabilities> m_searchCapabilities;
+    static constexpr int SearchCapabilityRetryMs = 5 * 60 * 1000;
     bool m_viewsLoading = false;
     quint64 m_epoch = 0;
     // Newest Next Up fan-out; an older one must not publish after it.

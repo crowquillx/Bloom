@@ -25,6 +25,36 @@ FocusScope {
     property var navigationStack: []
     property bool componentReady: false
     property var letterBuckets: [] // [{ letter: "A", index: 0 }]
+    /// The A-Z rail covers the whole library when the server reports where
+    /// each letter starts (title sort); otherwise only the loaded rows.
+    readonly property bool wholeLibraryLetters: LibraryViewModel.letterIndex.length > 0
+    readonly property var railBuckets: wholeLibraryLetters
+        ? LibraryViewModel.letterIndex.map(function(entry) { return { letter: entry.letter, index: entry.position } })
+        : letterBuckets
+    /// Shelves: the rows the Silo profile curates for this library, shown
+    /// instead of the grid when the viewer picks them. The grid is the
+    /// default and the only view where the provider has no rows.
+    property bool shelvesMode: false
+    readonly property bool shelvesAvailable: LibrarySectionsViewModel.available
+                                             && LibrarySectionsViewModel.count > 0
+                                             && LibrarySectionsViewModel.libraryId === currentParentId
+                                             && currentSeriesId === ""
+                                             && currentParentId.indexOf("combined:") !== 0
+    readonly property bool showingShelves: shelvesMode && shelvesAvailable
+    /// Shelf and card to focus when the shelves come back
+    /// ({ sectionId, itemId, row, index }; the IDs win, the positions are
+    /// the fallback).
+    property var _pendingShelfFocus: null
+    property bool _reloadingForQuery: false
+    /// A return to a title past the loaded pages seeks back to it; the
+    /// grid's scroll position is restored once it is loaded.
+    property int _pendingSeekIndex: -1
+    property real _pendingSeekContentY: -1
+    // Each library opens on the view last chosen for it.
+    onCurrentLibraryIdChanged: {
+        shelvesMode = currentLibraryId !== "" && ConfigManager.getLibraryShelvesShown(currentLibraryId)
+        _pendingShelfFocus = null
+    }
     
     // Filter properties
     property var selectedGenres: []
@@ -938,7 +968,8 @@ FocusScope {
             anchors.centerIn: parent
             width: Math.min(parent.width - Theme.pageMarginX * 2, Math.round(760 * Theme.layoutScale))
             z: 5
-            visible: !isLoading && grid.count === 0 && (LibraryViewModel.hasError || currentParentId !== "")
+            visible: !showingShelves && !isLoading && grid.count === 0
+                     && (LibraryViewModel.hasError || currentParentId !== "")
             kind: LibraryViewModel.hasError ? "error" : "empty"
             title: LibraryViewModel.hasError ? qsTr("Couldn't load this library")
                    : (LibraryViewModel.activeFilterCount > 0 || librarySearchText !== ""
@@ -961,25 +992,65 @@ FocusScope {
             Keys.onUpPressed: (event) => { searchField.forceActiveFocus(); event.accepted = true }
         }
 
-        // When this component receives focus, delegate to the grid
+        // When this component receives focus, delegate to the grid or the
+        // shelves, whichever is shown.
         onActiveFocusChanged: {
             if (activeFocus && grid) {
+                focusContent()
+            }
+        }
+
+        function focusContent() {
+            if (showingShelves)
+                shelvesView.focusShelf()
+            else
                 grid.forceActiveFocus()
+        }
+
+        // The shelf and card in focus, for a return from a title's page.
+        // Kept by ID: a reload may reorder the shelves or their cards.
+        function currentShelfFocus() {
+            if (!showingShelves || !shelvesView.activeFocus || shelvesView.currentIndex < 0)
+                return null
+            var row = shelvesView.itemAtIndex(shelvesView.currentIndex)
+            var index = row ? row.shelfList.currentIndex : 0
+            var card = row && index >= 0 && row.items && index < row.items.length ? row.items[index] : null
+            return {
+                sectionId: row ? row.sectionId : "",
+                itemId: card ? (card.itemId || "") : "",
+                row: shelvesView.currentIndex,
+                index: index
+            }
+        }
+
+        // The shelves left (the provider has no rows now): back to the grid.
+        // A library remembered on its shelves shows the grid until its rows
+        // arrive: focus follows them then.
+        Connections {
+            target: root
+            function onShowingShelvesChanged() {
+                if (!showingShelves && shelvesView.activeFocus)
+                    Qt.callLater(function() { grid.forceActiveFocus() })
+                else if (showingShelves && grid.activeFocus)
+                    Qt.callLater(shelvesView.focusShelf)
             }
         }
         
     // The header collapses (and the navigation bar recedes) once the grid is
     // scrolled, so browsing uses the full height. It returns at the top of
     // the grid or whenever a header control has focus.
-    readonly property bool headerControlFocused: searchField.activeFocus
+    readonly property bool headerControlFocused: shelvesToggle.activeFocus || searchField.activeFocus
                                                  || sortCombo.activeFocus || sortCombo.popup.visible
                                                  || orderCombo.activeFocus || orderCombo.popup.visible
                                                  || filterDrawerButton.activeFocus || backButton.activeFocus
     // Keyboard: expanded while the first row has focus. Pointer: at the top.
-    readonly property bool headerExpanded: queryToolbarPinned || headerControlFocused || showFilterPanel
-                                           || !grid.activeFocus || grid.count === 0
-                                           || (InputModeManager.pointerActive ? grid.atYBeginning
-                                                                              : grid.currentIndex < grid.columns)
+    readonly property bool headerExpanded: showingShelves
+        ? (headerControlFocused || !shelvesView.activeFocus
+           || (InputModeManager.pointerActive ? shelvesView.atYBeginning : shelvesView.currentIndex <= 0))
+        : (queryToolbarPinned || headerControlFocused || showFilterPanel
+           || !grid.activeFocus || grid.count === 0
+           || (InputModeManager.pointerActive ? grid.atYBeginning
+                                              : grid.currentIndex < grid.columns))
     readonly property bool navigationRecessed: !headerExpanded
 
     RowLayout {
@@ -1028,7 +1099,8 @@ FocusScope {
                     detail: {
                         if (currentParentId === "")
                             return ""
-                        var loaded = LibraryViewModel.rowCount()
+                        // Rows a letter jump skipped are not counted.
+                        var loaded = LibraryViewModel.loadedCount
                         var total = LibraryViewModel.totalRecordCount
                         if (total > 0 && loaded > 0)
                             return loaded < total ? qsTr("%1 of %2 titles").arg(loaded).arg(total)
@@ -1042,6 +1114,28 @@ FocusScope {
 	                    Layout.alignment: Qt.AlignBottom
 	                    visible: showPaginationControls
 	                    spacing: Theme.controlSpacing
+
+                    ActionButton {
+                        id: shelvesToggle
+                        variant: "secondary"
+                        visible: shelvesAvailable
+                        text: qsTr("Shelves")
+                        iconGlyph: Icons.viewList
+                        selected: showingShelves
+                        Layout.preferredHeight: Theme.buttonHeightMedium
+                        Accessible.name: showingShelves ? qsTr("Show all titles") : qsTr("Show shelves")
+                        KeyNavigation.right: showingShelves ? (backButton.visible ? backButton : null) : searchField
+                        Keys.onDownPressed: (event) => {
+                            if (showingShelves)
+                                shelvesView.focusShelf()
+                            else
+                                grid.forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) toggleShelves(); event.accepted = true }
+                        Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) toggleShelves(); event.accepted = true }
+                        onClicked: toggleShelves()
+                    }
 
                     TextField {
                         id: searchField
@@ -1059,6 +1153,8 @@ FocusScope {
                         verticalAlignment: TextInput.AlignVCenter
                         cursorVisible: activeFocus
                         Accessible.name: "Search library"
+                        visible: !showingShelves
+                        KeyNavigation.left: shelvesToggle.visible ? shelvesToggle : null
                         KeyNavigation.right: sortCombo
                         KeyNavigation.down: grid
                         background: Rectangle {
@@ -1089,6 +1185,7 @@ FocusScope {
 
                     LibraryComboBox {
                         id: sortCombo
+                        visible: !showingShelves
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         // Library order, then the sorts the connection serves.
                         readonly property var sortOptions: [
@@ -1123,6 +1220,7 @@ FocusScope {
 
                     LibraryComboBox {
                         id: orderCombo
+                        visible: !showingShelves
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         model: ["Ascending", "Descending"]
                         values: ["ascending", "descending"]
@@ -1142,6 +1240,7 @@ FocusScope {
                         variant: "secondary"
                         text: LibraryViewModel.activeFilterCount > 0 ? ("Filters " + LibraryViewModel.activeFilterCount) : "Filters"
                         iconGlyph: Icons.filter
+                        visible: !showingShelves
                         selected: showFilterPanel
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         Accessible.name: text
@@ -1199,8 +1298,14 @@ FocusScope {
                     Layout.alignment: Qt.AlignBottom
                     Layout.preferredHeight: Theme.buttonHeightMedium
                     
-                    KeyNavigation.left: filterDrawerButton
-                    KeyNavigation.down: grid
+                    KeyNavigation.left: showingShelves ? shelvesToggle : filterDrawerButton
+                    Keys.onDownPressed: (event) => {
+                        if (showingShelves)
+                            shelvesView.focusShelf()
+                        else
+                            grid.forceActiveFocus()
+                        event.accepted = true
+                    }
                     
                     Keys.onReturnPressed: (event) => {
                         if (event.isAutoRepeat) {
@@ -1568,8 +1673,8 @@ FocusScope {
 
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
-                running: isLoading
-                visible: isLoading
+                running: isLoading && !showingShelves
+                visible: running
                 width: Math.round(72 * Theme.layoutScale)
                 height: Math.round(72 * Theme.layoutScale)
                 palette.dark: Theme.textPrimary
@@ -1580,6 +1685,7 @@ FocusScope {
                 id: grid
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                visible: !showingShelves
                 Accessible.role: Accessible.List
                 Accessible.name: currentParentId === "" ? "Media Libraries" : (currentLibraryName + " Library Items")
                 property int columns: Math.max(Theme.gridColumns, 1)
@@ -1679,7 +1785,8 @@ FocusScope {
                     // This prevents flickering when navigating between views
                     if (currentIndex >= 0 && currentIndex < LibraryViewModel.rowCount()) {
                         var item = LibraryViewModel.getItem(currentIndex)
-                        updateBackdropForItem(item)
+                        if (!item.bloomPlaceholder)
+                            updateBackdropForItem(item)
                     }
                     // Note: We intentionally don't clear backdrop here to prevent flicker
                 }
@@ -1738,6 +1845,15 @@ FocusScope {
                     required property var modelData
                     required property string imageUrl
                     required property int index
+                    // A row a letter jump skipped; it is read once shown.
+                    readonly property bool placeholder: !!modelData.bloomPlaceholder
+                    function requestRow() {
+                        if (placeholder)
+                            LibraryViewModel.ensureLoaded(index)
+                    }
+                    Component.onCompleted: requestRow()
+                    onIndexChanged: requestRow()
+                    GridView.onReused: requestRow()
 
                     MediaCard {
                         id: card
@@ -1749,7 +1865,8 @@ FocusScope {
                         artworkSources: [delegateItem.imageUrl]
                         title: formatTitle(delegateItem.modelData)
                         subtitle: formatCardSubtitle(delegateItem.modelData)
-                        placeholderIcon: delegateItem.modelData.mediaType === "Series" ? Icons.tvShows
+                        placeholderIcon: delegateItem.placeholder ? ""
+                                       : delegateItem.modelData.mediaType === "Series" ? Icons.tvShows
                                        : (delegateItem.modelData.mediaType === "Movie" ? Icons.movie : Icons.folder)
                         item: delegateItem.modelData
                         showWatchState: delegateItem.modelData.mediaType === "Series"
@@ -1813,6 +1930,204 @@ FocusScope {
                 }
             }
 
+            // Shelves: one shelf per row the profile curates for this
+            // library, in the server's order. Up/Down move between shelves
+            // (Up from the first reaches the header), Left/Right along one.
+            ListView {
+                id: shelvesView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: showingShelves
+                model: LibrarySectionsViewModel
+                clip: false
+                spacing: Theme.sectionSpacing
+                boundsBehavior: Flickable.StopAtBounds
+                keyNavigationEnabled: false
+                // The focused shelf settles at the top of the view.
+                highlightRangeMode: ListView.ApplyRange
+                preferredHighlightBegin: 0
+                preferredHighlightEnd: Math.round(height * 0.5)
+                highlightMoveDuration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0
+                Accessible.role: Accessible.List
+                Accessible.name: qsTr("%1 shelves").arg(currentLibraryName)
+
+                function shelfAt(row) {
+                    var shelf = itemAtIndex(row)
+                    return shelf ? shelf.shelfList : null
+                }
+
+                // Focuses the pending shelf and card after a return, else
+                // the current shelf.
+                function focusShelf() {
+                    if (count === 0)
+                        return
+                    var pending = _pendingShelfFocus
+                    _pendingShelfFocus = null
+                    var row = Math.max(0, currentIndex)
+                    var card = -1
+                    if (pending) {
+                        // The shelf and card by ID; their old positions
+                        // only when a reload dropped them.
+                        var byId = pending.sectionId ? LibrarySectionsViewModel.rowOfSection(pending.sectionId) : -1
+                        row = byId >= 0 ? byId : Math.min(pending.row, count - 1)
+                        card = byId >= 0 && pending.itemId
+                            ? LibrarySectionsViewModel.indexOfItem(byId, pending.itemId) : -1
+                        if (card < 0)
+                            card = pending.index
+                    }
+                    currentIndex = row
+                    positionViewAtIndex(row, ListView.Beginning)
+                    Qt.callLater(function() {
+                        var list = shelfAt(row)
+                        if (!list)
+                            return
+                        if (card >= 0 && list.count > 0) {
+                            list.currentIndex = Math.min(card, list.count - 1)
+                            list.positionViewAtIndex(list.currentIndex, ListView.Contain)
+                        }
+                        list.forceActiveFocus()
+                    })
+                }
+
+                function moveShelf(row, delta) {
+                    var target = row + delta
+                    if (target < 0) {
+                        shelvesToggle.forceActiveFocus()
+                        return
+                    }
+                    if (target >= count)
+                        return
+                    currentIndex = target
+                    var list = shelfAt(target)
+                    if (list)
+                        list.forceActiveFocus()
+                }
+
+                // A reset (another library, or rows that changed) drops the
+                // shelf delegates; focus comes back to the first shelf.
+                Connections {
+                    target: LibrarySectionsViewModel
+                    function onModelReset() {
+                        if (showingShelves && shelvesView.activeFocus)
+                            Qt.callLater(shelvesView.focusShelf)
+                    }
+                }
+
+                delegate: FocusScope {
+                    id: shelfRow
+                    required property int index
+                    required property string sectionId
+                    required property string title
+                    required property var items
+                    required property bool hasMore
+                    property alias shelfList: shelfCards
+                    width: shelvesView.width
+                    height: shelfColumn.implicitHeight
+
+                    // The cards are set by hand so new cards (the rest of
+                    // the row, or a refresh) keep the focused card, found
+                    // by ID wherever it moved.
+                    property string _focusedItemId: ""
+                    onItemsChanged: {
+                        var keep = shelfCards.currentIndex
+                        shelfCards.model = items || []
+                        if (_focusedItemId !== "") {
+                            var moved = LibrarySectionsViewModel.indexOfItem(index, _focusedItemId)
+                            if (moved >= 0)
+                                keep = moved
+                        }
+                        if (keep > 0 && shelfCards.count > 0) {
+                            shelfCards.currentIndex = Math.min(keep, shelfCards.count - 1)
+                            shelfCards.positionViewAtIndex(shelfCards.currentIndex, ListView.Contain)
+                        }
+                    }
+                    Component.onCompleted: shelfCards.model = items || []
+
+                    Column {
+                        id: shelfColumn
+                        width: parent.width
+                        spacing: Theme.sectionTitleSpacing
+
+                        SectionHeader {
+                            width: parent.width
+                            text: shelfRow.title
+                            Accessible.role: Accessible.Heading
+                            Accessible.name: text
+                        }
+
+                        ShelfList {
+                            id: shelfCards
+                            width: parent.width
+                            height: implicitHeight
+                            focus: true
+                            // The page's own gutter already insets the view.
+                            leftMargin: 0
+                            rightMargin: 0
+                            preferredHighlightBegin: 0
+                            preferredHighlightEnd: width
+                            Accessible.name: shelfRow.title
+
+                            // Near the end of a row that has more, read the
+                            // rest of it.
+                            onCurrentIndexChanged: {
+                                var card = currentIndex >= 0 && shelfRow.items && currentIndex < shelfRow.items.length
+                                    ? shelfRow.items[currentIndex] : null
+                                shelfRow._focusedItemId = card ? (card.itemId || "") : ""
+                                if (shelfRow.hasMore && currentIndex >= count - 5)
+                                    LibrarySectionsViewModel.loadMore(shelfRow.index)
+                            }
+                            onActiveFocusChanged: if (activeFocus) shelvesView.currentIndex = shelfRow.index
+
+                            delegate: MediaCard {
+                                id: shelfCard
+                                required property var modelData
+                                required property int index
+                                variant: "poster"
+                                artworkSources: [LibraryService.getCachedArtworkUrlFromRef(modelData.primaryArtwork || {}, 640)]
+                                title: modelData.name || ""
+                                subtitle: formatCardSubtitle(modelData)
+                                placeholderIcon: modelData.mediaType === "Series" ? Icons.tvShows : Icons.movie
+                                item: modelData
+                                showWatchState: modelData.mediaType === "Series"
+                                                || (modelData.mediaType === "Movie" && !!modelData.watched)
+                                unplayedCount: modelData.mediaType === "Series" ? (modelData.unplayedItemCount || 0) : 0
+                                watched: !!modelData.watched
+                                positionMs: modelData.positionMs || 0
+                                durationMs: modelData.durationMs || 0
+                                focused: ListView.isCurrentItem && ListView.view.activeFocus
+                                onClicked: {
+                                    shelfCards.currentIndex = index
+                                    shelfCards.forceActiveFocus()
+                                    handleSelection(modelData)
+                                }
+                                Accessible.description: qsTr("Press to select %1").arg(title)
+                            }
+
+                            Keys.onUpPressed: (event) => { shelvesView.moveShelf(shelfRow.index, -1); event.accepted = true }
+                            Keys.onDownPressed: (event) => { shelvesView.moveShelf(shelfRow.index, 1); event.accepted = true }
+                            Keys.onReturnPressed: (event) => {
+                                if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
+                                    handleSelection(shelfRow.items[currentIndex])
+                                event.accepted = true
+                            }
+                            Keys.onEnterPressed: (event) => {
+                                if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
+                                    handleSelection(shelfRow.items[currentIndex])
+                                event.accepted = true
+                            }
+                            Keys.onPressed: (event) => {
+                                if (!event.isAutoRepeat
+                                        && (event.key === Qt.Key_Back || event.key === Qt.Key_Escape)
+                                        && currentParentId !== "") {
+                                    navigateBack()
+                                    event.accepted = true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
         }
 
         FocusScope {
@@ -1820,17 +2135,27 @@ FocusScope {
             Layout.alignment: Qt.AlignVCenter
             Layout.preferredWidth: Math.round(52 * Theme.layoutScale)
             Layout.fillHeight: true
-            Layout.maximumHeight: letterBuckets.length * (idealEntryHeight + entrySpacing) - entrySpacing
-            visible: letterBuckets.length > 2
+            Layout.maximumHeight: railBuckets.length * (idealEntryHeight + entrySpacing) - entrySpacing
+            visible: !showingShelves && railBuckets.length > 2
             activeFocusOnTab: false
             Accessible.role: Accessible.List
             Accessible.name: qsTr("Jump to letter")
 
-            // Bucket that contains the grid's current item.
+            // Bucket that contains the grid's current item. With the whole
+            // library's index, the letter comes from its runs, since a
+            // collation can sort some of a letter's titles apart.
             readonly property int activeBucket: {
+                if (wholeLibraryLetters) {
+                    var letter = LibraryViewModel.letterAtPosition(grid.currentIndex)
+                    for (var j = 0; j < railBuckets.length; ++j) {
+                        if (railBuckets[j].letter === letter)
+                            return j
+                    }
+                    return -1
+                }
                 var result = -1
-                for (var i = 0; i < letterBuckets.length; ++i) {
-                    if (grid.currentIndex >= letterBuckets[i].index)
+                for (var i = 0; i < railBuckets.length; ++i) {
+                    if (grid.currentIndex >= railBuckets[i].index)
                         result = i
                 }
                 return result
@@ -1840,9 +2165,9 @@ FocusScope {
             // Shrink entries so every bucket fits the available height.
             readonly property int idealEntryHeight: Math.round(40 * Theme.layoutScale)
             readonly property int entrySpacing: Math.round(2 * Theme.layoutScale)
-            readonly property int entryHeight: letterBuckets.length > 0
+            readonly property int entryHeight: railBuckets.length > 0
                 ? Math.max(1, Math.min(idealEntryHeight,
-                                       Math.floor((height + entrySpacing) / letterBuckets.length) - entrySpacing))
+                                       Math.floor((height + entrySpacing) / railBuckets.length) - entrySpacing))
                 : idealEntryHeight
 
             function enter() {
@@ -1851,12 +2176,12 @@ FocusScope {
             }
 
             function commit() {
-                if (cursor >= 0 && cursor < letterBuckets.length)
-                    jumpToLetter(letterBuckets[cursor].letter)
+                if (cursor >= 0 && cursor < railBuckets.length)
+                    jumpToLetter(railBuckets[cursor].letter)
             }
 
             Keys.onUpPressed: (event) => { cursor = Math.max(0, cursor - 1); event.accepted = true }
-            Keys.onDownPressed: (event) => { cursor = Math.min(letterBuckets.length - 1, cursor + 1); event.accepted = true }
+            Keys.onDownPressed: (event) => { cursor = Math.min(railBuckets.length - 1, cursor + 1); event.accepted = true }
             Keys.onLeftPressed: (event) => { grid.forceActiveFocus(); event.accepted = true }
             Keys.onRightPressed: (event) => { event.accepted = true }
             Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) commit(); event.accepted = true }
@@ -1870,7 +2195,7 @@ FocusScope {
                 spacing: letterRail.entrySpacing
 
                 Repeater {
-                    model: letterBuckets
+                    model: railBuckets
                     delegate: Item {
                         width: letterColumn.width
                         height: letterRail.entryHeight
@@ -1933,6 +2258,9 @@ FocusScope {
     }
 
     function handleSelection(item) {
+        // Rows a letter jump skipped open nothing until they load.
+        if (!item || item.bloomPlaceholder)
+            return
         const mediaType = item ? (item.mediaType || "") : ""
         const remoteId = item ? (item.itemId || "") : ""
         console.log("[Library] handleSelection",
@@ -1962,7 +2290,8 @@ FocusScope {
                 showFilterPanel: showFilterPanel,
                 activeFilterCategory: activeFilterCategory,
                 gridIndex: gridRef ? gridRef.currentIndex : -1,
-                gridContentY: gridRef ? gridRef.contentY : -1
+                gridContentY: gridRef ? gridRef.contentY : -1,
+                shelfFocus: captureShelfFocus()
             }
             navigationStack.push(previousContext)
             console.log("[Library] push navigation context",
@@ -2153,6 +2482,7 @@ FocusScope {
             if (!targetShowSeriesDetails && !targetShowSeasonView && !targetShowMovieDetails) {
                 _pendingGridIndex = prevContext.gridIndex !== undefined ? prevContext.gridIndex : -1
                 _pendingGridContentY = prevContext.gridContentY !== undefined ? prevContext.gridContentY : -1
+                _pendingShelfFocus = prevContext.shelfFocus || null
                 console.log("[Library] Set pending grid restore - index:", _pendingGridIndex, "contentY:", _pendingGridContentY)
             }
             
@@ -2301,7 +2631,8 @@ FocusScope {
                 activeFilterCategory: activeFilterCategory,
                 movieData: currentMovieData,
                 gridIndex: gridRef ? gridRef.currentIndex : -1,
-                gridContentY: gridRef ? gridRef.contentY : -1
+                gridContentY: gridRef ? gridRef.contentY : -1,
+                shelfFocus: captureShelfFocus()
             }
             navigationStack.push(previousContext)
             console.log("[Library] push navigation context for Movie",
@@ -2612,6 +2943,7 @@ FocusScope {
             currentLibraryName = ""
             currentLibraryType = ""
             librarySearchText = ""
+            LibrarySectionsViewModel.clear()
             LibraryViewModel.loadViews()
         } else {
             // Determine if we should apply pagination based on navigation level
@@ -2630,7 +2962,9 @@ FocusScope {
             
             // If we have a pending position to restore, load enough items to include that index
             // This ensures when navigating back to a library at (e.g.) index 75, we load at least 76 items
-            if (shouldPaginate && _pendingGridIndex >= 0) {
+            // A title far down (a letter jump) is sought back instead of
+            // read through every page before it.
+            if (shouldPaginate && _pendingGridIndex >= 0 && _pendingGridIndex < baseLimit * 4) {
                 // Load enough items to include the pending index, plus a buffer for scrolling context
                 // Round up to the next multiple of baseLimit to avoid odd partial loads
                 var neededItems = _pendingGridIndex + 1 + baseLimit  // +1 for zero-indexing, +baseLimit for buffer
@@ -2651,6 +2985,15 @@ FocusScope {
                 LibraryViewModel.loadLibrary(currentParentId, currentLibraryType, startIndex, limit)
             if (shouldPaginate) {
                 LibraryViewModel.loadFilterOptions(currentParentId, currentLibraryType)
+                // The library's curated shelves (Silo); other providers
+                // have none and the toggle stays hidden. They are read once
+                // per library visit (enough to offer the toggle), and again
+                // on a return only while they are shown.
+                if (currentParentId.indexOf("combined:") === 0)
+                    LibrarySectionsViewModel.clear()
+                else if (LibrarySectionsViewModel.libraryId !== currentParentId
+                         || (showingShelves && !_reloadingForQuery))
+                    LibrarySectionsViewModel.load(currentParentId)
             }
         }
     }
@@ -2666,8 +3009,28 @@ FocusScope {
         if (contentLoader.item && typeof contentLoader.item.rememberQueryFocus === "function") {
             contentLoader.item.rememberQueryFocus(focusTarget || "")
         }
-        // Reload from beginning when filters change
+        // Reload from beginning when filters change; the shelves ignore
+        // the grid's query.
+        _reloadingForQuery = true
         loadItemsForCurrentParent()
+        _reloadingForQuery = false
+    }
+
+    // Switches between the grid and the shelves. Focus stays on the toggle.
+    function toggleShelves() {
+        if (!shelvesAvailable)
+            return
+        shelvesMode = !shelvesMode
+        ConfigManager.setLibraryShelvesShown(currentLibraryId, shelvesMode)
+        _pendingShelfFocus = null
+        if (shelvesMode)
+            showFilterPanel = false
+        resetQueryToolbarVisibility()
+    }
+
+    function captureShelfFocus() {
+        var content = contentLoader.item
+        return content && typeof content.currentShelfFocus === "function" ? content.currentShelfFocus() : null
     }
 
     // Connect to LibraryViewModel for load completion
@@ -2697,15 +3060,44 @@ FocusScope {
             }
         }
         function onLoadMoreComplete() {
-            // Update letter buckets after loading more items
-            var items = []
-            for (var i = 0; i < LibraryViewModel.rowCount(); i++) {
-                items.push(LibraryViewModel.getItem(i))
-            }
-            updateLetterBuckets(items)
+            rebuildLetterBuckets()
+        }
+        // The loaded-letters rail is rebuilt when the whole-library index
+        // goes away (another sort, or a failed read).
+        function onLetterIndexChanged() {
+            if (!wholeLibraryLetters)
+                rebuildLetterBuckets()
         }
         function onLoadError(error) {
             console.log("[Library] Load error:", error)
+        }
+        // A letter jump reached its first title: focus it.
+        function onPositionReady(position) {
+            var grid = contentLoader.item ? contentLoader.item.grid : null
+            var restoring = position === _pendingSeekIndex
+            var contentY = restoring ? _pendingSeekContentY : -1
+            _pendingSeekIndex = -1
+            _pendingSeekContentY = -1
+            if (!grid || showingShelves || position < 0 || position >= grid.count)
+                return
+            grid.currentIndex = position
+            // A return keeps the title where it was on screen.
+            if (contentY >= 0)
+                grid.contentY = contentY
+            else
+                grid.positionViewAtIndex(position, restoring ? GridView.Center : GridView.Beginning)
+            Qt.callLater(function() { grid.forceActiveFocus() })
+        }
+        // The seek's rows failed to load. Focus stays where it was; the
+        // same jump tries again.
+        function onSeekFailed(position, error) {
+            // Only a return to a far-down title sets _pendingSeekIndex.
+            var restoring = position === _pendingSeekIndex
+            _pendingSeekIndex = -1
+            _pendingSeekContentY = -1
+            seekToast.show(restoring
+                           ? qsTr("Couldn't load the title you were on.")
+                           : qsTr("Couldn't load these titles. Choose the letter again to retry."))
         }
     }
 
@@ -2792,12 +3184,7 @@ FocusScope {
     }
 
     function applyItems() {
-        // Update letter buckets from ViewModel data
-        var items = []
-        for (var i = 0; i < LibraryViewModel.rowCount(); i++) {
-            items.push(LibraryViewModel.getItem(i))
-        }
-        updateLetterBuckets(items)
+        rebuildLetterBuckets()
         
         // Only force focus to grid if we're at top level or just navigated into a folder
         var grid = contentLoader.item ? contentLoader.item.grid : null
@@ -2812,9 +3199,11 @@ FocusScope {
             })
         } else if ((currentParentId === "" || !LibraryViewModel.isLoadingMore) && !showFilterPanel) {
             Qt.callLater(function() {
-                var g = contentLoader.item ? contentLoader.item.grid : null
-                if (g) {
-                    g.forceActiveFocus()
+                var content = contentLoader.item
+                if (content && typeof content.focusContent === "function") {
+                    content.focusContent()
+                } else if (content && content.grid) {
+                    content.grid.forceActiveFocus()
                 }
             })
         } else if (showFilterPanel) {
@@ -2827,7 +3216,16 @@ FocusScope {
         
         if (grid && grid.count > 0) {
             // Check if we have a pending position to restore
-            if (_pendingGridIndex >= 0 && _pendingGridIndex < grid.count) {
+            if (_pendingGridIndex >= grid.count && _pendingGridIndex < LibraryViewModel.totalRecordCount) {
+                // A title past the first pages (reached by a letter jump):
+                // seek back to it; positionReady focuses it and restores the
+                // scroll position. A seek during a load waits for it.
+                _pendingSeekIndex = _pendingGridIndex
+                _pendingSeekContentY = _pendingGridContentY
+                _pendingGridIndex = -1
+                _pendingGridContentY = -1
+                LibraryViewModel.seekToPosition(_pendingSeekIndex)
+            } else if (_pendingGridIndex >= 0 && _pendingGridIndex < grid.count) {
                 console.log("[Library] Restoring grid position - index:", _pendingGridIndex, "contentY:", _pendingGridContentY)
                 grid.currentIndex = _pendingGridIndex
                 
@@ -2912,10 +3310,27 @@ FocusScope {
         return d.getFullYear()
     }
 
+    // The loaded-letters rail. With the whole library's index it is not
+    // needed, and rows a jump skipped never count.
+    function rebuildLetterBuckets() {
+        if (wholeLibraryLetters) {
+            letterBuckets = []
+            return
+        }
+        var items = []
+        for (var i = 0; i < LibraryViewModel.rowCount(); i++) {
+            var item = LibraryViewModel.getItem(i)
+            items.push(item.bloomPlaceholder ? null : item)
+        }
+        updateLetterBuckets(items)
+    }
+
     function updateLetterBuckets(items) {
         var buckets = []
         var seen = {}
         for (var i = 0; i < items.length; ++i) {
+            if (!items[i])
+                continue
             var letter = getSortLetter(items[i])
             if (!seen[letter]) {
                 seen[letter] = true
@@ -2941,6 +3356,11 @@ FocusScope {
         var grid = contentLoader.item ? contentLoader.item.grid : null
         if (!grid) return
 
+        // The whole library: the view model seeks to the letter's first
+        // title and answers with positionReady once that row is loaded.
+        if (wholeLibraryLetters && LibraryViewModel.jumpToLetter(letter))
+            return
+
         for (var i = 0; i < letterBuckets.length; ++i) {
             if (letterBuckets[i].letter === letter) {
                 grid.currentIndex = letterBuckets[i].index
@@ -2950,5 +3370,10 @@ FocusScope {
             }
         }
     }
-    
+
+    // A letter jump whose titles failed to load.
+    ToastNotification {
+        id: seekToast
+        z: 300
+    }
 }

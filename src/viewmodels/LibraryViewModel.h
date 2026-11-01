@@ -16,6 +16,7 @@
 #include <memory>
 #include <QSet>
 #include <optional>
+#include <utility>
 #include "../utils/LibraryCacheStore.h"
 #include "../network/LibraryService.h"
 
@@ -97,6 +98,12 @@ class LibraryViewModel : public BaseViewModel
     // connection serves; see ProviderLibraryQueryCapabilities.
     Q_PROPERTY(QStringList supportedSorts READ supportedSorts NOTIFY queryCapabilitiesChanged)
     Q_PROPERTY(QStringList supportedFilters READ supportedFilters NOTIFY queryCapabilitiesChanged)
+    // Where each letter starts in the whole title-ordered library
+    // ({letter, count, position}, in list order); empty for other sorts,
+    // combined pages, and servers without a letter index.
+    Q_PROPERTY(QVariantList letterIndex READ letterIndex NOTIFY letterIndexChanged)
+    // Rows with a title, without the placeholders a letter jump left.
+    Q_PROPERTY(int loadedCount READ loadedCount NOTIFY loadedCountChanged)
 
 public:
     enum class LoadKind {
@@ -105,7 +112,12 @@ public:
         LoadMore,
         BackgroundRefresh,
         FilterOptions,
-        CombinedPage
+        CombinedPage,
+        // A page read at a position ahead of the loaded rows (a letter
+        // jump) or into placeholder rows it left behind.
+        Window,
+        // The dataset's letter index.
+        Letters
     };
     Q_ENUM(LoadKind)
 
@@ -155,6 +167,8 @@ public:
     int activeFilterCount() const;
     QStringList supportedSorts() const { return m_queryCapabilities.sorts; }
     QStringList supportedFilters() const { return m_queryCapabilities.filters; }
+    QVariantList letterIndex() const { return m_letters; }
+    int loadedCount() const { return m_loadedCount; }
 
     /**
      * @brief Load items for a specific parent folder.
@@ -226,6 +240,23 @@ public:
      */
     Q_INVOKABLE QVariantMap getItem(int index) const;
 
+    /// The letter the title at @p position files under, from the letter
+    /// index; empty without one.
+    Q_INVOKABLE QString letterAtPosition(int position) const;
+    /// Seeks to @p letter's first title (letterIndex). False when the index
+    /// has no such letter.
+    Q_INVOKABLE bool jumpToLetter(const QString &letter);
+    /// Makes the row at @p position available and emits positionReady once
+    /// it is loaded, or seekFailed when its window fails. Rows between the
+    /// loaded ones and @p position become placeholders
+    /// (modelData.bloomPlaceholder) until they are read. While the first
+    /// page loads, the seek waits for it.
+    Q_INVOKABLE void seekToPosition(int position);
+    /// Reads the page holding the placeholder row at @p index. At most
+    /// kMaxPlaceholderWindows such reads run at once; past that only the
+    /// newest row asked for is read next.
+    Q_INVOKABLE void ensureLoaded(int index);
+
 signals:
     void isLoadingMoreChanged();
     void canLoadMoreChanged();
@@ -250,6 +281,12 @@ signals:
     void filterOptionsLoadingChanged();
     void activeFilterCountChanged();
     void queryCapabilitiesChanged();
+    void letterIndexChanged();
+    void loadedCountChanged();
+    /// The row a seekToPosition asked for is loaded.
+    void positionReady(int position);
+    /// The window a seekToPosition waited on failed; seeking again retries.
+    void seekFailed(int position, const QString &error);
 
 private slots:
     void onViewsLoaded(const QString &connectionId,
@@ -280,6 +317,12 @@ private slots:
                                const QString &parentId,
                                const QString &requestKey,
                                const QString &error);
+    void onLettersLoaded(const QString &connectionId,
+                         const QString &requestKey,
+                         const QVariantMap &letterIndex);
+    void onLettersFailed(const QString &connectionId,
+                         const QString &requestKey,
+                         const QString &error);
 
 private:
     friend class LibraryViewModelCanonicalTest;
@@ -341,6 +384,18 @@ private:
                          const QJsonArray &page,
                          int totalRecordCount,
                          int offset);
+    // Letter index and placeholder windows.
+    void requestLetterIndex(const LibraryItemQuery &query);
+    void setLetterIndex(const QVariantMap &letterIndex);
+    static bool isPlaceholder(const QJsonObject &item);
+    bool isPlaceholderRow(int row) const;
+    void growPlaceholders(int size);
+    void requestWindow(int start, int end);
+    void placeRows(int offset, const QJsonArray &items);
+    void finishWindow(const QString &requestKey);
+    void readWantedPlaceholders();
+    void recountPlaceholders();
+    void updateLoadedCount();
 
     LibraryService *m_libraryService = nullptr;
     ConfigManager *m_configManager = nullptr;
@@ -393,6 +448,27 @@ private:
     QString m_activeLoadMoreRequestKey;
     QString m_activeBackgroundRequestKey;
     QString m_activeFilterRequestKey;
+    // The letter index of the active dataset, its request, and the windows
+    // in flight (start -> end) with the row a seek waits for.
+    QVariantList m_letters;
+    QVariantList m_letterRuns;
+    QString m_lettersRequestKey;
+    QHash<QString, std::pair<int, int>> m_windowRequests;
+    // The window a seek waits on (not counted against the placeholder
+    // read limit), a seek asked for while the first page loads, and the
+    // newest placeholder row that waits for a free window.
+    QString m_seekWindowRequestKey;
+    int m_pendingSeekPosition = -1;
+    int m_deferredSeekPosition = -1;
+    int m_wantedPlaceholderRow = -1;
+    static constexpr int kMaxPlaceholderWindows = 2;
+    int m_placeholderCount = 0;
+    int m_loadedCount = 0;
+    struct LetterCacheEntry {
+        QVariantMap index;
+        qint64 timestamp = 0;
+    };
+    static QHash<QString, LetterCacheEntry> s_letterCache;
     mutable quint64 m_staleRequestRejections = 0;
     
     // In-memory cache for library data to speed up back navigation
@@ -401,6 +477,10 @@ private:
     static QList<QString> s_libraryCacheLru;
     static qint64 s_libraryCacheBytes;
     static constexpr qint64 kCacheTtlMs = 120000;  // 2 minute TTL for library cache
+    // A letter index is kept per dataset (query) for 15 minutes; building
+    // one can mean reading the whole list (Jellyfin). A first-page refresh
+    // that finds changes drops it.
+    static constexpr qint64 kLetterCacheTtlMs = 15 * 60 * 1000;
     static constexpr qint64 kDiskCacheTtlMs = 600000; // 10 minute TTL for disk cache
     static constexpr qsizetype kMemoryCacheMaxEntries = 48;
     static constexpr qint64 kMemoryCacheMaxBytes = 32 * 1024 * 1024;

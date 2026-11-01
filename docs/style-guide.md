@@ -225,6 +225,33 @@ columns of poster `MediaCard`s (`artworkWidth` = cell width − `cardGap`). Rows
 are separated by `cardGap` plus the caption. The focused row scrolls to a
 stable position and never under the navigation bar.
 
+### Letter rail
+
+A library grid has an A–Z rail on its right edge. Right from the last column
+enters it; Up/Down move, Enter jumps, Left or Escape return to the grid. In
+title order the rail covers the whole library when the server can say where
+each letter starts (Silo's letter index; on Jellyfin, from the list's sort
+names): it lists every letter with titles, and a jump lands focus on that
+letter's first title even when it is far past the loaded rows. Rows skipped
+on the way are placeholder cards that load as they scroll into view; the
+header's count leaves them out. If a jump's titles fail to load, a toast says
+so and choosing the letter again retries. Other sorts, searches on Silo,
+combined pages ("All Movies"), Jellyfin libraries of more than 5,000 matching
+titles and servers without an index keep a rail of the letters already
+loaded. The highlighted letter follows the focused card.
+
+### Library shelves
+
+A library whose server curates rows for it (Silo) offers a **Shelves** toggle
+first in the toolbar. Selected, it shows the library's rows as shelves in the
+server's order instead of the grid, and hides search, sort and filters, which
+belong to the grid. The grid is the default; each library then opens on the
+view last chosen for it. The toggle is absent on Jellyfin and while the
+library has no rows. Up from the first shelf reaches the toggle, Up again the
+navigation bar. A shelf that has more cards than it shows reads the rest as
+focus nears its end. Returning from a title puts focus back on its shelf and
+card, found by ID when the shelves changed meanwhile.
+
 ## Panels and rows
 
 Panel pages show a `PageHeader`, then a category list on the left (about a

@@ -12,6 +12,7 @@
 #include <limits>
 #include <tuple>
 
+#include "models/LetterIndex.h"
 #include "models/MediaExtras.h"
 #include "providers/ICatalogProvider.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
@@ -53,6 +54,10 @@ private slots:
     void jellyfinExtrasUseOpenApiRoutesAndMapKinds();
     void siloExtrasMapFromCatalogItemDetail();
     void preferredTrailerPrefersTrailerThenTeaser();
+    void letterIndexFoldsInitialsAndFindsRuns();
+    void jellyfinLetterIndexReadsTheWholeSortNameList();
+    void siloLibrarySectionsKeepTitleRowsInOrder();
+    void siloLetterIndexUsesTheLibraryQuery();
 
 };
 
@@ -556,7 +561,7 @@ void ProviderCatalogTest::jellyfinPersonRequestsAndMapping()
     query.searchTerm = QStringLiteral("  ");
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::PersonSearch, query).supported);
     // People search needs no capability read on Jellyfin.
-    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::PersonSearchCapability, query).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::CatalogSearchCapabilities, query).supported);
 
     // GetItem answers the person itself.
     const ProviderCatalogResponse detail = catalog->parseResponse(
@@ -646,20 +651,20 @@ void ProviderCatalogTest::siloPersonRequestsAndMapping()
                                     QByteArrayLiteral(R"({"id":7,"name":"Al Pacino"})")).valid);
 
     const ProviderCatalogRequest capability
-        = provider.createRequest(ProviderCatalogOperation::PersonSearchCapability, {});
+        = provider.createRequest(ProviderCatalogOperation::CatalogSearchCapabilities, {});
     QVERIFY(capability.supported);
     QCOMPARE(capability.relativeEndpoint, QStringLiteral("/api/v2/catalog/search/capabilities"));
     ProviderCatalogResponse scoped = provider.parseResponse(
-        ProviderCatalogOperation::PersonSearchCapability,
+        ProviderCatalogOperation::CatalogSearchCapabilities,
         QByteArrayLiteral(R"({"revision":"r","state":"available","allowed":true,"people_media_scope":true})"));
     QVERIFY(scoped.valid);
     QCOMPARE(scoped.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool(), true);
     scoped = provider.parseResponse(
-        ProviderCatalogOperation::PersonSearchCapability,
+        ProviderCatalogOperation::CatalogSearchCapabilities,
         QByteArrayLiteral(R"({"revision":"r","state":"available","allowed":true})"));
     QVERIFY(scoped.valid);
     QCOMPARE(scoped.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool(), false);
-    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::PersonSearchCapability,
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::CatalogSearchCapabilities,
                                     QByteArrayLiteral(R"({"revision":"r"})")).valid);
 
     const ProviderCatalogResponse detail = provider.parseResponse(
@@ -1510,6 +1515,356 @@ void ProviderCatalogTest::preferredTrailerPrefersTrailerThenTeaser()
              QStringLiteral("c"));
     QCOMPARE(Extras::normalizedKind(QStringLiteral("making_of")), Extras::kOther);
     QCOMPARE(Extras::normalizedKind(Extras::kDeletedScene), Extras::kDeletedScene);
+}
+
+void ProviderCatalogTest::letterIndexFoldsInitialsAndFindsRuns()
+{
+    QCOMPARE(LetterIndex::letterFor(QStringLiteral("avatar")), QStringLiteral("A"));
+    QCOMPARE(LetterIndex::letterFor(QStringLiteral("  Hobbit, The")), QStringLiteral("H"));
+    // Accented Latin initials fold to their base letter.
+    QCOMPARE(LetterIndex::letterFor(QString::fromUtf8("\xc3\x89lite")), QStringLiteral("E"));
+    QCOMPARE(LetterIndex::letterFor(QStringLiteral("1917")), QStringLiteral("#"));
+    QCOMPARE(LetterIndex::letterFor(QStringLiteral("[REC]")), QStringLiteral("#"));
+    QCOMPARE(LetterIndex::letterFor(QString::fromUtf8("\xe6\x9d\xb1\xe4\xba\xac")), QStringLiteral("#"));
+    QCOMPARE(LetterIndex::letterFor(QString()), QStringLiteral("#"));
+
+    // A collation that sorts an accented initial after Z leaves E with two
+    // runs: the letter keeps its first position and counts both.
+    const QVariantMap index = LetterIndex::fromSortKeys(
+        {QStringLiteral("1917"), QStringLiteral("alien"), QStringLiteral("amelie"),
+         QStringLiteral("eden"), QStringLiteral("zodiac"), QString::fromUtf8("\xc3\xa9lite")});
+    QCOMPARE(index.value(QStringLiteral("total")).toInt(), 6);
+    const QVariantList letters = index.value(QStringLiteral("letters")).toList();
+    QCOMPARE(letters.size(), 4);
+    QCOMPARE(letters.at(0).toMap().value(QStringLiteral("letter")).toString(), QStringLiteral("#"));
+    QCOMPARE(letters.at(1).toMap().value(QStringLiteral("count")).toInt(), 2);
+    QCOMPARE(letters.at(1).toMap().value(QStringLiteral("position")).toInt(), 1);
+    QCOMPARE(letters.at(2).toMap().value(QStringLiteral("letter")).toString(), QStringLiteral("E"));
+    QCOMPARE(letters.at(2).toMap().value(QStringLiteral("count")).toInt(), 2);
+    QCOMPARE(letters.at(2).toMap().value(QStringLiteral("position")).toInt(), 3);
+    const QVariantList runs = index.value(QStringLiteral("runs")).toList();
+    QCOMPARE(runs.size(), 5);
+    QCOMPARE(LetterIndex::letterAt(runs, 0), QStringLiteral("#"));
+    QCOMPARE(LetterIndex::letterAt(runs, 2), QStringLiteral("A"));
+    QCOMPARE(LetterIndex::letterAt(runs, 4), QStringLiteral("Z"));
+    QCOMPARE(LetterIndex::letterAt(runs, 5), QStringLiteral("E"));
+    QCOMPARE(LetterIndex::letterAt(runs, 99), QStringLiteral("E"));
+    QCOMPARE(LetterIndex::letterAt(runs, -1), QString());
+    QCOMPARE(LetterIndex::positionOf(letters, QStringLiteral("Z")), 4);
+    QCOMPARE(LetterIndex::positionOf(letters, QStringLiteral("Q")), -1);
+    QVERIFY(LetterIndex::fromSortKeys({}).value(QStringLiteral("letters")).toList().isEmpty());
+}
+
+void ProviderCatalogTest::jellyfinLetterIndexReadsTheWholeSortNameList()
+{
+    JellyfinProviderAdapter adapter;
+    QVERIFY(!adapter.supportsCapability(ProviderCapability::LibrarySections));
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    ProviderCatalogQuery query;
+    query.userId = QStringLiteral("user-1");
+    query.parentId = QStringLiteral("library-1");
+    query.includeItemTypes = {QStringLiteral("Movie")};
+    query.recursive = true;
+    query.favorite = ProviderCatalogTriState::Yes;
+    query.startIndex = 200;
+    query.limit = 50;
+    query.sortBy = QStringLiteral("title");
+    query.sortOrder = QStringLiteral("descending");
+
+    // The library query's filters and order, the whole list, sort names
+    // only. No NameLessThan: Jellyfin compares only first characters.
+    const ProviderCatalogRequest request
+        = catalog->createRequest(ProviderCatalogOperation::LibraryLetters, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    const QUrl url(request.relativeEndpoint);
+    const QUrlQuery parameters(url);
+    QCOMPARE(url.path(), QStringLiteral("/Items"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("ParentId")), QStringLiteral("library-1"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("IsFavorite")), QStringLiteral("true"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Movie"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("SortBy")), QStringLiteral("SortName"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("SortOrder")), QStringLiteral("Descending"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("Fields")), QStringLiteral("SortName"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableImages")), QStringLiteral("false"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableUserData")), QStringLiteral("false"));
+    for (const QString &absent : {QStringLiteral("StartIndex"), QStringLiteral("Limit"),
+                                  QStringLiteral("EnableImageTypes"), QStringLiteral("NameLessThan")}) {
+        QVERIFY2(!parameters.hasQueryItem(absent), qPrintable(absent));
+    }
+
+    // Every parameter is a current GetItems parameter in the pinned OpenAPI.
+    QFile openApiManifest(QStringLiteral(BLOOM_JELLYFIN_OPENAPI_MANIFEST));
+    QVERIFY(openApiManifest.open(QIODevice::ReadOnly));
+    const QJsonObject manifest = QJsonDocument::fromJson(openApiManifest.readAll()).object();
+    QHash<QString, bool> getItemsParameters;
+    for (const QJsonValue &operation : manifest.value(QStringLiteral("operations")).toArray()) {
+        const QJsonObject object = operation.toObject();
+        if (object.value(QStringLiteral("operationId")).toString() != QStringLiteral("GetItems")) {
+            continue;
+        }
+        for (const QJsonValue &parameter : object.value(QStringLiteral("parameters")).toArray()) {
+            getItemsParameters.insert(
+                parameter.toObject().value(QStringLiteral("name")).toString().toLower(),
+                parameter.toObject().value(QStringLiteral("deprecated")).toBool());
+        }
+    }
+    QVERIFY(!getItemsParameters.isEmpty());
+    for (const auto &item : parameters.queryItems()) {
+        const QString name = item.first.toLower();
+        QVERIFY2(getItemsParameters.contains(name), qPrintable(item.first));
+        QVERIFY2(!getItemsParameters.value(name), qPrintable(item.first));
+    }
+    QVERIFY(manifest.value(QStringLiteral("schemas")).toObject()
+                .value(QStringLiteral("ItemFields")).toObject()
+                .value(QStringLiteral("enum")).toArray().contains(QStringLiteral("SortName")));
+
+    // The count read first: the same query with Limit=0 and no fields,
+    // answering only TotalRecordCount.
+    const ProviderCatalogRequest countRequest
+        = catalog->createRequest(ProviderCatalogOperation::LibraryLetterCount, query);
+    QVERIFY2(countRequest.supported, qPrintable(countRequest.unsupportedReason));
+    QCOMPARE(countRequest.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    const QUrlQuery countParameters(QUrl(countRequest.relativeEndpoint));
+    QCOMPARE(QUrl(countRequest.relativeEndpoint).path(), QStringLiteral("/Items"));
+    QCOMPARE(countParameters.queryItemValue(QStringLiteral("Limit")), QStringLiteral("0"));
+    QCOMPARE(countParameters.queryItemValue(QStringLiteral("ParentId")), QStringLiteral("library-1"));
+    QCOMPARE(countParameters.queryItemValue(QStringLiteral("IsFavorite")), QStringLiteral("true"));
+    QVERIFY(!countParameters.hasQueryItem(QStringLiteral("Fields")));
+    QVERIFY(!countParameters.hasQueryItem(QStringLiteral("StartIndex")));
+    for (const auto &item : countParameters.queryItems()) {
+        const QString name = item.first.toLower();
+        QVERIFY2(getItemsParameters.contains(name), qPrintable(item.first));
+        QVERIFY2(!getItemsParameters.value(name), qPrintable(item.first));
+    }
+    const ProviderCatalogResponse count = catalog->parseResponse(
+        ProviderCatalogOperation::LibraryLetterCount,
+        QByteArrayLiteral(R"({"Items":[],"TotalRecordCount":12345,"StartIndex":0})"));
+    QVERIFY2(count.valid, qPrintable(count.error));
+    QCOMPARE(count.total, 12345);
+    QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::LibraryLetterCount,
+                                    QByteArrayLiteral(R"({"Items":[]})")).valid);
+
+    // Only title order has an index.
+    query.sortBy = QStringLiteral("dateAdded");
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryLetters, query).supported);
+    for (ProviderCatalogOperation operation : {ProviderCatalogOperation::LibrarySections,
+                                               ProviderCatalogOperation::LibrarySectionItems,
+                                               ProviderCatalogOperation::CatalogSearchCapabilities}) {
+        QVERIFY(!catalog->createRequest(operation, query).supported);
+    }
+
+    // Positions follow the server's order; a missing SortName falls back to
+    // the name.
+    const ProviderCatalogResponse index = catalog->parseResponse(
+        ProviderCatalogOperation::LibraryLetters,
+        QByteArrayLiteral(R"({"Items":[{"Id":"1","Name":"1917","SortName":"1917"},)"
+                          R"({"Id":"2","Name":"The Matrix","SortName":"matrix"},)"
+                          R"({"Id":"3","Name":"Memento","SortName":"memento"},)"
+                          R"({"Id":"4","Name":"Zodiac"}],"TotalRecordCount":4})"));
+    QVERIFY2(index.valid, qPrintable(index.error));
+    QVERIFY(index.rawItems.isEmpty());
+    QCOMPARE(index.total, 4);
+    const QVariantList letters = index.capabilityMetadata.value(QStringLiteral("letters")).toList();
+    QCOMPARE(letters.size(), 3);
+    QCOMPARE(LetterIndex::positionOf(letters, QStringLiteral("M")), 1);
+    QCOMPARE(letters.at(1).toMap().value(QStringLiteral("count")).toInt(), 2);
+    QCOMPARE(LetterIndex::positionOf(letters, QStringLiteral("Z")), 3);
+    QCOMPARE(LetterIndex::letterAt(
+                 index.capabilityMetadata.value(QStringLiteral("runs")).toList(), 2),
+             QStringLiteral("M"));
+
+    // A server that pages anyway answers part of the list: no index.
+    const ProviderCatalogResponse partial = catalog->parseResponse(
+        ProviderCatalogOperation::LibraryLetters,
+        QByteArrayLiteral(R"({"Items":[{"Id":"1","SortName":"alien"}],"TotalRecordCount":24})"));
+    QVERIFY(!partial.valid);
+}
+
+void ProviderCatalogTest::siloLibrarySectionsKeepTitleRowsInOrder()
+{
+    SiloProviderAdapter adapter;
+    QVERIFY(adapter.supportsCapability(ProviderCapability::LibrarySections));
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    ProviderCatalogQuery query;
+    query.parentId = QStringLiteral("lib 1");
+    ProviderCatalogRequest request
+        = catalog->createRequest(ProviderCatalogOperation::LibrarySections, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/library/lib%201/sections")));
+    query.limit = 20;
+    request = catalog->createRequest(ProviderCatalogOperation::LibrarySections, query);
+    QCOMPARE(request.relativeEndpoint,
+             QStringLiteral("/api/v2/library/lib%201/sections?item_limit=20&poster_width=1000"
+                            "&backdrop_width=3840&logo_width=1280&still_width=1280"));
+    query.limit = 500;
+    request = catalog->createRequest(ProviderCatalogOperation::LibrarySections, query);
+    QCOMPARE(QUrlQuery(QUrl(request.relativeEndpoint)).queryItemValue(QStringLiteral("item_limit")),
+             QStringLiteral("100"));
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibrarySections, ProviderCatalogQuery{})
+                 .supported);
+
+    // Rows keep the server's order, only movie and series cards (once
+    // each), and drop rows left empty. Each row carries how many wire
+    // items it sent beside total_count and has_more; LibraryService decides
+    // whether Bloom's item_limit cut it.
+    const ProviderCatalogResponse rows = catalog->parseResponse(
+        ProviderCatalogOperation::LibrarySections,
+        QByteArrayLiteral(R"({"sections":[)"
+            R"({"id":"genre-scifi","section_type":"genre","title":"Sci-Fi","featured":true,"item_limit":20,"total_count":2,"is_custom":false,"customized":false,)"
+            R"("items":[{"content_id":"m1","type":"movie","title":"Alien"},{"content_id":"m1","type":"movie","title":"Alien"},{"content_id":"s1","type":"series","title":"Dark"}]},)"
+            R"({"id":"music","section_type":"recently_added","title":"Albums","featured":false,"item_limit":20,"total_count":1,"is_custom":false,"customized":false,)"
+            R"("items":[{"content_id":"a1","type":"album","title":"Blue"}]},)"
+            R"({"id":"recent","section_type":"recently_added","title":"Recently Added","featured":false,"item_limit":20,"total_count":120,"is_custom":false,"customized":false,)"
+            R"("items":[{"content_id":"e1","type":"episode","title":"Pilot"},{"content_id":"m2","type":"movie","title":"Heat"}]},)"
+            R"({"id":"genre-scifi","section_type":"genre","title":"Again","featured":false,"item_limit":20,"total_count":1,"is_custom":false,"customized":false,)"
+            R"("items":[{"content_id":"m3","type":"movie","title":"Solaris"}]},)"
+            R"({"id":"capped","section_type":"collection","title":"Capped","featured":false,"item_limit":1,"total_count":1,"has_more":true,"is_custom":true,"customized":false,)"
+            R"("items":[{"content_id":"m4","type":"movie","title":"Ran"}]}]})"));
+    QVERIFY2(rows.valid, qPrintable(rows.error));
+    QCOMPARE(rows.rawItems.size(), 3);
+    const QJsonObject scifi = rows.rawItems.at(0).toObject();
+    QCOMPARE(scifi.value(QStringLiteral("id")).toString(), QStringLiteral("genre-scifi"));
+    QCOMPARE(scifi.value(QStringLiteral("title")).toString(), QStringLiteral("Sci-Fi"));
+    QVERIFY(scifi.value(QStringLiteral("featured")).toBool());
+    QCOMPARE(scifi.value(QStringLiteral("items")).toArray().size(), 2);
+    QCOMPARE(scifi.value(QStringLiteral("item_count")).toInt(), 3);
+    QVERIFY(!scifi.value(QStringLiteral("has_more")).toBool());
+    const QJsonObject recent = rows.rawItems.at(1).toObject();
+    QCOMPARE(recent.value(QStringLiteral("items")).toArray().size(), 1);
+    QCOMPARE(recent.value(QStringLiteral("items")).toArray().first().toObject()
+                 .value(QStringLiteral("content_id")).toString(), QStringLiteral("m2"));
+    // total_count past the cards sent is no claim of more by itself.
+    QCOMPARE(recent.value(QStringLiteral("total_count")).toInt(), 120);
+    QCOMPARE(recent.value(QStringLiteral("item_count")).toInt(), 2);
+    QVERIFY(!recent.value(QStringLiteral("has_more")).toBool());
+    QVERIFY(rows.rawItems.at(2).toObject().value(QStringLiteral("has_more")).toBool());
+    QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::LibrarySections,
+                                    QByteArrayLiteral(R"({"rows":[]})")).valid);
+
+    // A row's every card.
+    query.limit = 0;
+    query.itemId = QStringLiteral("genre/scifi");
+    request = catalog->createRequest(ProviderCatalogOperation::LibrarySectionItems, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.relativeEndpoint,
+             withArtworkWidths(QStringLiteral("/api/v2/library/lib%201/sections/genre%2Fscifi/items")));
+    query.itemId.clear();
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibrarySectionItems, query).supported);
+    const ProviderCatalogResponse section = catalog->parseResponse(
+        ProviderCatalogOperation::LibrarySectionItems,
+        QByteArrayLiteral(R"({"id":"recent","section_type":"recently_added","title":"Recently Added","featured":false,"item_limit":100,"total_count":3,"is_custom":false,"customized":false,)"
+                          R"("items":[{"content_id":"m2","type":"movie"},{"content_id":"e1","type":"episode"},{"content_id":"s2","type":"series"}]})"));
+    QVERIFY2(section.valid, qPrintable(section.error));
+    QCOMPARE(section.rawItems.size(), 2);
+    QCOMPARE(section.total, 2);
+}
+
+void ProviderCatalogTest::siloLetterIndexUsesTheLibraryQuery()
+{
+    SiloProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    // The capability gates the index.
+    ProviderCatalogRequest request = catalog->createRequest(
+        ProviderCatalogOperation::CatalogSearchCapabilities, ProviderCatalogQuery{});
+    QVERIFY(request.supported);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/catalog/search/capabilities"));
+    const auto letterIndex = [catalog](const QByteArray &body) {
+        const ProviderCatalogResponse response
+            = catalog->parseResponse(ProviderCatalogOperation::CatalogSearchCapabilities, body);
+        return response.valid
+            ? response.capabilityMetadata.value(QStringLiteral("letterIndex")).toBool() : false;
+    };
+    QVERIFY(letterIndex(R"({"revision":"r","state":"available","allowed":true,"letter_index":true})"));
+    QVERIFY(!letterIndex(R"({"revision":"r","state":"available","allowed":true})"));
+    QVERIFY(!letterIndex(R"({"revision":"r","state":"available","allowed":false,"letter_index":true})"));
+    QVERIFY(!letterIndex(R"({"revision":"r","state":"disabled","allowed":true,"letter_index":true})"));
+    QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::CatalogSearchCapabilities,
+                                    QByteArrayLiteral("{}")).valid);
+    // One document answers both features it gates.
+    const ProviderCatalogResponse both = catalog->parseResponse(
+        ProviderCatalogOperation::CatalogSearchCapabilities,
+        QByteArrayLiteral(R"({"revision":"r","state":"available","allowed":true,)"
+                          R"("people_media_scope":true,"letter_index":true})"));
+    QVERIFY(both.valid);
+    QVERIFY(both.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool());
+    QVERIFY(both.capabilityMetadata.value(QStringLiteral("letterIndex")).toBool());
+    // Silo answers the index itself: no count read.
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryLetterCount,
+                                    ProviderCatalogQuery{}).supported);
+
+    // The same scope and rule groups as the grid's query, in title order.
+    ProviderCatalogQuery query;
+    query.parentId = QStringLiteral("7");
+    query.includeItemTypes = {QStringLiteral("Movie")};
+    query.recursive = true;
+    query.genres = {QStringLiteral("Drama")};
+    query.favorite = ProviderCatalogTriState::Yes;
+    query.sortBy = QStringLiteral("title");
+    query.sortOrder = QStringLiteral("descending");
+    query.startIndex = 300;
+    query.limit = 100;
+    request = catalog->createRequest(ProviderCatalogOperation::LibraryLetters, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    // queryCatalogLetters is natural_idempotent.
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/catalog/letters"));
+    QCOMPARE(request.extraHeaders.value(QByteArrayLiteral("Content-Type")),
+             QByteArrayLiteral("application/json"));
+    const QJsonObject body = QJsonDocument::fromJson(request.body).object();
+    QCOMPARE(body.value(QStringLiteral("library_id")).toString(), QStringLiteral("7"));
+    QCOMPARE(body.value(QStringLiteral("match")).toString(), QStringLiteral("all"));
+    QCOMPARE(body.value(QStringLiteral("order")).toString(), QStringLiteral("desc"));
+    for (const QString &absent : {QStringLiteral("cursor"), QStringLiteral("seek"),
+                                  QStringLiteral("limit"), QStringLiteral("q"),
+                                  QStringLiteral("sort")}) {
+        QVERIFY2(!body.contains(absent), qPrintable(absent));
+    }
+    // The grid's query body carries the same groups.
+    const ProviderCatalogRequest items
+        = catalog->createRequest(ProviderCatalogOperation::Items, query);
+    QCOMPARE(body.value(QStringLiteral("groups")),
+             QJsonDocument::fromJson(items.body).object().value(QStringLiteral("groups")));
+    query.sortOrder = QStringLiteral("ascending");
+    QVERIFY(!QJsonDocument::fromJson(
+                 catalog->createRequest(ProviderCatalogOperation::LibraryLetters, query).body)
+                 .object().contains(QStringLiteral("order")));
+
+    // Other sorts and searches have no index.
+    query.sortBy = QStringLiteral("dateAdded");
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryLetters, query).supported);
+    query.sortBy = QStringLiteral("title");
+    query.searchTerm = QStringLiteral("star");
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryLetters, query).supported);
+
+    // Malformed letters and out-of-order runs are dropped.
+    const ProviderCatalogResponse response = catalog->parseResponse(
+        ProviderCatalogOperation::LibraryLetters,
+        QByteArrayLiteral(R"({"total":40,"letters":[{"letter":"#","count":4,"position":0},)"
+                          R"({"letter":"A","count":0,"position":4},{"letter":"","count":3,"position":4},)"
+                          R"({"letter":"B","count":36,"position":4}],)"
+                          R"("runs":[{"letter":"#","position":0},{"letter":"B","position":4},{"letter":"X","position":2}]})"));
+    QVERIFY2(response.valid, qPrintable(response.error));
+    QCOMPARE(response.total, 40);
+    const QVariantList letters = response.capabilityMetadata.value(QStringLiteral("letters")).toList();
+    QCOMPARE(letters.size(), 2);
+    QCOMPARE(LetterIndex::positionOf(letters, QStringLiteral("B")), 4);
+    const QVariantList runs = response.capabilityMetadata.value(QStringLiteral("runs")).toList();
+    QCOMPARE(runs.size(), 2);
+    QCOMPARE(LetterIndex::letterAt(runs, 20), QStringLiteral("B"));
+    QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::LibraryLetters,
+                                    QByteArrayLiteral(R"({"total":1})")).valid);
 }
 
 QTEST_MAIN(ProviderCatalogTest)

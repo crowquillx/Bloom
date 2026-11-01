@@ -54,7 +54,10 @@ enum class ProviderCapability {
     // recommendations. The profile's capability document still gates it.
     NotInterested = 1 << 16,
     // The upcoming airings calendar.
-    AiringCalendar = 1 << 17
+    AiringCalendar = 1 << 17,
+    // Profile-curated rows per library (ProviderCatalogOperation::
+    // LibrarySections, Silo).
+    LibrarySections = 1 << 18
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

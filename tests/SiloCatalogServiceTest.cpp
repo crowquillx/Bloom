@@ -224,6 +224,10 @@ private slots:
     void nextAiringPicksEarliestAiringStillAhead();
     void markerSegmentsKeepRepeatedRanges();
     void serverRatingsFollowServerOrder();
+    void librarySectionsShareTheHomeRowCap();
+    void libraryLettersReadTheCapabilityOnce();
+    void searchCapabilitiesServePeopleAndLettersOnce();
+    void jellyfinHasNoLibraryRowsAndIndexesItsOwnList();
 };
 
 void SiloCatalogServiceTest::theIntroDbV4Requests_data()
@@ -2998,6 +3002,327 @@ void SiloCatalogServiceTest::serverRatingsFollowServerOrder()
     QVERIFY(!none.contains(QStringLiteral("serverRatings")));
 }
 
+
+namespace {
+
+QByteArray librarySections()
+{
+    return QByteArrayLiteral(
+        R"({"sections":[)"
+        R"({"id":"recent","section_type":"recently_added","title":"Recently Added","featured":false,"item_limit":20,"total_count":45,"is_custom":false,"customized":false,"items":[)"
+        R"({"content_id":"movie:a","type":"movie","title":"Alpha"},{"content_id":"episode:x","type":"episode","title":"Pilot"}]},)"
+        R"({"id":"tracks","section_type":"genre","title":"Soundtracks","featured":false,"item_limit":20,"total_count":1,"is_custom":false,"customized":false,"items":[)"
+        R"({"content_id":"album:z","type":"album","title":"Zeta"}]},)"
+        R"({"id":"crime","section_type":"genre","title":"Crime","featured":true,"item_limit":20,"total_count":1,"is_custom":false,"customized":false,"items":[)"
+        R"({"content_id":"series:b","type":"series","title":"Bravo"}]}]})");
+}
+
+QStringList requestPaths(const ControlledNetworkAccessManager &manager, qsizetype from)
+{
+    QStringList paths;
+    for (qsizetype index = from; index < manager.requests.size(); ++index) {
+        const QUrl url = manager.requests.at(index).request.url();
+        const QString limit = QUrlQuery(url).queryItemValue(QStringLiteral("item_limit"));
+        paths.append(url.path() + (limit.isEmpty() ? QString() : QLatin1Char('=') + limit));
+    }
+    return paths;
+}
+
+QByteArray searchCapabilities(bool letterIndex)
+{
+    QJsonObject capabilities{{QStringLiteral("revision"), QStringLiteral("r1")},
+                             {QStringLiteral("state"), QStringLiteral("available")},
+                             {QStringLiteral("allowed"), true}};
+    if (letterIndex) {
+        capabilities.insert(QStringLiteral("letter_index"), true);
+    }
+    return QJsonDocument(capabilities).toJson(QJsonDocument::Compact);
+}
+
+LibraryItemQuery titleQuery(const QString &requestKey)
+{
+    LibraryItemQuery query;
+    query.parentId = QStringLiteral("lib-1");
+    query.includeItemTypes = {QStringLiteral("Movie")};
+    query.recursive = true;
+    query.sortBy = QStringLiteral("title");
+    query.startIndex = 100;
+    query.limit = 100;
+    query.requestKey = requestKey;
+    return query;
+}
+
+} // namespace
+
+// Library rows read the Home capabilities' cap (once per connection, shared
+// with Home), keep movie and series cards in the server's order, and a row's
+// remaining cards come from its own read.
+void SiloCatalogServiceTest::librarySectionsShareTheHomeRowCap()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QVERIFY(service.supportsLibrarySections());
+    QSignalSpy loaded(&service, &LibraryService::canonicalLibrarySectionsLoaded);
+    QSignalSpy homeLoaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+    // A cap of 2: "recent" comes back full at the cap and counts more, so
+    // it has more; "crime" sent fewer cards than the cap.
+    manager.responses = {{200, homeCapabilities(true, 2), false},
+                         {200, librarySections(), false},
+                         {200, curatedHomeLayout(true), false}};
+    qsizetype first = manager.requests.size();
+    service.getLibrarySections(QStringLiteral("lib-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    QCOMPARE(loaded.first().at(1).toString(), QStringLiteral("lib-1"));
+    const QVariantList rows = loaded.first().at(2).toList();
+    QCOMPARE(rowIds(rows), (QStringList{QStringLiteral("recent"), QStringLiteral("crime")}));
+    QCOMPARE(itemIds(rows.first()), (QStringList{QStringLiteral("movie:a")}));
+    QVERIFY(rows.first().toMap().value(QStringLiteral("hasMore")).toBool());
+    QCOMPARE(rows.first().toMap().value(QStringLiteral("totalCount")).toInt(), 45);
+    QVERIFY(!rows.last().toMap().value(QStringLiteral("hasMore")).toBool());
+    QVERIFY(rows.last().toMap().value(QStringLiteral("featured")).toBool());
+    // Home reuses the cap read for the library.
+    service.getHomeSections();
+    QTRY_COMPARE_WITH_TIMEOUT(homeLoaded.count(), 1, 1000);
+    QCOMPARE(requestPaths(manager, first),
+             (QStringList{QStringLiteral("/api/v2/home/capabilities"),
+                          QStringLiteral("/api/v2/library/lib-1/sections=2"),
+                          QStringLiteral("/api/v2/home/sections=2")}));
+
+    // A row's every card.
+    QSignalSpy itemsLoaded(&service, &LibraryService::canonicalLibrarySectionItemsLoaded);
+    manager.responses = {{200, QByteArrayLiteral(
+        R"({"id":"recent","section_type":"recently_added","title":"Recently Added","featured":false,"item_limit":100,"total_count":3,"is_custom":false,"customized":false,"items":[)"
+        R"({"content_id":"movie:a","type":"movie"},{"content_id":"movie:c","type":"movie"},{"content_id":"episode:x","type":"episode"}]})"), false}};
+    first = manager.requests.size();
+    service.getLibrarySectionItems(QStringLiteral("lib-1"), QStringLiteral("recent"));
+    QTRY_COMPARE_WITH_TIMEOUT(itemsLoaded.count(), 1, 1000);
+    QCOMPARE(requestPaths(manager, first),
+             (QStringList{QStringLiteral("/api/v2/library/lib-1/sections/recent/items")}));
+    QCOMPARE(itemsLoaded.first().at(2).toString(), QStringLiteral("recent"));
+    QCOMPARE(itemsLoaded.first().at(3).toList().size(), 2);
+
+    // A newer read supersedes an older one; a remembered cap the server
+    // now rejects is dropped and the rows read once more without it.
+    QSignalSpy failed(&service, &LibraryService::canonicalLibrarySectionsFailed);
+    manager.responses = {{400, QByteArrayLiteral(R"({"type":"about:blank","title":"Bad Request","status":400})"), false},
+                         {200, librarySections(), false}};
+    first = manager.requests.size();
+    loaded.clear();
+    service.getLibrarySections(QStringLiteral("lib-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    QCOMPARE(failed.count(), 0);
+    QCOMPARE(requestPaths(manager, first),
+             (QStringList{QStringLiteral("/api/v2/library/lib-1/sections=2"),
+                          QStringLiteral("/api/v2/library/lib-1/sections")}));
+    // Without item_limit each section answers its own limit, which its
+    // items read does not exceed: total_count 45 claims no more cards.
+    const QVariantList uncapped = loaded.first().at(2).toList();
+    QCOMPARE(uncapped.first().toMap().value(QStringLiteral("totalCount")).toInt(), 45);
+    QVERIFY(!uncapped.first().toMap().value(QStringLiteral("hasMore")).toBool());
+}
+
+// Scoped people search and the letter index share one read of the search
+// capability document: callers that ask while it is in flight wait for it,
+// and later ones use the answer.
+void SiloCatalogServiceTest::searchCapabilitiesServePeopleAndLettersOnce()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+    const QByteArray letters = QByteArrayLiteral(
+        R"({"total":1,"letters":[{"letter":"A","count":1,"position":0}],"runs":[{"letter":"A","position":0}]})");
+    const QByteArray found = QByteArrayLiteral(R"({"items":[{"id":"7","name":"Al Pacino"}]})");
+
+    LibraryService service(&auth);
+    QSignalSpy people(&service, &LibraryService::canonicalPeopleSearchLoaded);
+    QSignalSpy lettersLoaded(&service, &LibraryService::libraryLettersLoaded);
+    manager.responses = {
+        {200, QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true,)"
+                                R"("people_media_scope":true,"letter_index":true})"), true},
+        {200, found, false},
+        {200, letters, false}};
+    const qsizetype first = manager.requests.size();
+    service.searchPeople(QStringLiteral("pacino"), 20);
+    service.getLibraryLetters(titleQuery(QStringLiteral("first")));
+    QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size() - first, qsizetype(1), 1000);
+    QCOMPARE(manager.requests.at(first).request.url().path(),
+             QStringLiteral("/api/v2/catalog/search/capabilities"));
+    manager.replies.last()->complete();
+    QTRY_COMPARE_WITH_TIMEOUT(people.count(), 1, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(lettersLoaded.count(), 1, 1000);
+    QCOMPARE(requestPaths(manager, first),
+             (QStringList{QStringLiteral("/api/v2/catalog/search/capabilities"),
+                          QStringLiteral("/api/v2/catalog/people"),
+                          QStringLiteral("/api/v2/catalog/letters")}));
+
+    // Both use the cached answer afterwards.
+    manager.responses = {{200, found, false}, {200, letters, false}};
+    service.searchPeople(QStringLiteral("pacin"), 20);
+    QTRY_COMPARE_WITH_TIMEOUT(people.count(), 2, 1000);
+    service.getLibraryLetters(titleQuery(QStringLiteral("second")));
+    QTRY_COMPARE_WITH_TIMEOUT(lettersLoaded.count(), 2, 1000);
+    QCOMPARE(requestPaths(manager, first + 3),
+             (QStringList{QStringLiteral("/api/v2/catalog/people"),
+                          QStringLiteral("/api/v2/catalog/letters")}));
+}
+
+// The letter index is read only when the catalog search capabilities report
+// it, once per connection; a failed read is not repeated on every load.
+void SiloCatalogServiceTest::libraryLettersReadTheCapabilityOnce()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+    const QByteArray letters = QByteArrayLiteral(
+        R"({"total":3,"letters":[{"letter":"A","count":2,"position":0},{"letter":"B","count":1,"position":2}],)"
+        R"("runs":[{"letter":"A","position":0},{"letter":"B","position":2}]})");
+
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::libraryLettersLoaded);
+        QSignalSpy failed(&service, &LibraryService::libraryLettersFailed);
+        manager.responses = {{200, searchCapabilities(true), false},
+                             {200, letters, false},
+                             {200, letters, false}};
+        const qsizetype first = manager.requests.size();
+        service.getLibraryLetters(titleQuery(QStringLiteral("first")));
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        service.getLibraryLetters(titleQuery(QStringLiteral("second")));
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+        QCOMPARE(failed.count(), 0);
+        QCOMPARE(requestPaths(manager, first),
+                 (QStringList{QStringLiteral("/api/v2/catalog/search/capabilities"),
+                              QStringLiteral("/api/v2/catalog/letters"),
+                              QStringLiteral("/api/v2/catalog/letters")}));
+        const RecordedRequest &post = manager.requests.at(first + 1);
+        QCOMPARE(post.operation, QNetworkAccessManager::PostOperation);
+        const QJsonObject body = QJsonDocument::fromJson(post.body).object();
+        QCOMPARE(body.value(QStringLiteral("library_id")).toString(), QStringLiteral("lib-1"));
+        QVERIFY(!body.contains(QStringLiteral("seek")));
+        QCOMPARE(loaded.first().at(1).toString(), QStringLiteral("first"));
+        const QVariantMap index = loaded.first().at(2).toMap();
+        QCOMPARE(index.value(QStringLiteral("total")).toInt(), 3);
+        QCOMPARE(index.value(QStringLiteral("letters")).toList().size(), 2);
+
+        // Other sorts fail at once, without a request.
+        LibraryItemQuery added = titleQuery(QStringLiteral("added"));
+        added.sortBy = QStringLiteral("dateAdded");
+        const qsizetype before = manager.requests.size();
+        service.getLibraryLetters(added);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("added"));
+        QCOMPARE(manager.requests.size(), before);
+    }
+
+    // A server without the index: the capability read answers no, and the
+    // index is never asked for.
+    {
+        LibraryService service(&auth);
+        QSignalSpy failed(&service, &LibraryService::libraryLettersFailed);
+        manager.responses = {{200, searchCapabilities(false), false}};
+        const qsizetype first = manager.requests.size();
+        service.getLibraryLetters(titleQuery(QStringLiteral("none")));
+        QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+        service.getLibraryLetters(titleQuery(QStringLiteral("none-again")));
+        QCOMPARE(failed.count(), 2);
+        QCOMPARE(requestPaths(manager, first),
+                 (QStringList{QStringLiteral("/api/v2/catalog/search/capabilities")}));
+    }
+
+    // A failed capability read is not repeated on the next load.
+    {
+        LibraryService service(&auth);
+        QSignalSpy failed(&service, &LibraryService::libraryLettersFailed);
+        manager.responses = {
+            {503, QByteArrayLiteral(R"({"type":"about:blank","title":"Unavailable","status":503})"), false},
+            {503, QByteArrayLiteral(R"({"type":"about:blank","title":"Unavailable","status":503})"), false},
+            {503, QByteArrayLiteral(R"({"type":"about:blank","title":"Unavailable","status":503})"), false}};
+        const qsizetype first = manager.requests.size();
+        service.getLibraryLetters(titleQuery(QStringLiteral("down")));
+        QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 10000);
+        const qsizetype afterFailure = manager.requests.size();
+        QVERIFY(afterFailure > first);
+        service.getLibraryLetters(titleQuery(QStringLiteral("down-again")));
+        QCOMPARE(failed.count(), 2);
+        QCOMPARE(manager.requests.size(), afterFailure);
+        for (qsizetype index = first; index < afterFailure; ++index) {
+            QCOMPARE(manager.requests.at(index).request.url().path(),
+                     QStringLiteral("/api/v2/catalog/search/capabilities"));
+        }
+    }
+}
+
+void SiloCatalogServiceTest::jellyfinHasNoLibraryRowsAndIndexesItsOwnList()
+{
+    JellyfinProviderAdapter jellyfin;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    ExposedAuthenticationService auth(&transport, &jellyfin);
+    LibraryService service(&auth);
+    QVERIFY(!service.supportsLibrarySections());
+    QSignalSpy loaded(&service, &LibraryService::canonicalLibrarySectionsLoaded);
+    service.getLibrarySections(QStringLiteral("lib-1"));
+    QCOMPARE(loaded.count(), 1);
+    QVERIFY(loaded.first().at(2).toList().isEmpty());
+    QVERIFY(manager.requests.isEmpty());
+
+    // The letter index counts the list first. Past the threshold it is not
+    // downloaded: the rail falls back to the loaded letters.
+    auth.replaceAccount(QStringLiteral("user-1"), QStringLiteral("token-1"));
+    QSignalSpy lettersLoaded(&service, &LibraryService::libraryLettersLoaded);
+    QSignalSpy lettersFailed(&service, &LibraryService::libraryLettersFailed);
+    manager.responses = {{200, QByteArrayLiteral(R"({"Items":[],"TotalRecordCount":5001})"), false}};
+    service.getLibraryLetters(titleQuery(QStringLiteral("large")));
+    QTRY_COMPARE_WITH_TIMEOUT(lettersFailed.count(), 1, 1000);
+    QCOMPARE(lettersFailed.first().at(1).toString(), QStringLiteral("large"));
+    QCOMPARE(manager.requests.size(), 1);
+    QCOMPARE(QUrlQuery(manager.requests.first().request.url())
+                 .queryItemValue(QStringLiteral("Limit")), QStringLiteral("0"));
+    QCOMPARE(lettersLoaded.count(), 0);
+
+    // A small list is read whole, in one attempt: a failed read is not
+    // downloaded again.
+    manager.responses = {
+        {200, QByteArrayLiteral(R"({"Items":[],"TotalRecordCount":2})"), false},
+        {503, QByteArrayLiteral(R"({"title":"Unavailable"})"), false},
+        {503, QByteArrayLiteral(R"({"title":"Unavailable"})"), false}};
+    service.getLibraryLetters(titleQuery(QStringLiteral("down")));
+    QTRY_COMPARE_WITH_TIMEOUT(lettersFailed.count(), 2, 5000);
+    QCOMPARE(manager.requests.size(), 3);
+    const QUrlQuery list(manager.requests.last().request.url());
+    QVERIFY(!list.hasQueryItem(QStringLiteral("Limit")));
+    QCOMPARE(list.queryItemValue(QStringLiteral("Fields")), QStringLiteral("SortName"));
+
+    manager.responses = {
+        {200, QByteArrayLiteral(R"({"Items":[],"TotalRecordCount":2})"), false},
+        {200, QByteArrayLiteral(R"({"Items":[{"Id":"1","SortName":"alien"},{"Id":"2","SortName":"brazil"}],"TotalRecordCount":2})"), false}};
+    service.getLibraryLetters(titleQuery(QStringLiteral("small")));
+    QTRY_COMPARE_WITH_TIMEOUT(lettersLoaded.count(), 1, 1000);
+    QCOMPARE(lettersLoaded.first().at(1).toString(), QStringLiteral("small"));
+    QCOMPARE(lettersLoaded.first().at(2).toMap().value(QStringLiteral("letters")).toList().size(), 2);
+    QCOMPARE(manager.requests.size(), 5);
+}
 
 QTEST_MAIN(SiloCatalogServiceTest)
 #include "SiloCatalogServiceTest.moc"

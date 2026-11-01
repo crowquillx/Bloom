@@ -1,6 +1,7 @@
 #include "LibraryViewModel.h"
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
+#include "models/LetterIndex.h"
 #include "models/LibraryKinds.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/DetailViewCache.h"
@@ -12,12 +13,20 @@
 #include <QSet>
 #include <QStandardPaths>
 #include <algorithm>
+#include <utility>
 #include "../utils/BloomLogging.h"
 
 // Static cache initialization
 QHash<QString, LibraryCacheEntry> LibraryViewModel::s_libraryCache;
 QList<QString> LibraryViewModel::s_libraryCacheLru;
 qint64 LibraryViewModel::s_libraryCacheBytes = 0;
+QHash<QString, LibraryViewModel::LetterCacheEntry> LibraryViewModel::s_letterCache;
+
+namespace {
+// Rows a seek or placeholder window reads at once; Silo pages at most 100.
+constexpr int kWindowLimit = 100;
+const QString kPlaceholderKey = QStringLiteral("bloomPlaceholder");
+}
 
 LibraryViewModel::LibraryViewModel(QObject *parent)
     : BaseViewModel(parent)
@@ -45,6 +54,19 @@ LibraryViewModel::LibraryViewModel(QObject *parent)
                 this, &LibraryViewModel::onFilterOptionsLoaded);
         connect(m_libraryService, &LibraryService::filterOptionsFailedForRequest,
                 this, &LibraryViewModel::onFilterOptionsFailed);
+        connect(m_libraryService, &LibraryService::libraryLettersLoaded,
+                this, &LibraryViewModel::onLettersLoaded);
+        connect(m_libraryService, &LibraryService::libraryLettersFailed,
+                this, &LibraryViewModel::onLettersFailed);
+        // The header counts loaded titles, not the rows a jump skipped.
+        // Placeholders are added and filled in place (counted there); any
+        // other removal or reset recounts them.
+        connect(this, &QAbstractItemModel::rowsInserted, this,
+                &LibraryViewModel::updateLoadedCount);
+        connect(this, &QAbstractItemModel::rowsRemoved, this,
+                &LibraryViewModel::recountPlaceholders);
+        connect(this, &QAbstractItemModel::modelReset, this,
+                &LibraryViewModel::recountPlaceholders);
         m_queryCapabilities = m_libraryService->libraryQueryCapabilities();
     } else {
         qCWarning(lcViewModels) << "LibraryViewModel: LibraryService not available in ServiceLocator";
@@ -136,6 +158,7 @@ void LibraryViewModel::loadLibrary(const QString &parentId, const QString &colle
     LibraryItemQuery query =
         buildCurrentQuery(startIndex, limit, includeHeavyFields);
     m_activeDatasetKey = query.datasetKey();
+    requestLetterIndex(query);
 
     if (startIndex == 0 && hasAnyCachedData(m_activeDatasetKey)) {
         LibraryCacheEntry cached = getCachedData(m_activeDatasetKey);
@@ -148,29 +171,31 @@ void LibraryViewModel::loadLibrary(const QString &parentId, const QString &colle
         // Always serve cached data immediately (instant UI)
         setTotalRecordCount(cached.totalRecordCount);
         setItems(cached.items);
+
+        // SWR: a stale cache is revalidated in the background, without
+        // the loading spinner. The refresh is registered before the rows
+        // are published, so a seek the publication starts (a return to a
+        // title past the cached pages) can cancel it before it resets the
+        // grid under the restored title.
+        if (isStale) {
+            qCDebug(lcViewModels) << "LibraryViewModel: SWR background refresh for" << m_activeDatasetKey;
+            m_isBackgroundRefresh = true;
+            m_loadTimer.restart();
+            clearError();
+            query.requestKey = registerRequest(
+                LoadKind::BackgroundRefresh,
+                parentId,
+                m_activeDatasetKey,
+                startIndex,
+                limit,
+                includeHeavyFields);
+            m_activeBackgroundRequestKey = query.requestKey;
+        }
         emit loadComplete();
         emit canLoadMoreChanged();
-        
-        // If cache is still fresh, we're done
-        if (!isStale) {
-            return;
+        if (isStale && m_activeBackgroundRequestKey == query.requestKey) {
+            m_libraryService->getItems(query);
         }
-        
-        // SWR: Cache is stale - trigger background refresh
-        // This won't show loading spinner, data is already displayed
-        qCDebug(lcViewModels) << "LibraryViewModel: SWR background refresh for" << m_activeDatasetKey;
-        m_isBackgroundRefresh = true;
-        m_loadTimer.restart();
-        clearError();
-        query.requestKey = registerRequest(
-            LoadKind::BackgroundRefresh,
-            parentId,
-            m_activeDatasetKey,
-            startIndex,
-            limit,
-            includeHeavyFields);
-        m_activeBackgroundRequestKey = query.requestKey;
-        m_libraryService->getItems(query);
         return;
     }
     
@@ -208,6 +233,8 @@ void LibraryViewModel::loadCombinedLibraries(const QStringList &libraryIds,
 
     beginGeneration();
     refreshQueryCapabilities();
+    // Combined pages merge several lists; no single index covers them.
+    setLetterIndex({});
     const QString kind = LibraryKinds::kindForCollectionType(collectionType);
     const QString parentId =
         QStringLiteral("combined:") + (kind.isEmpty() ? collectionType : kind);
@@ -360,6 +387,7 @@ void LibraryViewModel::loadViews()
 
     beginGeneration();
     refreshQueryCapabilities();
+    setLetterIndex({});
     m_combinedMode = false;
     m_combinedLibraryIds.clear();
     const bool parentChanged = !m_currentParentId.isEmpty();
@@ -405,6 +433,7 @@ void LibraryViewModel::reload()
 void LibraryViewModel::clear()
 {
     beginGeneration();
+    setLetterIndex({});
     if (!m_items.isEmpty()) {
         beginResetModel();
         m_items.clear();
@@ -477,6 +506,311 @@ QVariantMap LibraryViewModel::getItem(int index) const
         return QVariantMap();
     
     return m_items.at(index).toVariantMap();
+}
+
+QString LibraryViewModel::letterAtPosition(int position) const
+{
+    return LetterIndex::letterAt(m_letterRuns, position);
+}
+
+bool LibraryViewModel::jumpToLetter(const QString &letter)
+{
+    const int position = LetterIndex::positionOf(m_letters, letter);
+    if (position < 0) {
+        return false;
+    }
+    seekToPosition(position);
+    return true;
+}
+
+void LibraryViewModel::seekToPosition(int position)
+{
+    if (!m_libraryService || m_loadingViews || m_combinedMode || m_currentParentId.isEmpty()
+        || position < 0) {
+        return;
+    }
+    // The first page is still loading: seek once it is in.
+    if (isLoading()) {
+        m_deferredSeekPosition = position;
+        return;
+    }
+    m_deferredSeekPosition = -1;
+    const int total = qMax(m_totalRecordCount, static_cast<int>(m_items.size()));
+    if (total <= 0) {
+        return;
+    }
+    position = qMin(position, total - 1);
+    if (position < m_items.size() && !isPlaceholderRow(position)) {
+        m_pendingSeekPosition = -1;
+        emit positionReady(position);
+        return;
+    }
+    // A revalidated first page would reset the model under the seek; the
+    // seek's own pages are fresh.
+    if (!m_activeBackgroundRequestKey.isEmpty()) {
+        m_pendingRequests.remove(m_activeBackgroundRequestKey);
+        m_activeBackgroundRequestKey.clear();
+        m_isBackgroundRefresh = false;
+    }
+    m_pendingSeekPosition = position;
+    growPlaceholders(qMin(total, position + kWindowLimit));
+    for (auto it = m_windowRequests.cbegin(); it != m_windowRequests.cend(); ++it) {
+        if (position >= it->first && position < it->second) {
+            m_seekWindowRequestKey = it.key();
+            return;
+        }
+    }
+    // The window starts at the row itself, so a provider seek lands on it.
+    int end = position;
+    while (end < m_items.size() && end - position < kWindowLimit && isPlaceholderRow(end)) {
+        ++end;
+    }
+    requestWindow(position, end);
+}
+
+void LibraryViewModel::ensureLoaded(int index)
+{
+    if (!m_libraryService || isLoading() || !isPlaceholderRow(index)) {
+        return;
+    }
+    const auto inFlight = [this](int row) {
+        for (const auto &window : std::as_const(m_windowRequests)) {
+            if (row >= window.first && row < window.second) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if (inFlight(index)) {
+        return;
+    }
+    // Holding Down through placeholders shows hundreds of rows a second.
+    // Only a few windows are read at once; the newest row asked for waits
+    // and is read when one answers, and the rows scrolled past meanwhile
+    // stay placeholders until they are shown again.
+    int placeholderWindows = 0;
+    for (auto it = m_windowRequests.cbegin(); it != m_windowRequests.cend(); ++it) {
+        if (it.key() != m_seekWindowRequestKey) {
+            ++placeholderWindows;
+        }
+    }
+    if (placeholderWindows >= kMaxPlaceholderWindows) {
+        m_wantedPlaceholderRow = index;
+        return;
+    }
+    // Rows above a jump are read upward from the row asked for, rows below
+    // it downward, so one window covers what is about to scroll into view.
+    int start = index;
+    while (start > 0 && index - start < kWindowLimit - 1 && isPlaceholderRow(start - 1)
+           && !inFlight(start - 1)) {
+        --start;
+    }
+    int end = index + 1;
+    while (end < m_items.size() && end - start < kWindowLimit && isPlaceholderRow(end)
+           && !inFlight(end)) {
+        ++end;
+    }
+    requestWindow(start, end);
+}
+
+void LibraryViewModel::recountPlaceholders()
+{
+    m_placeholderCount = static_cast<int>(
+        std::count_if(m_items.cbegin(), m_items.cend(), &LibraryViewModel::isPlaceholder));
+    updateLoadedCount();
+}
+
+void LibraryViewModel::updateLoadedCount()
+{
+    const int loaded = static_cast<int>(m_items.size()) - m_placeholderCount;
+    if (loaded != m_loadedCount) {
+        m_loadedCount = loaded;
+        emit loadedCountChanged();
+    }
+}
+
+void LibraryViewModel::finishWindow(const QString &requestKey)
+{
+    m_windowRequests.remove(requestKey);
+    if (requestKey == m_seekWindowRequestKey) {
+        m_seekWindowRequestKey.clear();
+    }
+}
+
+void LibraryViewModel::readWantedPlaceholders()
+{
+    const int row = std::exchange(m_wantedPlaceholderRow, -1);
+    if (row >= 0) {
+        ensureLoaded(row);
+    }
+}
+
+bool LibraryViewModel::isPlaceholder(const QJsonObject &item)
+{
+    return item.value(kPlaceholderKey).toBool();
+}
+
+bool LibraryViewModel::isPlaceholderRow(int row) const
+{
+    return row >= 0 && row < m_items.size() && isPlaceholder(m_items.at(row));
+}
+
+void LibraryViewModel::growPlaceholders(int size)
+{
+    const int first = static_cast<int>(m_items.size());
+    if (size <= first) {
+        return;
+    }
+    const QJsonObject placeholder{{kPlaceholderKey, true}};
+    beginInsertRows(QModelIndex(), first, size - 1);
+    m_items.reserve(size);
+    for (int row = first; row < size; ++row) {
+        m_items.append(placeholder);
+    }
+    m_placeholderCount += size - first;
+    endInsertRows();
+}
+
+void LibraryViewModel::requestWindow(int start, int end)
+{
+    if (end <= start) {
+        return;
+    }
+    LibraryItemQuery query = buildCurrentQuery(start, end - start, false);
+    if (query.datasetKey() != m_activeDatasetKey) {
+        return;
+    }
+    query.requestKey = registerRequest(
+        LoadKind::Window, m_currentParentId, m_activeDatasetKey, start, end - start, false);
+    m_windowRequests.insert(query.requestKey, {start, end});
+    if (m_pendingSeekPosition >= start && m_pendingSeekPosition < end) {
+        m_seekWindowRequestKey = query.requestKey;
+    }
+    qCDebug(lcViewModels) << "LibraryViewModel: reading window" << start << "-" << end;
+    m_libraryService->getItems(query);
+}
+
+void LibraryViewModel::placeRows(int offset, const QJsonArray &items)
+{
+    // Placeholders take the rows read at their positions; rows already
+    // loaded stay as they are, and rows past the end are appended.
+    int firstChanged = -1;
+    int lastChanged = -1;
+    QList<QJsonObject> appended;
+    for (qsizetype i = 0; i < items.size(); ++i) {
+        const int row = offset + static_cast<int>(i);
+        const QJsonObject item = items.at(i).toObject();
+        if (row < m_items.size()) {
+            if (isPlaceholder(m_items.at(row))) {
+                m_items[row] = item;
+                --m_placeholderCount;
+                firstChanged = firstChanged < 0 ? row : firstChanged;
+                lastChanged = row;
+            }
+        } else if (row == m_items.size() + appended.size()) {
+            appended.append(item);
+        }
+    }
+    if (firstChanged >= 0) {
+        emit dataChanged(index(firstChanged), index(lastChanged));
+        updateLoadedCount();
+    }
+    if (!appended.isEmpty()) {
+        const int first = static_cast<int>(m_items.size());
+        beginInsertRows(QModelIndex(), first, first + static_cast<int>(appended.size()) - 1);
+        for (const QJsonObject &item : std::as_const(appended)) {
+            m_items.append(item);
+        }
+        endInsertRows();
+    }
+    // A list that shrank since leaves placeholders past its end.
+    int last = static_cast<int>(m_items.size()) - 1;
+    int keep = static_cast<int>(m_items.size());
+    while (keep > m_totalRecordCount && keep > 0 && isPlaceholder(m_items.at(keep - 1))) {
+        --keep;
+    }
+    if (keep <= last) {
+        beginRemoveRows(QModelIndex(), keep, last);
+        m_items.resize(keep);
+        endRemoveRows();
+    }
+}
+
+void LibraryViewModel::requestLetterIndex(const LibraryItemQuery &query)
+{
+    // Only a paged library in title order has a rail over the whole list.
+    if (!m_libraryService || m_combinedMode || m_pageLimit <= 0
+        || query.normalizedSortBy() != QStringLiteral("title")) {
+        setLetterIndex({});
+        return;
+    }
+    const QString cacheKey = scopedCacheKey(QStringLiteral("letters:") + query.datasetKey());
+    const auto cached = s_letterCache.constFind(cacheKey);
+    if (cached != s_letterCache.cend()) {
+        // Shown at once; a stale index is refreshed below.
+        setLetterIndex(cached->index);
+        if (QDateTime::currentMSecsSinceEpoch() - cached->timestamp < kLetterCacheTtlMs) {
+            return;
+        }
+    } else {
+        setLetterIndex({});
+    }
+    LibraryItemQuery lettersQuery = query;
+    lettersQuery.requestKey = registerRequest(
+        LoadKind::Letters, m_currentParentId, query.datasetKey(), 0, 0, false);
+    m_lettersRequestKey = lettersQuery.requestKey;
+    m_libraryService->getLibraryLetters(lettersQuery);
+}
+
+void LibraryViewModel::setLetterIndex(const QVariantMap &letterIndex)
+{
+    const QVariantList letters = letterIndex.value(QStringLiteral("letters")).toList();
+    const QVariantList runs = letterIndex.value(QStringLiteral("runs")).toList();
+    if (letters == m_letters && runs == m_letterRuns) {
+        return;
+    }
+    m_letters = letters;
+    m_letterRuns = runs;
+    emit letterIndexChanged();
+}
+
+void LibraryViewModel::onLettersLoaded(const QString &connectionId,
+                                       const QString &requestKey,
+                                       const QVariantMap &letterIndex)
+{
+    const auto pending = m_pendingRequests.constFind(requestKey);
+    if (pending == m_pendingRequests.cend() || pending->kind != LoadKind::Letters) {
+        return;
+    }
+    const auto request = takeCurrentRequest(connectionId, pending->parentId, requestKey);
+    if (!request || requestKey != m_lettersRequestKey) {
+        return;
+    }
+    m_lettersRequestKey.clear();
+    if (s_letterCache.size() >= kMemoryCacheMaxEntries) {
+        s_letterCache.clear();
+    }
+    s_letterCache.insert(scopedCacheKey(QStringLiteral("letters:") + request->datasetKey),
+                         {letterIndex, QDateTime::currentMSecsSinceEpoch()});
+    setLetterIndex(letterIndex);
+}
+
+void LibraryViewModel::onLettersFailed(const QString &connectionId,
+                                       const QString &requestKey,
+                                       const QString &error)
+{
+    const auto pending = m_pendingRequests.constFind(requestKey);
+    if (pending == m_pendingRequests.cend() || pending->kind != LoadKind::Letters) {
+        return;
+    }
+    const auto request = takeCurrentRequest(connectionId, pending->parentId, requestKey);
+    if (!request || requestKey != m_lettersRequestKey) {
+        return;
+    }
+    m_lettersRequestKey.clear();
+    // The rail falls back to the letters of the loaded rows.
+    qCDebug(lcViewModels) << "LibraryViewModel: no letter index:" << error;
+    setLetterIndex({});
 }
 
 void LibraryViewModel::updateViews(const QVariantList &views)
@@ -571,12 +905,36 @@ void LibraryViewModel::onItemsLoaded(const QString &connectionId,
              << "datasetKey:" << request->datasetKey
              << "requestKey:" << requestKey;
     
-    if (request->kind == LoadKind::LoadMore
+    if (request->kind == LoadKind::Window) {
+        finishWindow(requestKey);
+        setTotalRecordCount(totalRecordCount);
+        placeRows(request->offset, items);
+        // Window pages are not contiguous with the cached prefix and are
+        // not cached.
+        if (m_pendingSeekPosition >= request->offset
+            && m_pendingSeekPosition < request->offset + request->limit) {
+            const int position = m_pendingSeekPosition;
+            m_pendingSeekPosition = -1;
+            if (position < m_items.size() && !isPlaceholderRow(position)) {
+                emit positionReady(position);
+            } else if (!m_items.isEmpty() && position >= m_items.size()) {
+                // The list ended before the row: show its last title.
+                emit positionReady(static_cast<int>(m_items.size()) - 1);
+            }
+        }
+        emit canLoadMoreChanged();
+        readWantedPlaceholders();
+    } else if (request->kind == LoadKind::LoadMore
         && requestKey == m_activeLoadMoreRequestKey) {
         m_activeLoadMoreRequestKey.clear();
         setIsLoadingMore(false);
         setTotalRecordCount(totalRecordCount);
-        appendItems(items);
+        if (request->offset == m_items.size()) {
+            appendItems(items);
+        } else {
+            // A seek added placeholder rows while this page was in flight.
+            placeRows(request->offset, items);
+        }
         qCDebug(lcViewModels) << "LibraryViewModel: loadMore completed in" << m_loadMoreTimer.elapsed() << "ms";
         updateCachePage(
             request->datasetKey, items, totalRecordCount, request->offset);
@@ -603,6 +961,14 @@ void LibraryViewModel::onItemsLoaded(const QString &connectionId,
             setTotalRecordCount(totalRecordCount);
             updateItemsFromBackground(refreshed);
             emit canLoadMoreChanged();
+            // Titles moved, so the letter positions may have too: the
+            // index stays shown while it is read again.
+            const auto letters = s_letterCache.find(
+                scopedCacheKey(QStringLiteral("letters:") + request->datasetKey));
+            if (letters != s_letterCache.end() && m_lettersRequestKey.isEmpty()) {
+                letters->timestamp = 0;
+                requestLetterIndex(buildCurrentQuery(0, m_pageLimit, false));
+            }
         } else {
             qCDebug(lcViewModels) << "LibraryViewModel: SWR no changes detected, updating timestamp only";
         }
@@ -627,6 +993,9 @@ void LibraryViewModel::onItemsLoaded(const QString &connectionId,
         
         emit loadComplete();
         emit canLoadMoreChanged();
+        if (m_deferredSeekPosition >= 0) {
+            seekToPosition(m_deferredSeekPosition);
+        }
     } else {
         rejectStaleRequest(
             requestKey, QStringLiteral("active load kind changed"));
@@ -651,7 +1020,15 @@ void LibraryViewModel::onItemsNotModified(const QString &connectionId,
         return;
     }
 
-    if (request->kind == LoadKind::BackgroundRefresh
+    if (request->kind == LoadKind::Window) {
+        // Windows send no validators; the rows stay placeholders.
+        finishWindow(requestKey);
+        if (m_pendingSeekPosition >= request->offset
+            && m_pendingSeekPosition < request->offset + request->limit) {
+            m_pendingSeekPosition = -1;
+        }
+        readWantedPlaceholders();
+    } else if (request->kind == LoadKind::BackgroundRefresh
         && requestKey == m_activeBackgroundRequestKey) {
         m_activeBackgroundRequestKey.clear();
         m_isBackgroundRefresh = false;
@@ -709,6 +1086,20 @@ void LibraryViewModel::onItemsFailed(const QString &connectionId,
 
     qCWarning(lcViewModels) << "LibraryViewModel request failed"
                             << requestKey << error;
+    if (request->kind == LoadKind::Window) {
+        // The rows stay placeholders; showing them again reads them again.
+        // A seek that waited on them says so, and the same seek retries.
+        finishWindow(requestKey);
+        if (m_pendingSeekPosition >= request->offset
+            && m_pendingSeekPosition < request->offset + request->limit) {
+            const int position = m_pendingSeekPosition;
+            m_pendingSeekPosition = -1;
+            emit seekFailed(position, error);
+        }
+        emit loadError(error);
+        readWantedPlaceholders();
+        return;
+    }
     if (request->kind == LoadKind::BackgroundRefresh
         && requestKey == m_activeBackgroundRequestKey) {
         m_activeBackgroundRequestKey.clear();
@@ -1255,6 +1646,12 @@ void LibraryViewModel::beginGeneration()
     m_activeLoadMoreRequestKey.clear();
     m_activeBackgroundRequestKey.clear();
     m_activeFilterRequestKey.clear();
+    m_lettersRequestKey.clear();
+    m_windowRequests.clear();
+    m_seekWindowRequestKey.clear();
+    m_pendingSeekPosition = -1;
+    m_deferredSeekPosition = -1;
+    m_wantedPlaceholderRow = -1;
     m_isBackgroundRefresh = false;
     m_loadingViews = false;
     setLoading(false);
@@ -1727,6 +2124,7 @@ void LibraryViewModel::clearAllCache()
     s_libraryCache.clear();
     s_libraryCacheLru.clear();
     s_libraryCacheBytes = 0;
+    s_letterCache.clear();
     if (auto *vm = ServiceLocator::tryGet<LibraryViewModel>()) {
         if (vm->m_cacheStore && vm->m_cacheStore->isOpen()) {
             vm->m_cacheStore->clearAll();

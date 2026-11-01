@@ -87,14 +87,38 @@ enum class ProviderCatalogOperation {
     // movies and series, newest first, one page at a time (startIndex or
     // cursor); and people whose name matches searchTerm. Responses carry
     // wire people in rawItem/rawItems; the adapter maps them
-    // (IProviderAdapter::mapPerson). PersonSearchCapability reads whether
-    // people search can be limited to movie and series credits the viewer
-    // may see (capabilityMetadata `peopleMediaScope`); providers whose
-    // people search always is answer it unsupported.
+    // (IProviderAdapter::mapPerson). Whether people search can be limited
+    // to movie and series credits the viewer may see comes from
+    // CatalogSearchCapabilities.
     Person,
     PersonItems,
     PersonSearch,
-    PersonSearchCapability,
+    // The rows a profile curates for one library (parentId), in layout
+    // order (Silo, ProviderCapability::LibrarySections). limit caps each
+    // row's cards (item_limit). rawItems holds one object per row with `id`,
+    // `title`, `section_type`, `featured`, `total_count`, `has_more` and
+    // wire `items` reduced to movie and series cards; empty rows are gone.
+    LibrarySections,
+    // One library row's cards (parentId library, itemId section), as many
+    // as the row holds; rawItems holds the movie and series cards.
+    LibrarySectionItems,
+    // The catalog search capability document (Silo), read once for every
+    // feature it gates. capabilityMetadata carries `peopleMediaScope`
+    // (PersonSearch can be limited to movie and series credits the viewer
+    // may see) and `letterIndex` (LibraryLetters is available). Providers
+    // whose people search is always scoped and whose letter index needs no
+    // capability (Jellyfin) report this unsupported.
+    CatalogSearchCapabilities,
+    // Where each letter starts in a title-ordered library query with the
+    // query's filters (the A-Z rail). capabilityMetadata carries the
+    // LetterIndex map (`total`, `letters`, `runs`). Unsupported for other
+    // sorts, and on Silo with a search term.
+    LibraryLetters,
+    // The number of titles LibraryLetters would index (total), read first
+    // by providers that build the index from the whole list (Jellyfin), so
+    // a large library is never downloaded. Silo answers the index itself
+    // and reports this unsupported.
+    LibraryLetterCount,
 };
 
 enum class ProviderHttpMethod {
