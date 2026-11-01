@@ -256,6 +256,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         m_searchCapabilities.clear();
         // Cancelled reads answer nothing; a later page asks again.
         m_notInterestedCapabilityReads.clear();
+        m_userRatingCapabilityReads.clear();
         for (auto it = m_airingCalendarReads.cbegin(); it != m_airingCalendarReads.cend(); ++it) {
             for (const QString &seriesId : it->seriesIds) {
                 emit nextAiringLoaded(seriesId, {});
@@ -1211,6 +1212,31 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
         });
 }
 
+void LibraryService::getBecauseWatchedItems(const QString &itemId, int limit)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.limit = qMax(1, limit);
+    // Providers without a because-watched read answer with similar items.
+    const ICatalogProvider *provider = catalogRequestIdentity().provider;
+    const bool native = provider
+        && provider->createRequest(ProviderCatalogOperation::BecauseWatched, query).supported;
+    sendCatalogRequest(
+        native ? QStringLiteral("getBecauseWatchedItems") : QStringLiteral("getSimilarItems"),
+        native ? ProviderCatalogOperation::BecauseWatched : ProviderCatalogOperation::SimilarItems,
+        query,
+        [this, itemId, connectionId](const ProviderCatalogResponse &response) {
+            const QVariantList items =
+                m_authService->mapMediaItems(response.rawItems, connectionId);
+            emit canonicalBecauseWatchedLoadedForConnection(connectionId, itemId, items);
+        },
+        [this, itemId, connectionId](const NetworkError &error) {
+            emit canonicalBecauseWatchedFailedForConnection(
+                connectionId, itemId, error.userMessage);
+        });
+}
+
 void LibraryService::getItemExtras(const QString &itemId)
 {
     const QString connectionId = activeConnectionId(m_authService);
@@ -1539,47 +1565,58 @@ void LibraryService::loadNotInterestedCapability()
         || !m_authService->supportsCapability(ProviderCapability::NotInterested)) {
         return;
     }
+    readProfileCapability(QStringLiteral("getNotInterestedCapability"),
+                          ProviderCatalogOperation::NotInterestedCapability,
+                          m_notInterestedAllowed, m_notInterestedCapabilityReads,
+                          &LibraryService::notInterestedSupportChanged);
+}
+
+void LibraryService::readProfileCapability(const QString &operationName,
+                                           ProviderCatalogOperation operation,
+                                           QHash<QString, bool> &allowed,
+                                           QHash<QString, quint64> &reads,
+                                           void (LibraryService::*announce)())
+{
     // The document is profile scoped: each profile may be allowed or not.
     const QString key =
         activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
-    if (m_notInterestedAllowed.contains(key)) {
+    if (allowed.contains(key)) {
         return;
     }
     // A read sent before the session last changed was cancelled with it.
-    const auto inFlight = m_notInterestedCapabilityReads.constFind(key);
-    if (inFlight != m_notInterestedCapabilityReads.cend() && *inFlight == m_requestGeneration) {
+    const auto inFlight = reads.constFind(key);
+    if (inFlight != reads.cend() && *inFlight == m_requestGeneration) {
         return;
     }
     const quint64 generation = m_requestGeneration;
-    m_notInterestedCapabilityReads.insert(key, generation);
-    const auto finish = [this, key, generation]() {
-        const auto read = m_notInterestedCapabilityReads.constFind(key);
-        if (read == m_notInterestedCapabilityReads.cend() || *read != generation) {
+    reads.insert(key, generation);
+    const auto finish = [&reads, key, generation]() {
+        const auto read = reads.constFind(key);
+        if (read == reads.cend() || *read != generation) {
             return false;
         }
-        m_notInterestedCapabilityReads.erase(read);
+        reads.erase(read);
         return true;
     };
     sendCatalogRequest(
-        QStringLiteral("getNotInterestedCapability"),
-        ProviderCatalogOperation::NotInterestedCapability,
+        operationName,
+        operation,
         baseCatalogQuery(),
-        [this, key, finish](const ProviderCatalogResponse &response) {
+        [this, &allowed, key, finish, announce](const ProviderCatalogResponse &response) {
             if (!finish()) {
                 return;
             }
-            m_notInterestedAllowed.insert(
-                key, response.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
-            emit notInterestedSupportChanged();
+            allowed.insert(key, response.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
+            emit (this->*announce)();
         },
-        [this, key, finish](const NetworkError &error) {
+        [&allowed, key, finish](const NetworkError &error) {
             if (!finish()) {
                 return;
             }
             // A server without the route never offers it. Other failures
             // leave the action hidden and ask again on the next page.
             if (error.httpStatus == 404 || error.httpStatus == 405 || error.httpStatus == 501) {
-                m_notInterestedAllowed.insert(key, false);
+                allowed.insert(key, false);
             }
         });
 }
@@ -1598,6 +1635,51 @@ void LibraryService::setItemNotInterested(const QString &itemId, bool notInteres
         },
         [this, itemId, notInterested](const NetworkError &error) {
             emit notInterestedStatusFailed(itemId, notInterested, error.userMessage);
+        });
+}
+
+QString LibraryService::userRatingScale() const
+{
+    if (!m_authService || !m_authService->isAuthenticated()) {
+        return {};
+    }
+    if (m_authService->supportsCapability(ProviderCapability::LikeRatings)) {
+        return QStringLiteral("likes");
+    }
+    if (m_authService->supportsCapability(ProviderCapability::StarRatings)
+        && m_userRatingAllowed.value(activeConnectionId(m_authService) + QLatin1Char('\n')
+                                     + activeProfileId(m_authService))) {
+        return QStringLiteral("stars");
+    }
+    return {};
+}
+
+void LibraryService::loadUserRatingCapability()
+{
+    if (!m_authService || !m_authService->isAuthenticated()
+        || !m_authService->supportsCapability(ProviderCapability::StarRatings)) {
+        return;
+    }
+    readProfileCapability(QStringLiteral("getRatingsCapability"),
+                          ProviderCatalogOperation::UserRatingCapability,
+                          m_userRatingAllowed, m_userRatingCapabilityReads,
+                          &LibraryService::userRatingSupportChanged);
+}
+
+void LibraryService::setUserRating(const QString &itemId, int value)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.ratingValue = value;
+    sendCatalogRequest(
+        value == 0 ? QStringLiteral("clearUserRating") : QStringLiteral("setUserRating"),
+        ProviderCatalogOperation::SetUserRating,
+        query,
+        [this, itemId, value](const ProviderCatalogResponse &) {
+            emit userRatingChanged(itemId, value);
+        },
+        [this, itemId, value](const NetworkError &error) {
+            emit userRatingFailed(itemId, value, error.userMessage);
         });
 }
 

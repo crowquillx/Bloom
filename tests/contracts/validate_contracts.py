@@ -35,6 +35,8 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.state.favorite",
     "native.state.watchlist",
     "native.state.not-interested",
+    "native.state.ratings",
+    "native.recommendations.because-watched",
     "native.home.sections",
     "native.home.calendar",
     "native.library.sections",
@@ -142,6 +144,9 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         ("POST", "/UserFavoriteItems/{itemId}"): {"userId"},
         ("DELETE", "/UserFavoriteItems/{itemId}"): {"userId"},
         ("POST", "/UserItems/{itemId}/UserData"): {"itemId", "userId"},
+        ("POST", "/UserItems/{itemId}/Rating"): {"itemId", "likes", "userId"},
+        ("DELETE", "/UserItems/{itemId}/Rating"): {"itemId", "userId"},
+        ("GET", "/Items/{itemId}/Similar"): {"itemId", "userId", "limit", "fields"},
         ("POST", "/Items/{itemId}/PlaybackInfo"): {"itemId"},
         ("GET", "/Videos/{itemId}/AdditionalParts"): {"itemId", "userId"},
         ("GET", "/Videos/{routeItemId}/{routeMediaSourceId}/Subtitles/{routeIndex}/Stream.{routeFormat}"): {

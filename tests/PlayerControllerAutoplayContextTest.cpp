@@ -590,6 +590,9 @@ private slots:
     void thresholdMetRequestsNextEpisodeDirectly();
     void userStopPastThresholdRequestsNextEpisode();
     void userStopBelowThresholdWaitsForBackendExit();
+    void completedMovieOpensAfterMovieScreen();
+    void earlyStopErrorAndExtraSkipAfterMovieScreen();
+    void afterMovieIdleParksDisplayRestore();
     void replacementPlaybackWaitsForQueuedTerminalFinalization();
     void replacementPlaybackRetainsFinalizedStreamMetadata();
     void explicitStopReportsFinalProgressAndStoppedOnce();
@@ -1739,6 +1742,163 @@ void PlayerControllerAutoplayContextTest::nextEpisodeLookupFailureEndsUpNextHand
     QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
     QVERIFY(controller.m_displayRestoreGeneration > generationBeforeFailure);
     QCOMPARE(navigationSpy.count(), 0);
+}
+
+void PlayerControllerAutoplayContextTest::completedMovieOpensAfterMovieScreen()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(true);
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+    QSignalSpy afterMovie(&controller, &PlayerController::navigateToAfterMovie);
+    QSignalSpy upNext(&controller, &PlayerController::navigateToNextEpisode);
+
+    controller.m_currentItemId = QStringLiteral("movie-1");
+    controller.m_overlayTitle = QStringLiteral("Heat");
+    controller.m_overlayBackdropUrl = QStringLiteral("image://cached/backdrop");
+    controller.m_overlayLogoUrl = QStringLiteral("image://cached/logo");
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 95.0;
+    controller.m_playbackState = PlayerController::Playing;
+
+    // Stopping past the threshold counts as finishing the movie.
+    controller.stop();
+    QTRY_COMPARE(afterMovie.count(), 1);
+    const QVariantMap movie = afterMovie.first().first().toMap();
+    QCOMPARE(movie.value(QStringLiteral("itemId")).toString(), QStringLiteral("movie-1"));
+    QCOMPARE(movie.value(QStringLiteral("name")).toString(), QStringLiteral("Heat"));
+    QCOMPARE(movie.value(QStringLiteral("backdropUrl")).toString(),
+             QStringLiteral("image://cached/backdrop"));
+    QCOMPARE(movie.value(QStringLiteral("logoUrl")).toString(), QStringLiteral("image://cached/logo"));
+    QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    QVERIFY(controller.m_pendingAfterMovie.isEmpty());
+    // No series: no Up Next, autoplay, or next-episode lookup.
+    QCOMPARE(upNext.count(), 0);
+    QVERIFY(!controller.awaitingNextEpisodeResolution());
+    QVERIFY(libraryService.requestedSeriesIds.isEmpty());
+}
+
+void PlayerControllerAutoplayContextTest::earlyStopErrorAndExtraSkipAfterMovieScreen()
+{
+    ConfigManager config;
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+    QSignalSpy afterMovie(&controller, &PlayerController::navigateToAfterMovie);
+
+    const auto playMovie = [&controller](double position) {
+        controller.m_currentItemId = QStringLiteral("movie-1");
+        controller.m_currentSeriesId.clear();
+        controller.m_duration = 100.0;
+        controller.m_currentPosition = position;
+        controller.m_hasEvaluatedCompletionForAttempt = false;
+        controller.m_playbackState = PlayerController::Playing;
+    };
+
+    // Stopped early.
+    playMovie(40.0);
+    controller.stop();
+    QTRY_COMPARE(controller.playbackState(), PlayerController::Idle);
+    QCoreApplication::processEvents();
+    QCOMPARE(afterMovie.count(), 0);
+
+    // A playback error past the threshold.
+    playMovie(95.0);
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::Error);
+    QVERIFY(controller.m_pendingAfterMovie.isEmpty());
+    controller.resetTerminalTransitionState(true);
+
+    // Completed, then upgraded to an error before finalization.
+    playMovie(95.0);
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(!controller.m_pendingAfterMovie.isEmpty());
+    controller.updatePendingTerminalReason(PlayerController::TerminalReason::Error);
+    QVERIFY(controller.m_pendingAfterMovie.isEmpty());
+    controller.resetTerminalTransitionState(true);
+
+    // A cancelled transition (replacement playback) forgets it as well.
+    playMovie(95.0);
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(!controller.m_pendingAfterMovie.isEmpty());
+    controller.cancelPendingTerminalTransition();
+    QVERIFY(controller.m_pendingAfterMovie.isEmpty());
+
+    // A finished extra.
+    playMovie(100.0);
+    controller.m_currentContentKind = Bloom::PlaybackPolicy::PlaybackContentKind::Extra;
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(controller.m_pendingAfterMovie.isEmpty());
+    controller.resetTerminalTransitionState(true);
+    QCoreApplication::processEvents();
+    QCOMPARE(afterMovie.count(), 0);
+}
+
+void PlayerControllerAutoplayContextTest::afterMovieIdleParksDisplayRestore()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    // Entering Idle with the after-movie screen due takes the same parking
+    // path as Up Next: queued restores are invalidated and the parked
+    // state is recomputed from the display, not started.
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentItemId = QStringLiteral("movie-1");
+    controller.m_pendingAfterMovie = {{QStringLiteral("itemId"), QStringLiteral("movie-1")}};
+    controller.m_deferredPostPlaybackDisplayRestorePending = true;
+    controller.m_deferredPostPlaybackNeedsHdrRestore = true;
+    const quint64 generationBeforeIdle = controller.m_displayRestoreGeneration;
+
+    controller.onEnterIdleState();
+
+    QCOMPARE(controller.m_displayRestoreGeneration, generationBeforeIdle + 1);
+    QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
+    QVERIFY(!controller.m_deferredPostPlaybackNeedsHdrRestore);
+    QVERIFY(!controller.m_deferredPostPlaybackNeedsRefreshRestore);
+
+    // Leaving the screen releases the parked restore.
+    controller.m_deferredPostPlaybackDisplayRestorePending = true;
+    controller.m_deferredPostPlaybackNeedsRefreshRestore = true;
+    controller.releaseDeferredPostPlaybackDisplayRestore();
+    QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
+    QVERIFY(controller.m_displayRestoreGeneration > generationBeforeIdle + 1);
 }
 
 void PlayerControllerAutoplayContextTest::upNextIdleParkingInvalidatesQueuedDisplayRestore()

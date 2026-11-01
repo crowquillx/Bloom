@@ -35,7 +35,9 @@ Playback policy boundary
   `Bloom::PlayerPolicy` target. This includes common language normalization,
   stream scoring and initial track selection, HDR/Dolby Vision classification
   and output policy, alternate-version affinity, multipart primary-source
-  filtering, completion thresholds, and next-episode prefetch validation.
+  filtering, completion thresholds, the screen that follows playback
+  (`postPlaybackScreen`: Up Next, the after-movie screen, or none), and
+  next-episode prefetch validation.
 - Keep this policy layer Qt-Core-only and free of `QObject`, timers, networking,
   configuration reads, backend calls, and other I/O. Callers pass settings and
   playback snapshots explicitly, which makes policy behavior directly testable
@@ -61,7 +63,7 @@ Windows embedded overlay layering model
 - Credits/next-up shrink mode remains a separate feature path and must continue to work independently of normal full-frame overlay behavior.
 - Terminal playback transitions are backend-first: Bloom waits for direct libmpv teardown before changing `PlayerController` into `Idle`/`Error`, and `WindowsMpvBackend` defers embedded host-window destruction while libmpv still owns the `--wid` target.
 - Replacement playback requested during an in-flight terminal transition is queued until that transition finalizes, so a new item cannot start against stale embedded playback teardown state.
-- Windows display restoration after playback stop is deferred and non-blocking. HDR-off settle and refresh-rate restore are scheduled after the UI returns to `Idle`, allowing the main scene and detached playback overlay window to repaint/hide promptly. When post-playback Up Next is shown, Bloom parks that restore until the user either leaves Up Next or starts another episode, avoiding a restore-then-switch cycle between consecutive episodes.
+- Windows display restoration after playback stop is deferred and non-blocking. HDR-off settle and refresh-rate restore are scheduled after the UI returns to `Idle`, allowing the main scene and detached playback overlay window to repaint/hide promptly. When post-playback Up Next or the after-movie screen is shown, Bloom parks that restore until the user either leaves the screen or starts another title, avoiding a restore-then-switch cycle between consecutive titles.
 - Natural playback end, explicit stop, and error-triggered shutdown now share one coordinated terminal-transition path so reporting/autoplay work runs once per playback attempt.
 - Only the `loadfile` and `stop` command replies are fatal on `win-libmpv`; both carry known reply userdata. Any other failed command (for example `sub-add` of an external subtitle that returns 404) is logged and playback continues, as on the Linux and external backends.
 - Windows direct-libmpv event handling now suppresses playback reactivation events (`START_FILE`/`FILE_LOADED`/`PLAYBACK_RESTART`/`SEEK`) while a stop command is pending, preventing stale wakeup events from re-showing the embedded host window as a black frame during teardown.
@@ -374,6 +376,13 @@ Still watching? and the sleep timer
   - Stopping playback cancels the timer. A duration survives the episode ending only when Up Next opens (`m_shouldAutoplay`), then the trip through Up Next (countdown or Play), with the time it had left; an end that opens no Up Next (a movie, an extra, quitting in mpv's window before the completion threshold), a failed next-episode lookup, or leaving Up Next without starting playback (`releaseDeferredPostPlaybackDisplayRestore`) ends it. The overlay's previous/next episode controls (`continuesWatching: "episodeSkip"`) keep a duration or "end of this episode", which then ends after the episode skipped to; Up Next (`continuesWatching: "upNext"`) never carries "end of this episode" over, since it already fired. Any other new playback starts with `ConfigManager.sleepTimerDefault` (Off by default). Recovery after an error keeps it.
   - Silo's `player.sleep_timer_default_minutes` setting is not read: Bloom reads Silo effective settings only for poster badges (`PosterBadgeService`), with no general reader for player settings, so the local setting is the only default.
 
+### After-movie screen
+- `PlayerPolicy::postPlaybackScreen` (Qt Core only) decides what follows a session: a feature that reached the completion threshold (`playbackCompletionThreshold`, the same rule as episodes) leads to Up Next when it has a series and to the after-movie screen when it has none. A session stopped before the threshold, one that ended with an error (including a terminal reason upgraded to an error before finalization), and an extra (`PlaybackContentRules::allowsUpNext` is false) lead nowhere. Stopping past the threshold counts as finishing, as for episodes.
+- `prepareTerminalTransition` records the finished movie (`itemId`, `connectionId`, and the overlay's `name`, `backdropUrl` and `logoUrl`). Entering Idle with it pending parks the display/HDR restore exactly as for Up Next. After terminal finalization `PlayerController::navigateToAfterMovie(movieData)` is emitted; a queued replacement playback or a cancelled transition drops it instead. There is no next-episode lookup, autoplay, or handoff surface for movies.
+- `Main.qml` pushes `AfterMovieScreen.qml` on top of the page playback started from. It shows the movie's backdrop and logo (fresh details from `UpNextRecommendationsViewModel::loadForMovie`, playback's metadata until they arrive), the year, runtime and age rating, a `UserRatingControl` where the provider has ratings, one Done button, and a "Because You Watched …" shelf of movies and series (Silo `listBecauseWatched`, Jellyfin similar items). There is no countdown.
+- Done, Escape and Back pop the screen, returning to that page. A recommendation pops it and opens the title's details page. Every way off the screen, including the navigation bar or a space switch removing it, calls `releaseDeferredPostPlaybackDisplayRestore()`; a new playback cancels the parked restore and reconciles the display itself.
+- Ratings change at once and roll back with a toast when the server refuses (see [view models](viewmodels.md#user-ratings)). Recommendation and details failures are silent; the screen keeps its title and Done.
+
 UI Components for Playback
 - Explicit user play actions now route through `PlayerController::requestPlayback(...)` instead of assembling stream URLs in QML. This keeps version selection, multipart resolution, and track-hint handling consistent across detail pages, quick play, and Up Next manual play.
 - `MediaSourceSelectionDialog.qml` is the global version picker for entries with multiple media sources (for example 1080p vs 4K) when `playbackVersionPreference` is `ask`. `Main.qml` loads it lazily; the dialog parents itself to `Overlay.overlay` so it centers on the window. It uses the app theme/focus patterns, supports keyboard-only selection, and restores focus with `Qt.callLater(...)` on close.
@@ -418,7 +427,7 @@ Playing extras
 - `PlayerPolicy::playbackContentRules(PlaybackContentKind::Extra)` (Qt Core only, no I/O) decides what an extra may touch. The controller applies it when the request arrives and keeps the kind for the playing item:
   - it starts at the beginning: the request's start position is dropped, so the parent's resume point is never used. A retry, recovery, or version switch of a playing extra carries `contentKind` (and `RecoveryContext` keeps it) plus `continuesSession: true`, so it stays an extra and continues where it was;
   - its series and season are dropped, so there is no season track scope, no previous/next episode controls, and no autoplay series;
-  - it never prefetches or resolves a next episode and never opens Up Next or autoplays, even past the completion threshold;
+  - it never prefetches or resolves a next episode and never opens Up Next or the after-movie screen or autoplays, even past the completion threshold;
   - audio and subtitle picks during it are not saved for any scope, so nothing is written back to the server's track preferences;
   - it starts with no subtitle delay, and subtitle timing changed during it is not saved for any scope. (Audio delay is a global setting, not per scope.)
 - Reporting names only the extra. Start, progress, and stop carry the extra's own ID, and Bloom never calls the watched endpoint at a threshold, so the parent movie or series is never marked watched and its resume position and Continue Watching entry are untouched.

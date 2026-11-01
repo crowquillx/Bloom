@@ -132,6 +132,8 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `DialogSurface` / `ModalScrim` | `Dialog`/`Popup` background and `Overlay.modal`. |
 | `ModalFocusGuard` | Keeps focus inside an open modal `Dialog` when the page behind it restores focus late (`popup`, optional `fallbackItem`). |
 | `BloomMenu` / `BloomMenuItem` | Context menus and submenus (`iconGlyph`, `destructive`, `marked`). |
+| `UserRatingControl` | The viewer's rating of a title, bound to a C++ `UserRatingState` (`ratingState`): five star buttons or like/dislike, by provider; the current value clears it. Left/Right move between buttons and leave at either end; `focusCurrent()` focuses the current value. `available` is false where the provider has no ratings. |
+| `UserRatingDialog` | Small modal around `UserRatingControl` for detail pages' "More options" (`openFor(restoreFocusTarget)`). |
 | `ToastNotification` | Brief message at the bottom of its parent (`show(text)`); `showWithAction(text, actionText, hint)` adds a pointer-only button (`actionTriggered`) and a second line (`hint`, for example the key that reaches the same action), and `dismissed` fires when it goes away. `paused` holds the timeout (while a menu offering the action is open). Offer the same action somewhere focusable. |
 | `BloomCheckIndicator` | Check box indicator for `CheckBox`/`CheckDelegate`. |
 | `FieldBackground` | Text field and combo box backgrounds with focus and error states. |

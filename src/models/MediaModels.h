@@ -79,6 +79,12 @@ struct UserMediaState {
     // Marked "Not interested" for the profile's recommendations (providers
     // with that state only).
     bool notInterested = false;
+    // The viewer's own rating: 1 to 5 stars (providers with star ratings),
+    // 0 when unrated.
+    int userRating = 0;
+    // The viewer's like (1) or dislike (-1), 0 when neither (providers with
+    // like ratings).
+    int userLikes = 0;
     qint64 positionMs = 0;
     int unplayedItemCount = 0;
     QString lastPlayedAt;

@@ -1126,6 +1126,28 @@ bool meetsCompletionThreshold(const CompletionInput &input)
             >= input.thresholdPercent;
 }
 
+PostPlaybackScreen postPlaybackScreen(const PostPlaybackInput &input)
+{
+    if (input.endedWithError || !playbackContentRules(input.contentKind).allowsUpNext) {
+        return PostPlaybackScreen::None;
+    }
+    // A movie has no series; completion is judged the same way.
+    const QString completionScope = input.seriesId.isEmpty() ? input.itemId : input.seriesId;
+    const bool completed = meetsCompletionThreshold({
+        input.alreadyEvaluated,
+        input.itemId,
+        completionScope,
+        input.positionSeconds,
+        input.durationSeconds,
+        input.thresholdPercent
+    });
+    if (!completed) {
+        return PostPlaybackScreen::None;
+    }
+    return input.seriesId.isEmpty() ? PostPlaybackScreen::AfterMovie
+                                    : PostPlaybackScreen::UpNext;
+}
+
 bool shouldPrefetchNextEpisode(const PrefetchInput &input)
 {
     return !input.alreadyRequested

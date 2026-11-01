@@ -170,6 +170,7 @@ add_test(NAME BaseViewModelTest COMMAND BaseViewModelTest)
 add_executable(SeriesDetailsCacheTest
     SeriesDetailsCacheTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/UserRatingState.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
@@ -1025,6 +1026,7 @@ add_test(NAME TrackPreferencesManagerTest COMMAND TrackPreferencesManagerTest)
 add_executable(SimilarItemsRetryTest
     SimilarItemsRetryTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/MovieDetailsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/UserRatingState.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
@@ -1058,6 +1060,7 @@ add_executable(HomeRowsAndWatchlistTest
     HomeRowsAndWatchlistTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/HomeSectionsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/MovieDetailsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/UserRatingState.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
@@ -1186,6 +1189,7 @@ add_test(NAME MediaRequestServiceTest COMMAND MediaRequestServiceTest)
 add_executable(UpNextRecommendationsViewModelTest
     UpNextRecommendationsViewModelTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/UpNextRecommendationsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/UserRatingState.cpp
     ${CMAKE_SOURCE_DIR}/src/core/ServiceLocator.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
@@ -1380,6 +1384,7 @@ qt_add_executable(VisualRegressionTest
     # ViewModels
     ${CMAKE_SOURCE_DIR}/src/viewmodels/LibraryViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/UserRatingState.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/MovieDetailsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/UpNextRecommendationsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/HomeSectionsViewModel.cpp
@@ -1456,6 +1461,9 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/WheelStepScroller.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ToastNotification.qml
     ${CMAKE_SOURCE_DIR}/src/ui/UpNextScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/AfterMovieScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/UserRatingControl.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/UserRatingDialog.qml
     ${CMAKE_SOURCE_DIR}/src/ui/VideoSurface.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RoundedImage.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ActiveSessionsScreen.qml

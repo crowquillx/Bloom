@@ -810,6 +810,7 @@ ProviderCatalogResponse SiloModelMapper::catalogResponse(
         case ProviderCatalogOperation::NextUp:
         case ProviderCatalogOperation::LatestMedia:
         case ProviderCatalogOperation::SimilarItems:
+        case ProviderCatalogOperation::BecauseWatched:
         case ProviderCatalogOperation::Search:
             result.rawItems = document.array();
             result.total = static_cast<int>(result.rawItems.size());
@@ -931,7 +932,8 @@ ProviderCatalogResponse SiloModelMapper::catalogResponse(
             result.rawItems = object.value(key).toArray();
             if (key == QStringLiteral("seasons")
                 || key == QStringLiteral("episodes")
-                || (operation == ProviderCatalogOperation::SimilarItems
+                || ((operation == ProviderCatalogOperation::SimilarItems
+                     || operation == ProviderCatalogOperation::BecauseWatched)
                     && key == QStringLiteral("items"))) {
                 QJsonArray normalizedItems;
                 for (const QJsonValue &value : result.rawItems) {
@@ -946,7 +948,8 @@ ProviderCatalogResponse SiloModelMapper::catalogResponse(
                                && !item.value(QStringLiteral("type")).isString()) {
                         item.insert(QStringLiteral("type"), QStringLiteral("episode"));
                     }
-                    if (operation == ProviderCatalogOperation::SimilarItems
+                    if ((operation == ProviderCatalogOperation::SimilarItems
+                         || operation == ProviderCatalogOperation::BecauseWatched)
                         && !item.value(QStringLiteral("content_id")).isString()) {
                         item.insert(QStringLiteral("content_id"),
                                     item.value(QStringLiteral("media_item_id")));
@@ -1372,6 +1375,9 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         : stateValue(QStringLiteral("favorite")).toBool();
     state.inWatchlist = stateValue(QStringLiteral("in_watchlist")).toBool();
     state.notInterested = stateValue(QStringLiteral("not_interested")).toBool();
+    // CatalogItemDetail.user_rating: stars, 1 to 5; absent when unrated.
+    const int userRating = stateValue(QStringLiteral("user_rating")).toInt();
+    state.userRating = userRating >= 1 && userRating <= 5 ? userRating : 0;
     state.positionMs = secondsToMilliseconds(
         stateValue(QStringLiteral("position_seconds")).toDouble());
     state.unplayedItemCount = stateValue(QStringLiteral("unplayed_count")).toInt();
@@ -1502,6 +1508,7 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("favorite"), state.favorite},
         {QStringLiteral("inWatchlist"), state.inWatchlist},
         {QStringLiteral("notInterested"), state.notInterested},
+        {QStringLiteral("userRating"), state.userRating},
         {QStringLiteral("positionMs"), state.positionMs},
         {QStringLiteral("unplayedItemCount"), state.unplayedItemCount},
         {QStringLiteral("isInProgress"),

@@ -51,6 +51,19 @@ public:
         }
     }
 
+    void getBecauseWatchedItems(const QString &itemId, int limit = 12) override
+    {
+        becauseWatchedRequests.append(itemId);
+        becauseWatchedLimits.append(limit);
+        if (!deferBecauseWatched) {
+            emit canonicalBecauseWatchedLoadedForConnection(
+                activeConnectionId, itemId, becauseWatchedItems);
+        }
+    }
+
+    QString userRatingScale() const override { return ratingScale; }
+    void loadUserRatingCapability() override { ++ratingCapabilityReads; }
+
     void clearItemCacheValidation(const QString &itemId) override
     {
         clearedItemCacheIds.append(itemId);
@@ -62,6 +75,12 @@ public:
     }
 
     QVariantList similarItems;
+    QVariantList becauseWatchedItems;
+    QStringList becauseWatchedRequests;
+    QList<int> becauseWatchedLimits;
+    bool deferBecauseWatched = false;
+    QString ratingScale;
+    int ratingCapabilityReads = 0;
     QVariantMap seriesDetails;
     QVariantMap fallbackItem;
     QStringList similarRequests;
@@ -101,6 +120,10 @@ private slots:
     void upcomingEpisodesStartAtNextEpisode();
     void upcomingEpisodesMissingStartIsEmpty();
     void upcomingEpisodesIgnoreOtherRequests();
+    void becauseWatchedKeepsMoviesAndSeriesOnly();
+    void movieLoadReadsBecauseWatchedDetailsAndRating();
+    void becauseWatchedFailureIsSilentAndStaleAnswersIgnored();
+    void seriesLoadAfterMovieDropsTheMovie();
 };
 
 void UpNextRecommendationsViewModelTest::cleanup()
@@ -352,4 +375,141 @@ void UpNextRecommendationsViewModelTest::upcomingEpisodesIgnoreOtherRequests()
 }
 
 QTEST_MAIN(UpNextRecommendationsViewModelTest)
+void UpNextRecommendationsViewModelTest::becauseWatchedKeepsMoviesAndSeriesOnly()
+{
+    const QVariantList items{
+        QVariantMap{{"itemId", "movie-1"}, {"mediaType", "Movie"}, {"name", "Source"}},
+        QVariantMap{{"itemId", "movie-2"}, {"mediaType", "Movie"}, {"name", "Ronin"},
+                    {"providerIds", QVariantMap{{"Tmdb", "8195"}}}},
+        QVariantMap{{"itemId", "episode-1"}, {"mediaType", "Episode"}, {"name", "Pilot"}},
+        QVariantMap{{"itemId", "series-1"}, {"mediaType", "Series"}, {"name", "The Wire"}},
+        QVariantMap{{"itemId", "box-1"}, {"mediaType", "BoxSet"}, {"name", "Collection"}},
+        QVariantMap{{"itemId", "movie-3"}, {"mediaType", "Movie"}, {"name", "Ronin (copy)"},
+                    {"providerIds", QVariantMap{{"Tmdb", "8195"}}}},
+        QVariantMap{{"itemId", "movie-4"}, {"mediaType", "movie"}, {"name", "Collateral"}}
+    };
+
+    QVariantList selected = UpNextRecommendationsViewModel::selectBecauseWatched(
+        items, QStringLiteral("movie-1"), 12);
+    QStringList ids;
+    for (const QVariant &item : std::as_const(selected)) {
+        ids.append(item.toMap().value(QStringLiteral("itemId")).toString());
+    }
+    QCOMPARE(ids, QStringList({QStringLiteral("movie-2"), QStringLiteral("series-1"),
+                               QStringLiteral("movie-4")}));
+
+    selected = UpNextRecommendationsViewModel::selectBecauseWatched(items, QStringLiteral("movie-1"), 2);
+    QCOMPARE(selected.size(), 2);
+}
+
+void UpNextRecommendationsViewModelTest::movieLoadReadsBecauseWatchedDetailsAndRating()
+{
+    auto *libraryService = new UpNextTestLibraryService(this);
+    libraryService->ratingScale = QStringLiteral("stars");
+    libraryService->becauseWatchedItems = {
+        QVariantMap{{"connectionId", "connection-1"}, {"itemId", "movie-2"},
+                    {"mediaType", "Movie"}, {"name", "Ronin"}},
+        QVariantMap{{"connectionId", "connection-1"}, {"itemId", "episode-1"},
+                    {"mediaType", "Episode"}, {"name", "Pilot"}}
+    };
+    libraryService->fallbackItem = QVariantMap{
+        {"connectionId", "connection-1"},
+        {"itemId", "movie-1"},
+        {"mediaType", "Movie"},
+        {"name", "Heat"},
+        {"userRating", 4}
+    };
+    ServiceLocator::registerService<LibraryService>(libraryService);
+
+    UpNextRecommendationsViewModel vm;
+    QSignalSpy movieChanged(&vm, &UpNextRecommendationsViewModel::movieChanged);
+    vm.loadForMovie(QStringLiteral("movie-1"), 12);
+
+    QCOMPARE(libraryService->becauseWatchedRequests, QStringList{QStringLiteral("movie-1")});
+    QCOMPARE(libraryService->becauseWatchedLimits, QList<int>{12});
+    // Fresh details, not an unchanged answer, for the hero and the rating.
+    QCOMPARE(libraryService->clearedItemCacheIds, QStringList{QStringLiteral("movie-1")});
+    QCOMPARE(libraryService->itemRequests, QStringList{QStringLiteral("movie-1")});
+    QVERIFY(libraryService->itemRequestContexts.first().startsWith(QStringLiteral("UpNextMovie:")));
+    QVERIFY(libraryService->similarRequests.isEmpty());
+    QVERIFY(libraryService->seriesDetailsRequests.isEmpty());
+
+    QVERIFY(!vm.loading());
+    QCOMPARE(vm.items().size(), 1);
+    QCOMPARE(vm.items().first().toMap().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("movie-2"));
+    QVERIFY(movieChanged.count() >= 1);
+    QCOMPARE(vm.movie().value(QStringLiteral("name")).toString(), QStringLiteral("Heat"));
+    UserRatingState *rating = vm.movieRating();
+    QCOMPARE(rating->itemId(), QStringLiteral("movie-1"));
+    QCOMPARE(libraryService->ratingCapabilityReads, 1);
+    QVERIFY(rating->supported());
+    QCOMPARE(rating->value(), 4);
+
+    // Another page's details for the same movie do not replace them.
+    emit libraryService->canonicalItemLoaded(
+        QStringLiteral("movie-1"),
+        QVariantMap{{"connectionId", "connection-1"}, {"itemId", "movie-1"}, {"name", "Other"}},
+        QStringLiteral("MovieDetails:movie-1"));
+    QCOMPARE(vm.movie().value(QStringLiteral("name")).toString(), QStringLiteral("Heat"));
+}
+
+void UpNextRecommendationsViewModelTest::becauseWatchedFailureIsSilentAndStaleAnswersIgnored()
+{
+    auto *libraryService = new UpNextTestLibraryService(this);
+    libraryService->deferBecauseWatched = true;
+    libraryService->deferItem = true;
+    ServiceLocator::registerService<LibraryService>(libraryService);
+
+    UpNextRecommendationsViewModel vm;
+    vm.loadForMovie(QStringLiteral("movie-1"));
+    QVERIFY(vm.loading());
+
+    const QVariantList recommendations{
+        QVariantMap{{"connectionId", "connection-1"}, {"itemId", "movie-2"},
+                    {"mediaType", "Movie"}, {"name", "Ronin"}}
+    };
+    // Another connection, another movie, and the movie page's own similar
+    // items for this movie are not this screen's answer.
+    emit libraryService->canonicalBecauseWatchedLoadedForConnection(
+        QStringLiteral("connection-2"), QStringLiteral("movie-1"), recommendations);
+    emit libraryService->canonicalBecauseWatchedLoadedForConnection(
+        QStringLiteral("connection-1"), QStringLiteral("movie-9"), recommendations);
+    emit libraryService->canonicalSimilarItemsLoadedForConnection(
+        QStringLiteral("connection-1"), QStringLiteral("movie-1"), recommendations);
+    QVERIFY(vm.loading());
+    QVERIFY(vm.items().isEmpty());
+
+    emit libraryService->canonicalBecauseWatchedFailedForConnection(
+        QStringLiteral("connection-1"), QStringLiteral("movie-1"), QStringLiteral("Not Found"));
+    QVERIFY(!vm.loading());
+    QVERIFY(vm.items().isEmpty());
+    // A late answer after the failure changes nothing.
+    emit libraryService->canonicalBecauseWatchedLoadedForConnection(
+        QStringLiteral("connection-1"), QStringLiteral("movie-1"), recommendations);
+    QVERIFY(vm.items().isEmpty());
+}
+
+void UpNextRecommendationsViewModelTest::seriesLoadAfterMovieDropsTheMovie()
+{
+    auto *libraryService = new UpNextTestLibraryService(this);
+    libraryService->fallbackItem = QVariantMap{
+        {"connectionId", "connection-1"}, {"itemId", "movie-1"}, {"mediaType", "Movie"}, {"name", "Heat"}
+    };
+    ServiceLocator::registerService<LibraryService>(libraryService);
+
+    UpNextRecommendationsViewModel vm;
+    vm.loadForMovie(QStringLiteral("movie-1"));
+    QVERIFY(!vm.movie().isEmpty());
+
+    libraryService->fallbackItem.clear();
+    vm.loadForSeries(QStringLiteral("series-1"), 6);
+    QVERIFY(vm.movie().isEmpty());
+    QVERIFY(vm.movieRating()->itemId().isEmpty());
+    QCOMPARE(libraryService->similarRequests, QStringList{QStringLiteral("series-1")});
+
+    vm.clear();
+    QVERIFY(vm.movie().isEmpty());
+}
+
 #include "UpNextRecommendationsViewModelTest.moc"

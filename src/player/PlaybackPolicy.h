@@ -231,7 +231,8 @@ struct PlaybackContentRules
     bool keepsSeriesContext = true;
     /// Prefetch and resolve the next episode near and at the end.
     bool allowsNextEpisode = true;
-    /// Completion may lead into autoplay or the Up Next screen.
+    /// Completion may lead into autoplay, the Up Next screen, or the
+    /// after-movie screen.
     bool allowsUpNext = true;
     /// In-playback audio and subtitle picks are saved for the scope (and
     /// may be written back to the server).
@@ -247,6 +248,36 @@ struct PlaybackContentRules
 [[nodiscard]] PlaybackContentRules playbackContentRules(PlaybackContentKind kind);
 
 [[nodiscard]] bool meetsCompletionThreshold(const CompletionInput &input);
+
+/// The screen that follows a playback session once it ends.
+enum class PostPlaybackScreen {
+    /// Back where playback started.
+    None,
+    /// Up Next for the series (next episode, or the caught-up state).
+    UpNext,
+    /// The after-movie screen: rating and "Because you watched".
+    AfterMovie
+};
+
+struct PostPlaybackInput
+{
+    PlaybackContentKind contentKind = PlaybackContentKind::Feature;
+    /// The session ended with a playback error.
+    bool endedWithError = false;
+    /// Completion was already evaluated for this playback attempt.
+    bool alreadyEvaluated = false;
+    QString itemId;
+    /// Set for an episode; empty for a movie.
+    QString seriesId;
+    double positionSeconds = 0.0;
+    double durationSeconds = 0.0;
+    int thresholdPercent = 0;
+};
+
+/// A completed episode leads into Up Next and a completed movie into the
+/// after-movie screen. Completion is the configured threshold, so a session
+/// stopped early, an error, and an extra lead nowhere.
+[[nodiscard]] PostPlaybackScreen postPlaybackScreen(const PostPlaybackInput &input);
 [[nodiscard]] bool shouldPrefetchNextEpisode(const PrefetchInput &input);
 [[nodiscard]] bool isUsablePrefetchedEpisode(const PrefetchedEpisodeInput &input);
 [[nodiscard]] QString nextEpisodeRequestContext(const QString &mode,

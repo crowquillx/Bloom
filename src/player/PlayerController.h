@@ -491,6 +491,12 @@ signals:
     /// resolveTrackSelectionForMediaSource and the request's carryTrackPreferencesFromSeasonId)
     void navigateToNextEpisode(const QVariantMap &episodeData, const QString &seriesId,
                                const QString &carryTrackPreferencesFromSeasonId, bool autoplay);
+    /// Emitted once playback of a movie ended past the completion threshold
+    /// (PlayerPolicy::postPlaybackScreen). @p movieData carries `itemId`,
+    /// `connectionId`, `name`, `backdropUrl` and `logoUrl` from playback.
+    /// The display/HDR restore stays parked until the screen calls
+    /// releaseDeferredPostPlaybackDisplayRestore() or the next playback starts.
+    void navigateToAfterMovie(const QVariantMap &movieData);
     void playbackVersionSelectionRequested(const QString &requestId, const QVariantMap &dialogModel,
                                            QObject *restoreFocusTarget);
 
@@ -1320,6 +1326,9 @@ private:
     bool m_deferredPostPlaybackDisplayRestorePending = false;
     bool m_deferredPostPlaybackNeedsHdrRestore = false;
     bool m_deferredPostPlaybackNeedsRefreshRestore = false;
+    // The finished movie while the after-movie screen is due: from a
+    // completed movie's terminal transition until it is finalized.
+    QVariantMap m_pendingAfterMovie;
     
     // Buffering detection
     QElapsedTimer m_lastPositionUpdateTime;

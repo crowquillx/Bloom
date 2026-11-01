@@ -164,6 +164,11 @@ public:
     // Series details and episodes
     Q_INVOKABLE virtual void getSeriesDetails(const QString &seriesId);
     Q_INVOKABLE virtual void getSimilarItems(const QString &itemId, int limit = 12);
+    // Titles recommended because the viewer watched itemId: the provider's
+    // because-watched read (Silo), else its similar items (Jellyfin).
+    // Answers canonicalBecauseWatchedLoadedForConnection or
+    // canonicalBecauseWatchedFailedForConnection.
+    Q_INVOKABLE virtual void getBecauseWatchedItems(const QString &itemId, int limit = 12);
     // Local extras of a movie or series (trailers first). Providers that
     // carry extras in the item detail (Silo) answer an empty list here.
     Q_INVOKABLE virtual void getItemExtras(const QString &itemId);
@@ -192,6 +197,17 @@ public:
     Q_INVOKABLE virtual bool supportsNotInterested() const;
     Q_INVOKABLE virtual void loadNotInterestedCapability();
     Q_INVOKABLE virtual void setItemNotInterested(const QString &itemId, bool notInterested);
+    // The viewer's own rating of a movie or series. userRatingScale is
+    // "stars" (1 to 5) where ProviderCapability::StarRatings (Silo) and the
+    // profile's capability document allows it, "likes" (+1 or -1) where
+    // ProviderCapability::LikeRatings (Jellyfin), and empty otherwise.
+    // loadUserRatingCapability reads that document once per connection and
+    // profile and announces the answer with userRatingSupportChanged.
+    // setUserRating sends value in the scale, 0 to clear; results arrive as
+    // userRatingChanged or userRatingFailed.
+    Q_INVOKABLE virtual QString userRatingScale() const;
+    Q_INVOKABLE virtual void loadUserRatingCapability();
+    Q_INVOKABLE virtual void setUserRating(const QString &itemId, int value);
     // True when the provider has an airing calendar
     // (ProviderCapability::AiringCalendar, Silo), so getNextAiring can
     // answer something other than an empty map.
@@ -437,6 +453,12 @@ signals:
     void canonicalSimilarItemsFailedForConnection(const QString &connectionId,
                                                   const QString &itemId,
                                                   const QString &error);
+    void canonicalBecauseWatchedLoadedForConnection(const QString &connectionId,
+                                                    const QString &itemId,
+                                                    const QVariantList &items);
+    void canonicalBecauseWatchedFailedForConnection(const QString &connectionId,
+                                                    const QString &itemId,
+                                                    const QString &error);
     // `complete` is false when one of several provider requests failed:
     // `extras` is then only what arrived and must not be cached as the
     // item's full list.
@@ -462,6 +484,9 @@ signals:
     void notInterestedSupportChanged();
     void notInterestedStatusChanged(const QString &itemId, bool notInterested);
     void notInterestedStatusFailed(const QString &itemId, bool notInterested, const QString &error);
+    void userRatingSupportChanged();
+    void userRatingChanged(const QString &itemId, int value);
+    void userRatingFailed(const QString &itemId, int value, const QString &error);
     void nextAiringLoaded(const QString &seriesId, const QVariantMap &airing);
     // markItemPlayed/markItemUnplayed and the favorite writes were refused
     // or never reached the server.
@@ -665,6 +690,16 @@ private:
     // an older generation was cancelled and no longer blocks a new one.
     QHash<QString, bool> m_notInterestedAllowed;
     QHash<QString, quint64> m_notInterestedCapabilityReads;
+    // The same for the personal ratings capability.
+    QHash<QString, bool> m_userRatingAllowed;
+    QHash<QString, quint64> m_userRatingCapabilityReads;
+    // Reads a profile-scoped capability document (state and allowed) once
+    // per connection and profile into allowed, then emits announce.
+    void readProfileCapability(const QString &operationName,
+                               ProviderCatalogOperation operation,
+                               QHash<QString, bool> &allowed,
+                               QHash<QString, quint64> &reads,
+                               void (LibraryService::*announce)());
     // Home card writes in flight, by request key. A write whose session is
     // gone is answered with a failure (failStaleHomeCardWrites).
     QHash<QString, CatalogRequestIdentity> m_homeCardWrites;

@@ -20,7 +20,7 @@ Bloom-owned canonical models separate UI/player code from provider wire formats.
 
 - `MediaRef`
 - `ArtworkRef`
-- `UserMediaState` (`watched`, `favorite`, `inWatchlist` where the provider has a watchlist, `notInterested` where the provider has that mark, `positionMs`, `unplayedItemCount`, `lastPlayedAt`)
+- `UserMediaState` (`watched`, `favorite`, `inWatchlist` where the provider has a watchlist, `notInterested` where the provider has that mark, `userRating` (the viewer's 1 to 5 stars, 0 when unrated; Silo `user_rating`), `userLikes` (1 liked, -1 disliked, 0 neither; Jellyfin `UserData.Likes`), `positionMs`, `unplayedItemCount`, `lastPlayedAt`). Items carry `userRating` (Silo) or `userLikes` (Jellyfin) at the top level too; `UserRatingState` reads the one its provider's scale uses.
 - `Person`
 - `Chapter`
 - `StreamRequest`

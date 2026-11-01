@@ -464,6 +464,39 @@ private:
         case ProviderCatalogOperation::ClearResumePosition:
             return unsupported(QStringLiteral(
                 "Silo hides Continue Watching cards with Home dismissals"));
+        case ProviderCatalogOperation::BecauseWatched: {
+            ProviderCatalogRequest request = getWithContentId(
+                QStringLiteral("/api/v2/recommendations/because-watched/%1"), query.itemId);
+            if (!request.supported) {
+                return request;
+            }
+            // The route answers at most 50 cards.
+            QUrlQuery parameters;
+            appendLimit(parameters, qMin(query.limit, 50));
+            request.relativeEndpoint = endpointWithQuery(request.relativeEndpoint, parameters);
+            return request;
+        }
+        case ProviderCatalogOperation::UserRatingCapability:
+            return get(QStringLiteral("/api/v2/capabilities/ratings"));
+        case ProviderCatalogOperation::SetUserRating: {
+            // Stars, 1 to 5; 0 forgets the rating. setRating and
+            // deleteRating are non_retryable (a replay repeats the rating
+            // timestamp and the recommendation refresh), so neither is
+            // retried.
+            if (query.ratingValue < 0 || query.ratingValue > 5) {
+                return unsupported(QStringLiteral("Silo ratings are 1 to 5 stars"));
+            }
+            ProviderCatalogRequest request = mutationWithContentId(
+                query.ratingValue > 0 ? ProviderHttpMethod::Put : ProviderHttpMethod::Delete,
+                QStringLiteral("/api/v2/ratings/%1"), query.itemId);
+            if (request.supported && query.ratingValue > 0) {
+                request.body = QJsonDocument(QJsonObject{{QStringLiteral("rating"), query.ratingValue}})
+                                   .toJson(QJsonDocument::Compact);
+                request.extraHeaders.insert(QByteArrayLiteral("Content-Type"),
+                                            QByteArrayLiteral("application/json"));
+            }
+            return request;
+        }
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -519,7 +552,8 @@ public:
         }
         if (operation == ProviderCatalogOperation::SetWatchlist
             || operation == ProviderCatalogOperation::SetNotInterested
-            || operation == ProviderCatalogOperation::SetHomeDismissal) {
+            || operation == ProviderCatalogOperation::SetHomeDismissal
+            || operation == ProviderCatalogOperation::SetUserRating) {
             // 204 No Content on success.
             ProviderCatalogResponse response;
             response.valid = true;
@@ -541,12 +575,15 @@ public:
             response.valid = true;
             return response;
         }
-        if (operation == ProviderCatalogOperation::NotInterestedCapability) {
+        if (operation == ProviderCatalogOperation::NotInterestedCapability
+            || operation == ProviderCatalogOperation::UserRatingCapability) {
             ProviderCatalogResponse response;
             const QJsonObject object = QJsonDocument::fromJson(body).object();
             if (!object.value(QStringLiteral("state")).isString()
                 || !object.value(QStringLiteral("allowed")).isBool()) {
-                response.error = QStringLiteral("Invalid Silo not interested capability response");
+                response.error = operation == ProviderCatalogOperation::UserRatingCapability
+                    ? QStringLiteral("Invalid Silo ratings capability response")
+                    : QStringLiteral("Invalid Silo not interested capability response");
                 return response;
             }
             response.capabilityMetadata.insert(
@@ -755,6 +792,7 @@ private:
         case ProviderCatalogOperation::Chapters:
         case ProviderCatalogOperation::Versions:
         case ProviderCatalogOperation::SimilarItems:
+        case ProviderCatalogOperation::BecauseWatched:
         case ProviderCatalogOperation::Search:
         case ProviderCatalogOperation::NextUp:
         case ProviderCatalogOperation::HomeSections:

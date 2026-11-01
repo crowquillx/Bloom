@@ -63,7 +63,14 @@ enum class ProviderCapability {
     MovieRecommendations = 1 << 19,
     // ProviderCatalogOperation::SetHomeDismissal hides a card from
     // Continue Watching or Next Up and can undo it (Silo).
-    HomeDismissals = 1 << 20
+    HomeDismissals = 1 << 20,
+    // A personal 1-5 star rating per movie or series
+    // (ProviderCatalogOperation::SetUserRating, Silo). The profile's
+    // capability document still gates it.
+    StarRatings = 1 << 21,
+    // A personal like or dislike per item (SetUserRating with +1 or -1,
+    // Jellyfin).
+    LikeRatings = 1 << 22
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

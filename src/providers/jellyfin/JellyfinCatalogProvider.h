@@ -123,6 +123,13 @@ public:
             return unsupported(QStringLiteral("Jellyfin has no Home dismissals"));
         case ProviderCatalogOperation::ClearResumePosition:
             return clearResumePositionRequest(query);
+        case ProviderCatalogOperation::BecauseWatched:
+            return unsupported(QStringLiteral(
+                "Jellyfin has no because-watched read; similar items stand in"));
+        case ProviderCatalogOperation::UserRatingCapability:
+            return unsupported(QStringLiteral("Jellyfin likes need no capability read"));
+        case ProviderCatalogOperation::SetUserRating:
+            return userRatingRequest(query);
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -137,7 +144,8 @@ public:
 
         if (operation == ProviderCatalogOperation::SetWatched
             || operation == ProviderCatalogOperation::SetFavorite
-            || operation == ProviderCatalogOperation::ClearResumePosition) {
+            || operation == ProviderCatalogOperation::ClearResumePosition
+            || operation == ProviderCatalogOperation::SetUserRating) {
             const QJsonDocument mutationDocument = QJsonDocument::fromJson(body);
             if (mutationDocument.isObject()) {
                 response.rawItem = mutationDocument.object();
@@ -983,6 +991,30 @@ private:
         return request;
     }
 
+    // UpdateUserItemRating stores a like (+1) or a dislike (-1);
+    // DeleteUserItemRating (0) forgets either. Both answer the item's user
+    // data. The server declares no replay semantics, so neither is retried.
+    static ProviderCatalogRequest userRatingRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, true, QStringLiteral("rating update"));
+        if (!validation.supported) {
+            return validation;
+        }
+        if (query.ratingValue < -1 || query.ratingValue > 1) {
+            return unsupported(QStringLiteral("Jellyfin ratings are a like or a dislike"));
+        }
+        QString endpoint = QStringLiteral("/UserItems/%1/Rating?UserId=%2")
+                               .arg(encodedPathSegment(query.itemId),
+                                    encodedPathSegment(query.userId));
+        if (query.ratingValue == 0) {
+            return supportedRequest(endpoint, ProviderHttpMethod::Delete);
+        }
+        endpoint += query.ratingValue > 0 ? QStringLiteral("&Likes=true")
+                                          : QStringLiteral("&Likes=false");
+        return supportedRequest(endpoint, ProviderHttpMethod::Post);
+    }
+
     // UpdateItemUserData applies only the fields the body carries, so a
     // zero PlaybackPositionTicks leaves Played, PlayCount and IsFavorite
     // as they are; the item leaves the resume list. The server declares no
@@ -1313,6 +1345,9 @@ private:
         case ProviderCatalogOperation::ServerInfo: return QStringLiteral("server info");
         case ProviderCatalogOperation::SetHomeDismissal: return QStringLiteral("home dismissal");
         case ProviderCatalogOperation::ClearResumePosition: return QStringLiteral("resume position");
+        case ProviderCatalogOperation::BecauseWatched: return QStringLiteral("because watched");
+        case ProviderCatalogOperation::UserRatingCapability: return QStringLiteral("rating capability");
+        case ProviderCatalogOperation::SetUserRating: return QStringLiteral("rating");
         }
         return QStringLiteral("catalog");
     }

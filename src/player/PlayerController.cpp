@@ -747,13 +747,15 @@ void PlayerController::onEnterIdleState()
                             << "contentFramerate=" << m_contentFramerate;
 
     enterIdleStateImmediate();
-    if (m_awaitingNextEpisodeResolution) {
+    // Up Next and the after-movie screen keep the display as playback left
+    // it until the user leaves them or starts the next title.
+    if (m_awaitingNextEpisodeResolution || !m_pendingAfterMovie.isEmpty()) {
         cancelPendingDisplayRestore(false);
         m_deferredPostPlaybackDisplayRestorePending = needsHdrRestore || needsRefreshRestore;
         m_deferredPostPlaybackNeedsHdrRestore = needsHdrRestore;
         m_deferredPostPlaybackNeedsRefreshRestore = needsRefreshRestore;
         qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                << "] deferred-display-restore parked for up-next"
+                                << "] deferred-display-restore parked for post-playback screen"
                                 << "needsHdrRestore=" << needsHdrRestore
                                 << "needsRefreshRestore=" << needsRefreshRestore;
         return;
@@ -1525,11 +1527,31 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
 
     const bool sleepTimerEndedPlayback = applySleepTimerAtTerminal(reason);
 
+    m_pendingAfterMovie.clear();
     if (reason != TerminalReason::Error) {
+        const PlayerPolicy::PostPlaybackScreen screen = PlayerPolicy::postPlaybackScreen({
+            m_currentContentKind,
+            false,
+            m_hasEvaluatedCompletionForAttempt,
+            m_currentItemId,
+            m_currentSeriesId,
+            m_currentPosition,
+            m_duration,
+            m_config->getPlaybackCompletionThreshold()
+        });
         const bool thresholdMet = checkCompletionThresholdAndAutoplay();
-        if (thresholdMet && !m_currentSeriesId.isEmpty()
-            && !sleepTimerEndedPlayback
-            && PlayerPolicy::playbackContentRules(m_currentContentKind).allowsUpNext) {
+        if (screen == PlayerPolicy::PostPlaybackScreen::AfterMovie) {
+            m_pendingAfterMovie = {
+                {QStringLiteral("itemId"), m_currentItemId},
+                {QStringLiteral("connectionId"),
+                 m_libraryService ? m_libraryService->getActiveConnectionId() : QString()},
+                {QStringLiteral("name"), m_overlayTitle},
+                {QStringLiteral("backdropUrl"), m_overlayBackdropUrl},
+                {QStringLiteral("logoUrl"), m_overlayLogoUrl}
+            };
+            qCDebug(lcPlayback) << "PlayerController: Movie completed, after-movie screen follows";
+        }
+        if (thresholdMet && screen == PlayerPolicy::PostPlaybackScreen::UpNext) {
             m_shouldAutoplay = true;
             m_waitingForNextEpisodeAtPlaybackEnd = true;
             stashPendingAutoplayContext();
@@ -1637,7 +1659,15 @@ void PlayerController::finalizeTerminalTransition()
         enterState(fallbackState);
     }
 
+    // Entering Idle above has parked the display restore for it.
+    const QVariantMap afterMovie = std::exchange(m_pendingAfterMovie, {});
+
     if (runPendingReplacementPlaybackAction()) {
+        return;
+    }
+
+    if (!afterMovie.isEmpty() && reason != TerminalReason::Error) {
+        emit navigateToAfterMovie(afterMovie);
         return;
     }
 
@@ -1662,6 +1692,7 @@ void PlayerController::resetTerminalTransitionState(bool invalidateQueuedWork)
 {
     if (invalidateQueuedWork) {
         ++m_terminalTransitionGeneration;
+        m_pendingAfterMovie.clear();
     }
     m_terminalTransitionActive = false;
     m_backendStopRequested = false;
@@ -1684,6 +1715,7 @@ void PlayerController::updatePendingTerminalReason(TerminalReason reason)
     m_pendingTerminalReason = reason;
 
     if (reason == TerminalReason::Error && previousReason != TerminalReason::Error) {
+        m_pendingAfterMovie.clear();
         clearPendingAutoplayContext();
         clearNextEpisodePrefetchState();
         m_shouldAutoplay = false;
