@@ -63,7 +63,7 @@ the shell's `NavigationBar` floating above it.
 | Archetype | Pages | Stage | Header | Body |
 |-----------|-------|-------|--------|------|
 | **Hero** | Home, movie/series/season/episode details, Up Next | `mode: "hero"`, the subject's backdrop | Hero block | Shelves below the hero |
-| **Browse** | Library grids, Search, Discover and its Browse pages, collections | `mode: "ambient"`, optionally the focused item's backdrop | `PageHeader` + toolbar | Poster grid or shelves |
+| **Browse** | Library grids, Search, Discover and its Browse pages, collections, person pages | `mode: "ambient"`, optionally the focused item's backdrop | `PageHeader` + toolbar | Poster grid or shelves |
 | **Panel** | Settings, Active Sessions, account pages | `mode: "ambient"`, no art | `PageHeader` | Category list + content column of rows |
 
 Only hero pages carry a hero. Browse and panel pages do not invent one; they
@@ -172,8 +172,31 @@ Cards are always `MediaCard`:
 - Badges come from the card: unwatched count or watched check
   (`showWatchState`), Silo poster badges (`item`), and the merged-space source
   (`sourceLabel`). Do not stack extra badges on top of a card.
-- People use `PersonCard`. Don't introduce other card shapes without adding
-  them to this table.
+- People use `PersonCard` (cast and crew on detail pages, People in Search).
+  Enter or a click opens the person's page when the card has a `personId`.
+  Don't introduce other card shapes without adding them to this table.
+
+## Person page
+
+`PersonScreen.qml` is a browse page for one person, opened from a cast or
+crew card or a People result in Search. It has no hero: below
+`pageMarginTop`, the person's photo (poster size, `imageRadius`) sits beside a
+`PageHeader` with their name and a life line ("Born 25 April 1940 in New York
+City", or the birth and death dates), then the biography at `fontSizeBody`,
+five lines with Read More, which shows all of it. Poster shelves of their Movies and Shows follow,
+newest first, each a `MediaCard` with the usual year or run subtitle. The
+stage picks up the focused title's backdrop.
+
+Read More, when the biography is long, is the top-most control, so Up from it
+(or from the first shelf when there is none) reaches the navigation bar. When
+the expanded biography is taller than the screen, Down and Up on Read More
+first page through it (keeping Read More in view at the end) before focus moves
+on.
+Enter opens a title through Main's details navigation, and Back returns to
+the same card. Back from the person page returns to the card that opened it.
+Shelves read the next page as focus nears their end; new titles are added
+without moving the focused card. Loading, error (with
+Retry) and "no titles" states use `StateMessage`.
 
 ### Extras shelf
 

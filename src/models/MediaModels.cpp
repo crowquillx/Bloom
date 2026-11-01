@@ -217,6 +217,7 @@ QVariantMap Person::toVariantMap() const
 {
     QVariantMap map{
         {QStringLiteral("media"), media.toVariantMap()},
+        {QStringLiteral("connectionId"), media.connectionId},
         {QStringLiteral("personId"), media.itemId},
         {QStringLiteral("name"), name},
         {QStringLiteral("role"), role},
@@ -224,6 +225,18 @@ QVariantMap Person::toVariantMap() const
     };
     if (artwork.isValid()) {
         map[QStringLiteral("artwork")] = artwork.toVariantMap();
+    }
+    const auto insertIfSet = [&map](const QString &key, const QString &value) {
+        if (!value.isEmpty()) {
+            map.insert(key, value);
+        }
+    };
+    insertIfSet(QStringLiteral("overview"), overview);
+    insertIfSet(QStringLiteral("birthDate"), birthDate);
+    insertIfSet(QStringLiteral("deathDate"), deathDate);
+    insertIfSet(QStringLiteral("birthplace"), birthplace);
+    if (!providerIds.isEmpty()) {
+        map.insert(QStringLiteral("providerIds"), providerIds);
     }
     return map;
 }

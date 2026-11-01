@@ -211,6 +211,8 @@ private slots:
     void jellyfinHasNoWatchlistOrCuratedRows();
     void jellyfinItemExtrasPutTrailersFirstAndFlagPartialAnswers();
     void siloItemExtrasAnswerEmptyWithoutRequests();
+    void personReadsMapCanonicalPeopleAndTitles();
+    void peopleSearchFollowsTheSearchCapability();
 };
 
 void SiloCatalogServiceTest::theIntroDbV4Requests_data()
@@ -2298,6 +2300,191 @@ void SiloCatalogServiceTest::siloItemExtrasAnswerEmptyWithoutRequests()
     QVERIFY(loaded.first().at(3).toBool());
     QCOMPARE(failed.count(), 0);
     QVERIFY(manager.requests.isEmpty());
+}
+
+void SiloCatalogServiceTest::personReadsMapCanonicalPeopleAndTitles()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+    const QString connectionId = LibraryService(&auth).getActiveConnectionId();
+    QVERIFY(!connectionId.isEmpty());
+
+    LibraryService service(&auth);
+    QSignalSpy personLoaded(&service, &LibraryService::canonicalPersonLoaded);
+    QSignalSpy itemsLoaded(&service, &LibraryService::canonicalPersonItemsLoaded);
+    manager.responses = {
+        {200, QByteArrayLiteral("{\"id\":\"7\",\"name\":\"Al Pacino\",\"bio\":\"Actor.\",\"birth_date\":\"1940-04-25\",\"birthplace\":\"New York City\",\"photo_url\":\"https://cdn.example.test/people/7.jpg?sig=a\",\"imdb_id\":\"nm0000199\",\"tmdb_id\":\"1158\"}"), false},
+        {200, QByteArrayLiteral(R"({"items":[{"content_id":"m1","type":"movie","title":"Heat","year":1995},{"content_id":"s1","type":"series","title":"Angels"}],"total":3,"page":{"has_more":true,"next_cursor":"c2"}})"), false}};
+    const qsizetype first = manager.requests.size();
+    service.getPerson(QStringLiteral("7"));
+    service.getPersonItems(QStringLiteral("7"), 0, QString(), 60, QStringLiteral("page-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(personLoaded.count(), 1, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(itemsLoaded.count(), 1, 1000);
+
+    QCOMPARE(manager.requests.at(first).request.url().path(),
+             QStringLiteral("/api/v2/catalog/people/7"));
+    const QUrl itemsUrl = manager.requests.at(first + 1).request.url();
+    QCOMPARE(itemsUrl.path(), QStringLiteral("/api/v2/catalog"));
+    const QUrlQuery itemsQuery(itemsUrl);
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("source")), QStringLiteral("person"));
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("person_id")), QStringLiteral("7"));
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("type")), QStringLiteral("video"));
+
+    const QVariantList personArgs = personLoaded.first();
+    QCOMPARE(personArgs.at(0).toString(), connectionId);
+    QCOMPARE(personArgs.at(1).toString(), QStringLiteral("7"));
+    const QVariantMap person = personArgs.at(2).toMap();
+    QCOMPARE(person.value(QStringLiteral("name")).toString(), QStringLiteral("Al Pacino"));
+    QCOMPARE(person.value(QStringLiteral("connectionId")).toString(), connectionId);
+    QCOMPARE(person.value(QStringLiteral("birthDate")).toString(), QStringLiteral("1940-04-25"));
+    QVERIFY(person.value(QStringLiteral("artwork")).toMap().value(QStringLiteral("cacheKey"))
+                .toString().startsWith(QStringLiteral("artwork:")));
+
+    const QVariantList itemArgs = itemsLoaded.first();
+    QCOMPARE(itemArgs.at(2).toString(), QStringLiteral("page-1"));
+    const QVariantList items = itemArgs.at(3).toList();
+    QCOMPARE(items.size(), 2);
+    QCOMPARE(items.at(0).toMap().value(QStringLiteral("mediaType")).toString(), QStringLiteral("Movie"));
+    QCOMPARE(items.at(1).toMap().value(QStringLiteral("mediaType")).toString(), QStringLiteral("Series"));
+    QCOMPARE(itemArgs.at(5).toBool(), true);
+    QCOMPARE(itemArgs.at(6).toString(), QStringLiteral("c2"));
+
+    // The next page continues from the cursor.
+    manager.responses = {{200, QByteArrayLiteral(R"({"items":[],"total":3,"page":{"has_more":false}})"), false}};
+    service.getPersonItems(QStringLiteral("7"), 2, QStringLiteral("c2"), 60, QStringLiteral("page-2"));
+    QTRY_COMPARE_WITH_TIMEOUT(itemsLoaded.count(), 2, 1000);
+    QCOMPARE(QUrlQuery(manager.requests.last().request.url()).queryItemValue(QStringLiteral("cursor")),
+             QStringLiteral("c2"));
+    QCOMPARE(itemsLoaded.last().at(5).toBool(), false);
+
+    // A person without a name cannot be shown.
+    QSignalSpy personFailed(&service, &LibraryService::canonicalPersonFailed);
+    manager.responses = {{200, QByteArrayLiteral(R"({"id":"8"})"), false}};
+    service.getPerson(QStringLiteral("8"));
+    QTRY_COMPARE_WITH_TIMEOUT(personFailed.count(), 1, 1000);
+    QCOMPARE(personFailed.first().at(1).toString(), QStringLiteral("8"));
+}
+
+void SiloCatalogServiceTest::peopleSearchFollowsTheSearchCapability()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    const auto paths = [&manager](qsizetype from) {
+        QStringList result;
+        for (qsizetype index = from; index < manager.requests.size(); ++index) {
+            result.append(manager.requests.at(index).request.url().path());
+        }
+        return result;
+    };
+    const QString capabilities = QStringLiteral("/api/v2/catalog/search/capabilities");
+    const QString people = QStringLiteral("/api/v2/catalog/people");
+    const QByteArray found = QByteArrayLiteral(
+        "{\"items\":[{\"id\":\"7\",\"name\":\"Al Pacino\",\"photo_url\":\"https://cdn.example.test/7.jpg\"},{\"id\":\"9\"}]}");
+
+    // Scoped search: the capability is read once per connection, and the
+    // search asks for movie and series credits only.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalPeopleSearchLoaded);
+        manager.responses = {
+            {200, QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true,"people_media_scope":true})"), false},
+            {200, found, false},
+            {200, found, false}};
+        const qsizetype first = manager.requests.size();
+        service.searchPeople(QStringLiteral("  pacino "), 20);
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        service.searchPeople(QStringLiteral("pacino"), 20);
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+        QCOMPARE(paths(first), (QStringList{capabilities, people, people}));
+        const QUrlQuery search(manager.requests.at(first + 1).request.url());
+        QCOMPARE(search.queryItemValue(QStringLiteral("q")), QStringLiteral("pacino"));
+        QCOMPARE(search.queryItemValue(QStringLiteral("limit")), QStringLiteral("20"));
+        QCOMPARE(search.queryItemValue(QStringLiteral("media_scope")), QStringLiteral("video"));
+        QCOMPARE(loaded.first().at(1).toString(), QStringLiteral("pacino"));
+        // The nameless entry is dropped.
+        const QVariantList results = loaded.first().at(2).toList();
+        QCOMPARE(results.size(), 1);
+        QCOMPARE(results.first().toMap().value(QStringLiteral("personId")).toString(),
+                 QStringLiteral("7"));
+    }
+
+    // A server that cannot scope people search shows no people and is not
+    // asked for any.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalPeopleSearchLoaded);
+        manager.responses = {
+            {200, QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true})"), false}};
+        const qsizetype first = manager.requests.size();
+        service.searchPeople(QStringLiteral("pacino"), 20);
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        service.searchPeople(QStringLiteral("pacino"), 20);
+        QCOMPARE(loaded.count(), 2);
+        QVERIFY(loaded.last().at(2).toList().isEmpty());
+        QCOMPARE(paths(first), QStringList{capabilities});
+    }
+
+    // A failed capability read fails the search. Later searches (every
+    // debounced keystroke) do not read it again for a while: they show no
+    // people at once instead.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalPeopleSearchLoaded);
+        QSignalSpy failed(&service, &LibraryService::canonicalPeopleSearchFailed);
+        manager.responses = {
+            {403, QByteArrayLiteral(R"({"type":"about:blank","title":"Forbidden","status":403})"), false},
+            {200, QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true,"people_media_scope":true})"), false},
+            {200, found, false}};
+        const qsizetype first = manager.requests.size();
+        service.searchPeople(QStringLiteral("pacino"), 20);
+        QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+        service.searchPeople(QStringLiteral("pacin"), 20);
+        service.searchPeople(QStringLiteral("pacino"), 20);
+        QCOMPARE(loaded.count(), 2);
+        QVERIFY(loaded.last().at(2).toList().isEmpty());
+        QCOMPARE(failed.count(), 1);
+        QTest::qWait(50);
+        QCOMPARE(paths(first), QStringList{capabilities});
+    }
+
+    // A newer search replaces an older one still in flight.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalPeopleSearchLoaded);
+        manager.responses = {
+            {200, QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true,"people_media_scope":true})"), false},
+            {200, found, true},
+            {200, found, false}};
+        service.searchPeople(QStringLiteral("pac"), 20);
+        QTRY_VERIFY_WITH_TIMEOUT(!manager.replies.isEmpty()
+                                     && manager.replies.last()
+                                     && manager.requests.last().request.url().path() == people,
+                                 1000);
+        QPointer<ControlledReply> stale = manager.replies.last();
+        service.searchPeople(QStringLiteral("pacino"), 20);
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        QCOMPARE(loaded.first().at(1).toString(), QStringLiteral("pacino"));
+        if (stale) {
+            stale->complete();
+        }
+        QTest::qWait(50);
+        QCOMPARE(loaded.count(), 1);
+    }
 }
 
 

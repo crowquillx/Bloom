@@ -363,6 +363,27 @@ private:
         case ProviderCatalogOperation::LocalTrailers:
             return unsupported(QStringLiteral(
                 "Silo returns local extras in the catalog item detail"));
+        case ProviderCatalogOperation::Person:
+            return getWithContentId(QStringLiteral("/api/v2/catalog/people/%1"), query.itemId);
+        case ProviderCatalogOperation::PersonItems:
+            return createPersonItemsRequest(query);
+        case ProviderCatalogOperation::PersonSearch: {
+            const QString term = query.searchTerm.trimmed();
+            if (term.isEmpty()) {
+                return unsupported(QStringLiteral("Silo people search requires a search term"));
+            }
+            // Only movie and series credits the viewer can see. Servers
+            // without getCatalogSearchCapabilities.people_media_scope reject
+            // the parameter; LibraryService reads that flag first.
+            // QUrlQuery leaves '+' as is, which the server reads as a space.
+            QUrlQuery parameters;
+            appendLimit(parameters, query.limit);
+            parameters.addQueryItem(QStringLiteral("media_scope"), QStringLiteral("video"));
+            return get(QStringLiteral("/api/v2/catalog/people?q=%1&").arg(encodedId(term.left(200)))
+                       + parameters.query(QUrl::FullyEncoded));
+        }
+        case ProviderCatalogOperation::PersonSearchCapability:
+            return get(QStringLiteral("/api/v2/catalog/search/capabilities"));
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -402,6 +423,34 @@ public:
             return SiloMediaRequestMapper::parseResponse(operation, body);
         default:
             break;
+        }
+        if (operation == ProviderCatalogOperation::Person) {
+            ProviderCatalogResponse response;
+            const QJsonObject object = QJsonDocument::fromJson(body).object();
+            if (object.value(QStringLiteral("name")).toString().isEmpty()
+                || !object.value(QStringLiteral("id")).isString()
+            || object.value(QStringLiteral("id")).toString().isEmpty()) {
+                response.error = QStringLiteral("Invalid Silo person response");
+                return response;
+            }
+            response.rawItem = object;
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::PersonSearchCapability) {
+            ProviderCatalogResponse response;
+            const QJsonObject object = QJsonDocument::fromJson(body).object();
+            if (!object.value(QStringLiteral("state")).isString()
+                || !object.value(QStringLiteral("allowed")).isBool()) {
+                response.error = QStringLiteral("Invalid Silo search capabilities response");
+                return response;
+            }
+            // Absent on servers before scoped people search.
+            response.capabilityMetadata.insert(
+                QStringLiteral("peopleMediaScope"),
+                object.value(QStringLiteral("people_media_scope")).toBool(false));
+            response.valid = true;
+            return response;
         }
         if (operation == ProviderCatalogOperation::SetWatchlist) {
             // 204 No Content on success.
@@ -555,6 +604,7 @@ private:
         case ProviderCatalogOperation::NextUp:
         case ProviderCatalogOperation::HomeSections:
         case ProviderCatalogOperation::Watchlist:
+        case ProviderCatalogOperation::PersonItems:
             return true;
         default:
             return false;
@@ -1209,6 +1259,26 @@ private:
         ProviderCatalogRequest request
             = get(endpointWithQuery(QStringLiteral("/api/v2/catalog"), parameters));
         return request;
+    }
+
+    // A person's movies and series, newest first: the person source of
+    // listCatalogItems, paged by cursor.
+    static ProviderCatalogRequest createPersonItemsRequest(const ProviderCatalogQuery &query)
+    {
+        const QString personId = query.itemId.trimmed();
+        if (personId.isEmpty()) {
+            return unsupported(QStringLiteral("Silo person items require a person ID"));
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("source"), QStringLiteral("person"));
+        parameters.addQueryItem(QStringLiteral("person_id"), personId);
+        parameters.addQueryItem(QStringLiteral("type"), QStringLiteral("video"));
+        parameters.addQueryItem(QStringLiteral("sort"), QStringLiteral("-year"));
+        if (!query.cursor.isEmpty()) {
+            parameters.addQueryItem(QStringLiteral("cursor"), query.cursor);
+        }
+        appendLimit(parameters, query.limit);
+        return get(endpointWithQuery(QStringLiteral("/api/v2/catalog"), parameters));
     }
 
     static ProviderCatalogRequest createFilterOptionsRequest(

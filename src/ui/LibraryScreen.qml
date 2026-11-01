@@ -9,6 +9,10 @@ FocusScope {
     id: root
 
     property string navigationId: currentLibraryId !== "" ? "library:" + currentLibraryId : "media"
+    /// A cast or crew card asked for its person's page; Main pushes it.
+    signal personRequested(var person)
+    /// Set by Main once personRequested is connected.
+    property bool personNavigationConnected: false
     property string currentParentId: ""
     property string currentLibraryId: ""   // The root library ID (for profile resolution)
     property string currentLibraryName: ""  // Name of the current library for display
@@ -488,10 +492,39 @@ FocusScope {
         }
     }
     
+    // Details pages share MovieDetailsViewModel and SeriesDetailsViewModel. A
+    // title opened from a person page loads into them while this page waits
+    // below, so coming back reloads this page's own title (the detail cache
+    // serves it) and the view restores focus once it is back.
+    function reloadSharedDetails() {
+        var item = contentLoader.item
+        if (!item)
+            return
+        if (showSeasonView) {
+            if (typeof item["sharedSeasonStale"] !== "function" || !item["sharedSeasonStale"]())
+                return
+            var seasonId = item["returnSeasonId"] || currentSeasonId
+            // The episode's cast reloads with it; focus returns to the episode.
+            item["returnFocusToCast"] = false
+            if (SeriesDetailsViewModel.seriesId !== currentSeriesId)
+                SeriesDetailsViewModel.loadSeriesDetails(currentSeriesId)
+            if (seasonId && seasonId !== currentSeasonId) {
+                _lastSelectedSeasonIndex = -1
+                currentSeasonId = seasonId
+            } else {
+                item["enforceInitialSeasonSelection"]()
+            }
+            item["restoreEpisodeSelection"](item["returnEpisodeId"] || "")
+        } else if (typeof item["reloadSharedDetails"] === "function") {
+            item["reloadSharedDetails"]()
+        }
+    }
+
     // Ensure focus is transferred to content when screen becomes active
     StackView.onStatusChanged: {
         if (StackView.status === StackView.Active) {
             console.log("[LibraryScreen] Screen activated, transferring focus to content")
+            reloadSharedDetails()
             if (pendingEpisodeData) {
                 var episodeData = pendingEpisodeData
                 pendingEpisodeData = null
@@ -709,6 +742,10 @@ FocusScope {
                 handleSelection(itemData)
             }
             
+            onPersonSelected: function(person) {
+                root.personRequested(person)
+            }
+
             onBackRequested: {
                 exitSeriesDetails()
             }
@@ -744,6 +781,10 @@ FocusScope {
                 showSeriesDetailsFromSeasonView(episodeId)
             }
 
+            onPersonSelected: function(person) {
+                root.personRequested(person)
+            }
+
             onBackRequested: {
                 exitSeasonView()
             }
@@ -777,6 +818,10 @@ FocusScope {
                 handleSelection(itemData)
             }
              
+            onPersonSelected: function(person) {
+                root.personRequested(person)
+            }
+
             onBackRequested: {
                 exitMovieDetails()
             }

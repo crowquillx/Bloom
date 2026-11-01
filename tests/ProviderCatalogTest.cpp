@@ -40,6 +40,8 @@ private slots:
     void jellyfinMutationsAndPaginationRemainCompatible();
     void jellyfinRequestsUseOpenApiRoutesAndFields();
     void jellyfinNextUpOptionsAndResumeList();
+    void jellyfinPersonRequestsAndMapping();
+    void siloPersonRequestsAndMapping();
     void siloTrackIndicesAndMultipartFallbackStayContiguous();
     void siloCanonicalIdentityVersionsMultipartAndStateUseMilliseconds();
     void siloPlaybackFallbacksAndExternalSubtitleMetadata();
@@ -479,6 +481,232 @@ void ProviderCatalogTest::jellyfinNextUpOptionsAndResumeList()
         ProviderCatalogOperation::ResumeItems, resumeQuery);
     QVERIFY(!siloResume.supported);
     QVERIFY(!siloResume.unsupportedReason.isEmpty());
+}
+
+void ProviderCatalogTest::jellyfinPersonRequestsAndMapping()
+{
+    JellyfinProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    ProviderCatalogQuery query;
+    query.userId = QStringLiteral("user-1");
+    query.itemId = QStringLiteral("person 1");
+
+    // The person by ID, never by name.
+    const ProviderCatalogRequest person = catalog->createRequest(ProviderCatalogOperation::Person, query);
+    QVERIFY2(person.supported, qPrintable(person.unsupportedReason));
+    QCOMPARE(person.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(QUrl(person.relativeEndpoint).path(), QStringLiteral("/Items/person 1"));
+    QCOMPARE(QUrlQuery(QUrl(person.relativeEndpoint)).queryItemValue(QStringLiteral("userId")),
+             QStringLiteral("user-1"));
+
+    query.startIndex = 60;
+    query.limit = 60;
+    const ProviderCatalogRequest items = catalog->createRequest(ProviderCatalogOperation::PersonItems, query);
+    QVERIFY2(items.supported, qPrintable(items.unsupportedReason));
+    const QUrl itemsUrl(items.relativeEndpoint);
+    QCOMPARE(itemsUrl.path(), QStringLiteral("/Items"));
+    const QUrlQuery itemsQuery(itemsUrl);
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("PersonIds")), QStringLiteral("person 1"));
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Movie,Series"));
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("SortBy")), QStringLiteral("PremiereDate,SortName"));
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("SortOrder")), QStringLiteral("Descending,Ascending"));
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("StartIndex")), QStringLiteral("60"));
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("Limit")), QStringLiteral("60"));
+
+    QFile openApiManifest(QStringLiteral(BLOOM_JELLYFIN_OPENAPI_MANIFEST));
+    QVERIFY(openApiManifest.open(QIODevice::ReadOnly));
+    const QJsonObject manifest = QJsonDocument::fromJson(openApiManifest.readAll()).object();
+    QSet<QString> itemFields;
+    for (const QJsonValue &field : manifest.value(QStringLiteral("schemas")).toObject()
+                                       .value(QStringLiteral("ItemFields")).toObject()
+                                       .value(QStringLiteral("enum")).toArray()) {
+        itemFields.insert(field.toString());
+    }
+    for (const QString &field : itemsQuery.queryItemValue(QStringLiteral("Fields"))
+                                    .split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        QVERIFY2(itemFields.contains(field), qPrintable(field));
+    }
+
+    // GetPersons, not /Search/Hints.
+    query.searchTerm = QStringLiteral(" Al Pacino ");
+    query.limit = 20;
+    const ProviderCatalogRequest search = catalog->createRequest(ProviderCatalogOperation::PersonSearch, query);
+    QVERIFY2(search.supported, qPrintable(search.unsupportedReason));
+    const QUrl searchUrl(search.relativeEndpoint);
+    QCOMPARE(searchUrl.path(), QStringLiteral("/Persons"));
+    const QUrlQuery searchQuery(searchUrl);
+    QCOMPARE(searchQuery.queryItemValue(QStringLiteral("searchTerm"), QUrl::FullyDecoded),
+             QStringLiteral("Al Pacino"));
+    QCOMPARE(searchQuery.queryItemValue(QStringLiteral("limit")), QStringLiteral("20"));
+    QCOMPARE(searchQuery.queryItemValue(QStringLiteral("enableImages")), QStringLiteral("true"));
+    QCOMPARE(searchQuery.queryItemValue(QStringLiteral("userId")), QStringLiteral("user-1"));
+    // GetPersons has no media scope: film and TV credit kinds only, each a
+    // pinned PersonKind value.
+    const QString personTypes = searchQuery.queryItemValue(QStringLiteral("personTypes"));
+    QCOMPARE(personTypes, QStringLiteral("Actor,Director,Writer,Producer,GuestStar"));
+    query.searchTerm = QStringLiteral("A+B");
+    const QUrlQuery plusQuery(QUrl(catalog->createRequest(ProviderCatalogOperation::PersonSearch,
+                                                          query).relativeEndpoint));
+    QCOMPARE(plusQuery.queryItemValue(QStringLiteral("searchTerm"), QUrl::FullyDecoded),
+             QStringLiteral("A+B"));
+    QVERIFY(plusQuery.query(QUrl::FullyEncoded).contains(QStringLiteral("A%2BB")));
+    query.searchTerm = QStringLiteral("  ");
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::PersonSearch, query).supported);
+    // People search needs no capability read on Jellyfin.
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::PersonSearchCapability, query).supported);
+
+    // GetItem answers the person itself.
+    const ProviderCatalogResponse detail = catalog->parseResponse(
+        ProviderCatalogOperation::Person,
+        QByteArrayLiteral(R"({"Id":"p1","Name":"Al Pacino","Type":"Person","Overview":"Actor.",)"
+                          R"("PremiereDate":"1940-04-25T00:00:00.0000000Z","EndDate":"2099-01-02T00:00:00.0000000Z",)"
+                          R"("ProductionLocations":["New York City, New York, USA"],)"
+                          R"("ProviderIds":{"Imdb":"nm0000199","Tmdb":"1158"},"ImageTags":{"Primary":"tag-1"}})"));
+    QVERIFY(detail.valid);
+    QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::Person,
+                                    QByteArrayLiteral(R"({"Name":"No ID"})")).valid);
+
+    const QVariantMap mapped = adapter.mapPerson(detail.rawItem, QStringLiteral("connection-1"));
+    QCOMPARE(mapped.value(QStringLiteral("personId")).toString(), QStringLiteral("p1"));
+    QCOMPARE(mapped.value(QStringLiteral("connectionId")).toString(), QStringLiteral("connection-1"));
+    QCOMPARE(mapped.value(QStringLiteral("name")).toString(), QStringLiteral("Al Pacino"));
+    QCOMPARE(mapped.value(QStringLiteral("overview")).toString(), QStringLiteral("Actor."));
+    QCOMPARE(mapped.value(QStringLiteral("birthDate")).toString(), QStringLiteral("1940-04-25"));
+    QCOMPARE(mapped.value(QStringLiteral("deathDate")).toString(), QStringLiteral("2099-01-02"));
+    QCOMPARE(mapped.value(QStringLiteral("birthplace")).toString(),
+             QStringLiteral("New York City, New York, USA"));
+    QCOMPARE(mapped.value(QStringLiteral("providerIds")).toMap().value(QStringLiteral("Imdb")).toString(),
+             QStringLiteral("nm0000199"));
+    const Bloom::ArtworkRef artwork = Bloom::ArtworkRef::fromVariantMap(
+        mapped.value(QStringLiteral("artwork")).toMap());
+    QCOMPARE(artwork.kind, Bloom::ArtworkKind::Person);
+    QCOMPARE(artwork.itemId, QStringLiteral("p1"));
+    QCOMPARE(artwork.tag, QStringLiteral("tag-1"));
+    QVERIFY(!mapped.contains(QStringLiteral("Overview")));
+
+    // GetPersons answers an Items envelope; unnamed entries are dropped.
+    const ProviderCatalogResponse found = catalog->parseResponse(
+        ProviderCatalogOperation::PersonSearch,
+        QByteArrayLiteral(R"({"Items":[{"Id":"p1","Name":"Al Pacino"},{"Id":"p2"}],"TotalRecordCount":2,"StartIndex":0})"));
+    QVERIFY(found.valid);
+    const QVariantList people = adapter.mapPeople(found.rawItems, QStringLiteral("connection-1"));
+    QCOMPARE(people.size(), 1);
+    QVERIFY(!people.first().toMap().contains(QStringLiteral("artwork")));
+
+    // Filmography pages know whether more follow.
+    const ProviderCatalogResponse page = catalog->parseResponse(
+        ProviderCatalogOperation::PersonItems,
+        QByteArrayLiteral(R"({"Items":[{"Id":"m1","Name":"Heat","Type":"Movie"}],"TotalRecordCount":61,"StartIndex":59})"));
+    QVERIFY(page.valid);
+    QVERIFY(page.hasMore);
+    QCOMPARE(page.total, 61);
+}
+
+void ProviderCatalogTest::siloPersonRequestsAndMapping()
+{
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery query;
+    query.itemId = QStringLiteral("7/a");
+
+    const ProviderCatalogRequest person = provider.createRequest(ProviderCatalogOperation::Person, query);
+    QVERIFY(person.supported);
+    QCOMPARE(person.relativeEndpoint, QStringLiteral("/api/v2/catalog/people/7%2Fa"));
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::Person, {}).supported);
+
+    query.itemId = QStringLiteral("7");
+    query.limit = 60;
+    ProviderCatalogRequest items = provider.createRequest(ProviderCatalogOperation::PersonItems, query);
+    QVERIFY(items.supported);
+    QCOMPARE(items.relativeEndpoint,
+             QStringLiteral("/api/v2/catalog?source=person&person_id=7&type=video&sort=-year&limit=60"
+                            "&poster_width=1000&backdrop_width=3840&logo_width=1280&still_width=1280"));
+    query.cursor = QStringLiteral("c2");
+    items = provider.createRequest(ProviderCatalogOperation::PersonItems, query);
+    QCOMPARE(QUrlQuery(QUrl(items.relativeEndpoint)).queryItemValue(QStringLiteral("cursor")),
+             QStringLiteral("c2"));
+
+    // listPeople declares no artwork widths.
+    ProviderCatalogQuery search;
+    search.searchTerm = QStringLiteral(" al pacino ");
+    search.limit = 20;
+    const ProviderCatalogRequest people = provider.createRequest(ProviderCatalogOperation::PersonSearch, search);
+    QVERIFY(people.supported);
+    QCOMPARE(people.relativeEndpoint,
+             QStringLiteral("/api/v2/catalog/people?q=al%20pacino&limit=20&media_scope=video"));
+    search.searchTerm = QStringLiteral("A+B");
+    QCOMPARE(provider.createRequest(ProviderCatalogOperation::PersonSearch, search).relativeEndpoint,
+             QStringLiteral("/api/v2/catalog/people?q=A%2BB&limit=20&media_scope=video"));
+    search.searchTerm.clear();
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::PersonSearch, search).supported);
+    // A numeric person ID is not the schema's string ID.
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::Person,
+                                    QByteArrayLiteral(R"({"id":7,"name":"Al Pacino"})")).valid);
+
+    const ProviderCatalogRequest capability
+        = provider.createRequest(ProviderCatalogOperation::PersonSearchCapability, {});
+    QVERIFY(capability.supported);
+    QCOMPARE(capability.relativeEndpoint, QStringLiteral("/api/v2/catalog/search/capabilities"));
+    ProviderCatalogResponse scoped = provider.parseResponse(
+        ProviderCatalogOperation::PersonSearchCapability,
+        QByteArrayLiteral(R"({"revision":"r","state":"available","allowed":true,"people_media_scope":true})"));
+    QVERIFY(scoped.valid);
+    QCOMPARE(scoped.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool(), true);
+    scoped = provider.parseResponse(
+        ProviderCatalogOperation::PersonSearchCapability,
+        QByteArrayLiteral(R"({"revision":"r","state":"available","allowed":true})"));
+    QVERIFY(scoped.valid);
+    QCOMPARE(scoped.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool(), false);
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::PersonSearchCapability,
+                                    QByteArrayLiteral(R"({"revision":"r"})")).valid);
+
+    const ProviderCatalogResponse detail = provider.parseResponse(
+        ProviderCatalogOperation::Person,
+        QByteArrayLiteral(R"({"id":"7","name":"Al Pacino","bio":"Actor.","birth_date":"1940-04-25",)"
+                          R"("death_date":"2099-01-02","birthplace":"New York City",)"
+                          "\"photo_url\":\"https://cdn.example.test/people/7/500.jpg?X-Amz-Signature=secret\","
+                          R"("photo_thumbhash":"hash","imdb_id":"nm0000199","tmdb_id":"1158"})"));
+    QVERIFY(detail.valid);
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::Person,
+                                    QByteArrayLiteral(R"({"id":"7"})")).valid);
+
+    SiloProviderAdapter adapter;
+    const QVariantMap mapped = adapter.mapPerson(detail.rawItem, QStringLiteral("connection-1"));
+    QCOMPARE(mapped.value(QStringLiteral("personId")).toString(), QStringLiteral("7"));
+    QCOMPARE(mapped.value(QStringLiteral("connectionId")).toString(), QStringLiteral("connection-1"));
+    QCOMPARE(mapped.value(QStringLiteral("overview")).toString(), QStringLiteral("Actor."));
+    QCOMPARE(mapped.value(QStringLiteral("birthDate")).toString(), QStringLiteral("1940-04-25"));
+    QCOMPARE(mapped.value(QStringLiteral("deathDate")).toString(), QStringLiteral("2099-01-02"));
+    QCOMPARE(mapped.value(QStringLiteral("birthplace")).toString(), QStringLiteral("New York City"));
+    QCOMPARE(mapped.value(QStringLiteral("providerIds")).toMap().value(QStringLiteral("Tmdb")).toString(),
+             QStringLiteral("1158"));
+    const QVariantMap artworkMap = mapped.value(QStringLiteral("artwork")).toMap();
+    const Bloom::ArtworkRef artwork = Bloom::ArtworkRef::fromVariantMap(artworkMap);
+    QCOMPARE(artwork.kind, Bloom::ArtworkKind::Person);
+    QCOMPARE(artwork.ownerKind, Bloom::ArtworkOwnerKind::Person);
+    QCOMPARE(artwork.tag, SiloModelMapper::artworkTag(
+                              QStringLiteral("https://cdn.example.test/people/7/500.jpg?X-Amz-Signature=secret")));
+    // The signed URL is a transient source, never part of the projection.
+    QVERIFY(!QJsonDocument::fromVariant(mapped).toJson().contains("X-Amz-Signature"));
+    QVERIFY(!mapped.contains(QStringLiteral("bio")));
+
+    const ProviderCatalogResponse found = provider.parseResponse(
+        ProviderCatalogOperation::PersonSearch,
+        QByteArrayLiteral(R"({"items":[{"id":"7","name":"Al Pacino"},{"id":"8","name":""}]})"));
+    QVERIFY(found.valid);
+    const QVariantList people2 = adapter.mapPeople(found.rawItems, QStringLiteral("connection-1"));
+    QCOMPARE(people2.size(), 1);
+    QCOMPARE(people2.first().toMap().value(QStringLiteral("name")).toString(), QStringLiteral("Al Pacino"));
+
+    const ProviderCatalogResponse page = provider.parseResponse(
+        ProviderCatalogOperation::PersonItems,
+        QByteArrayLiteral(R"({"items":[{"content_id":"m1","type":"movie","title":"Heat"}],"total":2,"page":{"has_more":true,"next_cursor":"c2"}})"));
+    QVERIFY(page.valid);
+    QVERIFY(page.hasMore);
+    QCOMPARE(page.nextCursor, QStringLiteral("c2"));
+    QCOMPARE(page.rawItems.size(), 1);
 }
 
 void ProviderCatalogTest::siloTrackIndicesAndMultipartFallbackStayContiguous()

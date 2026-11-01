@@ -30,6 +30,10 @@ Bloom-owned canonical models separate UI/player code from provider wire formats.
 
 The types expose temporary `QVariantMap` projections so existing QML-facing façades can migrate incrementally without making provider JSON the public contract.
 
+## People
+
+A `Person` projection carries `connectionId`, `personId`, `media` (its `MediaRef`), `name`, `role` and `kind` (for a credit), and a token-free `artwork` reference of kind `person`. Person reads and people search add, when the provider has them, `overview` (the biography), `birthDate` and `deathDate` (calendar dates, `YYYY-MM-DD`), `birthplace`, and `providerIds`. Jellyfin maps a `Person` item's `Overview`, `PremiereDate`, `EndDate`, first `ProductionLocations` entry, `ProviderIds` and `ImageTags.Primary` (`JellyfinModelMapper::person`); Silo maps `bio`, `birth_date`, `death_date`, `birthplace`, provider IDs and `photo_url` (`SiloModelMapper::person`, artwork owned by the person so an expired photo refreshes through `getPerson`). Adapters expose them through `IProviderAdapter::mapPerson` and `mapPeople`; a person without an ID or name is dropped.
+
 ## Jellyfin conversion
 
 Canonical `episodeOrder` preserves Jellyfin's `DisplayOrder` for external media
@@ -74,6 +78,7 @@ See [provider compatibility](provider-compatibility.md#catalog-and-conditional-r
 - **Home and hero**: `HomeScreen.qml`, `HeroBannerProvider.qml`, and `HeroBanner.qml` consume connection-scoped canonical libraries, Next Up, latest-media, rotating-backdrop, hero-library, and series-overview results. Continue Watching splitting uses `positionMs`; cards, hero metadata, and player requests use canonical camelCase and millisecond timing. Root, item, series, parent, thumb, logo, and backdrop images resolve through request-owned `ArtworkRef` values. Obsolete raw Home and hero service signals have been removed.
 - **Search and discovery**: Library search and random suggestions emit connection-scoped canonical media maps. Search terms are trimmed once and retained with the request identity so stale connection or term responses cannot replace current results or leave loading state active. Search and Up Next result cards (`MediaCard`) read only camelCase media fields and resolve library posters through `ArtworkRef`. Request discovery maps from Seerr and Silo share one shape: the same camelCase presentation keys plus `source: "request"`, `requestBackend`, `requestMediaType`, `requestTmdbId`, `requestStatus`, and Silo's `requestable` and `libraryItemId`; request list items add `requestId`, `requestState`, `requestedSeasons`, `createdAt`, and `canCancel` ([media requests](seerr.md)).
 - **Screensaver and settings backdrops**: Screensaver candidates and Settings preview sources consume connection-scoped canonical media maps. Both surfaces resolve backdrop/logo `ArtworkRef` values when displayed; service payloads no longer contain pre-resolved artwork URLs or Jellyfin image-tag fields.
+- **Person pages and people search**: `LibraryService::getPerson`, `getPersonItems` and `searchPeople` (and `MergedCatalog.searchPeople`) emit connection-scoped canonical person and item maps. `PersonViewModel`, `PersonScreen.qml` and Search's People shelf read only camelCase fields.
 - **Shared QML components**: `LibraryScreen.qml`, `PersonCard.qml`, and `MediaProgressBar.qml` require canonical camelCase media/person fields, token-free artwork references, and millisecond progress values. Their transitional PascalCase, image-tag, and tick fallbacks have been removed, along with the unused wire-shaped `DetailMetadataHelper`.
 
 ## Artwork identity

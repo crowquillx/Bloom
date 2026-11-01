@@ -81,6 +81,62 @@ FocusScope {
     signal itemSelected(var itemData)
     signal backRequested()
     signal returnStateConsumed()
+    signal personSelected(var person)
+
+    // Cast and crew open the person's page (personSelected). Coming back,
+    // focus lands on the card that opened it instead of the hero.
+    property bool returnFocusToCast: false
+    property int returnCastIndex: 0
+
+    function openPerson(person) {
+        if (!person || !person.personId)
+            return
+        returnFocusToCast = true
+        returnCastIndex = Math.max(0, castList.currentIndex)
+        root.personSelected(person)
+    }
+
+    function restoreCastFocus() {
+        if (!returnFocusToCast || !sharedModelCurrent
+                || !restoreFocusToArea("cast", returnCastIndex))
+            return false
+        returnFocusToCast = false
+        return true
+    }
+
+    // Every movie page reads the shared MovieDetailsViewModel, and a movie
+    // opened from a person page loads into it while this page waits below in
+    // the stack. Handlers and actions act only while the model holds this
+    // page's movie; reloadSharedDetails() puts it back when the page returns.
+    readonly property bool sharedModelCurrent: movieId !== "" && MovieDetailsViewModel.movieId === movieId
+    property bool awaitingSharedReload: false
+    // The server's answer after a cached reload must not move focus to Play.
+    property bool skipLoadedAutofocus: false
+
+    /// Reloads this page's movie (from the detail cache when it can) if
+    /// another page replaced it. Returns true when it did.
+    function reloadSharedDetails() {
+        if (movieId === "" || sharedModelCurrent)
+            return false
+        awaitingSharedReload = true
+        skipLoadedAutofocus = false
+        MovieDetailsViewModel.loadMovieDetails(movieId)
+        // A cached movie is back already; otherwise onMovieLoaded finishes.
+        if (castAndCrew.length > 0)
+            Qt.callLater(function() { root.finishSharedReload(true) })
+        return true
+    }
+
+    function finishSharedReload(fromCache) {
+        if (!awaitingSharedReload)
+            return
+        awaitingSharedReload = false
+        skipLoadedAutofocus = fromCache
+        if (!restoreCastFocus()) {
+            returnFocusToCast = false
+            focusTimer.start()
+        }
+    }
 
     function artworkUrlFromRef(artwork, width) {
         if (!artwork || !artwork.itemId) {
@@ -713,6 +769,14 @@ FocusScope {
         if (!activeFocus) {
             return
         }
+        if (returnFocusToCast) {
+            if (restoreCastFocus())
+                return
+            // The reloaded movie brings its cast; finishSharedReload focuses it.
+            if (awaitingSharedReload || !sharedModelCurrent)
+                return
+            returnFocusToCast = false
+        }
         if (restoringFocusFromNavigation
                 || restoringFocusFromReturnState
                 || suppressHeroAutofocus
@@ -981,6 +1045,8 @@ FocusScope {
                         }
 
                         onClicked: {
+                            if (!root.sharedModelCurrent)
+                                return
                             if (isPlayed) {
                                 MovieDetailsViewModel.markAsUnwatched()
                             } else {
@@ -1030,7 +1096,10 @@ FocusScope {
                             }
                         }
 
-                        onClicked: MovieDetailsViewModel.toggleWatchlist()
+                        onClicked: {
+                            if (root.sharedModelCurrent)
+                                MovieDetailsViewModel.toggleWatchlist()
+                        }
                     }
 
                     SecondaryActionButton {
@@ -1205,13 +1274,26 @@ FocusScope {
                         itemData: modelData
                         isFocused: ListView.isCurrentItem && ListView.view.activeFocus
                         onActiveFocusChanged: if (activeFocus) castList.currentIndex = index
+                        onClicked: {
+                            castList.currentIndex = index
+                            castList.forceActiveFocus()
+                            root.openPerson(modelData)
+                        }
                     }
 
                     onActiveFocusChanged: if (activeFocus) root.scrollToSection(castSection)
                     Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(castList, -1) }
                     Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(castList, 1) }
-                    Keys.onReturnPressed: (event) => { event.accepted = true }
-                    Keys.onEnterPressed: (event) => { event.accepted = true }
+                    Keys.onReturnPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < castAndCrew.length)
+                            root.openPerson(castAndCrew[currentIndex])
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < castAndCrew.length)
+                            root.openPerson(castAndCrew[currentIndex])
+                        event.accepted = true
+                    }
                 }
             }
 
@@ -1329,6 +1411,10 @@ FocusScope {
 
 
             onTriggered: {
+                if (!root.sharedModelCurrent) {
+                    contextMenu.close()
+                    return
+                }
                 if (isPlayed) {
                     MovieDetailsViewModel.markAsUnwatched()
                 } else {
@@ -1517,13 +1603,29 @@ FocusScope {
     Connections {
         target: MovieDetailsViewModel
         function onMovieLoaded() {
+            // Another movie page loaded; this one is hidden in the stack.
+            if (!root.sharedModelCurrent)
+                return
+            if (root.awaitingSharedReload) {
+                Qt.callLater(function() { root.finishSharedReload(false) })
+                return
+            }
+            if (root.skipLoadedAutofocus) {
+                root.skipLoadedAutofocus = false
+                return
+            }
             if (!hasPendingReturnStateForCurrentMovie() && !suppressHeroAutofocus) {
                 focusTimer.start()
             }
             Qt.callLater(root.tryRestorePendingReturnState)
         }
+        function onLoadError(error) {
+            if (root.awaitingSharedReload && root.sharedModelCurrent)
+                Qt.callLater(function() { root.finishSharedReload(false) })
+        }
         function onWatchlistUpdateFailed(message) {
-            playbackToast.show(message)
+            if (root.sharedModelCurrent)
+                playbackToast.show(message)
         }
     }
 

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <QCryptographicHash>
+#include <QDate>
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonParseError>
@@ -1450,6 +1451,56 @@ QVariantMap SiloModelMapper::mediaDetail(const QJsonObject &wireItem,
 QString SiloModelMapper::artworkTag(const QString &url)
 {
     return artworkSourceTag(url);
+}
+
+QVariantMap SiloModelMapper::person(const QJsonObject &wirePerson,
+                                    const QString &connectionId)
+{
+    Bloom::Person person;
+    person.media = {connectionId, identityString(wirePerson.value(QStringLiteral("id")))};
+    person.name = wirePerson.value(QStringLiteral("name")).toString();
+    if (person.media.itemId.isEmpty() || person.name.isEmpty()) {
+        return {};
+    }
+    person.overview = wirePerson.value(QStringLiteral("bio")).toString();
+    const auto calendarDate = [&wirePerson](const QString &key) {
+        const QDate date = QDate::fromString(
+            wirePerson.value(key).toString().left(10), Qt::ISODate);
+        return date.isValid() ? date.toString(Qt::ISODate) : QString();
+    };
+    person.birthDate = calendarDate(QStringLiteral("birth_date"));
+    person.deathDate = calendarDate(QStringLiteral("death_date"));
+    person.birthplace = wirePerson.value(QStringLiteral("birthplace")).toString();
+    person.providerIds = providerIds(wirePerson);
+    const QString photoUrl = wirePerson.value(QStringLiteral("photo_url")).toString();
+    if (!photoUrl.isEmpty() && !connectionId.isEmpty()) {
+        person.artwork.connectionId = connectionId;
+        person.artwork.itemId = person.media.itemId;
+        person.artwork.kind = Bloom::ArtworkKind::Person;
+        person.artwork.ownerKind = Bloom::ArtworkOwnerKind::Person;
+        person.artwork.tag = artworkSourceTag(photoUrl);
+        person.artwork.sourceUrl = photoUrl;
+    }
+    QVariantMap mapped = person.toVariantMap();
+    const QString thumbhash = wirePerson.value(QStringLiteral("photo_thumbhash")).toString();
+    if (!thumbhash.isEmpty()) {
+        mapped.insert(QStringLiteral("artworkThumbhash"), thumbhash);
+    }
+    return mapped;
+}
+
+QVariantList SiloModelMapper::personList(const QJsonArray &wirePeople,
+                                         const QString &connectionId)
+{
+    QVariantList result;
+    result.reserve(wirePeople.size());
+    for (const QJsonValue &value : wirePeople) {
+        const QVariantMap mapped = person(value.toObject(), connectionId);
+        if (!mapped.isEmpty()) {
+            result.append(mapped);
+        }
+    }
+    return result;
 }
 
 QVariantList SiloModelMapper::mediaItems(const QJsonArray &wireItems,

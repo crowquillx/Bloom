@@ -93,6 +93,22 @@ public:
         Q_UNUSED(parentId)
         return {};
     }
+    /// A provider person (the Person, PersonSearch catalog responses) as a
+    /// canonical person map (`Bloom::Person`); empty when unmappable.
+    virtual QVariantMap mapPerson(const QJsonObject &wirePerson,
+                                  const QString &connectionId) const
+    {
+        Q_UNUSED(wirePerson)
+        Q_UNUSED(connectionId)
+        return {};
+    }
+    virtual QVariantList mapPeople(const QJsonArray &wirePeople,
+                                   const QString &connectionId) const
+    {
+        Q_UNUSED(wirePeople)
+        Q_UNUSED(connectionId)
+        return {};
+    }
 
     // Optional route discovery is explicit. Callers must not interpret an
     // empty URL, empty mapping, or HTTP success as feature support.

@@ -97,9 +97,39 @@ FocusScope {
     signal playRequested(var request)
     signal autoplayOverridesConsumed()
     signal seriesDetailsRequested(string episodeId)
+    signal personSelected(var person)
+
+    // Cast and crew open the person's page (personSelected). Coming back,
+    // focus lands on the card that opened it instead of the hero.
+    property bool returnFocusToCast: false
+
+    // Every season page reads the shared SeriesDetailsViewModel, and a series
+    // opened from a person page loads into it while this page waits below in
+    // the stack. The season and episode on screen when the person opened let
+    // LibraryScreen put them back (reloadSharedDetails) when the page returns.
+    property string returnSeasonId: ""
+    property string returnEpisodeId: ""
+    readonly property bool sharedSeriesCurrent: seriesId !== "" && SeriesDetailsViewModel.seriesId === seriesId
+
+    function openPerson(person) {
+        if (!person || !person.personId)
+            return
+        returnFocusToCast = true
+        returnSeasonId = SeriesDetailsViewModel.selectedSeasonId
+        returnEpisodeId = selectedEpisodeId
+        root.personSelected(person)
+    }
+
+    function sharedSeasonStale() {
+        return seriesId !== ""
+                && (!sharedSeriesCurrent
+                    || (returnSeasonId !== "" && SeriesDetailsViewModel.selectedSeasonId !== returnSeasonId))
+    }
     
+    // Hidden pages (another series page is on top) leave the shared seasons alone.
     Connections {
         target: SeriesDetailsViewModel
+        enabled: root.visible && root.sharedSeriesCurrent
         function onSeriesLoaded() {
             // [FIX] When series details are loaded, ensure we enforce the initialSeasonId
             // This prevents the view from defaulting to the first season/specials if the series
@@ -115,6 +145,7 @@ FocusScope {
     
     Connections {
         target: SeriesDetailsViewModel.seasonsModel
+        enabled: root.visible && root.sharedSeriesCurrent
         function onModelReset() {
             // [FIX] When the seasons list is populated, the view model might default to the first season.
             // We need to re-enforce our desired season ID here.
@@ -352,6 +383,13 @@ FocusScope {
     // Focus delegation: when this view receives focus, delegate to the episode list
     onActiveFocusChanged: {
         if (activeFocus) {
+            if (returnFocusToCast) {
+                returnFocusToCast = false
+                if (castList.parent.visible && castList.count > 0) {
+                    castList.forceActiveFocus()
+                    return
+                }
+            }
             console.log("[SeriesSeasonEpisodeView] View received focus, delegating to episodesList")
             episodesList.forceActiveFocus()
         }
@@ -425,6 +463,7 @@ FocusScope {
     // When episodes are loaded, find next-up/partially-watched episode
     Connections {
         target: SeriesDetailsViewModel
+        enabled: root.sharedSeriesCurrent
         function onEpisodesLoaded() {
             Qt.callLater(function() {
                 if (initialEpisodeSelectionPending && !userHasInteracted) {
@@ -604,6 +643,7 @@ FocusScope {
     // Update selected episode data when episodes are reloaded
     Connections {
         target: SeriesDetailsViewModel
+        enabled: root.sharedSeriesCurrent
         function onEpisodesLoaded() {
             if (playbackSelectionRestorePending && applyPendingPlaybackSelection()) {
                 return
@@ -1725,13 +1765,26 @@ FocusScope {
                         itemData: modelData
                         isFocused: ListView.isCurrentItem && ListView.view.activeFocus
                         onActiveFocusChanged: if (activeFocus) castList.currentIndex = index
+                        onClicked: {
+                            castList.currentIndex = index
+                            castList.forceActiveFocus()
+                            root.openPerson(modelData)
+                        }
                     }
 
                     onActiveFocusChanged: if (activeFocus) root.scrollToSection(castSection)
                     Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(castList, -1) }
                     Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(castList, 1) }
-                    Keys.onReturnPressed: (event) => { event.accepted = true }
-                    Keys.onEnterPressed: (event) => { event.accepted = true }
+                    Keys.onReturnPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < focusedEpisodePeople.length)
+                            root.openPerson(focusedEpisodePeople[currentIndex])
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < focusedEpisodePeople.length)
+                            root.openPerson(focusedEpisodePeople[currentIndex])
+                        event.accepted = true
+                    }
                 }
             }
 

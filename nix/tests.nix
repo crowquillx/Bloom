@@ -97,6 +97,7 @@ stdenv.mkDerivation {
       TrackPreferencesManagerTest \
       SimilarItemsRetryTest \
       HomeRowsAndWatchlistTest \
+      PersonViewModelTest \
       MediaRequestServiceTest \
       UpNextRecommendationsViewModelTest \
       SessionServiceTest \

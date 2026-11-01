@@ -28,6 +28,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.catalog.page",
     "native.catalog.query",
     "native.catalog.detail",
+    "native.catalog.people",
     "native.catalog.hierarchy",
     "native.state.watched",
     "native.state.favorite",
@@ -110,7 +111,11 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
     }
     required_operations = {
         ("GET", "/UserViews"): {"userId"},
-        ("GET", "/Items"): {"userId", "fields", "ids"},
+        ("GET", "/Items"): {"userId", "fields", "ids", "personIds", "includeItemTypes",
+                            "sortBy", "sortOrder", "startIndex", "limit"},
+        ("GET", "/Items/{itemId}"): {"itemId", "userId"},
+        ("GET", "/Persons"): {"userId", "searchTerm", "limit", "enableImages",
+                              "enableImageTypes", "personTypes"},
         ("GET", "/Items/Latest"): {"userId", "fields"},
         ("GET", "/Shows/NextUp"): {
             "userId", "limit", "fields", "enableUserData", "enableImageTypes",

@@ -197,6 +197,8 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         ++m_themeRequestGeneration;
         m_lastModified.clear();
         m_inFlightChapterRequests.clear();
+        m_peopleSearchScoped.clear();
+        m_peopleSearchCapabilityRetry.clear();
     };
     connect(m_authService, &AuthenticationService::authenticationStepChanged,
             this, [this, invalidateRequests]() {
@@ -1920,6 +1922,144 @@ void LibraryService::search(const QString &searchTerm, int limit,
             }
         },
         emitFailure);
+}
+
+void LibraryService::getPerson(const QString &personId)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = personId;
+    sendCatalogRequest(
+        QStringLiteral("getPerson"),
+        ProviderCatalogOperation::Person,
+        query,
+        [this, connectionId, personId](const ProviderCatalogResponse &response) {
+            const QVariantMap person = m_authService->mapPerson(response.rawItem, connectionId);
+            if (person.isEmpty()) {
+                emit canonicalPersonFailed(connectionId, personId,
+                                           tr("The server sent an unreadable person."));
+                return;
+            }
+            emit canonicalPersonLoaded(connectionId, personId, person);
+        },
+        [this, connectionId, personId](const NetworkError &error) {
+            emit canonicalPersonFailed(connectionId, personId, error.userMessage);
+        });
+}
+
+void LibraryService::getPersonItems(const QString &personId, int startIndex,
+                                    const QString &cursor, int limit,
+                                    const QString &requestKey)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = personId;
+    query.startIndex = qMax(0, startIndex);
+    query.cursor = cursor;
+    query.limit = qMax(1, limit);
+    sendCatalogRequest(
+        QStringLiteral("getPersonItems"),
+        ProviderCatalogOperation::PersonItems,
+        query,
+        [this, connectionId, personId, requestKey](const ProviderCatalogResponse &response) {
+            emit canonicalPersonItemsLoaded(
+                connectionId, personId, requestKey,
+                m_authService->mapMediaItems(response.rawItems, connectionId),
+                response.total, response.hasMore, response.nextCursor);
+        },
+        [this, connectionId, personId, requestKey](const NetworkError &error) {
+            emit canonicalPersonItemsFailed(connectionId, personId, requestKey,
+                                            error.userMessage);
+        });
+}
+
+void LibraryService::searchPeople(const QString &searchTerm, int limit)
+{
+    const quint64 generation = ++m_peopleSearchGeneration;
+    const QString connectionId = activeConnectionId(m_authService);
+    const QString term = searchTerm.trimmed();
+    const auto emitFailure = [this, connectionId, term, generation](const NetworkError &error) {
+        if (generation == m_peopleSearchGeneration) {
+            emit canonicalPeopleSearchFailed(connectionId, term, error.userMessage);
+        }
+    };
+    if (!m_authService || !m_authService->isAuthenticated()) {
+        emitCatalogError(QStringLiteral("searchPeople"), tr("Not authenticated"), emitFailure);
+        return;
+    }
+    if (term.isEmpty()) {
+        emit canonicalPeopleSearchLoaded(connectionId, term, {});
+        return;
+    }
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.searchTerm = term;
+    query.limit = limit;
+    const auto runSearch = [this, query, connectionId, term, generation, emitFailure]() {
+        sendCatalogRequest(
+            QStringLiteral("searchPeople"),
+            ProviderCatalogOperation::PersonSearch,
+            query,
+            [this, connectionId, term, generation](const ProviderCatalogResponse &response) {
+                if (generation == m_peopleSearchGeneration) {
+                    emit canonicalPeopleSearchLoaded(
+                        connectionId, term,
+                        m_authService->mapPeople(response.rawItems, connectionId));
+                }
+            },
+            emitFailure);
+    };
+
+    // Silo limits people search to movie and series credits the viewer can
+    // see only when its search capabilities say so; otherwise people from
+    // books, music and other libraries would show, so none are shown.
+    const ICatalogProvider *provider = m_authService->catalogProvider();
+    if (!provider
+        || !provider->createRequest(ProviderCatalogOperation::PersonSearchCapability,
+                                    baseCatalogQuery()).supported) {
+        runSearch();
+        return;
+    }
+    const auto known = m_peopleSearchScoped.constFind(connectionId);
+    if (known != m_peopleSearchScoped.constEnd()) {
+        if (known.value()) {
+            runSearch();
+        } else {
+            emit canonicalPeopleSearchLoaded(connectionId, term, {});
+        }
+        return;
+    }
+    const auto retry = m_peopleSearchCapabilityRetry.constFind(connectionId);
+    if (retry != m_peopleSearchCapabilityRetry.constEnd() && !retry.value().hasExpired()) {
+        emit canonicalPeopleSearchLoaded(connectionId, term, {});
+        return;
+    }
+    m_peopleSearchCapabilityRetry.remove(connectionId);
+    sendCatalogRequest(
+        QStringLiteral("searchPeople"),
+        ProviderCatalogOperation::PersonSearchCapability,
+        baseCatalogQuery(),
+        [this, connectionId, term, generation, runSearch](
+            const ProviderCatalogResponse &response) {
+            const bool scoped =
+                response.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool();
+            m_peopleSearchScoped.insert(connectionId, scoped);
+            if (generation != m_peopleSearchGeneration) {
+                return;
+            }
+            if (scoped) {
+                runSearch();
+            } else {
+                emit canonicalPeopleSearchLoaded(connectionId, term, {});
+            }
+        },
+        [this, connectionId, emitFailure](const NetworkError &error) {
+            // Not for a cancelled read (sign-out or a switch cleared the cache).
+            if (activeConnectionId(m_authService) == connectionId) {
+                m_peopleSearchCapabilityRetry.insert(
+                    connectionId, QDeadlineTimer(PeopleSearchCapabilityRetryMs));
+            }
+            emitFailure(error);
+        });
 }
 
 void LibraryService::getRandomItems(int limit)

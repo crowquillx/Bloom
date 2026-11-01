@@ -89,6 +89,13 @@ struct Person {
     QString role;
     QString kind;
     ArtworkRef artwork;
+    // Person pages and people search; cast and crew credits leave these
+    // empty. Dates are calendar dates (YYYY-MM-DD).
+    QString overview;
+    QString birthDate;
+    QString deathDate;
+    QString birthplace;
+    QVariantMap providerIds;
 
     QVariantMap toVariantMap() const;
 };

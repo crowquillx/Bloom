@@ -614,6 +614,7 @@ Window {
             onCurrentItemChanged: {
                 console.log("[FocusDebug] StackView.currentItemChanged:", currentItem ? currentItem.toString() : "null", "navigation.focused:", navigationProxy.expanded)
                 window.trackPageOwner(currentItem)
+                window.connectPersonNavigation(currentItem)
                 // Let screens with restoreFocusState handle their own focus restoration
                 // This allows HomeScreen to restore focus to the previously selected item
                 if (currentItem && !navigationProxy.expanded) {
@@ -1692,12 +1693,39 @@ Window {
         })
     }
 
+    // A person's page, from a cast card or a people search result. Its
+    // titles open through the same details navigation as Search.
+    function pushPersonScreen(person) {
+        if (!person || !person.personId)
+            return
+        playPointerSelectSound()
+        var personScreen = stackView.push("PersonScreen.qml", { personData: person })
+        if (personScreen)
+            connectDetailNavigation(personScreen)
+        updateNavigationSelection()
+    }
+
+    // Detail pages (LibraryScreen) ask for person pages; connect each page
+    // once, whichever path pushed it.
+    function connectPersonNavigation(screen) {
+        if (!screen || screen["personNavigationConnected"] !== false)
+            return
+        screen["personNavigationConnected"] = true
+        screen.personRequested.connect(function(person) {
+            window.pushPersonScreen(person)
+        })
+    }
+
     // Function to push search screen and wire up signals
     function pushSearchScreen() {
         playPointerSelectSound()
         var searchScreen = stackView.push("SearchScreen.qml")
-        if (searchScreen)
+        if (searchScreen) {
             connectDetailNavigation(searchScreen)
+            searchScreen.navigateToPerson.connect(function(person) {
+                window.pushPersonScreen(person)
+            })
+        }
         updateNavigationSelection()
     }
 

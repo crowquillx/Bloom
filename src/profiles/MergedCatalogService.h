@@ -3,6 +3,7 @@
 #include "profiles/MergedCatalogPolicy.h"
 #include "providers/ICatalogProvider.h"
 
+#include <QDeadlineTimer>
 #include <QHash>
 #include <QList>
 #include <QObject>
@@ -61,6 +62,10 @@ public:
     Q_INVOKABLE void getNextUp();
     Q_INVOKABLE void getLatestMedia(const QString &connectionId, const QString &parentId);
     Q_INVOKABLE void search(const QString &searchTerm, int limit = 50);
+    /// People whose name matches, from every member, interleaved by rank
+    /// like titles. Members that cannot limit people search to movie and
+    /// series credits contribute none (LibraryService::searchPeople).
+    Q_INVOKABLE void searchPeople(const QString &searchTerm, int limit = 20);
     /// Every library of a connection, including hidden ones, for choosing
     /// what a source shows. Works for the live connection and the enabled
     /// members of the active space (single or merged).
@@ -93,6 +98,8 @@ signals:
                              const QVariantList &movies,
                              const QVariantList &series);
     void searchResultsFailed(const QString &searchTerm, const QString &error);
+    void peopleSearchLoaded(const QString &searchTerm, const QVariantList &people);
+    void peopleSearchFailed(const QString &searchTerm, const QString &error);
     void sourceLibrariesLoaded(const QString &connectionId, const QVariantList &libraries);
     void sourceLibrariesFailed(const QString &connectionId, const QString &error);
 
@@ -125,6 +132,11 @@ private:
     void fanOut(MemberRequest request, MergeCompletion completion);
     /// Searches only the member's searchable libraries, one request each.
     void requestScopedSearch(const Member &member,
+                             const ProviderCatalogQuery &query,
+                             SourceCompletion completion);
+    /// One member's people search, after its search capability read when
+    /// the provider has one.
+    void requestMemberPeople(const Member &member,
                              const ProviderCatalogQuery &query,
                              SourceCompletion completion);
     void requestMember(const Member &member,
@@ -160,6 +172,13 @@ private:
     QVariantList m_views;
     /// Libraries of unsupported types per member, from the last views fan-out.
     QHash<QString, QStringList> m_unsupportedLibraryIds;
+    /// Per member, whether its people search can be limited to movie and
+    /// series credits, once read; cleared with the epoch.
+    QHash<QString, bool> m_peopleSearchScoped;
+    /// Per member, until when a failed capability read is not repeated (its
+    /// people search adds no people meanwhile).
+    QHash<QString, QDeadlineTimer> m_peopleSearchCapabilityRetry;
+    static constexpr int PeopleSearchCapabilityRetryMs = 5 * 60 * 1000;
     bool m_viewsLoading = false;
     quint64 m_epoch = 0;
     // Newest Next Up fan-out; an older one must not publish after it.

@@ -318,6 +318,22 @@ QVariantList AuthenticationService::mapMediaItems(const QJsonArray &wireItems,
         : QVariantList{};
 }
 
+QVariantMap AuthenticationService::mapPerson(const QJsonObject &wirePerson,
+                                              const QString &connectionId) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapPerson(wirePerson, connectionId)
+        : QVariantMap{};
+}
+
+QVariantList AuthenticationService::mapPeople(const QJsonArray &wirePeople,
+                                               const QString &connectionId) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapPeople(wirePeople, connectionId)
+        : QVariantList{};
+}
+
 QVariantList AuthenticationService::mapChaptersFromItem(
     const QJsonObject &wireItem,
     const QString &connectionId,

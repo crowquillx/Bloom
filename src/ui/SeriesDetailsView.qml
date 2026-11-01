@@ -84,6 +84,62 @@ FocusScope {
     signal itemSelected(var itemData)
     signal backRequested()
     signal returnStateConsumed()
+    signal personSelected(var person)
+
+    // Cast and crew open the person's page (personSelected). Coming back,
+    // focus lands on the card that opened it instead of the hero.
+    property bool returnFocusToCast: false
+    property int returnCastIndex: 0
+
+    function openPerson(person) {
+        if (!person || !person.personId)
+            return
+        returnFocusToCast = true
+        returnCastIndex = Math.max(0, castList.currentIndex)
+        root.personSelected(person)
+    }
+
+    function restoreCastFocus() {
+        if (!returnFocusToCast || !sharedModelCurrent
+                || !restoreFocusToArea("cast", returnCastIndex))
+            return false
+        returnFocusToCast = false
+        return true
+    }
+
+    // Every series page reads the shared SeriesDetailsViewModel, and a series
+    // opened from a person page loads into it while this page waits below in
+    // the stack. Handlers and actions act only while the model holds this
+    // page's series; reloadSharedDetails() puts it back when the page returns.
+    readonly property bool sharedModelCurrent: seriesId !== "" && SeriesDetailsViewModel.seriesId === seriesId
+    property bool awaitingSharedReload: false
+    // The server's answer after a cached reload must not move focus to Play.
+    property bool skipLoadedAutofocus: false
+
+    /// Reloads this page's series (from the detail cache when it can) if
+    /// another page replaced it. Returns true when it did.
+    function reloadSharedDetails() {
+        if (seriesId === "" || sharedModelCurrent)
+            return false
+        awaitingSharedReload = true
+        skipLoadedAutofocus = false
+        SeriesDetailsViewModel.loadSeriesDetails(seriesId)
+        // A cached series is back already; otherwise onSeriesLoaded finishes.
+        if (castAndCrew.length > 0)
+            Qt.callLater(function() { root.finishSharedReload(true) })
+        return true
+    }
+
+    function finishSharedReload(fromCache) {
+        if (!awaitingSharedReload)
+            return
+        awaitingSharedReload = false
+        skipLoadedAutofocus = fromCache
+        if (!restoreCastFocus()) {
+            returnFocusToCast = false
+            focusTimer.start()
+        }
+    }
 
     focus: true
 
@@ -515,6 +571,14 @@ FocusScope {
         if (!activeFocus) {
             return
         }
+        if (returnFocusToCast) {
+            if (restoreCastFocus())
+                return
+            // The reloaded series brings its cast; finishSharedReload focuses it.
+            if (awaitingSharedReload || !sharedModelCurrent)
+                return
+            returnFocusToCast = false
+        }
         if ((restoringFocusFromNavigation && savedFocusItem)
                 || restoringFocusFromReturnState
                 || suppressHeroAutofocus
@@ -709,6 +773,8 @@ FocusScope {
                         }
 
                         onClicked: {
+                            if (!root.sharedModelCurrent)
+                                return
                             root.resetExtraReturnFocus()
                             if (hasNextEpisode) {
                                 root.playNextEpisode(SeriesDetailsViewModel.nextEpisodeId,
@@ -813,7 +879,10 @@ FocusScope {
                             }
                         }
 
-                        onClicked: SeriesDetailsViewModel.toggleFavorite()
+                        onClicked: {
+                            if (root.sharedModelCurrent)
+                                SeriesDetailsViewModel.toggleFavorite()
+                        }
                     }
 
                     // Only providers with a watchlist (Silo) show this.
@@ -857,7 +926,10 @@ FocusScope {
                             }
                         }
 
-                        onClicked: SeriesDetailsViewModel.toggleWatchlist()
+                        onClicked: {
+                            if (root.sharedModelCurrent)
+                                SeriesDetailsViewModel.toggleWatchlist()
+                        }
                     }
 
                     SecondaryActionButton {
@@ -1047,13 +1119,26 @@ FocusScope {
                         itemData: modelData
                         isFocused: ListView.isCurrentItem && ListView.view.activeFocus
                         onActiveFocusChanged: if (activeFocus) castList.currentIndex = index
+                        onClicked: {
+                            castList.currentIndex = index
+                            castList.forceActiveFocus()
+                            root.openPerson(modelData)
+                        }
                     }
 
                     onActiveFocusChanged: if (activeFocus) root.scrollToSection(castSection)
                     Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(castList, -1) }
                     Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(castList, 1) }
-                    Keys.onReturnPressed: (event) => { event.accepted = true }
-                    Keys.onEnterPressed: (event) => { event.accepted = true }
+                    Keys.onReturnPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < castAndCrew.length)
+                            root.openPerson(castAndCrew[currentIndex])
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < castAndCrew.length)
+                            root.openPerson(castAndCrew[currentIndex])
+                        event.accepted = true
+                    }
                 }
             }
 
@@ -1218,14 +1303,32 @@ FocusScope {
         target: SeriesDetailsViewModel
 
         function onSeriesLoaded() {
+            // Another series page loaded; this one is hidden in the stack.
+            if (!root.sharedModelCurrent)
+                return
+            if (root.awaitingSharedReload) {
+                Qt.callLater(function() { root.finishSharedReload(false) })
+                Qt.callLater(root.loadRequestRecommendations)
+                return
+            }
+            if (root.skipLoadedAutofocus) {
+                root.skipLoadedAutofocus = false
+                Qt.callLater(root.loadRequestRecommendations)
+                return
+            }
             if (!hasPendingReturnStateForCurrentSeries() && !suppressHeroAutofocus) {
                 focusTimer.start()
             }
             Qt.callLater(root.loadRequestRecommendations)
             Qt.callLater(root.tryRestorePendingReturnState)
         }
+        function onLoadError(error) {
+            if (root.awaitingSharedReload && root.sharedModelCurrent)
+                Qt.callLater(function() { root.finishSharedReload(false) })
+        }
         function onWatchlistUpdateFailed(message) {
-            watchlistToast.show(message)
+            if (root.sharedModelCurrent)
+                watchlistToast.show(message)
         }
     }
 
@@ -1233,6 +1336,8 @@ FocusScope {
         target: SeriesDetailsViewModel.seasonsModel
 
         function onModelReset() {
+            if (!root.sharedModelCurrent)
+                return
             Qt.callLater(root.restorePendingSeasonFocus)
             Qt.callLater(root.tryRestorePendingReturnState)
         }
@@ -1389,6 +1494,10 @@ FocusScope {
 
 
             onTriggered: {
+                if (!root.sharedModelCurrent) {
+                    contextMenu.close()
+                    return
+                }
                 if (isWatched) {
                     SeriesDetailsViewModel.markAsUnwatched()
                 } else {
