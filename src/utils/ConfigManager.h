@@ -88,6 +88,12 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool playbackMuted READ getPlaybackMuted WRITE setPlaybackMuted NOTIFY playbackMutedChanged)
     Q_PROPERTY(bool autoplayNextEpisode READ getAutoplayNextEpisode WRITE setAutoplayNextEpisode NOTIFY autoplayNextEpisodeChanged)
     Q_PROPERTY(bool mergeContinueWatchingWithNextUp READ getMergeContinueWatchingWithNextUp WRITE setMergeContinueWatchingWithNextUp NOTIFY mergeContinueWatchingWithNextUpChanged)
+    // Home rows (settings.ui.home). The Next Up options apply to providers
+    // with ProviderCapability::NextUpOptions; the Favorites row to providers
+    // without a watchlist.
+    Q_PROPERTY(bool nextUpRewatching READ getNextUpRewatching WRITE setNextUpRewatching NOTIFY nextUpRewatchingChanged)
+    Q_PROPERTY(int nextUpCutoffDays READ getNextUpCutoffDays WRITE setNextUpCutoffDays NOTIFY nextUpCutoffDaysChanged)
+    Q_PROPERTY(bool homeFavoritesRowEnabled READ getHomeFavoritesRowEnabled WRITE setHomeFavoritesRowEnabled NOTIFY homeFavoritesRowEnabledChanged)
     Q_PROPERTY(int autoplayCountdownSeconds READ getAutoplayCountdownSeconds WRITE setAutoplayCountdownSeconds NOTIFY autoplayCountdownSecondsChanged)
     Q_PROPERTY(bool autoSkipIntro READ getAutoSkipIntro WRITE setAutoSkipIntro NOTIFY autoSkipIntroChanged)
     Q_PROPERTY(bool autoSkipOutro READ getAutoSkipOutro WRITE setAutoSkipOutro NOTIFY autoSkipOutroChanged)
@@ -287,6 +293,13 @@ public:
     bool getAutoplayNextEpisode() const;
     void setMergeContinueWatchingWithNextUp(bool enabled);
     bool getMergeContinueWatchingWithNextUp() const;
+    void setNextUpRewatching(bool enabled);
+    bool getNextUpRewatching() const;
+    /// 0 (no cutoff), 30, 90, 180 or 365; other values snap to the nearest.
+    void setNextUpCutoffDays(int days);
+    int getNextUpCutoffDays() const;
+    void setHomeFavoritesRowEnabled(bool enabled);
+    bool getHomeFavoritesRowEnabled() const;
     void setAutoplayCountdownSeconds(int seconds);
     int getAutoplayCountdownSeconds() const;
     void setAutoSkipIntro(bool enabled);
@@ -588,6 +601,9 @@ signals:
     void playbackMutedChanged();
     void autoplayNextEpisodeChanged();
     void mergeContinueWatchingWithNextUpChanged();
+    void nextUpRewatchingChanged();
+    void nextUpCutoffDaysChanged();
+    void homeFavoritesRowEnabledChanged();
     void autoplayCountdownSecondsChanged();
     void autoSkipIntroChanged();
     void autoSkipOutroChanged();
@@ -668,6 +684,9 @@ private:
     void writeScreensaverObject(const QJsonObject &screensaver);
     QJsonObject readHeroBannerObject() const;
     void writeHeroBannerObject(const QJsonObject &heroBanner);
+    QJsonObject readHomeObject() const;
+    void writeHomeObject(const QJsonObject &home);
+    static int normalizeNextUpCutoffDays(int days);
     bool envOverridesRoundedPreprocess(bool current) const;
     void scheduleSave();
     bool persistConfig();

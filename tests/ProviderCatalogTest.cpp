@@ -37,6 +37,7 @@ private slots:
     void jellyfinReservedIdentifiersAndLimitsRemainOpaque();
     void jellyfinMutationsAndPaginationRemainCompatible();
     void jellyfinRequestsUseOpenApiRoutesAndFields();
+    void jellyfinNextUpOptionsAndResumeList();
     void siloTrackIndicesAndMultipartFallbackStayContiguous();
     void siloCanonicalIdentityVersionsMultipartAndStateUseMilliseconds();
     void siloPlaybackFallbacksAndExternalSubtitleMetadata();
@@ -62,6 +63,7 @@ void ProviderCatalogTest::jellyfinCanonicalSortKeysMapAtProviderBoundary()
         {QStringLiteral("rating"), QStringLiteral("CommunityRating")},
         {QStringLiteral("year"), QStringLiteral("ProductionYear")},
         {QStringLiteral("random"), QStringLiteral("Random")},
+        {QStringLiteral("datePlayed"), QStringLiteral("DatePlayed,SortName")},
     };
     for (const auto &[canonical, native] : sortCases) {
         ProviderCatalogQuery query;
@@ -272,6 +274,8 @@ void ProviderCatalogTest::jellyfinRequestsUseOpenApiRoutesAndFields()
     const QHash<ProviderCatalogOperation, QString> expectedPaths{
         {ProviderCatalogOperation::Views, QStringLiteral("/UserViews")},
         {ProviderCatalogOperation::Items, QStringLiteral("/Items")},
+        {ProviderCatalogOperation::NextUp, QStringLiteral("/Shows/NextUp")},
+        {ProviderCatalogOperation::ResumeItems, QStringLiteral("/UserItems/Resume")},
         {ProviderCatalogOperation::LatestMedia, QStringLiteral("/Items/Latest")},
         {ProviderCatalogOperation::Item, QStringLiteral("/Items")},
         {ProviderCatalogOperation::Chapters, QStringLiteral("/Items")},
@@ -319,7 +323,7 @@ void ProviderCatalogTest::jellyfinRequestsUseOpenApiRoutesAndFields()
     }
     for (ProviderCatalogOperation operation : {
              ProviderCatalogOperation::Items, ProviderCatalogOperation::NextUp,
-             ProviderCatalogOperation::LatestMedia, ProviderCatalogOperation::HomeBackdrops,
+             ProviderCatalogOperation::ResumeItems, ProviderCatalogOperation::LatestMedia, ProviderCatalogOperation::HomeBackdrops,
              ProviderCatalogOperation::ScreensaverItems, ProviderCatalogOperation::SimilarItems,
              ProviderCatalogOperation::NextUnplayedEpisode, ProviderCatalogOperation::Search,
              ProviderCatalogOperation::RandomItems, ProviderCatalogOperation::HeroItems}) {
@@ -350,6 +354,123 @@ void ProviderCatalogTest::jellyfinRequestsUseOpenApiRoutesAndFields()
     QCOMPARE(detail.rawItem.value(QStringLiteral("Id")).toString(), QStringLiteral("item-1"));
     QCOMPARE(detail.rawItem.value(QStringLiteral("Name")).toString(),
              QStringLiteral("Refreshed"));
+}
+
+void ProviderCatalogTest::jellyfinNextUpOptionsAndResumeList()
+{
+    JellyfinProviderAdapter adapter;
+    QVERIFY(adapter.supportsCapability(ProviderCapability::NextUpOptions));
+    QVERIFY(adapter.supportsCapability(ProviderCapability::ResumeItems));
+    QVERIFY(!adapter.supportsCapability(ProviderCapability::Watchlist));
+    SiloProviderAdapter silo;
+    QVERIFY(!silo.supportsCapability(ProviderCapability::NextUpOptions));
+    QVERIFY(!silo.supportsCapability(ProviderCapability::ResumeItems));
+
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+    ProviderCatalogQuery query;
+    query.userId = QStringLiteral("user-1");
+
+    // Next Up leaves in-progress episodes to the resume list and sends no
+    // option the viewer did not choose.
+    ProviderCatalogRequest request = catalog->createRequest(ProviderCatalogOperation::NextUp, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QUrlQuery parameters{QUrl(request.relativeEndpoint)};
+    QCOMPARE(QUrl(request.relativeEndpoint).path(), QStringLiteral("/Shows/NextUp"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("Limit")), QStringLiteral("10"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("Fields")),
+             QStringLiteral("Path,Overview,ParentId"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableUserData")), QStringLiteral("true"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableResumable")), QStringLiteral("false"));
+    QVERIFY(!parameters.hasQueryItem(QStringLiteral("EnableRewatching")));
+    QVERIFY(!parameters.hasQueryItem(QStringLiteral("NextUpDateCutoff")));
+
+    query.nextUpRewatching = true;
+    query.nextUpCutoff = QDate(2026, 8, 3);
+    request = catalog->createRequest(ProviderCatalogOperation::NextUp, query);
+    parameters = QUrlQuery(QUrl(request.relativeEndpoint));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableRewatching")), QStringLiteral("true"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("NextUpDateCutoff")),
+             QStringLiteral("2026-08-03T00:00:00Z"));
+
+    // The resume list asks for the same card shape, video movies and
+    // episodes only.
+    ProviderCatalogQuery resumeQuery;
+    resumeQuery.userId = QStringLiteral("user-1");
+    resumeQuery.limit = 20;
+    request = catalog->createRequest(ProviderCatalogOperation::ResumeItems, resumeQuery);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(QUrl(request.relativeEndpoint).path(), QStringLiteral("/UserItems/Resume"));
+    const QUrlQuery resume{QUrl(request.relativeEndpoint)};
+    QCOMPARE(resume.queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
+    QCOMPARE(resume.queryItemValue(QStringLiteral("Limit")), QStringLiteral("20"));
+    QCOMPARE(resume.queryItemValue(QStringLiteral("IncludeItemTypes")),
+             QStringLiteral("Movie,Episode"));
+    QCOMPARE(resume.queryItemValue(QStringLiteral("MediaTypes")), QStringLiteral("Video"));
+    QCOMPARE(resume.queryItemValue(QStringLiteral("Fields")),
+             parameters.queryItemValue(QStringLiteral("Fields")));
+    QCOMPARE(resume.queryItemValue(QStringLiteral("EnableImageTypes")),
+             parameters.queryItemValue(QStringLiteral("EnableImageTypes")));
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::ResumeItems, {}).supported);
+
+    // Every parameter is a current one of the pinned OpenAPI operation.
+    QFile openApiManifest(QStringLiteral(BLOOM_JELLYFIN_OPENAPI_MANIFEST));
+    QVERIFY2(openApiManifest.open(QIODevice::ReadOnly),
+             qPrintable(openApiManifest.errorString()));
+    const QJsonArray operations = QJsonDocument::fromJson(openApiManifest.readAll())
+                                      .object().value(QStringLiteral("operations")).toArray();
+    const auto declaredParameters = [&operations](const QString &path) {
+        QHash<QString, bool> deprecatedByName;
+        for (const QJsonValue &value : operations) {
+            const QJsonObject operation = value.toObject();
+            if (operation.value(QStringLiteral("method")).toString() != QStringLiteral("GET")
+                || operation.value(QStringLiteral("path")).toString() != path) {
+                continue;
+            }
+            for (const QJsonValue &parameter : operation.value(QStringLiteral("parameters")).toArray()) {
+                deprecatedByName.insert(
+                    parameter.toObject().value(QStringLiteral("name")).toString().toLower(),
+                    parameter.toObject().value(QStringLiteral("deprecated")).toBool());
+            }
+        }
+        return deprecatedByName;
+    };
+    for (const auto &[path, sent] : {std::pair{QStringLiteral("/Shows/NextUp"), parameters},
+                                     std::pair{QStringLiteral("/UserItems/Resume"), resume}}) {
+        const QHash<QString, bool> declared = declaredParameters(path);
+        QVERIFY2(!declared.isEmpty(), qPrintable(path));
+        for (const auto &[name, value] : sent.queryItems()) {
+            Q_UNUSED(value)
+            QVERIFY2(declared.contains(name.toLower()), qPrintable(path + QLatin1Char(' ') + name));
+            QVERIFY2(!declared.value(name.toLower()), qPrintable(path + QLatin1Char(' ') + name));
+        }
+    }
+
+    const ProviderCatalogResponse parsed = catalog->parseResponse(
+        ProviderCatalogOperation::ResumeItems,
+        QByteArrayLiteral(R"({"Items":[{"Id":"movie-1","Type":"Movie","Name":"Halfway",)"
+                          R"("UserData":{"PlaybackPositionTicks":6000000000,)"
+                          R"("LastPlayedDate":"2026-10-30T20:15:00.1234567Z"}}],)"
+                          R"("TotalRecordCount":1,"StartIndex":0})"));
+    QVERIFY(parsed.valid);
+    QCOMPARE(parsed.rawItems.size(), 1);
+    const QVariantMap mapped = adapter.mapMediaItem(parsed.rawItems.first().toObject(),
+                                                    QStringLiteral("connection-1"));
+    QCOMPARE(mapped.value(QStringLiteral("mediaType")).toString(), QStringLiteral("Movie"));
+    QCOMPARE(mapped.value(QStringLiteral("positionMs")).toLongLong(), 600000LL);
+    QCOMPARE(mapped.value(QStringLiteral("connectionId")).toString(),
+             QStringLiteral("connection-1"));
+
+    // Silo sends in-progress cards with Next Up from its Home layout.
+    SiloCatalogProvider siloCatalog;
+    const ProviderCatalogRequest siloResume = siloCatalog.createRequest(
+        ProviderCatalogOperation::ResumeItems, resumeQuery);
+    QVERIFY(!siloResume.supported);
+    QVERIFY(!siloResume.unsupportedReason.isEmpty());
 }
 
 void ProviderCatalogTest::siloTrackIndicesAndMultipartFallbackStayContiguous()

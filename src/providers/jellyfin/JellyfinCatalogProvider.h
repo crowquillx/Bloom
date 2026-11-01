@@ -28,6 +28,8 @@ public:
             return filterOptionsRequest(query);
         case ProviderCatalogOperation::NextUp:
             return nextUpRequest(query);
+        case ProviderCatalogOperation::ResumeItems:
+            return resumeItemsRequest(query);
         case ProviderCatalogOperation::LatestMedia:
             return latestMediaRequest(query);
         case ProviderCatalogOperation::HomeBackdrops:
@@ -284,6 +286,10 @@ private:
         if (canonicalSort == QStringLiteral("random")) {
             return QStringLiteral("Random");
         }
+        if (canonicalSort == QStringLiteral("datePlayed")) {
+            // Never-played titles share an empty date; the name orders them.
+            return QStringLiteral("DatePlayed,SortName");
+        }
         return std::nullopt;
     }
 
@@ -513,6 +519,17 @@ private:
         return supportedRequest(url.toString(QUrl::FullyEncoded));
     }
 
+    // Fields and artwork of the Home episode and movie cards. Next Up and
+    // the resume list ask for the same shape so their cards match.
+    static void addHomeCardParameters(QUrlQuery &parameters, int limit)
+    {
+        parameters.addQueryItem(QStringLiteral("Limit"), QString::number(limit));
+        parameters.addQueryItem(QStringLiteral("Fields"), QStringLiteral("Path,Overview,ParentId"));
+        parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
+        parameters.addQueryItem(
+            QStringLiteral("EnableImageTypes"), QStringLiteral("Primary,Thumb,Backdrop,Logo"));
+    }
+
     static ProviderCatalogRequest nextUpRequest(const ProviderCatalogQuery &query)
     {
         const ProviderCatalogRequest validation = requireIds(
@@ -520,9 +537,39 @@ private:
         if (!validation.supported) {
             return validation;
         }
-        return supportedRequest(QStringLiteral(
-            "/Shows/NextUp?UserId=%1&Limit=10&Fields=Path,Overview,ParentId&EnableUserData=true&EnableImageTypes=Primary,Thumb,Backdrop,Logo")
-                                    .arg(encodedPathSegment(query.userId)));
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
+        addHomeCardParameters(parameters, 10);
+        // In-progress episodes come from the resume list (ResumeItems), so
+        // a series whose next episode is part-watched leaves Next Up.
+        parameters.addQueryItem(QStringLiteral("EnableResumable"), QStringLiteral("false"));
+        if (query.nextUpRewatching) {
+            parameters.addQueryItem(QStringLiteral("EnableRewatching"), QStringLiteral("true"));
+        }
+        if (query.nextUpCutoff.isValid()) {
+            parameters.addQueryItem(
+                QStringLiteral("NextUpDateCutoff"),
+                query.nextUpCutoff.startOfDay(QTimeZone::UTC).toString(Qt::ISODate));
+        }
+        return supportedRequest(endpointWithQuery(QStringLiteral("/Shows/NextUp"), parameters));
+    }
+
+    static ProviderCatalogRequest resumeItemsRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, false, QStringLiteral("resume items"));
+        if (!validation.supported) {
+            return validation;
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
+        addHomeCardParameters(parameters, query.limit > 0 ? qMin(query.limit, 50) : 20);
+        // Only the types Bloom's libraries hold; the server orders the list
+        // by last played, newest first.
+        parameters.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Movie,Episode"));
+        parameters.addQueryItem(QStringLiteral("MediaTypes"), QStringLiteral("Video"));
+        return supportedRequest(
+            endpointWithQuery(QStringLiteral("/UserItems/Resume"), parameters));
     }
 
     static ProviderCatalogRequest latestMediaRequest(const ProviderCatalogQuery &query)
@@ -854,6 +901,7 @@ private:
         case ProviderCatalogOperation::Items: return QStringLiteral("items");
         case ProviderCatalogOperation::FilterOptions: return QStringLiteral("filter options");
         case ProviderCatalogOperation::NextUp: return QStringLiteral("next up");
+        case ProviderCatalogOperation::ResumeItems: return QStringLiteral("resume items");
         case ProviderCatalogOperation::LatestMedia: return QStringLiteral("latest media");
         case ProviderCatalogOperation::HomeBackdrops: return QStringLiteral("home backdrops");
         case ProviderCatalogOperation::ScreensaverItems: return QStringLiteral("screensaver items");

@@ -352,6 +352,10 @@ private:
         case ProviderCatalogOperation::NextUnplayedEpisode:
             return unsupported(QStringLiteral(
                 "Silo v2 has no series-scoped next-unplayed-episode endpoint"));
+        case ProviderCatalogOperation::ResumeItems:
+            // In-progress cards come with Next Up from the Home layout.
+            return unsupported(QStringLiteral(
+                "Silo folds in-progress items into its Continue Watching section"));
         case ProviderCatalogOperation::ResolveLibrary:
             return unsupported(QStringLiteral(
                 "Silo catalog resources do not expose an ancestor-to-library resolution route"));

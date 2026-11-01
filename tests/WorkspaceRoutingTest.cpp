@@ -12,6 +12,7 @@
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTimeZone>
 #include <QTimer>
 #include <QUrlQuery>
 #include <cstring>
@@ -147,6 +148,12 @@ struct Account {
     // Search results per library ID; an unscoped search returns them all.
     QHash<QString, QJsonArray> itemsByLibrary;
     bool offline = false;
+    // Home reads: Next Up, the resume list (with its HTTP status) and
+    // favorites.
+    QJsonArray nextUp;
+    QJsonArray resume;
+    int resumeStatus = 200;
+    QJsonArray favorites;
 };
 
 struct RecordedRequest {
@@ -155,6 +162,7 @@ struct RecordedRequest {
     QString token;
     QString parentId;
     QNetworkAccessManager::Operation operation = QNetworkAccessManager::GetOperation;
+    QUrlQuery query;
 };
 
 // Answers Jellyfin session validation and /UserViews per access token, so a
@@ -207,7 +215,7 @@ protected:
         const QUrl url = request.url();
         const QUrlQuery query(url);
         requests.append({url.host(), url.path(), token,
-                         query.queryItemValue(QStringLiteral("ParentId")), operation});
+                         query.queryItemValue(QStringLiteral("ParentId")), operation, query});
 
         if (url.path() == QStringLiteral("/api/v2/auth/refresh")) {
             ++refreshRequests;
@@ -316,6 +324,25 @@ protected:
                                      .toJson(QJsonDocument::Compact),
                                  this);
         }
+        const auto itemsEnvelope = [](const QJsonArray &items) {
+            return QJsonDocument(QJsonObject{{QStringLiteral("Items"), items},
+                                             {QStringLiteral("TotalRecordCount"), items.size()},
+                                             {QStringLiteral("StartIndex"), 0}})
+                .toJson(QJsonDocument::Compact);
+        };
+        if (url.path() == QStringLiteral("/Shows/NextUp")) {
+            return new FakeReply(request, 200, itemsEnvelope(account->nextUp), this);
+        }
+        if (url.path() == QStringLiteral("/UserItems/Resume")) {
+            return new FakeReply(request, account->resumeStatus,
+                                 account->resumeStatus == 200 ? itemsEnvelope(account->resume)
+                                                              : QByteArray(),
+                                 this);
+        }
+        if (url.path() == QStringLiteral("/Items")
+            && query.queryItemValue(QStringLiteral("IsFavorite")) == QStringLiteral("true")) {
+            return new FakeReply(request, 200, itemsEnvelope(account->favorites), this);
+        }
         if (url.path() == QStringLiteral("/api/v2/settings/values/effective")) {
             return new FakeReply(request, overlaySettingsStatus,
                                  overlaySettingsStatus == 200 ? overlaySettings : QByteArray(), this);
@@ -367,6 +394,32 @@ QJsonObject movie(const QString &id, const QString &name)
     return {{QStringLiteral("Id"), id},
             {QStringLiteral("Name"), name},
             {QStringLiteral("Type"), QStringLiteral("Movie")}};
+}
+
+// A Jellyfin episode or movie card with its watch state.
+QJsonObject playable(const QString &id, const QString &type, qint64 positionTicks,
+                     const QString &lastPlayed = QString())
+{
+    QJsonObject userData{{QStringLiteral("PlaybackPositionTicks"), positionTicks}};
+    if (!lastPlayed.isEmpty()) {
+        userData.insert(QStringLiteral("LastPlayedDate"), lastPlayed);
+    }
+    return {{QStringLiteral("Id"), id},
+            {QStringLiteral("Name"), id},
+            {QStringLiteral("Type"), type},
+            {QStringLiteral("UserData"), userData}};
+}
+
+// connectionId/itemId of each item, in order.
+QStringList orderedRefs(const QVariantList &items)
+{
+    QStringList refs;
+    for (const QVariant &value : items) {
+        const QVariantMap map = value.toMap();
+        refs.append(map.value(QStringLiteral("connectionId")).toString() + QLatin1Char('/')
+                    + map.value(QStringLiteral("itemId")).toString());
+    }
+    return refs;
 }
 
 // One recovery ping; nullopt when none was sent or it never finished.
@@ -443,6 +496,9 @@ private slots:
     void siloSignOutRefreshesAnExpiredTokenFirst();
     void removingSiloMemberEndsItsSession();
     void switchingSpacesNeverEndsServerSessions();
+    void jellyfinNextUpAddsResumeListAndOptions();
+    void jellyfinHomeShowsFavoritesRowBehindItsSetting();
+    void mergedNextUpAddsEachJellyfinMembersResumeList();
 
 private:
     void seedAccounts();
@@ -1681,6 +1737,184 @@ void WorkspaceRoutingTest::switchingSpacesNeverEndsServerSessions()
     QTRY_VERIFY(m_auth->isAuthenticated());
 
     QVERIFY(m_servers->logouts().isEmpty());
+}
+
+void WorkspaceRoutingTest::jellyfinNextUpAddsResumeListAndOptions()
+{
+    Account &alice = m_servers->accountsByToken[QStringLiteral("token-alice")];
+    alice.resume = {
+        playable(QStringLiteral("movie-half"), QStringLiteral("Movie"), 6000000000,
+                 QStringLiteral("2026-10-30T20:15:00.1234567Z")),
+        playable(QStringLiteral("episode-part"), QStringLiteral("Episode"), 3000000000,
+                 QStringLiteral("2026-10-31T21:00:00.0000000Z")),
+    };
+    alice.nextUp = {
+        playable(QStringLiteral("episode-next"), QStringLiteral("Episode"), 0),
+        // Listed by both reads: shown once, as in progress.
+        playable(QStringLiteral("episode-part"), QStringLiteral("Episode"), 3000000000,
+                 QStringLiteral("2026-10-31T21:00:00.0000000Z")),
+    };
+
+    LibraryService library(m_auth.get());
+    QVERIFY(library.supportsNextUpOptions());
+    QSignalSpy loaded(&library, &LibraryService::canonicalNextUpLoaded);
+    m_servers->requests.clear();
+    library.getNextUp();
+    QTRY_COMPARE(loaded.count(), 1);
+    QCOMPARE(loaded.first().at(0).toString(), QStringLiteral("alice"));
+    // In-progress movies join Continue Watching, most recently played first.
+    QCOMPARE(orderedRefs(loaded.first().at(1).toList()),
+             (QStringList{QStringLiteral("alice/episode-part"), QStringLiteral("alice/movie-half"),
+                          QStringLiteral("alice/episode-next")}));
+
+    QUrlQuery nextUpQuery;
+    QUrlQuery resumeQuery;
+    for (const RecordedRequest &request : std::as_const(m_servers->requests)) {
+        QCOMPARE(request.token, QStringLiteral("token-alice"));
+        if (request.path == QStringLiteral("/Shows/NextUp")) {
+            nextUpQuery = request.query;
+        } else if (request.path == QStringLiteral("/UserItems/Resume")) {
+            resumeQuery = request.query;
+        }
+    }
+    QCOMPARE(m_servers->requests.size(), 2);
+    QCOMPARE(nextUpQuery.queryItemValue(QStringLiteral("EnableResumable")), QStringLiteral("false"));
+    QVERIFY(!nextUpQuery.hasQueryItem(QStringLiteral("EnableRewatching")));
+    QVERIFY(!nextUpQuery.hasQueryItem(QStringLiteral("NextUpDateCutoff")));
+    QCOMPARE(resumeQuery.queryItemValue(QStringLiteral("UserId")), QStringLiteral("u-alice"));
+    QCOMPARE(resumeQuery.queryItemValue(QStringLiteral("Limit")), QStringLiteral("20"));
+    QCOMPARE(resumeQuery.queryItemValue(QStringLiteral("IncludeItemTypes")),
+             QStringLiteral("Movie,Episode"));
+
+    // The saved Next Up options reach the request.
+    m_config->setNextUpRewatching(true);
+    m_config->setNextUpCutoffDays(90);
+    m_servers->requests.clear();
+    library.getNextUp();
+    QTRY_COMPARE(loaded.count(), 2);
+    for (const RecordedRequest &request : std::as_const(m_servers->requests)) {
+        if (request.path == QStringLiteral("/Shows/NextUp")) {
+            nextUpQuery = request.query;
+        }
+    }
+    QCOMPARE(nextUpQuery.queryItemValue(QStringLiteral("EnableRewatching")), QStringLiteral("true"));
+    QCOMPARE(nextUpQuery.queryItemValue(QStringLiteral("NextUpDateCutoff")),
+             QDate::currentDate().addDays(-90).startOfDay(QTimeZone::UTC).toString(Qt::ISODate));
+
+    // A failed resume list leaves Next Up.
+    alice.resumeStatus = 404;
+    library.getNextUp();
+    QTRY_COMPARE(loaded.count(), 3);
+    QCOMPARE(orderedRefs(loaded.at(2).at(1).toList()),
+             (QStringList{QStringLiteral("alice/episode-part"), QStringLiteral("alice/episode-next")}));
+}
+
+void WorkspaceRoutingTest::jellyfinHomeShowsFavoritesRowBehindItsSetting()
+{
+    Account &alice = m_servers->accountsByToken[QStringLiteral("token-alice")];
+    alice.favorites = {
+        playable(QStringLiteral("series-fav"), QStringLiteral("Series"), 0,
+                 QStringLiteral("2026-10-31T10:00:00Z")),
+        movie(QStringLiteral("movie-fav"), QStringLiteral("Loved")),
+    };
+
+    LibraryService library(m_auth.get());
+    QVERIFY(!library.supportsWatchlist());
+    QVERIFY(library.supportsHomeFavoritesRow());
+    QSignalSpy loaded(&library, &LibraryService::canonicalHomeSectionsLoaded);
+    m_servers->requests.clear();
+    library.getHomeSections();
+    QTRY_COMPARE(loaded.count(), 1);
+    QCOMPARE(loaded.first().at(0).toString(), QStringLiteral("alice"));
+    const QVariantList rows = loaded.first().at(1).toList();
+    QCOMPARE(rows.size(), 1);
+    const QVariantMap favorites = rows.first().toMap();
+    QCOMPARE(favorites.value(QStringLiteral("sectionId")).toString(),
+             QStringLiteral("bloom:favorites"));
+    QCOMPARE(favorites.value(QStringLiteral("title")).toString(), QStringLiteral("Favorites"));
+    QCOMPARE(orderedRefs(favorites.value(QStringLiteral("items")).toList()),
+             (QStringList{QStringLiteral("alice/series-fav"), QStringLiteral("alice/movie-fav")}));
+
+    // One /Items read: favorite movies and series, most recently played first.
+    QCOMPARE(m_servers->requests.size(), 1);
+    const RecordedRequest request = m_servers->requests.constFirst();
+    QCOMPARE(request.path, QStringLiteral("/Items"));
+    QCOMPARE(request.query.queryItemValue(QStringLiteral("UserId")), QStringLiteral("u-alice"));
+    QCOMPARE(request.query.queryItemValue(QStringLiteral("IsFavorite")), QStringLiteral("true"));
+    QCOMPARE(request.query.queryItemValue(QStringLiteral("IncludeItemTypes")),
+             QStringLiteral("Movie,Series"));
+    QCOMPARE(request.query.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
+    QCOMPARE(request.query.queryItemValue(QStringLiteral("SortBy")),
+             QStringLiteral("DatePlayed,SortName"));
+    QCOMPARE(request.query.queryItemValue(QStringLiteral("SortOrder")), QStringLiteral("Descending"));
+    QCOMPARE(request.query.queryItemValue(QStringLiteral("Limit")), QStringLiteral("20"));
+
+    // No favorites: no row.
+    alice.favorites = {};
+    library.getHomeSections();
+    QTRY_COMPARE(loaded.count(), 2);
+    QVERIFY(loaded.at(1).at(1).toList().isEmpty());
+
+    // Turned off: no row and no read.
+    alice.favorites = {movie(QStringLiteral("movie-fav"), QStringLiteral("Loved"))};
+    m_config->setHomeFavoritesRowEnabled(false);
+    m_servers->requests.clear();
+    library.getHomeSections();
+    QCOMPARE(loaded.count(), 3);
+    QVERIFY(loaded.at(2).at(1).toList().isEmpty());
+    QVERIFY(m_servers->requests.isEmpty());
+}
+
+void WorkspaceRoutingTest::mergedNextUpAddsEachJellyfinMembersResumeList()
+{
+    Account &alice = m_servers->accountsByToken[QStringLiteral("token-alice")];
+    alice.resume = {playable(QStringLiteral("movie-a"), QStringLiteral("Movie"), 1000000000,
+                             QStringLiteral("2026-10-29T18:00:00Z"))};
+    alice.nextUp = {playable(QStringLiteral("episode-a"), QStringLiteral("Episode"), 0)};
+    Account &carol = m_servers->accountsByToken[QStringLiteral("token-carol")];
+    carol.resume = {playable(QStringLiteral("episode-c"), QStringLiteral("Episode"), 2000000000,
+                             QStringLiteral("2026-10-31T18:00:00Z"))};
+    carol.nextUp = {playable(QStringLiteral("episode-c2"), QStringLiteral("Episode"), 0)};
+
+    QVERIFY(!createMergedWorkspace().isEmpty());
+    waitForMembersReady();
+    m_config->setNextUpRewatching(true);
+
+    QSignalSpy loaded(m_merged.get(), &MergedCatalogService::nextUpLoaded);
+    m_servers->requests.clear();
+    m_merged->getNextUp();
+    QTRY_COMPARE(loaded.count(), 1);
+    // Each member's in-progress items, most recently played first across
+    // members; each stays owned by its connection.
+    const QStringList refs = orderedRefs(loaded.first().at(0).toList());
+    QCOMPARE(refs.mid(0, 2),
+             (QStringList{QStringLiteral("carol/episode-c"), QStringLiteral("alice/movie-a")}));
+    QVERIFY(refs.contains(QStringLiteral("alice/episode-a")));
+    QVERIFY(refs.contains(QStringLiteral("carol/episode-c2")));
+    QCOMPARE(refs.size(), 4);
+
+    int resumeReads = 0;
+    for (const RecordedRequest &request : std::as_const(m_servers->requests)) {
+        if (request.path == QStringLiteral("/UserItems/Resume")) {
+            ++resumeReads;
+        } else if (request.path == QStringLiteral("/Shows/NextUp")) {
+            QCOMPARE(request.query.queryItemValue(QStringLiteral("EnableResumable")),
+                     QStringLiteral("false"));
+            QCOMPARE(request.query.queryItemValue(QStringLiteral("EnableRewatching")),
+                     QStringLiteral("true"));
+        }
+    }
+    QCOMPARE(resumeReads, 3);
+
+    // A member whose resume list fails keeps its Next Up and stays ready.
+    carol.resumeStatus = 404;
+    m_merged->getNextUp();
+    QTRY_COMPARE(loaded.count(), 2);
+    const QStringList degraded = orderedRefs(loaded.at(1).at(0).toList());
+    QVERIFY(!degraded.contains(QStringLiteral("carol/episode-c")));
+    QVERIFY(degraded.contains(QStringLiteral("carol/episode-c2")));
+    QVERIFY(degraded.contains(QStringLiteral("alice/movie-a")));
+    QCOMPARE(sourceState(QStringLiteral("carol")), QStringLiteral("ready"));
 }
 
 QTEST_GUILESS_MAIN(WorkspaceRoutingTest)

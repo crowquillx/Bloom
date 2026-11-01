@@ -20,6 +20,7 @@ private slots:
     void defaultsContainNewBuiltinMpvProfiles();
     void screensaverDefaultsAndSettersPersist();
     void heroBannerEpisodeSynopsisDefaultsAndSettersPersist();
+    void homeRowSettingsDefaultNormalizeAndPersist();
     void themeVariantSettersPersistAndEmit();
     void rapidSettingsCoalescePersistence();
     void immediateSettingsFlushPendingPersistence();
@@ -368,6 +369,53 @@ void ConfigManagerThemeTest::heroBannerEpisodeSynopsisDefaultsAndSettersPersist(
     ConfigManager reloaded;
     reloaded.load();
     QCOMPARE(reloaded.getHeroBannerEpisodeSynopsisEnabled(), true);
+}
+
+void ConfigManagerThemeTest::homeRowSettingsDefaultNormalizeAndPersist()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    // Defaults keep today's Next Up and show the Favorites row.
+    QCOMPARE(config.getNextUpRewatching(), false);
+    QCOMPARE(config.getNextUpCutoffDays(), 0);
+    QCOMPARE(config.getHomeFavoritesRowEnabled(), true);
+
+    QSignalSpy rewatchingSpy(&config, &ConfigManager::nextUpRewatchingChanged);
+    QSignalSpy cutoffSpy(&config, &ConfigManager::nextUpCutoffDaysChanged);
+    QSignalSpy favoritesSpy(&config, &ConfigManager::homeFavoritesRowEnabledChanged);
+
+    config.setNextUpRewatching(true);
+    config.setNextUpRewatching(true);
+    QCOMPARE(rewatchingSpy.count(), 1);
+    QCOMPARE(config.getNextUpRewatching(), true);
+
+    // Only the offered choices are stored; other values snap to the nearest.
+    config.setNextUpCutoffDays(90);
+    QCOMPARE(config.getNextUpCutoffDays(), 90);
+    config.setNextUpCutoffDays(100);
+    QCOMPARE(config.getNextUpCutoffDays(), 90);
+    QCOMPARE(cutoffSpy.count(), 1);
+    config.setNextUpCutoffDays(1000);
+    QCOMPARE(config.getNextUpCutoffDays(), 365);
+    config.setNextUpCutoffDays(-5);
+    QCOMPARE(config.getNextUpCutoffDays(), 0);
+    config.setNextUpCutoffDays(180);
+    QCOMPARE(cutoffSpy.count(), 4);
+
+    config.setHomeFavoritesRowEnabled(false);
+    config.setHomeFavoritesRowEnabled(false);
+    QCOMPARE(favoritesSpy.count(), 1);
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getNextUpRewatching(), true);
+    QCOMPARE(reloaded.getNextUpCutoffDays(), 180);
+    QCOMPARE(reloaded.getHomeFavoritesRowEnabled(), false);
 }
 
 void ConfigManagerThemeTest::themeVariantSettersPersistAndEmit()

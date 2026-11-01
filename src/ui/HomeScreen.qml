@@ -125,8 +125,16 @@ FocusScope {
         for (var i = 0; i < librariesModel.length; i++) {
             LibraryService.getLatestMedia(librariesModel[i].itemId)
         }
-        // The profile's own Silo rows (none for Jellyfin).
+        // The profile's own Silo rows, or Jellyfin's Favorites row.
         HomeSectionsViewModel.refresh()
+    }
+
+    /// Reload Continue Watching and Next Up only (a Next Up option changed).
+    function refreshNextUp() {
+        if (mergedMode)
+            MergedCatalog.getNextUp()
+        else if (AuthenticationService.authenticated)
+            LibraryService.getNextUp()
     }
 
     function artworkUrlFromRef(artwork, width) {
@@ -282,6 +290,8 @@ FocusScope {
         }
     }
 
+    // The list arrives ordered from C++ (in-progress items first, most
+    // recently played first); this only splits it into the two rows.
     function updateDisplayedNextUpModel() {
         var inProgress = []
         var nextItems = []
@@ -943,7 +953,8 @@ FocusScope {
 
             // Rows the Silo profile curates (recommendations, collections,
             // its watchlist...) that Bloom does not already show, in the
-            // server's layout order. HomeSectionsViewModel picks them.
+            // server's layout order, or the Favorites row for providers
+            // without a watchlist (Jellyfin). HomeSectionsViewModel picks them.
             ColumnLayout {
                 id: serverRowsSection
                 opacity: root.shelfOpacity
@@ -1066,10 +1077,19 @@ FocusScope {
             return
         }
 
-        console.log("[Home] Next Up selected: " + item.name + " - navigating to episode details")
+        console.log("[Home] Next Up selected: " + item.name)
         
         // Save focus state before navigating
         saveFocusState()
+
+        // In-progress movies share Continue Watching with episodes; they
+        // open their own details page.
+        if ((item.mediaType || "") === "Movie") {
+            sourceRouter.run(item.connectionId || "", function() {
+                navigateToMovie(item, item.parentId || "", "")
+            })
+            return
+        }
         
         // Navigate to episode details view instead of playing directly
         var seriesId = item.seriesId || ""
@@ -1448,6 +1468,12 @@ FocusScope {
         target: ConfigManager
         function onMergeContinueWatchingWithNextUpChanged() {
             updateDisplayedNextUpModel()
+        }
+        function onNextUpRewatchingChanged() { root.refreshNextUp() }
+        function onNextUpCutoffDaysChanged() { root.refreshNextUp() }
+        function onHomeFavoritesRowEnabledChanged() {
+            if (!root.mergedMode && AuthenticationService.authenticated)
+                HomeSectionsViewModel.refresh()
         }
     }
 

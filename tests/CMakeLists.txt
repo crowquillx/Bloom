@@ -1468,6 +1468,10 @@ add_executable(SessionServiceTest SessionServiceTest.cpp)
 target_link_libraries(SessionServiceTest PRIVATE Bloom::Network Qt6::Test)
 add_test(NAME SessionServiceTest COMMAND SessionServiceTest)
 
+add_executable(ContinueWatchingTest ContinueWatchingTest.cpp)
+target_link_libraries(ContinueWatchingTest PRIVATE Bloom::Models Qt6::Test)
+add_test(NAME ContinueWatchingTest COMMAND ContinueWatchingTest)
+
 add_executable(PosterBadgesTest PosterBadgesTest.cpp)
 target_link_libraries(PosterBadgesTest PRIVATE Bloom::Providers Qt6::Test)
 add_test(NAME PosterBadgesTest COMMAND PosterBadgesTest)

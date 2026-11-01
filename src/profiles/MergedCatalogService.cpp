@@ -3,7 +3,9 @@
 #include "network/AuthenticationService.h"
 #include "network/ConnectionSessionPool.h"
 #include "network/HttpTransport.h"
+#include "models/ContinueWatching.h"
 #include "models/LibraryKinds.h"
+#include "network/LibraryService.h"
 #include "network/LibrarySearchScope.h"
 #include "profiles/BloomProfileRepository.h"
 #include "providers/IProviderAdapter.h"
@@ -22,6 +24,9 @@ constexpr auto kStateLoading = "loading";
 constexpr auto kStateReady = "ready";
 constexpr auto kStateFailed = "failed";
 constexpr auto kStateSignInRequired = "signInRequired";
+
+// In-progress movies and episodes read beside Next Up, per member.
+constexpr int kResumeItemLimit = 20;
 
 QHash<QByteArray, QByteArray> replyHeaders(const QNetworkReply *reply)
 {
@@ -243,8 +248,53 @@ void MergedCatalogService::getNextUp()
     if (!isActive()) {
         return;
     }
-    fanOut(ProviderCatalogOperation::NextUp, ProviderCatalogQuery{},
-           [this](const QList<MergedSourceResult> &results) {
+    ProviderCatalogQuery nextUpQuery;
+    LibraryService::applyNextUpOptions(nextUpQuery, m_configManager, QDate::currentDate());
+    fanOut([this, nextUpQuery](const Member &member, SourceCompletion completion) {
+        const IProviderAdapter *adapter = m_authService
+            ? m_authService->providerForConnection(member.connectionId) : nullptr;
+        if (!adapter || !adapter->supportsCapability(ProviderCapability::ResumeItems)) {
+            requestMember(member, ProviderCatalogOperation::NextUp, nextUpQuery, false,
+                          std::move(completion));
+            return;
+        }
+        // Jellyfin members add their resume list, so their in-progress
+        // movies show too. Without Next Up the member counts as failed; a
+        // failed resume list leaves its Next Up alone.
+        struct Pending {
+            std::optional<MergedSourceResult> nextUp;
+            QVariantList resume;
+            int outstanding = 2;
+        };
+        auto pending = std::make_shared<Pending>();
+        const auto finish = [pending, completion]() {
+            if (--pending->outstanding > 0) {
+                return;
+            }
+            MergedSourceResult result = *pending->nextUp;
+            if (result.succeeded) {
+                result.items = ContinueWatching::combine(pending->resume, result.items);
+            }
+            completion(result);
+        };
+        requestMember(member, ProviderCatalogOperation::NextUp, nextUpQuery, false,
+                      [pending, finish](const MergedSourceResult &result) {
+            pending->nextUp = result;
+            finish();
+        });
+        // Next Up alone reports the source's state.
+        ProviderCatalogQuery resumeQuery;
+        resumeQuery.limit = kResumeItemLimit;
+        sendMemberRequest(member, ProviderCatalogOperation::ResumeItems, resumeQuery, false, false,
+                          [pending, finish, connectionId = member.connectionId](
+                              const ProviderCatalogResponse *response,
+                              IProviderAdapter *responseAdapter, const QString &) {
+            if (response && responseAdapter) {
+                pending->resume = responseAdapter->mapMediaItems(response->rawItems, connectionId);
+            }
+            finish();
+        });
+    }, [this](const QList<MergedSourceResult> &results) {
         if (allFailed(results)) {
             emit nextUpFailed(combinedError(results));
         }

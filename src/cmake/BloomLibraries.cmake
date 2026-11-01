@@ -20,6 +20,7 @@ target_include_directories(BloomMonocypher
 
 add_library(BloomModels STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/models/CombinedLibraryCursor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/models/ContinueWatching.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/models/LibraryKinds.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/models/MediaModels.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/models/PosterBadges.cpp

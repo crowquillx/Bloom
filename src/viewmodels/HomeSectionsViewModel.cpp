@@ -28,6 +28,8 @@ void HomeSectionsViewModel::connectService()
             this, &HomeSectionsViewModel::onSectionsFailed);
     connect(m_libraryService, &LibraryService::watchlistStatusChanged,
             this, &HomeSectionsViewModel::onWatchlistStatusChanged);
+    connect(m_libraryService, &LibraryService::favoriteStatusChanged,
+            this, &HomeSectionsViewModel::onFavoriteStatusChanged);
 }
 
 int HomeSectionsViewModel::rowCount(const QModelIndex &parent) const
@@ -132,9 +134,25 @@ void HomeSectionsViewModel::onWatchlistStatusChanged(const QString &itemId, bool
 {
     Q_UNUSED(itemId)
     Q_UNUSED(inWatchlist)
-    // A Watchlist row (the server's or Bloom's) may have changed. Only
-    // rows loaded for the live connection are refreshed; Home loads fresh
-    // rows itself otherwise.
+    // A Watchlist row (the server's or Bloom's) may have changed.
+    refreshLoadedRows();
+}
+
+void HomeSectionsViewModel::onFavoriteStatusChanged(const QString &itemId, bool isFavorite)
+{
+    Q_UNUSED(itemId)
+    Q_UNUSED(isFavorite)
+    // The Favorites row may gain, lose or reorder a card. Providers with a
+    // watchlist have no such row, so their rows stay.
+    if (m_libraryService && m_libraryService->supportsHomeFavoritesRow()) {
+        refreshLoadedRows();
+    }
+}
+
+void HomeSectionsViewModel::refreshLoadedRows()
+{
+    // Only rows loaded for the live connection are refreshed; Home loads
+    // fresh rows itself otherwise.
     if (m_libraryService && !m_connectionId.isEmpty()
         && m_connectionId == m_libraryService->getActiveConnectionId()) {
         refresh();

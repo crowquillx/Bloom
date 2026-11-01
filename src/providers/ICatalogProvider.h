@@ -15,6 +15,10 @@ enum class ProviderCatalogOperation {
     Items,
     FilterOptions,
     NextUp,
+    // Movies and episodes the viewer stopped part-way through, most recently
+    // played first (Jellyfin). Providers that fold them into Next Up, such as
+    // Silo's Home layout, report this unsupported.
+    ResumeItems,
     LatestMedia,
     HomeBackdrops,
     ScreensaverItems,
@@ -117,6 +121,12 @@ struct ProviderCatalogQuery {
     QStringList includeItemTypes;
     QStringList fields;
     QString filterFacet;
+
+    // Next Up: also offer series the viewer finished and may start again,
+    // and leave out series last watched before this day (invalid: no
+    // cutoff). Honored by providers with ProviderCapability::NextUpOptions.
+    bool nextUpRewatching = false;
+    QDate nextUpCutoff;
 
     // Media requests: "movie" or "tv", the TMDB id, a 1-based provider page,
     // a discovery row key, the seasons to request (empty: the provider's

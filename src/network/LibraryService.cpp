@@ -1,6 +1,7 @@
 #include "LibraryService.h"
 #include "AuthenticationService.h"
 #include "HttpTransport.h"
+#include "models/ContinueWatching.h"
 #include "models/LibraryKinds.h"
 #include "LibrarySearchScope.h"
 #include "NextEpisodeResolver.h"
@@ -35,6 +36,11 @@ constexpr int kServerPingTimeoutMs = 10000;
 constexpr int kHomeRowCardLimit = 20;
 // Bloom names that row; it is not a server section.
 const QString kHomeWatchlistRowId = QStringLiteral("bloom:watchlist");
+// The row of favorite movies and series Home shows for providers without a
+// watchlist (Jellyfin), most recently played first.
+const QString kHomeFavoritesRowId = QStringLiteral("bloom:favorites");
+// In-progress movies and episodes read beside Next Up.
+constexpr int kResumeItemLimit = 20;
 
 QString activeConnectionId(const AuthenticationService *authService)
 {
@@ -740,17 +746,90 @@ void LibraryService::getFilterOptionsForRequest(
     }
 }
 
+void LibraryService::applyNextUpOptions(ProviderCatalogQuery &query,
+                                        const ConfigManager *config,
+                                        const QDate &today)
+{
+    if (!config) {
+        return;
+    }
+    query.nextUpRewatching = config->getNextUpRewatching();
+    const int cutoffDays = config->getNextUpCutoffDays();
+    query.nextUpCutoff = cutoffDays > 0 && today.isValid() ? today.addDays(-cutoffDays) : QDate();
+}
+
+bool LibraryService::supportsNextUpOptions() const
+{
+    return m_authService && m_authService->isAuthenticated()
+        && m_authService->supportsCapability(ProviderCapability::NextUpOptions);
+}
+
 void LibraryService::getNextUp()
 {
     const QString connectionId = activeConnectionId(m_authService);
+    ProviderCatalogQuery nextUpQuery = baseCatalogQuery();
+    applyNextUpOptions(nextUpQuery,
+                       m_authService ? m_authService->configManager() : nullptr,
+                       QDate::currentDate());
+    const bool readResume = m_authService
+        && m_authService->supportsCapability(ProviderCapability::ResumeItems);
+    if (!readResume) {
+        sendCatalogRequest(
+            QStringLiteral("getNextUp"),
+            ProviderCatalogOperation::NextUp,
+            nextUpQuery,
+            [this, connectionId](const ProviderCatalogResponse &response) {
+                // One list from the server (Silo's Home layout), kept in
+                // its order.
+                emit canonicalNextUpLoaded(
+                    connectionId,
+                    m_authService->mapMediaItems(response.rawItems, connectionId));
+            });
+        return;
+    }
+
+    // Next Up and the resume list load side by side. Without Next Up the
+    // rows keep what they show; a failed resume list leaves Next Up alone.
+    struct Pending {
+        std::optional<QVariantList> nextUp;
+        std::optional<QVariantList> resume;
+        bool nextUpFailed = false;
+        int outstanding = 2;
+    };
+    auto pending = std::make_shared<Pending>();
+    const auto finish = [this, connectionId, pending]() {
+        if (--pending->outstanding > 0 || pending->nextUpFailed) {
+            return;
+        }
+        emit canonicalNextUpLoaded(
+            connectionId,
+            ContinueWatching::combine(pending->resume.value_or(QVariantList()),
+                                      pending->nextUp.value_or(QVariantList())));
+    };
     sendCatalogRequest(
         QStringLiteral("getNextUp"),
         ProviderCatalogOperation::NextUp,
-        baseCatalogQuery(),
-        [this, connectionId](const ProviderCatalogResponse &response) {
-            emit canonicalNextUpLoaded(
-                connectionId,
-                m_authService->mapMediaItems(response.rawItems, connectionId));
+        nextUpQuery,
+        [this, connectionId, pending, finish](const ProviderCatalogResponse &response) {
+            pending->nextUp = m_authService->mapMediaItems(response.rawItems, connectionId);
+            finish();
+        },
+        [pending, finish](const NetworkError &) {
+            pending->nextUpFailed = true;
+            finish();
+        });
+    ProviderCatalogQuery resumeQuery = baseCatalogQuery();
+    resumeQuery.limit = kResumeItemLimit;
+    sendCatalogRequest(
+        QStringLiteral("getResumeItems"),
+        ProviderCatalogOperation::ResumeItems,
+        resumeQuery,
+        [this, connectionId, pending, finish](const ProviderCatalogResponse &response) {
+            pending->resume = m_authService->mapMediaItems(response.rawItems, connectionId);
+            finish();
+        },
+        [finish](const NetworkError &) {
+            finish();
         });
 }
 
@@ -1357,10 +1436,14 @@ void LibraryService::getHomeSections()
 {
     const QString connectionId = activeConnectionId(m_authService);
     const quint64 generation = ++m_homeSectionsGeneration;
-    if (!m_authService || !m_authService->isAuthenticated()
-        || !m_authService->supportsCapability(ProviderCapability::HomeSections)) {
-        // Providers without a curated layout (Jellyfin) add no rows.
+    if (!m_authService || !m_authService->isAuthenticated()) {
         emit canonicalHomeSectionsLoaded(connectionId, {});
+        return;
+    }
+    if (!m_authService->supportsCapability(ProviderCapability::HomeSections)) {
+        // Providers without a curated layout (Jellyfin) add no rows besides
+        // Bloom's Favorites row.
+        publishHomeSectionsWithFavorites(connectionId, generation, {});
         return;
     }
 
@@ -1437,10 +1520,13 @@ void LibraryService::readHomeSections(const QString &connectionId,
                 return;
             }
             const QVariantList rows = mapRows(response.rawItems);
+            if (!m_authService->supportsCapability(ProviderCapability::Watchlist)) {
+                publishHomeSectionsWithFavorites(connectionId, generation, rows);
+                return;
+            }
             const bool layoutHasWatchlist = response.capabilityMetadata
                 .value(QStringLiteral("layoutHasWatchlist")).toBool();
-            if (layoutHasWatchlist
-                || !m_authService->supportsCapability(ProviderCapability::Watchlist)) {
+            if (layoutHasWatchlist) {
                 emit canonicalHomeSectionsLoaded(connectionId, rows);
                 return;
             }
@@ -1490,6 +1576,64 @@ void LibraryService::readHomeSections(const QString &connectionId,
                 }
             }
             emit canonicalHomeSectionsFailed(connectionId, error.userMessage);
+        });
+}
+
+bool LibraryService::supportsHomeFavoritesRow() const
+{
+    return m_authService && m_authService->isAuthenticated()
+        && !m_authService->supportsCapability(ProviderCapability::Watchlist);
+}
+
+void LibraryService::publishHomeSectionsWithFavorites(const QString &connectionId,
+                                                      quint64 generation,
+                                                      const QVariantList &rows)
+{
+    const ConfigManager *config = m_authService ? m_authService->configManager() : nullptr;
+    if (!supportsHomeFavoritesRow() || !config || !config->getHomeFavoritesRowEnabled()) {
+        emit canonicalHomeSectionsLoaded(connectionId, rows);
+        return;
+    }
+
+    // Favorite movies and series only (LibraryKinds), most recently played
+    // first; never-played favorites follow, ordered by name.
+    ProviderCatalogQuery favoritesQuery = baseCatalogQuery();
+    favoritesQuery.favorite = ProviderCatalogTriState::Yes;
+    favoritesQuery.includeItemTypes = {QStringLiteral("Movie"), QStringLiteral("Series")};
+    favoritesQuery.recursive = true;
+    favoritesQuery.sortBy = QStringLiteral("datePlayed");
+    favoritesQuery.sortOrder = QStringLiteral("descending");
+    favoritesQuery.limit = kHomeRowCardLimit;
+    favoritesQuery.includeHeavyFields = false;
+    sendCatalogRequest(
+        QStringLiteral("getHomeFavorites"),
+        ProviderCatalogOperation::Items,
+        favoritesQuery,
+        [this, connectionId, generation, rows](const ProviderCatalogResponse &response) {
+            if (generation != m_homeSectionsGeneration) {
+                return;
+            }
+            QVariantList withFavorites = rows;
+            const QVariantList items
+                = m_authService->mapMediaItems(response.rawItems, connectionId);
+            if (!items.isEmpty()) {
+                withFavorites.prepend(QVariantMap{
+                    {QStringLiteral("sectionId"), kHomeFavoritesRowId},
+                    {QStringLiteral("title"), tr("Favorites")},
+                    {QStringLiteral("items"), items}});
+            }
+            emit canonicalHomeSectionsLoaded(connectionId, withFavorites);
+        },
+        [this, connectionId, generation, rows](const NetworkError &error) {
+            if (generation != m_homeSectionsGeneration) {
+                return;
+            }
+            if (rows.isEmpty()) {
+                emit canonicalHomeSectionsFailed(connectionId, error.userMessage);
+            } else {
+                // The profile's rows still show without favorites.
+                emit canonicalHomeSectionsLoaded(connectionId, rows);
+            }
         });
 }
 

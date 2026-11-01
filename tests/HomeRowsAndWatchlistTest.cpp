@@ -33,6 +33,7 @@ public:
 
     QString getActiveConnectionId() const override { return connectionId; }
     bool supportsWatchlist() const override { return watchlist; }
+    bool supportsHomeFavoritesRow() const override { return !watchlist; }
 
     void getHomeSections() override { ++homeRequests; }
     void setItemWatchlisted(const QString &itemId, bool inWatchlist) override
@@ -58,6 +59,10 @@ public:
     void confirmWatchlist(const QString &itemId, bool inWatchlist)
     {
         emit watchlistStatusChanged(itemId, inWatchlist);
+    }
+    void confirmFavorite(const QString &itemId, bool isFavorite)
+    {
+        emit favoriteStatusChanged(itemId, isFavorite);
     }
     void refuseWatchlist(const QString &itemId, bool inWatchlist)
     {
@@ -132,6 +137,7 @@ private slots:
     void homeRowsIgnoreOtherConnectionsAndDropThemOnSwitch();
     void homeRowsFailureKeepsShownRows();
     void homeRowsRefreshAfterWatchlistChange();
+    void homeRowsRefreshAfterFavoriteChangeOnlyWithFavoritesRow();
     void homeRowsClearForMergedSpaces();
 
     void movieWatchlistToggleIsOptimisticAndRollsBack();
@@ -299,6 +305,37 @@ void HomeRowsAndWatchlistTest::homeRowsRefreshAfterWatchlistChange()
     m_service->loadRows(QStringLiteral("connection-1"), {});
     m_service->refuseWatchlist(QStringLiteral("movie:a"), false);
     QCOMPARE(m_service->homeRequests, 2);
+}
+
+void HomeRowsAndWatchlistTest::homeRowsRefreshAfterFavoriteChangeOnlyWithFavoritesRow()
+{
+    HomeSectionsViewModel model(m_service);
+
+    // A provider with a watchlist (Silo) has no Favorites row: favorites
+    // leave its rows alone.
+    model.refresh();
+    m_service->loadRows(QStringLiteral("connection-1"), {});
+    QCOMPARE(m_service->homeRequests, 1);
+    m_service->confirmFavorite(QStringLiteral("movie:a"), true);
+    QCOMPARE(m_service->homeRequests, 1);
+
+    // Without one (Jellyfin), a favorite change reloads the rows, so the
+    // Favorites row appears even when it was empty.
+    m_service->watchlist = false;
+    m_service->confirmFavorite(QStringLiteral("movie-a"), true);
+    QCOMPARE(m_service->homeRequests, 2);
+    m_service->loadRows(QStringLiteral("connection-1"),
+                        {row(QStringLiteral("bloom:favorites"), QStringLiteral("Favorites"),
+                             {card(QStringLiteral("movie-a"), QStringLiteral("Movie"))})});
+    QCOMPARE(sectionIds(model), QStringList{QStringLiteral("bloom:favorites")});
+    m_service->confirmFavorite(QStringLiteral("movie-a"), false);
+    QCOMPARE(m_service->homeRequests, 3);
+
+    // Rows of another connection are not refreshed.
+    m_service->loadRows(QStringLiteral("connection-1"), {});
+    m_service->connectionId = QStringLiteral("connection-2");
+    m_service->confirmFavorite(QStringLiteral("movie-a"), true);
+    QCOMPARE(m_service->homeRequests, 3);
 }
 
 void HomeRowsAndWatchlistTest::homeRowsClearForMergedSpaces()

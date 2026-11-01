@@ -219,7 +219,7 @@ FocusScope {
                 SettingsToggleRow {
                     id: mergeHomeRowsSwitch
                     label: qsTr("Merge Continue Watching with Next Up")
-                    description: qsTr("When enabled, in-progress episodes appear in the Next Up row instead of a separate Continue Watching section on Home")
+                    description: qsTr("When enabled, in-progress movies and episodes appear in the Next Up row instead of a separate Continue Watching section on Home")
                     checked: ConfigManager.mergeContinueWatchingWithNextUp
                     Layout.fillWidth: true
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
