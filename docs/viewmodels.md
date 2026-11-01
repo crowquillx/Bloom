@@ -65,6 +65,7 @@ Acts as the data source for `MovieDetailsView.qml`. It aggregates canonical movi
   - `people`: cast/crew entries used by the lower cast shelf (canonical person maps).
   - `chapters`, `chaptersLoading`: normalized movie chapter cards plus the rail loading state.
   - `similarItems`, `similarItemsLoading`: recommendation shelf data and loading state for similar titles (`itemId`, `primaryArtwork`, camelCase fields).
+  - `extras`, `trailer`: the movie's canonical local extras and the one Play Trailer starts (empty without a trailer or teaser). Both change with `extrasChanged`. A detail that carries `extras` (Silo) supplies them; otherwise the view model calls `LibraryService::getItemExtras` once per movie and connection and applies only the matching answer. `ItemExtrasState` (`src/viewmodels/ItemExtrasState.h`) holds this logic and a small in-memory cache, so a return visit does not ask again. `SeriesDetailsViewModel` exposes the same two properties for the series.
   - `mdbListRatings`: `QVariantMap` containing normalized external ratings, including AniList when merged in.
 - **Methods**:
   - `loadMovieDetails(QString movieId)`: hydrates from cache when possible, then refreshes metadata and similar items from the library service.

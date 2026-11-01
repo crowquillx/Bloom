@@ -62,6 +62,10 @@ public:
             return versionsRequest(query);
         case ProviderCatalogOperation::ThemeSongs:
             return themeSongsRequest(query);
+        case ProviderCatalogOperation::SpecialFeatures:
+            return extrasRequest(query, QStringLiteral("SpecialFeatures"));
+        case ProviderCatalogOperation::LocalTrailers:
+            return extrasRequest(query, QStringLiteral("LocalTrailers"));
         case ProviderCatalogOperation::ThemeSongsCapability:
         case ProviderCatalogOperation::ThemeSongPlayback:
             return unsupported(QStringLiteral("Jellyfin theme songs do not use grants"));
@@ -127,13 +131,23 @@ public:
         }
 
         if (operation == ProviderCatalogOperation::LatestMedia
-            || operation == ProviderCatalogOperation::ResolveLibrary) {
+            || operation == ProviderCatalogOperation::ResolveLibrary
+            || operation == ProviderCatalogOperation::SpecialFeatures
+            || operation == ProviderCatalogOperation::LocalTrailers) {
             if (!document.isArray()) {
                 response.error = QStringLiteral("Jellyfin %1 response must be an array")
                                      .arg(operationName(operation));
                 return response;
             }
             response.rawItems = document.array();
+            if (operation == ProviderCatalogOperation::LocalTrailers) {
+                // Every local trailer is a trailer, whatever ExtraType says.
+                for (qsizetype index = 0; index < response.rawItems.size(); ++index) {
+                    QJsonObject trailer = response.rawItems.at(index).toObject();
+                    trailer.insert(QStringLiteral("ExtraType"), QStringLiteral("Trailer"));
+                    response.rawItems.replace(index, trailer);
+                }
+            }
             response.total = response.rawItems.size();
             response.valid = true;
             return response;
@@ -690,6 +704,21 @@ private:
                                     .arg(qMax(1, query.limit)));
     }
 
+    // GetSpecialFeatures and GetLocalTrailers both answer a bare
+    // BaseItemDto array. Remote trailers (RemoteTrailers) are not extras.
+    static ProviderCatalogRequest extrasRequest(const ProviderCatalogQuery &query,
+                                                const QString &route)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, true, QStringLiteral("extras"));
+        if (!validation.supported) {
+            return validation;
+        }
+        return supportedRequest(QStringLiteral("/Items/%1/%2?userId=%3")
+                                    .arg(encodedPathSegment(query.itemId), route,
+                                         encodedPathSegment(query.userId)));
+    }
+
     static ProviderCatalogRequest nextUnplayedEpisodeRequest(
         const ProviderCatalogQuery &query)
     {
@@ -950,6 +979,8 @@ private:
         case ProviderCatalogOperation::SetWatchlistTitle: return QStringLiteral("watchlist title");
         case ProviderCatalogOperation::MediaRequestBrowseCategories: return QStringLiteral("browse categories");
         case ProviderCatalogOperation::MediaRequestBrowse: return QStringLiteral("browse");
+        case ProviderCatalogOperation::SpecialFeatures: return QStringLiteral("special features");
+        case ProviderCatalogOperation::LocalTrailers: return QStringLiteral("local trailers");
         }
         return QStringLiteral("catalog");
     }

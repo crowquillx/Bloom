@@ -608,6 +608,10 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
                 this, &SeriesDetailsViewModel::onSeriesDetailsLoaded);
         connect(m_libraryService, &LibraryService::canonicalSeriesDetailsNotModified,
                 this, &SeriesDetailsViewModel::onSeriesDetailsNotModified);
+        connect(m_libraryService, &LibraryService::canonicalItemExtrasLoaded,
+                this, &SeriesDetailsViewModel::onExtrasLoaded);
+        connect(m_libraryService, &LibraryService::canonicalItemExtrasFailed,
+                this, &SeriesDetailsViewModel::onExtrasFailed);
         connect(m_libraryService, &LibraryService::canonicalItemsLoadedForConnection,
                 this, &SeriesDetailsViewModel::onItemsLoaded);
         connect(m_libraryService, &LibraryService::canonicalItemsNotModifiedForConnection,
@@ -1071,6 +1075,9 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     m_similarItems.clear();
     m_similarItemsAttempted = false;
     m_similarItemsLoading = false;
+    if (m_extras.clear()) {
+        emit extrasChanged();
+    }
     m_seasonCount = 0;
     m_seriesData = QJsonObject();
 
@@ -1293,6 +1300,26 @@ void SeriesDetailsViewModel::onSeriesDetailsLoaded(const QString &connectionId,
         setLoading(false);
         emit seriesLoaded();
     }
+}
+
+void SeriesDetailsViewModel::onExtrasLoaded(const QString &connectionId,
+                                            const QString &itemId,
+                                            const QVariantList &extras)
+{
+    if (itemId == m_seriesId && m_extras.applyLoaded(connectionId, itemId, extras)) {
+        emit extrasChanged();
+    }
+}
+
+void SeriesDetailsViewModel::onExtrasFailed(const QString &connectionId,
+                                            const QString &itemId,
+                                            const QString &error)
+{
+    if (itemId != m_seriesId) {
+        return;
+    }
+    qCWarning(lcViewModels) << "SeriesDetailsViewModel extras error:" << error;
+    m_extras.applyFailed(connectionId, itemId);
 }
 
 void SeriesDetailsViewModel::onSeriesDetailsNotModified(const QString &connectionId,
@@ -1789,6 +1816,13 @@ void SeriesDetailsViewModel::onFocusedEpisodeChaptersFailed(const QString &conne
 
 void SeriesDetailsViewModel::updateSeriesMetadata(const QVariantMap &data)
 {
+    const ItemExtrasState::LoadResult extras = m_extras.load(m_connectionId, m_seriesId, data);
+    if (extras.changed) {
+        emit extrasChanged();
+    }
+    if (extras.request && m_libraryService) {
+        m_libraryService->getItemExtras(m_seriesId);
+    }
     m_title = data.value(QStringLiteral("name")).toString();
     m_overview = data.value(QStringLiteral("overview")).toString();
     if (m_overview.isEmpty()) {

@@ -156,7 +156,7 @@ Cards are always `MediaCard`:
 | Variant | Size (design units) | Use | Caption |
 |---------|---------------------|-----|---------|
 | `poster` | `posterCardWidth` 268 × 402 (2:3) | Movies, series, seasons, recommendations, search results, library grids | Title + subtitle below the art |
-| `landscape` | `landscapeCardWidth` 456 × 256 (16:9) | Continue Watching, Up Next, episodes, chapters | Title + subtitle on a scrim inside the art, progress along the bottom |
+| `landscape` | `landscapeCardWidth` 456 × 256 (16:9) | Continue Watching, Up Next, episodes, chapters, extras | Title + subtitle on a scrim inside the art, progress along the bottom |
 
 - Cards are separated by `cardGap`.
 - Landscape cards prefer landscape art: series, parent and item thumbs, then
@@ -174,6 +174,17 @@ Cards are always `MediaCard`:
   (`sourceLabel`). Do not stack extra badges on top of a card.
 - People use `PersonCard`. Don't introduce other card shapes without adding
   them to this table.
+
+### Extras shelf
+
+Movie and series pages show an "Extras" shelf of the title's local extras
+(trailers, featurettes, deleted scenes, ...) as landscape cards: the still,
+the extra's title (the kind label when it has none), and `Kind · 2:31` as
+the subtitle. It follows Chapters on a movie and Seasons on a series, and is
+absent when there are no extras. Activating a card plays the extra. When one
+of the extras is a trailer (or else a teaser), the hero adds a secondary
+"Play Trailer" button right after the primary action. Both return focus to
+themselves when the extra ends. Remote (YouTube) trailers are never shown.
 
 ## Grids
 

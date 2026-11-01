@@ -71,6 +71,11 @@ enum class ProviderCatalogOperation {
     // page of a browsed genre, studio, or network.
     MediaRequestBrowseCategories,
     MediaRequestBrowse,
+    // A movie's or series' local extras (Jellyfin special features) and its
+    // local trailers. rawItems holds the wire extras. Providers that return
+    // extras inside the item detail (Silo) leave both unsupported.
+    SpecialFeatures,
+    LocalTrailers,
 };
 
 enum class ProviderHttpMethod {

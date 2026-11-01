@@ -87,6 +87,13 @@ public:
         return SiloModelMapper::chaptersFromItem(wireItem, connectionId, itemId);
     }
 
+    QVariantList mapExtras(const QJsonArray &wireExtras,
+                           const QString &connectionId,
+                           const QString &parentId) const override
+    {
+        return SiloModelMapper::extras(wireExtras, connectionId, parentId);
+    }
+
     bool supportsCapability(ProviderCapability capability) const override
     {
         return implementedCapabilities().testFlag(capability);

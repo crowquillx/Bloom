@@ -82,6 +82,17 @@ public:
     virtual QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
                                              const QString &connectionId,
                                              const QString &itemId) const = 0;
+    /// Canonical local extras (models/MediaExtras.h) of `parentId` from the
+    /// wire extras of a SpecialFeatures or LocalTrailers response.
+    virtual QVariantList mapExtras(const QJsonArray &wireExtras,
+                                   const QString &connectionId,
+                                   const QString &parentId) const
+    {
+        Q_UNUSED(wireExtras)
+        Q_UNUSED(connectionId)
+        Q_UNUSED(parentId)
+        return {};
+    }
 
     // Optional route discovery is explicit. Callers must not interpret an
     // empty URL, empty mapping, or HTTP success as feature support.

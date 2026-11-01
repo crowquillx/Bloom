@@ -611,6 +611,7 @@ private slots:
     void switchPlaybackVersionRestartsAtCurrentPosition();
     void switchPlaybackVersionKeepsQueuedResumePosition();
     void multipartPlaybackPublishesNoVersions();
+    void extraPlaybackStaysOffTheParentTimeline();
     void expiringSessionsDeferLaterMultipartSegments();
     void pausedPlaybackSendsMinuteHeartbeat();
     void inPlaceReloadKeepsHeadersPlaylistAndOrigins();
@@ -3102,6 +3103,76 @@ void PlayerControllerAutoplayContextTest::switchPlaybackVersionKeepsQueuedResume
     controller.m_seekTargetWhileBuffering = -1;
     controller.switchPlaybackVersion(QStringLiteral("b"));
     QCOMPARE(controller.m_pendingPlaybackRequests.constBegin().value().startPositionMs, qint64(600000));
+}
+
+void PlayerControllerAutoplayContextTest::extraPlaybackStaysOffTheParentTimeline()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(true);
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    // A request for an extra drops the series context and the resume point,
+    // even when the caller passes them.
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("extra-1")},
+        {QStringLiteral("contentKind"), QStringLiteral("extra")},
+        {QStringLiteral("seriesId"), QStringLiteral("series-1")},
+        {QStringLiteral("seasonId"), QStringLiteral("season-1")},
+        {QStringLiteral("startPositionMs"), 60000},
+        {QStringLiteral("isMovie"), true},
+        {QStringLiteral("allowVersionPrompt"), false}
+    });
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    const auto pending = controller.m_pendingPlaybackRequests.constBegin().value();
+    QCOMPARE(pending.contentKind, Bloom::PlaybackPolicy::PlaybackContentKind::Extra);
+    QVERIFY(pending.seriesId.isEmpty());
+    QVERIFY(pending.seasonId.isEmpty());
+    QCOMPARE(pending.startPositionMs, qint64(0));
+    controller.m_pendingPlaybackRequests.clear();
+
+    // Finishing an extra past the threshold never resolves a next episode,
+    // and a mid-extra prefetch is never started.
+    controller.m_currentItemId = QStringLiteral("extra-1");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_currentContentKind = Bloom::PlaybackPolicy::PlaybackContentKind::Extra;
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 95.0;
+    controller.m_playbackState = PlayerController::Playing;
+
+    controller.maybeTriggerNextEpisodePrefetch();
+    QCOMPARE(libraryService.requestedSeriesIds.size(), 0);
+
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(!controller.m_shouldAutoplay);
+    QVERIFY(!controller.m_waitingForNextEpisodeAtPlaybackEnd);
+    QVERIFY(controller.m_pendingAutoplayItemId.isEmpty());
+    QCOMPARE(libraryService.requestedSeriesIds.size(), 0);
+
+    // Track picks during an extra are not saved for any scope.
+    controller.m_currentSeriesId.clear();
+    controller.persistAudioPreferenceForCurrentScope(2);
+    controller.persistSubtitlePreferenceForCurrentScope(3);
+    QVERIFY(trackPrefs.getMoviePreferences(QStringLiteral("extra-1")).isEmpty());
+
+    // The same state for a movie saves them.
+    controller.m_currentContentKind = Bloom::PlaybackPolicy::PlaybackContentKind::Feature;
+    controller.persistAudioPreferenceForCurrentScope(2);
+    QVERIFY(!trackPrefs.getMoviePreferences(QStringLiteral("extra-1")).isEmpty());
+    trackPrefs.clearMoviePreferences(QStringLiteral("extra-1"));
 }
 
 void PlayerControllerAutoplayContextTest::multipartPlaybackPublishesNoVersions()

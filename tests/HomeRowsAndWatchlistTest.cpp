@@ -45,6 +45,7 @@ public:
     void getItem(const QString &itemId) override { itemRequests.append(itemId); }
     void getChapters(const QString &) override {}
     void getSimilarItems(const QString &, int) override {}
+    void getItemExtras(const QString &itemId) override { extrasRequests.append(itemId); }
     void getSeriesDetails(const QString &seriesId) override { itemRequests.append(seriesId); }
     void getNextUnplayedEpisode(const QString &, const QString &, const QString &) override {}
 
@@ -80,13 +81,32 @@ public:
     {
         emit canonicalSeriesDetailsLoaded(connectionId, seriesId, data);
     }
+    void loadExtras(const QString &forConnection, const QString &itemId, const QVariantList &extras)
+    {
+        emit canonicalItemExtrasLoaded(forConnection, itemId, extras);
+    }
+    void failExtras(const QString &forConnection, const QString &itemId)
+    {
+        emit canonicalItemExtrasFailed(forConnection, itemId, QStringLiteral("Not Found"));
+    }
 
     QString connectionId = QStringLiteral("connection-1");
     bool watchlist = true;
     int homeRequests = 0;
     QList<WatchlistWrite> writes;
     QStringList itemRequests;
+    QStringList extrasRequests;
 };
+
+QVariantMap extra(const QString &itemId, const QString &kind)
+{
+    return {
+        {QStringLiteral("connectionId"), QStringLiteral("connection-1")},
+        {QStringLiteral("itemId"), itemId},
+        {QStringLiteral("name"), itemId},
+        {QStringLiteral("extraKind"), kind}
+    };
+}
 
 QVariantMap card(const QString &itemId, const QString &mediaType)
 {
@@ -149,6 +169,10 @@ private slots:
     void movieWatchlistIsHiddenWithoutProviderSupport();
     void seriesWatchlistToggleIsOptimisticAndRollsBack();
     void movieLoadIgnoresOtherReadsErrors();
+
+    void movieExtrasComeFromServiceWhenDetailHasNone();
+    void movieExtrasInDetailNeedNoRequest();
+    void seriesExtrasExposeTrailer();
 
 private:
     QTemporaryDir m_configDirectory;
@@ -498,6 +522,112 @@ void HomeRowsAndWatchlistTest::seriesWatchlistToggleIsOptimisticAndRollsBack()
     m_service->confirmWatchlist(QStringLiteral("series-1"), false);
     QVERIFY(!vm.inWatchlist());
     QCOMPARE(failed.count(), 1);
+}
+
+// Jellyfin details carry no extras, so the view model asks for them and
+// applies only the answer for its own connection and item.
+void HomeRowsAndWatchlistTest::movieExtrasComeFromServiceWhenDetailHasNone()
+{
+    // Without a configured connection the movie view model scopes to _local.
+    const QString scope = QStringLiteral("_local");
+    MovieDetailsViewModel vm;
+    QSignalSpy changed(&vm, &MovieDetailsViewModel::extrasChanged);
+    vm.loadMovieDetails(QStringLiteral("movie-extras-1"));
+    m_service->loadMovie(QStringLiteral("movie-extras-1"),
+                         detail(QStringLiteral("movie-extras-1"), QStringLiteral("Movie"), false));
+    QCOMPARE(m_service->extrasRequests, QStringList{QStringLiteral("movie-extras-1")});
+    QVERIFY(vm.extras().isEmpty());
+    QVERIFY(vm.trailer().isEmpty());
+
+    // Refreshed details do not ask twice while the answer is pending.
+    m_service->loadMovie(QStringLiteral("movie-extras-1"),
+                         detail(QStringLiteral("movie-extras-1"), QStringLiteral("Movie"), false));
+    QCOMPARE(m_service->extrasRequests.size(), 1);
+
+    const QVariantList extras{extra(QStringLiteral("featurette-1"), QStringLiteral("featurette")),
+                              extra(QStringLiteral("trailer-1"), QStringLiteral("trailer"))};
+    m_service->loadExtras(QStringLiteral("other-connection"), QStringLiteral("movie-extras-1"), extras);
+    m_service->loadExtras(scope, QStringLiteral("movie-other"), extras);
+    QVERIFY(vm.extras().isEmpty());
+    QCOMPARE(changed.count(), 0);
+
+    m_service->loadExtras(scope, QStringLiteral("movie-extras-1"), extras);
+    QCOMPARE(vm.extras().size(), 2);
+    QCOMPARE(vm.trailer().value(QStringLiteral("itemId")).toString(), QStringLiteral("trailer-1"));
+    QCOMPARE(changed.count(), 1);
+
+    // Clearing for another movie drops the shelf; coming back reuses it.
+    vm.clear();
+    QVERIFY(vm.extras().isEmpty());
+    vm.loadMovieDetails(QStringLiteral("movie-extras-1"));
+    QCOMPARE(vm.extras().size(), 2);
+    QCOMPARE(m_service->extrasRequests.size(), 1);
+
+    // A failed answer keeps the shelf empty and lets a later load ask again.
+    vm.loadMovieDetails(QStringLiteral("movie-extras-2"));
+    m_service->loadMovie(QStringLiteral("movie-extras-2"),
+                         detail(QStringLiteral("movie-extras-2"), QStringLiteral("Movie"), false));
+    QCOMPARE(m_service->extrasRequests.size(), 2);
+    m_service->failExtras(scope, QStringLiteral("movie-extras-2"));
+    QVERIFY(vm.extras().isEmpty());
+    m_service->loadMovie(QStringLiteral("movie-extras-2"),
+                         detail(QStringLiteral("movie-extras-2"), QStringLiteral("Movie"), false));
+    QCOMPARE(m_service->extrasRequests.size(), 3);
+}
+
+// Silo details list their extras; nothing else is requested.
+void HomeRowsAndWatchlistTest::movieExtrasInDetailNeedNoRequest()
+{
+    MovieDetailsViewModel vm;
+    vm.loadMovieDetails(QStringLiteral("movie-silo-1"));
+    QVariantMap data = detail(QStringLiteral("movie-silo-1"), QStringLiteral("Movie"), false);
+    data.insert(QStringLiteral("extras"),
+                QVariantList{extra(QStringLiteral("teaser-1"), QStringLiteral("teaser")),
+                             extra(QStringLiteral("deleted-1"), QStringLiteral("deletedScene"))});
+    m_service->loadMovie(QStringLiteral("movie-silo-1"), data);
+    QVERIFY(m_service->extrasRequests.isEmpty());
+    QCOMPARE(vm.extras().size(), 2);
+    // A teaser stands in when there is no trailer.
+    QCOMPARE(vm.trailer().value(QStringLiteral("itemId")).toString(), QStringLiteral("teaser-1"));
+
+    data.insert(QStringLiteral("extras"),
+                QVariantList{extra(QStringLiteral("deleted-1"), QStringLiteral("deletedScene"))});
+    m_service->loadMovie(QStringLiteral("movie-silo-1"), data);
+    QCOMPARE(vm.extras().size(), 1);
+    QVERIFY(vm.trailer().isEmpty());
+
+    data.insert(QStringLiteral("extras"), QVariantList{});
+    m_service->loadMovie(QStringLiteral("movie-silo-1"), data);
+    QVERIFY(vm.extras().isEmpty());
+    QVERIFY(m_service->extrasRequests.isEmpty());
+}
+
+void HomeRowsAndWatchlistTest::seriesExtrasExposeTrailer()
+{
+    m_service->connectionId.clear();
+    SeriesDetailsViewModel vm;
+    QSignalSpy changed(&vm, &SeriesDetailsViewModel::extrasChanged);
+    vm.loadSeriesDetails(QStringLiteral("series-extras-1"));
+    QVariantMap data = detail(QStringLiteral("series-extras-1"), QStringLiteral("Series"), false);
+    data.insert(QStringLiteral("extras"),
+                QVariantList{extra(QStringLiteral("bts-1"), QStringLiteral("behindTheScenes")),
+                             extra(QStringLiteral("trailer-1"), QStringLiteral("trailer"))});
+    m_service->loadSeries(QStringLiteral("series-extras-1"), data);
+    QVERIFY(m_service->extrasRequests.isEmpty());
+    QCOMPARE(vm.extras().size(), 2);
+    QCOMPARE(vm.trailer().value(QStringLiteral("itemId")).toString(), QStringLiteral("trailer-1"));
+    QCOMPARE(changed.count(), 1);
+
+    // A series whose detail has no extras asks the service.
+    vm.loadSeriesDetails(QStringLiteral("series-extras-2"));
+    QVERIFY(vm.extras().isEmpty());
+    m_service->loadSeries(QStringLiteral("series-extras-2"),
+                          detail(QStringLiteral("series-extras-2"), QStringLiteral("Series"), false));
+    QCOMPARE(m_service->extrasRequests, QStringList{QStringLiteral("series-extras-2")});
+    m_service->loadExtras(QString(), QStringLiteral("series-extras-2"),
+                          {extra(QStringLiteral("clip-1"), QStringLiteral("clip"))});
+    QCOMPARE(vm.extras().size(), 1);
+    QVERIFY(vm.trailer().isEmpty());
 }
 
 QTEST_MAIN(HomeRowsAndWatchlistTest)

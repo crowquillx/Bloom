@@ -1469,7 +1469,8 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
 
     if (reason != TerminalReason::Error) {
         const bool thresholdMet = checkCompletionThresholdAndAutoplay();
-        if (thresholdMet && !m_currentSeriesId.isEmpty()) {
+        if (thresholdMet && !m_currentSeriesId.isEmpty()
+            && PlayerPolicy::playbackContentRules(m_currentContentKind).allowsUpNext) {
             m_shouldAutoplay = true;
             m_waitingForNextEpisodeAtPlaybackEnd = true;
             stashPendingAutoplayContext();
@@ -2670,6 +2671,19 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     pending.preferredAudioIndex = request.value(QStringLiteral("preferredAudioIndex"), -2).toInt();
     pending.preferredSubtitleIndex = request.value(QStringLiteral("preferredSubtitleIndex"), -2).toInt();
     pending.isMovie = request.value(QStringLiteral("isMovie")).toBool();
+    // "contentKind": "extra" plays a trailer or another local extra on its
+    // own: no series context, no resume, no Up Next.
+    pending.contentKind = PlayerPolicy::playbackContentKindFromName(
+        request.value(QStringLiteral("contentKind")).toString());
+    const PlayerPolicy::PlaybackContentRules contentRules =
+        PlayerPolicy::playbackContentRules(pending.contentKind);
+    if (!contentRules.keepsSeriesContext) {
+        pending.seriesId.clear();
+        pending.seasonId.clear();
+    }
+    if (!contentRules.resumesFromRequestedPosition) {
+        pending.startPositionMs = 0;
+    }
     pending.allowVersionPrompt = request.value(QStringLiteral("allowVersionPrompt"), true).toBool();
     pending.useAffinityFallback = request.value(QStringLiteral("useAffinityFallback"), false).toBool();
     // A forced version skips the prompt (in-playback quality switch).
@@ -3129,6 +3143,7 @@ void PlayerController::maybeFinalizePlaybackDescriptors(const QString &requestId
     m_nextPinnedAudioTrack = firstSegment.value(QStringLiteral("pinnedAudioTrack"), -1).toInt();
     m_nextPinnedSubtitleTrack = firstSegment.value(QStringLiteral("pinnedSubtitleTrack"), -1).toInt();
     m_nextPlaybackSegments = segments;
+    m_nextContentKind = request.contentKind;
     m_nextPlaylistAppendUrls.clear();
     for (int index = 1; index < segments.size(); ++index) {
         const QVariantMap segment = segments.at(index).toMap();
@@ -4040,6 +4055,8 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     const int requestedPinnedSubtitleTrack = m_nextPinnedSubtitleTrack;
     const QVariantList requestedPlaybackSegments = m_nextPlaybackSegments;
     const QStringList requestedPlaylistAppendUrls = m_nextPlaylistAppendUrls;
+    const PlayerPolicy::PlaybackContentKind requestedContentKind = m_nextContentKind;
+    m_nextContentKind = PlayerPolicy::PlaybackContentKind::Feature;
     m_nextPlaybackMethod.clear();
     m_nextStreamPinsAudioTrack = false;
     m_nextStreamPinsSubtitleTrack = false;
@@ -4053,7 +4070,8 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
                                  requestedPlayMethod, requestedPinsAudioTrack,
                                  requestedPinsSubtitleTrack, requestedPinnedAudioTrack,
                                  requestedPinnedSubtitleTrack, requestedPlaybackAttemptId,
-                                 requestedPlaybackSegments, requestedPlaylistAppendUrls]() {
+                                 requestedPlaybackSegments, requestedPlaylistAppendUrls,
+                                 requestedContentKind]() {
         // Store pending playback info after the previous item has fully stopped.
         if (m_currentItemId != itemId) {
             m_currentItemId = itemId;
@@ -4062,6 +4080,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_currentSeriesId = seriesId;
         m_currentSeasonId = seasonId;
         m_currentLibraryId = libraryId;
+        m_currentContentKind = requestedContentKind;
         m_pendingUrl = url;
         refreshAdjacentEpisodes();
         m_currentPosition = 0;
@@ -5928,6 +5947,9 @@ int PlayerController::subtitleDelayForScope(const QString &seasonId, const QStri
 
 void PlayerController::persistAudioPreferenceForCurrentScope(int index)
 {
+    if (!PlayerPolicy::playbackContentRules(m_currentContentKind).persistsTrackPreferences) {
+        return;
+    }
     if (!m_currentSeasonId.isEmpty()) {
         setExplicitSeasonAudioPreference(m_currentSeasonId, index);
     } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
@@ -5937,6 +5959,9 @@ void PlayerController::persistAudioPreferenceForCurrentScope(int index)
 
 void PlayerController::persistSubtitlePreferenceForCurrentScope(int index)
 {
+    if (!PlayerPolicy::playbackContentRules(m_currentContentKind).persistsTrackPreferences) {
+        return;
+    }
     if (!m_currentSeasonId.isEmpty()) {
         setExplicitSeasonSubtitlePreference(m_currentSeasonId, index);
     } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
@@ -6304,6 +6329,9 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
  */
 void PlayerController::maybeTriggerNextEpisodePrefetch()
 {
+    if (!PlayerPolicy::playbackContentRules(m_currentContentKind).allowsNextEpisode) {
+        return;
+    }
     if (!PlayerPolicy::shouldPrefetchNextEpisode({
             m_nextEpisodePrefetchRequestedForAttempt,
             m_playbackState == Playing || m_playbackState == Paused,

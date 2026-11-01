@@ -328,6 +328,15 @@ QVariantList AuthenticationService::mapChaptersFromItem(
         : QVariantList{};
 }
 
+QVariantList AuthenticationService::mapExtras(const QJsonArray &wireExtras,
+                                              const QString &connectionId,
+                                              const QString &parentId) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapExtras(wireExtras, connectionId, parentId)
+        : QVariantList{};
+}
+
 QNetworkAccessManager *AuthenticationService::networkManager() const
 {
     return m_transport ? m_transport->networkManager() : nullptr;

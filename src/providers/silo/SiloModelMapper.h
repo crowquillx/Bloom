@@ -47,6 +47,12 @@ public:
     /// names the stored size variant and its content.
     static QString artworkTag(const QString &url);
 
+    // ItemExtraInfo entries of a catalog item detail as canonical extras
+    // (models/MediaExtras.h) of `parentId`. The still is owned by the parent
+    // (ArtworkOwnerKind::Extra), since an extra has no catalog route.
+    static QVariantList extras(const QJsonArray &wireExtras,
+                               const QString &connectionId,
+                               const QString &parentId);
     static QVariantMap chapter(const QJsonObject &wireChapter,
                                const QString &connectionId,
                                const QString &itemId,

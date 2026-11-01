@@ -148,6 +148,38 @@ struct AdjacentEpisodes
 /// First (`fromEnd == false`) or last episode of a season listing.
 [[nodiscard]] QVariantMap boundaryEpisode(const QVariantList &seasonItems, bool fromEnd);
 
+/// What a playback request plays. An extra (trailer, featurette, deleted
+/// scene, ...) is a standalone clip that belongs to a movie or series.
+enum class PlaybackContentKind {
+    Feature,
+    Extra
+};
+
+/// How a playback session may affect state beyond its own item. The player
+/// reports progress only for the item it plays, so an extra never reports
+/// against its parent; these rules keep the client side from tying an extra
+/// to the parent either.
+struct PlaybackContentRules
+{
+    /// Start at the request's position. Extras always start at the beginning.
+    bool resumesFromRequestedPosition = true;
+    /// Keep the request's series and season. Without them an extra has no
+    /// season track scope, adjacent-episode controls, or autoplay series.
+    bool keepsSeriesContext = true;
+    /// Prefetch and resolve the next episode near and at the end.
+    bool allowsNextEpisode = true;
+    /// Completion may lead into autoplay or the Up Next screen.
+    bool allowsUpNext = true;
+    /// In-playback audio and subtitle picks are saved for the scope (and
+    /// may be written back to the server).
+    bool persistsTrackPreferences = true;
+};
+
+/// "extra" means Extra; anything else, including empty, means Feature.
+[[nodiscard]] PlaybackContentKind playbackContentKindFromName(const QString &name);
+[[nodiscard]] QString playbackContentKindName(PlaybackContentKind kind);
+[[nodiscard]] PlaybackContentRules playbackContentRules(PlaybackContentKind kind);
+
 [[nodiscard]] bool meetsCompletionThreshold(const CompletionInput &input);
 [[nodiscard]] bool shouldPrefetchNextEpisode(const PrefetchInput &input);
 [[nodiscard]] bool isUsablePrefetchedEpisode(const PrefetchedEpisodeInput &input);

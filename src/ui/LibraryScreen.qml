@@ -691,6 +691,14 @@ FocusScope {
                 })
             }
 
+            // An extra is not an episode: no series or season context.
+            onExtraPlayRequested: function(request) {
+                root.requestPlaybackWithResolvedLibrary(Object.assign({}, request || {}, {
+                    seriesId: "",
+                    seasonId: ""
+                }))
+            }
+
             onNavigateToEpisode: function(episodeData) {
                 root.saveSeriesDetailsReturnState()
                 showEpisodeDetails(episodeData)

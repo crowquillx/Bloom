@@ -842,6 +842,8 @@ private:
         int preferredAudioIndex = -2;
         int preferredSubtitleIndex = -2;
         bool isMovie = false;
+        Bloom::PlaybackPolicy::PlaybackContentKind contentKind =
+            Bloom::PlaybackPolicy::PlaybackContentKind::Feature;
         bool allowVersionPrompt = true;
         bool useAffinityFallback = false;
         bool awaitingLibraryResolution = false;
@@ -969,6 +971,11 @@ private:
     // Playback Tracking
     QString m_currentItemId;
     QString m_currentSeriesId;  // For autoplay next episode
+    // An extra never leads into autoplay/Up Next or saves track picks.
+    Bloom::PlaybackPolicy::PlaybackContentKind m_currentContentKind =
+        Bloom::PlaybackPolicy::PlaybackContentKind::Feature;
+    Bloom::PlaybackPolicy::PlaybackContentKind m_nextContentKind =
+        Bloom::PlaybackPolicy::PlaybackContentKind::Feature;
     QString m_currentSeasonId;  // For per-season track preferences
     QString m_currentLibraryId; // For profile resolution
     QString m_pendingUrl;

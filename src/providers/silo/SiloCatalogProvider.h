@@ -359,6 +359,10 @@ private:
         case ProviderCatalogOperation::ResolveLibrary:
             return unsupported(QStringLiteral(
                 "Silo catalog resources do not expose an ancestor-to-library resolution route"));
+        case ProviderCatalogOperation::SpecialFeatures:
+        case ProviderCatalogOperation::LocalTrailers:
+            return unsupported(QStringLiteral(
+                "Silo returns local extras in the catalog item detail"));
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }

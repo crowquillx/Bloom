@@ -39,6 +39,11 @@ FocusScope {
         }
         return false
     }
+    // Local extras; Play Trailer shows only when one of them is a trailer.
+    readonly property var extras: MovieDetailsViewModel.extras || []
+    readonly property var trailer: MovieDetailsViewModel.trailer || ({})
+    readonly property bool hasTrailer: !!(trailer && trailer.itemId)
+    readonly property int extraCardImageWidth: Math.round(Theme.landscapeCardWidth * Math.max(2, Screen.devicePixelRatio))
     readonly property var libraryRecommendations: MovieDetailsViewModel.similarItems || []
     readonly property bool libraryRecommendationsLoading: MovieDetailsViewModel.similarItemsLoading
     readonly property bool isLoading: MovieDetailsViewModel.isLoading
@@ -286,6 +291,72 @@ FocusScope {
         root.playRequested(buildPlaybackRequest(startPositionMs, lastPlaybackRestoreFocusTarget))
     }
 
+    function extraKindLabel(kind) {
+        switch (kind) {
+        case "trailer": return qsTr("Trailer")
+        case "teaser": return qsTr("Teaser")
+        case "featurette": return qsTr("Featurette")
+        case "clip": return qsTr("Clip")
+        case "behindTheScenes": return qsTr("Behind the Scenes")
+        case "bloopers": return qsTr("Bloopers")
+        case "deletedScene": return qsTr("Deleted Scene")
+        case "interview": return qsTr("Interview")
+        case "scene": return qsTr("Scene")
+        case "short": return qsTr("Short")
+        default: return qsTr("Extra")
+        }
+    }
+
+    function extraTitle(extra) {
+        return extra && extra.name ? extra.name : extraKindLabel(extra ? extra.extraKind : "")
+    }
+
+    // "Trailer · 2:31"; the kind is left out when it is already the title.
+    function extraSubtitle(extra) {
+        if (!extra) {
+            return ""
+        }
+        const parts = []
+        if (extra.name) {
+            parts.push(extraKindLabel(extra.extraKind))
+        }
+        if (extra.durationMs > 0) {
+            parts.push(formatChapterTime(extra.durationMs / 1000))
+        }
+        return parts.join(" · ")
+    }
+
+    // Extras play on their own: from the start, without the movie's resume
+    // point, track choices or Up Next (PlayerPolicy content rules). In a
+    // merged space the owning connection goes live first.
+    function playExtra(extra, restoreFocusTarget) {
+        if (!extra || !extra.itemId) {
+            return
+        }
+        extrasRouter.run(extra.connectionId, function() {
+            resetPlaybackReturnFocusState()
+            lastPlaybackRestoreFocusTarget = restoreFocusTarget || trailerButton
+            playbackReturnFocusPending = true
+            playbackReturnFocusActivated = false
+            root.playRequested({
+                itemId: extra.itemId,
+                contentKind: "extra",
+                startPositionMs: 0,
+                seriesId: "",
+                seasonId: "",
+                overlayTitle: movieName || qsTr("Now Playing"),
+                overlaySubtitle: extraTitle(extra),
+                overlayBackdropUrl: backdropUrl,
+                overlayLogoUrl: logoUrl,
+                preferredAudioIndex: -2,
+                preferredSubtitleIndex: -2,
+                isMovie: true,
+                allowVersionPrompt: false,
+                restoreFocusTarget: lastPlaybackRestoreFocusTarget
+            })
+        })
+    }
+
     function formatRuntime(ms) {
         if (!ms || ms === 0) return ""
         var totalMinutes = Math.round(ms / 60000)
@@ -373,6 +444,7 @@ FocusScope {
             return "hero"
         }
         if (itemIsDescendant(activeItem, playButton)
+                || itemIsDescendant(activeItem, trailerButton)
                 || itemIsDescendant(activeItem, markWatchedButton)
                 || itemIsDescendant(activeItem, watchlistButton)
                 || itemIsDescendant(activeItem, contextMenuButton)) {
@@ -383,6 +455,9 @@ FocusScope {
         }
         if (itemIsDescendant(activeItem, chapterList)) {
             return "chapters"
+        }
+        if (itemIsDescendant(activeItem, extrasList)) {
+            return "extras"
         }
         if (itemIsDescendant(activeItem, chapterTimeline)) {
             return "chapterTimeline"
@@ -401,10 +476,12 @@ FocusScope {
             if (itemIsDescendant(activeItem, markWatchedButton)) return 1
             if (itemIsDescendant(activeItem, contextMenuButton)) return 2
             if (itemIsDescendant(activeItem, watchlistButton)) return 3
+            if (itemIsDescendant(activeItem, trailerButton)) return 4
             return 0
         }
         if (area === "cast") return Math.max(0, castList.currentIndex)
         if (area === "chapters") return Math.max(0, chapterList.currentIndex)
+        if (area === "extras") return Math.max(0, extrasList.currentIndex)
         if (area === "chapterTimeline") return Math.max(0, chapterTimeline.currentIndex)
         if (area === "libraryRecommendations") return Math.max(0, libraryRecommendationsList.currentIndex)
         return 0
@@ -429,6 +506,8 @@ FocusScope {
                 contextMenuButton.forceActiveFocus()
             } else if (targetIndex === 3 && watchlistButton.visible) {
                 watchlistButton.forceActiveFocus()
+            } else if (targetIndex === 4 && trailerButton.visible) {
+                trailerButton.forceActiveFocus()
             } else {
                 playButton.forceActiveFocus()
             }
@@ -437,6 +516,7 @@ FocusScope {
 
         const lists = {
             "chapters": chapterList,
+            "extras": extrasList,
             "cast": castList,
             "libraryRecommendations": libraryRecommendationsList
         }
@@ -530,6 +610,7 @@ FocusScope {
     function shelfTargets() {
         const targets = []
         if (chapterSection.visible && chapterList.count > 0) targets.push(chapterList)
+        if (extrasSection.visible && extrasList.count > 0) targets.push(extrasList)
         if (castSection.visible && castList.count > 0) targets.push(castList)
         if (libraryRecommendationsSection.visible && libraryRecommendationsList.count > 0)
             targets.push(libraryRecommendationsList)
@@ -820,7 +901,7 @@ FocusScope {
 
                         Accessible.name: text
 
-                        KeyNavigation.right: markWatchedButton
+                        KeyNavigation.right: trailerButton.visible ? trailerButton : markWatchedButton
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
@@ -852,6 +933,50 @@ FocusScope {
                         onClicked: root.startPlaybackWithTracks()
                     }
 
+                    // Plays the movie's local trailer; remote trailers are not offered.
+                    SecondaryActionButton {
+                        id: trailerButton
+                        visible: root.hasTrailer
+                        text: qsTr("Play Trailer")
+                        iconGlyph: Icons.movie
+                        implicitHeight: Theme.buttonHeightHero
+                        labelPixelSize: Theme.fontSizeMedium
+                        iconPixelSize: Theme.iconSizeLarge
+                        sidePadding: Math.round(36 * Theme.layoutScale)
+
+                        KeyNavigation.left: playButton
+                        KeyNavigation.right: markWatchedButton
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root.ensureTopVisible()
+                            }
+                        }
+
+                        Keys.onUpPressed: (event) => root.heroUp(event)
+
+                        Keys.onDownPressed: (event) => {
+                            root.focusFirstLowerSection()
+                            event.accepted = true
+                        }
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: root.playExtra(root.trailer, trailerButton)
+                    }
+
                     SecondaryActionButton {
                         id: markWatchedButton
                         text: isPlayed ? qsTr("Mark Unwatched") : qsTr("Mark Watched")
@@ -861,7 +986,7 @@ FocusScope {
                         iconPixelSize: Theme.iconSizeLarge
                         sidePadding: Math.round(36 * Theme.layoutScale)
 
-                        KeyNavigation.left: playButton
+                        KeyNavigation.left: trailerButton.visible ? trailerButton : playButton
                         KeyNavigation.right: watchlistButton.visible ? watchlistButton : contextMenuButton
 
                         onActiveFocusChanged: {
@@ -1026,6 +1151,61 @@ FocusScope {
                     Keys.onEnterPressed: (event) => {
                         if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < chapters.length)
                             root.startPlaybackWithTracksAt(chapters[currentIndex].startMs || 0, chapterList)
+                        event.accepted = true
+                    }
+                }
+            }
+
+            ColumnLayout {
+                id: extrasSection
+                Layout.fillWidth: true
+                spacing: Theme.sectionTitleSpacing
+                visible: movieId !== "" && extras.length > 0
+
+                SectionHeader {
+                    text: qsTr("Extras")
+                    Layout.leftMargin: Theme.pageMarginX
+                    Layout.rightMargin: Theme.pageMarginX
+                    Layout.fillWidth: true
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
+                }
+
+                ShelfList {
+                    id: extrasList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: implicitHeight
+                    cardHeight: Theme.landscapeCardHeight
+                    model: extras
+
+                    delegate: MediaCard {
+                        required property var modelData
+                        required property int index
+                        variant: "landscape"
+                        artworkSources: [root.artworkUrlFromRef(modelData.primaryArtwork, root.extraCardImageWidth)]
+                        title: root.extraTitle(modelData)
+                        subtitle: root.extraSubtitle(modelData)
+                        placeholderIcon: Icons.movie
+                        focused: ListView.isCurrentItem && ListView.view.activeFocus
+                        onClicked: {
+                            extrasList.currentIndex = index
+                            extrasList.forceActiveFocus()
+                            root.playExtra(modelData, extrasList)
+                        }
+                        Accessible.description: qsTr("Play %1").arg(root.extraTitle(modelData))
+                    }
+
+                    onActiveFocusChanged: if (activeFocus) root.scrollToSection(extrasSection)
+                    Keys.onUpPressed: (event) => { event.accepted = root.moveShelfFocus(extrasList, -1) }
+                    Keys.onDownPressed: (event) => { event.accepted = root.moveShelfFocus(extrasList, 1) }
+                    Keys.onReturnPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < extras.length)
+                            root.playExtra(extras[currentIndex], extrasList)
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < extras.length)
+                            root.playExtra(extras[currentIndex], extrasList)
                         event.accepted = true
                     }
                 }
@@ -1363,6 +1543,11 @@ FocusScope {
     ToastNotification {
         id: playbackToast
         z: 300
+    }
+
+    SourceRouter {
+        id: extrasRouter
+        onFailed: (message) => playbackToast.show(message || qsTr("Couldn't reach the server for this extra."))
     }
 
     Connections {

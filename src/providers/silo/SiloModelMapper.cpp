@@ -1,4 +1,5 @@
 #include "SiloModelMapper.h"
+#include "models/MediaExtras.h"
 
 #include <algorithm>
 #include <QCryptographicHash>
@@ -1410,6 +1411,11 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         }
     }
     result[QStringLiteral("artworkThumbhashes")] = thumbhashes;
+    // Only a catalog item detail carries extras; cards leave the key out.
+    if (wireItem.value(QStringLiteral("extras")).isArray()) {
+        result[QStringLiteral("extras")] =
+            extras(wireItem.value(QStringLiteral("extras")).toArray(), connectionId, itemId);
+    }
     QVariantMap artworkExpiresAt;
     for (const auto &[kind, field] : {
              std::pair{QStringLiteral("primary"),
@@ -1448,6 +1454,66 @@ QVariantList SiloModelMapper::mediaItems(const QJsonArray &wireItems,
         if (!mapped.isEmpty()) {
             result.append(mapped);
         }
+    }
+    return result;
+}
+
+QVariantList SiloModelMapper::extras(const QJsonArray &wireExtras,
+                                     const QString &connectionId,
+                                     const QString &parentId)
+{
+    namespace Extras = Bloom::MediaExtras;
+    // Silo's ExtraKind vocabulary (models.AllExtraKinds); unknown kinds fold
+    // to other, as the server's NormalizeExtraKind does.
+    static const QHash<QString, QString> kinds{
+        {QStringLiteral("trailer"), Extras::kTrailer},
+        {QStringLiteral("teaser"), Extras::kTeaser},
+        {QStringLiteral("featurette"), Extras::kFeaturette},
+        {QStringLiteral("clip"), Extras::kClip},
+        {QStringLiteral("behind_the_scenes"), Extras::kBehindTheScenes},
+        {QStringLiteral("bloopers"), Extras::kBloopers},
+        {QStringLiteral("deleted_scene"), Extras::kDeletedScene},
+        {QStringLiteral("other"), Extras::kOther}};
+
+    QVariantList result;
+    for (qsizetype position = 0; position < wireExtras.size(); ++position) {
+        const QJsonObject wire = wireExtras.at(position).toObject();
+        const QString itemId = identityString(wire.value(QStringLiteral("content_id")));
+        if (itemId.isEmpty()) {
+            continue;
+        }
+        const QJsonValue duration = wire.value(QStringLiteral("duration_seconds"));
+        QVariantMap extra{
+            {QStringLiteral("media"), Bloom::MediaRef{connectionId, itemId}.toVariantMap()},
+            {QStringLiteral("connectionId"), connectionId},
+            {QStringLiteral("itemId"), itemId},
+            {QStringLiteral("parentId"), parentId},
+            {QStringLiteral("name"), wire.value(QStringLiteral("title")).toString().trimmed()},
+            {QStringLiteral("extraKind"),
+             kinds.value(wire.value(QStringLiteral("kind")).toString(), Extras::kOther)},
+            {QStringLiteral("durationMs"),
+             duration.isDouble() && duration.toDouble() > 0
+                 && secondsToMillisecondsRepresentable(duration.toDouble())
+                 ? secondsToMilliseconds(duration.toDouble()) : qint64(0)},
+            // ItemExtraInfo.file_id is an int64, unlike the string file IDs
+            // elsewhere in v2; Bloom keeps it as its decimal string.
+            {QStringLiteral("fileId"),
+             wire.value(QStringLiteral("file_id")).isDouble()
+                 ? QString::number(wire.value(QStringLiteral("file_id")).toInteger())
+                 : identityString(wire.value(QStringLiteral("file_id")))}
+        };
+        QVariantList artwork;
+        appendArtwork(artwork, extra, QStringLiteral("primaryArtwork"),
+                      QStringLiteral("primaryArtworkUrl"), connectionId, parentId,
+                      Bloom::ArtworkKind::Primary,
+                      wire.value(QStringLiteral("still_url")).toString(),
+                      static_cast<int>(position), Bloom::ArtworkOwnerKind::Extra);
+        if (!artwork.isEmpty()) {
+            extra[QStringLiteral("artwork")] = artwork;
+            extra[QStringLiteral("artworkThumbhashes")] = QVariantMap{
+                {QStringLiteral("poster"), wire.value(QStringLiteral("still_thumbhash")).toString()}};
+        }
+        result.append(extra);
     }
     return result;
 }

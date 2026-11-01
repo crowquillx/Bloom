@@ -308,6 +308,25 @@ QString refreshedSource(const QByteArray &payload,
         }
         return chapterSource(
             unwrappedObject(document.object(), QStringLiteral("item")), artwork);
+    case Bloom::ArtworkOwnerKind::Extra: {
+        if (!document.isObject() || artwork.kind != Bloom::ArtworkKind::Primary) {
+            return {};
+        }
+        // The parent's detail lists its extras. The still whose path still
+        // matches wins; otherwise the extra at the same position.
+        const QJsonArray extras =
+            unwrappedObject(document.object(), QStringLiteral("item"))
+                .value(QStringLiteral("extras")).toArray();
+        for (const QJsonValue &value : extras) {
+            const QString still = value.toObject().value(QStringLiteral("still_url")).toString();
+            if (!still.isEmpty() && SiloModelMapper::artworkTag(still) == artwork.tag) {
+                return still;
+            }
+        }
+        return artwork.index < extras.size()
+            ? extras.at(artwork.index).toObject().value(QStringLiteral("still_url")).toString()
+            : QString();
+    }
     case Bloom::ArtworkOwnerKind::MediaItem: {
         if (!document.isObject()) {
             return {};
@@ -345,6 +364,11 @@ QString refreshEndpoint(const Bloom::ArtworkRef &artwork)
     case Bloom::ArtworkOwnerKind::Chapter:
         return artwork.kind == Bloom::ArtworkKind::Chapter
             ? QStringLiteral("/api/v2/catalog/items/%1").arg(encodedIdentity(artwork.itemId))
+            : QString();
+    case Bloom::ArtworkOwnerKind::Extra:
+        return artwork.kind == Bloom::ArtworkKind::Primary
+            ? SiloArtworkSizes::withWidths(
+                  QStringLiteral("/api/v2/catalog/items/%1").arg(encodedIdentity(artwork.itemId)))
             : QString();
     case Bloom::ArtworkOwnerKind::MediaItem:
         switch (artwork.kind) {

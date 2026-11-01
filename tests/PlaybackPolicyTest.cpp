@@ -81,6 +81,7 @@ private slots:
     void selectsVersionsByForcedIdAndAffinity();
     void ranksVersionsByPreference();
     void filtersMultipartSourcesAndBuildsSubtitles();
+    void extrasPlayAloneWithoutTouchingTheParent();
     void evaluatesCompletionAndPrefetchThresholds();
     void validatesPrefetchedEpisodesAndContexts();
     void classifiesEndFileReasons();
@@ -491,6 +492,41 @@ void PlaybackPolicyTest::filtersMultipartSourcesAndBuildsSubtitles()
     source.insert(QStringLiteral("bitRate"), 25000000);
     QCOMPARE(PlayerPolicy::buildVersionSubtitle(source),
              QStringLiteral("3840x2160 • HDR10 • HEVC • Main 10 • MKV • 25.0 Mbps"));
+}
+
+void PlaybackPolicyTest::extrasPlayAloneWithoutTouchingTheParent()
+{
+    using PlayerPolicy::PlaybackContentKind;
+    QCOMPARE(PlayerPolicy::playbackContentKindFromName(QStringLiteral("extra")),
+             PlaybackContentKind::Extra);
+    QCOMPARE(PlayerPolicy::playbackContentKindFromName(QStringLiteral(" Extra ")),
+             PlaybackContentKind::Extra);
+    QCOMPARE(PlayerPolicy::playbackContentKindFromName(QString()), PlaybackContentKind::Feature);
+    QCOMPARE(PlayerPolicy::playbackContentKindFromName(QStringLiteral("trailer")),
+             PlaybackContentKind::Feature);
+    QCOMPARE(PlayerPolicy::playbackContentKindName(PlaybackContentKind::Extra),
+             QStringLiteral("extra"));
+    QCOMPARE(PlayerPolicy::playbackContentKindName(PlaybackContentKind::Feature),
+             QStringLiteral("feature"));
+
+    // Movies and episodes keep every behaviour.
+    const PlayerPolicy::PlaybackContentRules feature =
+        PlayerPolicy::playbackContentRules(PlaybackContentKind::Feature);
+    QVERIFY(feature.resumesFromRequestedPosition);
+    QVERIFY(feature.keepsSeriesContext);
+    QVERIFY(feature.allowsNextEpisode);
+    QVERIFY(feature.allowsUpNext);
+    QVERIFY(feature.persistsTrackPreferences);
+
+    // An extra starts at zero, drops the series context, never leads into
+    // the next episode or Up Next, and saves no track choices.
+    const PlayerPolicy::PlaybackContentRules extra =
+        PlayerPolicy::playbackContentRules(PlaybackContentKind::Extra);
+    QVERIFY(!extra.resumesFromRequestedPosition);
+    QVERIFY(!extra.keepsSeriesContext);
+    QVERIFY(!extra.allowsNextEpisode);
+    QVERIFY(!extra.allowsUpNext);
+    QVERIFY(!extra.persistsTrackPreferences);
 }
 
 void PlaybackPolicyTest::evaluatesCompletionAndPrefetchThresholds()
