@@ -132,6 +132,7 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `DialogSurface` / `ModalScrim` | `Dialog`/`Popup` background and `Overlay.modal`. |
 | `ModalFocusGuard` | Keeps focus inside an open modal `Dialog` when the page behind it restores focus late (`popup`, optional `fallbackItem`). |
 | `BloomMenu` / `BloomMenuItem` | Context menus and submenus (`iconGlyph`, `destructive`, `marked`). |
+| `ToastNotification` | Brief message at the bottom of its parent (`show(text)`); `showWithAction(text, actionText)` adds a pointer-only button (`actionTriggered`), and `dismissed` fires when it goes away. Offer the same action somewhere focusable. |
 | `BloomCheckIndicator` | Check box indicator for `CheckBox`/`CheckDelegate`. |
 | `FieldBackground` | Text field and combo box backgrounds with focus and error states. |
 | `SectionHeader` | Page/section/group headers with optional detail text. |

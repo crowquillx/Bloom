@@ -39,6 +39,7 @@
 #include "security/CredentialStore.h"
 #include "security/ISecretStore.h"
 #include "utils/ConfigManager.h"
+#include "viewmodels/ContinueWatchingViewModel.h"
 
 namespace {
 
@@ -182,6 +183,8 @@ struct RecordedRequest {
     QString parentId;
     QNetworkAccessManager::Operation operation = QNetworkAccessManager::GetOperation;
     QUrlQuery query;
+    // Bodies of Home card writes only.
+    QByteArray body;
 };
 
 // Answers Jellyfin session validation and /UserViews per access token, so a
@@ -290,6 +293,19 @@ protected:
             auto *reply = new FakeReply(request, 204, {}, this);
             reply->onAbort = [this]() { ++abortedLogouts; };
             return reply;
+        }
+        // Home card writes: Silo dismissals and Jellyfin user data.
+        if ((operation == PutOperation || operation == DeleteOperation)
+            && url.path().startsWith(QStringLiteral("/api/v2/home/dismissals/"))) {
+            requests.last().body = outgoingData ? outgoingData->readAll() : QByteArray();
+            return new FakeReply(request, 204, {}, this);
+        }
+        if (operation == PostOperation && url.path().startsWith(QStringLiteral("/UserItems/"))
+            && url.path().endsWith(QStringLiteral("/UserData"))) {
+            requests.last().body = outgoingData ? outgoingData->readAll() : QByteArray();
+            return new FakeReply(request, 200,
+                                 QByteArrayLiteral(R"({"PlaybackPositionTicks":0,"Played":false})"),
+                                 this);
         }
         if (url.path() == QStringLiteral("/api/v2/account/me")) {
             return new FakeReply(request, 200,
@@ -633,6 +649,7 @@ private slots:
     void jellyfinHomeReusesLastCategoriesOfFailedLibrary();
     void mergedNextUpAddsEachJellyfinMembersResumeList();
     void olderNextUpRefreshNeverPublishesAfterNewerOne();
+    void homeCardWritesReachTheOwningMember();
 
 private:
     void seedAccounts();
@@ -2672,4 +2689,89 @@ void WorkspaceRoutingTest::olderNextUpRefreshNeverPublishesAfterNewerOne()
 }
 
 QTEST_GUILESS_MAIN(WorkspaceRoutingTest)
+void WorkspaceRoutingTest::homeCardWritesReachTheOwningMember()
+{
+    QVERIFY(!createSiloMergedWorkspace().isEmpty());
+    QTRY_VERIFY(m_auth->hasSessionForConnection(QStringLiteral("erin")));
+    LibraryService library(m_auth.get());
+    ContinueWatchingViewModel shelves(&library);
+
+    // A merged Home offers each card what its own provider can do, whichever
+    // member is live (alice, Jellyfin).
+    QCOMPARE(m_auth->activeConnectionId(), QStringLiteral("alice"));
+    QVERIFY(library.homeCardCapabilities(QStringLiteral("erin")).dismissals);
+    QVERIFY(!library.homeCardCapabilities(QStringLiteral("erin")).resumeReset);
+    QVERIFY(!library.homeCardCapabilities(QStringLiteral("alice")).dismissals);
+    QVERIFY(library.homeCardCapabilities(QStringLiteral("alice")).resumeReset);
+
+    const QVariantMap erinCard{
+        {QStringLiteral("connectionId"), QStringLiteral("erin")},
+        {QStringLiteral("itemId"), QStringLiteral("movie:heat")},
+        {QStringLiteral("name"), QStringLiteral("Heat")},
+        {QStringLiteral("mediaType"), QStringLiteral("Movie")},
+        {QStringLiteral("positionMs"), 60000},
+        {QStringLiteral("progressUpdatedAt"), QStringLiteral("2026-10-30T20:15:00.000Z")}};
+    const QVariantMap aliceCard{
+        {QStringLiteral("connectionId"), QStringLiteral("alice")},
+        {QStringLiteral("itemId"), QStringLiteral("m1")},
+        {QStringLiteral("name"), QStringLiteral("Ronin")},
+        {QStringLiteral("mediaType"), QStringLiteral("Movie")},
+        {QStringLiteral("positionMs"), 60000}};
+    shelves.setItems({erinCard, aliceCard});
+
+    const auto writesSince = [this](qsizetype from) {
+        QList<RecordedRequest> writes;
+        for (qsizetype i = from; i < m_servers->requests.size(); ++i) {
+            const RecordedRequest &request = m_servers->requests.at(i);
+            if (request.path.startsWith(QStringLiteral("/api/v2/home/dismissals/"))
+                || request.path.endsWith(QStringLiteral("/UserData"))) {
+                writes.append(request);
+            }
+        }
+        return writes;
+    };
+
+    // Unrouted, erin's card is refused: alice's session never carries it.
+    QSignalSpy failed(&shelves, &ContinueWatchingViewModel::actionFailed);
+    qsizetype first = m_servers->requests.size();
+    QVERIFY(!shelves.trigger(QStringLiteral("remove"), erinCard));
+    QCOMPARE(failed.count(), 1);
+    QVERIFY(writesSince(first).isEmpty());
+
+    QSignalSpy ready(m_workspaces.get(), &WorkspaceController::routeReady);
+    QVERIFY(!m_workspaces->routeTo(QStringLiteral("erin")));
+    QTRY_COMPARE(ready.count(), 1);
+    QSignalSpy offered(&shelves, &ContinueWatchingViewModel::undoOffered);
+    first = m_servers->requests.size();
+    QVERIFY(shelves.trigger(QStringLiteral("remove"), erinCard));
+    QTRY_COMPARE(offered.count(), 1);
+    QList<RecordedRequest> writes = writesSince(first);
+    QCOMPARE(writes.size(), 1);
+    QCOMPARE(writes.first().host, QStringLiteral("silo.test"));
+    QCOMPARE(writes.first().token, QStringLiteral("erin-a1"));
+    QCOMPARE(writes.first().operation, QNetworkAccessManager::PutOperation);
+    QCOMPARE(writes.first().path,
+             QStringLiteral("/api/v2/home/dismissals/continue_watching/movie:heat"));
+    QCOMPARE(QJsonDocument::fromJson(writes.first().body).object()
+                 .value(QStringLiteral("progress_updated_at")).toString(),
+             QStringLiteral("2026-10-30T20:15:00.000Z"));
+
+    // Back on alice, her card clears its resume position on her server.
+    QVERIFY(!m_workspaces->routeTo(QStringLiteral("alice")));
+    QTRY_COMPARE(ready.count(), 2);
+    QSignalSpy refresh(&shelves, &ContinueWatchingViewModel::refreshRequested);
+    first = m_servers->requests.size();
+    QVERIFY(shelves.trigger(QStringLiteral("remove"), aliceCard));
+    QTRY_COMPARE(refresh.count(), 1);
+    writes = writesSince(first);
+    QCOMPARE(writes.size(), 1);
+    QCOMPARE(writes.first().host, QStringLiteral("media.test"));
+    QCOMPARE(writes.first().token, QStringLiteral("token-alice"));
+    QCOMPARE(writes.first().operation, QNetworkAccessManager::PostOperation);
+    QCOMPARE(writes.first().path, QStringLiteral("/UserItems/m1/UserData"));
+    QCOMPARE(QJsonDocument::fromJson(writes.first().body).object(),
+             QJsonObject({{QStringLiteral("PlaybackPositionTicks"), 0}}));
+    QVERIFY(shelves.items().isEmpty());
+}
+
 #include "WorkspaceRoutingTest.moc"

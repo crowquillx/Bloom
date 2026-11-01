@@ -228,6 +228,7 @@ private:
         capabilities |= ProviderCapability::MediaRequests;
         capabilities |= ProviderCapability::NotInterested;
         capabilities |= ProviderCapability::AiringCalendar;
+        capabilities |= ProviderCapability::HomeDismissals;
         return capabilities;
     }
 

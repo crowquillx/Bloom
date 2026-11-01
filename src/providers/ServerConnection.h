@@ -60,7 +60,10 @@ enum class ProviderCapability {
     LibrarySections = 1 << 18,
     // ProviderCatalogOperation::MovieRecommendations: personalised movie
     // rows per library (Jellyfin).
-    MovieRecommendations = 1 << 19
+    MovieRecommendations = 1 << 19,
+    // ProviderCatalogOperation::SetHomeDismissal hides a card from
+    // Continue Watching or Next Up and can undo it (Silo).
+    HomeDismissals = 1 << 20
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

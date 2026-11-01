@@ -210,6 +210,9 @@ private slots:
     void homeSectionsCapRowsOnlyWhenTheServerAcceptsIt();
     void homeSectionsServiceReportsFailure();
     void watchlistWritesReportSuccessAndFailure();
+    void homeDismissalRequestsCarryTheirAnchor();
+    void homeDismissalWritesReportSuccessAndFailure();
+    void homeCardCapabilitiesFollowTheCardsProvider();
     void jellyfinHasNoWatchlistOrCuratedRows();
     void jellyfinItemExtrasPutTrailersFirstAndFlagPartialAnswers();
     void siloItemExtrasAnswerEmptyWithoutRequests();
@@ -2189,6 +2192,170 @@ void SiloCatalogServiceTest::watchlistWritesReportSuccessAndFailure()
     QCOMPARE(changed.count(), 2);
     // A 404 is not replayed.
     QCOMPARE(manager.requests.size(), firstRequest + 3);
+}
+
+void SiloCatalogServiceTest::homeDismissalRequestsCarryTheirAnchor()
+{
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery query;
+    query.itemId = QStringLiteral("episode:severance/1/2");
+    query.homeSurface = QStringLiteral("continue_watching");
+    query.progressUpdatedAt = QStringLiteral("2026-10-30T20:15:00.000Z");
+    query.seriesId = QStringLiteral("series:severance");
+    query.stateValue = true;
+
+    // dismissHomeItem: PUT with the card's progress stamp only. The route is
+    // natural_idempotent, so a lost response may be replayed.
+    ProviderCatalogRequest request =
+        provider.createRequest(ProviderCatalogOperation::SetHomeDismissal, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Put);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint,
+             QStringLiteral("/api/v2/home/dismissals/continue_watching/episode%3Aseverance%2F1%2F2"));
+    QCOMPARE(QJsonDocument::fromJson(request.body).object(),
+             QJsonObject({{QStringLiteral("progress_updated_at"),
+                           QStringLiteral("2026-10-30T20:15:00.000Z")}}));
+
+    // Next Up anchors on the series.
+    query.homeSurface = QStringLiteral("next_up");
+    request = provider.createRequest(ProviderCatalogOperation::SetHomeDismissal, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.relativeEndpoint,
+             QStringLiteral("/api/v2/home/dismissals/next_up/episode%3Aseverance%2F1%2F2"));
+    QCOMPARE(QJsonDocument::fromJson(request.body).object(),
+             QJsonObject({{QStringLiteral("series_id"), QStringLiteral("series:severance")}}));
+
+    // undismissHomeItem: DELETE without a body, also natural_idempotent.
+    query.stateValue = false;
+    request = provider.createRequest(ProviderCatalogOperation::SetHomeDismissal, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Delete);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QVERIFY(request.body.isEmpty());
+
+    // A dismissal without its anchor, surface or item is not sent.
+    query.stateValue = true;
+    query.seriesId.clear();
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::SetHomeDismissal, query).supported);
+    query.homeSurface = QStringLiteral("continue_watching");
+    query.progressUpdatedAt.clear();
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::SetHomeDismissal, query).supported);
+    query.progressUpdatedAt = QStringLiteral("2026-10-30T20:15:00.000Z");
+    query.homeSurface = QStringLiteral("recently_added");
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::SetHomeDismissal, query).supported);
+    query.homeSurface = QStringLiteral("continue_watching");
+    query.itemId.clear();
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::SetHomeDismissal, query).supported);
+    QVERIFY(provider.parseResponse(ProviderCatalogOperation::SetHomeDismissal, {}).valid);
+    // Silo hides cards with dismissals; it never clears a resume position.
+    query.itemId = QStringLiteral("movie:heat-1995");
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::ClearResumePosition, query).supported);
+
+    // Cards carry their progress stamp verbatim for the dismissal body.
+    const QVariantMap card = SiloModelMapper::mediaItem(
+        QJsonObject{{QStringLiteral("content_id"), QStringLiteral("movie:heat-1995")},
+                    {QStringLiteral("type"), QStringLiteral("movie")},
+                    {QStringLiteral("title"), QStringLiteral("Heat")},
+                    {QStringLiteral("position_seconds"), 600},
+                    {QStringLiteral("progress_updated_at"),
+                     QStringLiteral("2026-10-30T20:15:00.000Z")}},
+        QStringLiteral("silo"));
+    QCOMPARE(card.value(QStringLiteral("progressUpdatedAt")).toString(),
+             QStringLiteral("2026-10-30T20:15:00.000Z"));
+    const QVariantMap unstamped = SiloModelMapper::mediaItem(
+        QJsonObject{{QStringLiteral("content_id"), QStringLiteral("movie:heat-1995")},
+                    {QStringLiteral("type"), QStringLiteral("movie")},
+                    {QStringLiteral("title"), QStringLiteral("Heat")}},
+        QStringLiteral("silo"));
+    QVERIFY(!unstamped.contains(QStringLiteral("progressUpdatedAt")));
+}
+
+void SiloCatalogServiceTest::homeDismissalWritesReportSuccessAndFailure()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QSignalSpy finished(&service, &LibraryService::homeCardWriteFinished);
+
+    manager.responses = { { 204, QByteArray(), false }, { 204, QByteArray(), false } };
+    const qsizetype firstRequest = manager.requests.size();
+    service.setHomeItemDismissed(QStringLiteral("key-1"), QStringLiteral("continue_watching"),
+                                 QStringLiteral("movie:heat-1995"), QString(),
+                                 QStringLiteral("2026-10-30T20:15:00.000Z"), true);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 1000);
+    QCOMPARE(finished.first().at(1).toString(), QStringLiteral("key-1"));
+    QVERIFY(finished.first().at(2).toBool());
+    const RecordedRequest dismiss = manager.requests.at(firstRequest);
+    QCOMPARE(dismiss.operation, QNetworkAccessManager::PutOperation);
+    QCOMPARE(dismiss.request.url().path(),
+             QStringLiteral("/api/v2/home/dismissals/continue_watching/movie:heat-1995"));
+    QCOMPARE(dismiss.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
+    QCOMPARE(dismiss.request.rawHeader("Authorization"), QByteArrayLiteral("Bearer access-1"));
+    QCOMPARE(QJsonDocument::fromJson(dismiss.body).object()
+                 .value(QStringLiteral("progress_updated_at")).toString(),
+             QStringLiteral("2026-10-30T20:15:00.000Z"));
+
+    service.setHomeItemDismissed(QStringLiteral("key-2"), QStringLiteral("continue_watching"),
+                                 QStringLiteral("movie:heat-1995"), QString(), QString(), false);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 2, 1000);
+    QCOMPARE(finished.at(1).at(1).toString(), QStringLiteral("key-2"));
+    QCOMPARE(manager.requests.at(firstRequest + 1).operation,
+             QNetworkAccessManager::DeleteOperation);
+
+    manager.responses = {
+        { 404, QByteArrayLiteral(R"({"type":"about:blank","title":"Not Found","status":404})"), false }
+    };
+    service.setHomeItemDismissed(QStringLiteral("key-3"), QStringLiteral("next_up"),
+                                 QStringLiteral("episode:gone"), QStringLiteral("series:gone"),
+                                 QString(), true);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 3, 1000);
+    QCOMPARE(finished.at(2).at(1).toString(), QStringLiteral("key-3"));
+    QVERIFY(!finished.at(2).at(2).toBool());
+    QVERIFY(!finished.at(2).at(3).toString().isEmpty());
+    // A refusal is not replayed.
+    QCOMPARE(manager.requests.size(), firstRequest + 3);
+
+    // A dismissal the provider cannot build answers at once, unsent.
+    service.setHomeItemDismissed(QStringLiteral("key-4"), QStringLiteral("next_up"),
+                                 QStringLiteral("episode:x"), QString(), QString(), true);
+    QCOMPARE(finished.count(), 4);
+    QVERIFY(!finished.at(3).at(2).toBool());
+    QCOMPARE(manager.requests.size(), firstRequest + 3);
+}
+
+void SiloCatalogServiceTest::homeCardCapabilitiesFollowTheCardsProvider()
+{
+    SiloProviderAdapter silo;
+    JellyfinProviderAdapter jellyfin;
+    QVERIFY(silo.supportsCapability(ProviderCapability::HomeDismissals));
+    QVERIFY(!silo.supportsCapability(ProviderCapability::ResumeItems));
+    QVERIFY(!jellyfin.supportsCapability(ProviderCapability::HomeDismissals));
+    QVERIFY(jellyfin.supportsCapability(ProviderCapability::ResumeItems));
+
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    ExposedAuthenticationService auth(&transport, &silo);
+    QVERIFY(signInToSilo(manager, auth, config));
+    LibraryService service(&auth);
+    const HomeCardCapabilities live = service.homeCardCapabilities(auth.activeConnectionId());
+    QVERIFY(live.dismissals);
+    QVERIFY(!live.resumeReset);
+    QVERIFY(live.watchlist);
+    const HomeCardCapabilities unknown = service.homeCardCapabilities(QStringLiteral("nowhere"));
+    QVERIFY(!unknown.dismissals && !unknown.resumeReset && !unknown.watchlist);
 }
 
 void SiloCatalogServiceTest::jellyfinHasNoWatchlistOrCuratedRows()

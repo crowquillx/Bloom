@@ -1375,6 +1375,13 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("subtitles"), subtitles(wireItem.value(QStringLiteral("subtitles")).toArray())},
         {QStringLiteral("markers"), markerVariants(wireItem)}
     };
+    // A Continue Watching card's progress stamp, verbatim: hiding the card
+    // sends it back and the server compares it with its own.
+    const QString progressUpdatedAt =
+        wireItem.value(QStringLiteral("progress_updated_at")).toString();
+    if (!progressUpdatedAt.isEmpty()) {
+        result[QStringLiteral("progressUpdatedAt")] = progressUpdatedAt;
+    }
     if (wireItem.value(QStringLiteral("reason")).isString()) {
         result[QStringLiteral("recommendationReason")] =
             wireItem.value(QStringLiteral("reason")).toString();

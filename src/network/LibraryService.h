@@ -34,6 +34,17 @@ enum class ServerReachability {
     Unreachable
 };
 
+// What a Home card's actions can do on one connection (its provider).
+struct HomeCardCapabilities {
+    // Hide a card from Continue Watching or Next Up, with undo (Silo).
+    bool dismissals = false;
+    // Zero a resume position so the card leaves Continue Watching
+    // (providers with a separate resume list, Jellyfin).
+    bool resumeReset = false;
+    // A watchlist distinct from favorites (Silo).
+    bool watchlist = false;
+};
+
 struct LibraryItemQuery {
     QString parentId;
     int startIndex = 0;
@@ -195,6 +206,22 @@ public:
                                      const QString &seriesId,
                                      const QDateTime &now);
     Q_INVOKABLE virtual void getThemeSongs(const QString &seriesId);
+
+    // Home card writes. Capabilities are read from the provider of
+    // connectionId, which may be a merged member that is not live; the
+    // writes run on the live connection, so callers route first. Each
+    // write answers once with homeCardWriteFinished(requestKey).
+    virtual HomeCardCapabilities homeCardCapabilities(const QString &connectionId) const;
+    // Hides a card from (dismissed) or shows it again on a Home surface,
+    // "continue_watching" or "next_up" (ProviderCapability::HomeDismissals).
+    virtual void setHomeItemDismissed(const QString &requestKey,
+                                      const QString &surface,
+                                      const QString &itemId,
+                                      const QString &seriesId,
+                                      const QString &progressUpdatedAt,
+                                      bool dismissed);
+    // Zeroes the resume position without changing the played state.
+    virtual void clearResumePosition(const QString &requestKey, const QString &itemId);
 
     // Server-side media requests, for providers with
     // ProviderCapability::MediaRequests (Silo). The handler receives the
@@ -423,6 +450,14 @@ signals:
     void notInterestedStatusChanged(const QString &itemId, bool notInterested);
     void notInterestedStatusFailed(const QString &itemId, bool notInterested, const QString &error);
     void nextAiringLoaded(const QString &seriesId, const QVariantMap &airing);
+    // markItemPlayed/markItemUnplayed and the favorite writes were refused
+    // or never reached the server.
+    void itemPlayedStatusFailed(const QString &itemId, bool isPlayed, const QString &error);
+    void favoriteStatusFailed(const QString &itemId, bool isFavorite, const QString &error);
+    void homeCardWriteFinished(const QString &connectionId,
+                               const QString &requestKey,
+                               bool succeeded,
+                               const QString &error);
     void canonicalHomeSectionsLoaded(const QString &connectionId, const QVariantList &sections);
     void canonicalHomeSectionsFailed(const QString &connectionId, const QString &error);
     void canonicalLibrarySectionsLoaded(const QString &connectionId,

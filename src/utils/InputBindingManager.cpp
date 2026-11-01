@@ -86,6 +86,7 @@ void InputBindingManager::initializeActions()
     add("nav.right", "navigation", tr("Right"), tr("Move focus right"), {keyBinding(Qt::Key_Right)}, {"gamepad:dpad_right", "gamepad:left_stick_right"});
     add("nav.select", "navigation", tr("Select"), tr("Activate focused item"), {keyBinding(Qt::Key_Return), keyBinding(Qt::Key_Enter), keyBinding(Qt::Key_Space)}, {"gamepad:a"});
     add("nav.back", "navigation", tr("Back"), tr("Dismiss or go back"), {keyBinding(Qt::Key_Escape)}, {"gamepad:b"});
+    add("nav.menu", "navigation", tr("Actions"), tr("Open the focused card's actions menu"), {keyBinding(Qt::Key_Menu), keyBinding(Qt::Key_F10, Qt::ShiftModifier)}, {"gamepad:start"});
 
     add("playback.navigateUp", "playback", tr("Up"), tr("Move playback focus up"), {}, {"gamepad:dpad_up", "gamepad:left_stick_up"});
     add("playback.navigateDown", "playback", tr("Down"), tr("Move playback focus down"), {}, {"gamepad:dpad_down", "gamepad:left_stick_down"});
@@ -481,6 +482,7 @@ void InputBindingManager::dispatchAction(const QString &actionId, const QString 
     else if (actionId == "nav.right") postKey(Qt::Key_Right);
     else if (actionId == "nav.select") postKey(Qt::Key_Return);
     else if (actionId == "nav.back") postKey(Qt::Key_Escape);
+    else if (actionId == "nav.menu") postKey(Qt::Key_Menu);
     emit actionTriggered(actionId);
     emit actionTriggeredWithContext(actionId, runtimeContext);
 }

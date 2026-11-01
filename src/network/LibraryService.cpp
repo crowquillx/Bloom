@@ -1425,6 +1425,9 @@ void LibraryService::markItemPlayed(const QString &itemId)
         query,
         [this, itemId](const ProviderCatalogResponse &) {
             emit itemPlayedStatusChanged(itemId, true);
+        },
+        [this, itemId](const NetworkError &error) {
+            emit itemPlayedStatusFailed(itemId, true, error.userMessage);
         });
 }
 
@@ -1439,6 +1442,9 @@ void LibraryService::markItemUnplayed(const QString &itemId)
         query,
         [this, itemId](const ProviderCatalogResponse &) {
             emit itemPlayedStatusChanged(itemId, false);
+        },
+        [this, itemId](const NetworkError &error) {
+            emit itemPlayedStatusFailed(itemId, false, error.userMessage);
         });
 }
 
@@ -1453,6 +1459,9 @@ void LibraryService::markItemFavorite(const QString &itemId)
         query,
         [this, itemId](const ProviderCatalogResponse &) {
             emit favoriteStatusChanged(itemId, true);
+        },
+        [this, itemId](const NetworkError &error) {
+            emit favoriteStatusFailed(itemId, true, error.userMessage);
         });
 }
 
@@ -1467,6 +1476,9 @@ void LibraryService::markItemUnfavorite(const QString &itemId)
         query,
         [this, itemId](const ProviderCatalogResponse &) {
             emit favoriteStatusChanged(itemId, false);
+        },
+        [this, itemId](const NetworkError &error) {
+            emit favoriteStatusFailed(itemId, false, error.userMessage);
         });
 }
 
@@ -1720,6 +1732,63 @@ QVariantMap LibraryService::nextAiringFor(const QVariantList &airings,
         }
     }
     return best;
+}
+
+HomeCardCapabilities LibraryService::homeCardCapabilities(const QString &connectionId) const
+{
+    HomeCardCapabilities capabilities;
+    const IProviderAdapter *adapter =
+        m_authService ? m_authService->providerForConnection(connectionId) : nullptr;
+    if (!adapter) {
+        return capabilities;
+    }
+    capabilities.dismissals = adapter->supportsCapability(ProviderCapability::HomeDismissals);
+    capabilities.resumeReset = adapter->supportsCapability(ProviderCapability::ResumeItems);
+    capabilities.watchlist = adapter->supportsCapability(ProviderCapability::Watchlist);
+    return capabilities;
+}
+
+void LibraryService::setHomeItemDismissed(const QString &requestKey,
+                                          const QString &surface,
+                                          const QString &itemId,
+                                          const QString &seriesId,
+                                          const QString &progressUpdatedAt,
+                                          bool dismissed)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.seriesId = seriesId;
+    query.homeSurface = surface;
+    query.progressUpdatedAt = progressUpdatedAt;
+    query.stateValue = dismissed;
+    sendCatalogRequest(
+        dismissed ? QStringLiteral("dismissHomeItem") : QStringLiteral("undismissHomeItem"),
+        ProviderCatalogOperation::SetHomeDismissal,
+        query,
+        [this, connectionId, requestKey](const ProviderCatalogResponse &) {
+            emit homeCardWriteFinished(connectionId, requestKey, true, QString());
+        },
+        [this, connectionId, requestKey](const NetworkError &error) {
+            emit homeCardWriteFinished(connectionId, requestKey, false, error.userMessage);
+        });
+}
+
+void LibraryService::clearResumePosition(const QString &requestKey, const QString &itemId)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    sendCatalogRequest(
+        QStringLiteral("clearResumePosition"),
+        ProviderCatalogOperation::ClearResumePosition,
+        query,
+        [this, connectionId, requestKey](const ProviderCatalogResponse &) {
+            emit homeCardWriteFinished(connectionId, requestKey, true, QString());
+        },
+        [this, connectionId, requestKey](const NetworkError &error) {
+            emit homeCardWriteFinished(connectionId, requestKey, false, error.userMessage);
+        });
 }
 
 // ============================================================================

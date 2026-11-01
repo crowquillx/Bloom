@@ -79,6 +79,7 @@ private slots:
     void defaultControllerPlaybackNavigationBindings();
     void controllerNavigationAndPlaybackBindingsDoNotConflict();
     void crossContextBindingsDoNotConflict();
+    void menuActionDefaults();
     void sameContextConflictCanBeReassigned();
     void setBindingsForActionClearsSameContextConflicts();
     void emptyBindingsIntentionallyUnassignAction();
@@ -195,6 +196,31 @@ void InputBindingManagerTest::crossContextBindingsDoNotConflict()
                                                                QStringLiteral("key:space"),
                                                                QStringLiteral("playback"));
     QVERIFY(conflicts.isEmpty());
+}
+
+void InputBindingManagerTest::menuActionDefaults()
+{
+    BindingFixture fixture;
+    InputBindingManager manager(nullptr, &fixture.config);
+
+    // The context-menu key and Shift+F10 open a card's actions; the
+    // controller's Start/Menu button does in navigation and stays play/pause
+    // during playback.
+    QCOMPARE(manager.actionForKeyboardEvent(Qt::Key_Menu, Qt::NoModifier, QStringLiteral("navigation")),
+             QStringLiteral("nav.menu"));
+    QCOMPARE(manager.actionForKeyboardEvent(Qt::Key_F10, Qt::ShiftModifier, QStringLiteral("navigation")),
+             QStringLiteral("nav.menu"));
+    QVERIFY(manager.actionForKeyboardEvent(Qt::Key_F10, Qt::NoModifier, QStringLiteral("navigation")).isEmpty());
+    QVERIFY(manager.bindingsForAction(QStringLiteral("gamepad"), QStringLiteral("nav.menu"))
+                .contains(QStringLiteral("gamepad:start")));
+    QVERIFY(manager.conflictsForBinding(QStringLiteral("gamepad"),
+                                        QStringLiteral("nav.menu"),
+                                        QStringLiteral("gamepad:start"),
+                                        QStringLiteral("navigation")).isEmpty());
+    QVERIFY(manager.conflictsForBinding(QStringLiteral("keyboard"),
+                                        QStringLiteral("nav.menu"),
+                                        QStringLiteral("key:menu"),
+                                        QStringLiteral("navigation")).isEmpty());
 }
 
 void InputBindingManagerTest::sameContextConflictCanBeReassigned()

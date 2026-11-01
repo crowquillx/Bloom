@@ -38,6 +38,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.home.sections",
     "native.home.calendar",
     "native.library.sections",
+    "native.home.dismissals",
     "native.artwork.refetch",
     "native.playback.capability",
     "native.playback.start-v3",
@@ -139,6 +140,7 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         ("DELETE", "/UserPlayedItems/{itemId}"): {"userId"},
         ("POST", "/UserFavoriteItems/{itemId}"): {"userId"},
         ("DELETE", "/UserFavoriteItems/{itemId}"): {"userId"},
+        ("POST", "/UserItems/{itemId}/UserData"): {"itemId", "userId"},
         ("POST", "/Items/{itemId}/PlaybackInfo"): {"itemId"},
         ("GET", "/Videos/{itemId}/AdditionalParts"): {"itemId", "userId"},
         ("GET", "/Videos/{routeItemId}/{routeMediaSourceId}/Subtitles/{routeIndex}/Stream.{routeFormat}"): {
@@ -207,6 +209,12 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         "UserId" in playback_info_properties
         and not playback_info_properties["UserId"].get("deprecated", False),
         "PlaybackInfoDto.UserId must remain supported",
+    )
+    user_data_update = schemas.get("UpdateUserItemDataDto", {}).get("properties", {})
+    _require(
+        "PlaybackPositionTicks" in user_data_update
+        and not user_data_update["PlaybackPositionTicks"].get("deprecated", False),
+        "UpdateUserItemDataDto.PlaybackPositionTicks must remain supported",
     )
     progress_properties = schemas.get("PlaybackProgressInfo", {}).get("properties", {})
     _require(

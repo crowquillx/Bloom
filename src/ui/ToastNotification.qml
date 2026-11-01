@@ -16,6 +16,13 @@ Rectangle {
     property string message: ""
     property int displayDuration: 5000  // ms
     property bool autoHide: true
+    /// Optional action shown after the message (Undo). It takes no
+    /// keyboard focus: screens offer the same action in a focusable place.
+    property string actionText: ""
+
+    signal actionTriggered()
+    /// The toast went away (timeout, hide(), or its action).
+    signal dismissed()
 
     // Internal state
     property bool showing: false
@@ -72,6 +79,19 @@ Rectangle {
             font.weight: Theme.fontWeightMedium
             wrapMode: Text.WordWrap
         }
+
+        ActionButton {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.actionText !== ""
+            variant: "ghost"
+            text: root.actionText
+            focusPolicy: Qt.NoFocus
+            implicitHeight: Theme.buttonHeightSmall
+            onClicked: {
+                root.actionTriggered()
+                root.hide()
+            }
+        }
     }
 
     Timer {
@@ -82,12 +102,20 @@ Rectangle {
     }
 
     function show(text) {
+        showWithAction(text, "")
+    }
+
+    function showWithAction(text, action) {
         message = text
+        actionText = action
         showing = true
         hideTimer.restart()
     }
 
     function hide() {
+        if (!showing)
+            return
         showing = false
+        dismissed()
     }
 }

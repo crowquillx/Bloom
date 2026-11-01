@@ -131,6 +131,13 @@ enum class ProviderCatalogOperation {
     // The server's public identity (Jellyfin). capabilityMetadata holds
     // `version` and `productName`.
     ServerInfo,
+    // Hides one Home card (stateValue true) or shows it again (false) on
+    // one Home surface (homeSurface): "continue_watching" needs
+    // progressUpdatedAt, "next_up" needs seriesId (Silo).
+    SetHomeDismissal,
+    // Zeroes the viewer's resume position for itemId without changing
+    // its played state, so it leaves the resume list (Jellyfin).
+    ClearResumePosition,
 };
 
 enum class ProviderHttpMethod {
@@ -208,6 +215,10 @@ struct ProviderCatalogQuery {
     // IANA time zone the days are reckoned in.
     QDate calendarStart;
     QString timeZoneId;
+    // Home dismissals: the surface ("continue_watching" or "next_up") and
+    // the card's progress stamp, as the server sent it.
+    QString homeSurface;
+    QString progressUpdatedAt;
 
     ProviderCatalogTriState watched = ProviderCatalogTriState::Any;
     ProviderCatalogTriState favorite = ProviderCatalogTriState::Any;

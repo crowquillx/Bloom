@@ -14,9 +14,10 @@ FocusScope {
     property var librariesModel: []
     property bool librariesLoading: true
     property string librariesError: ""
-    property var nextUpModel: []
-    property var continueWatchingModel: []
-    property var displayedNextUpModel: []
+    // Continue Watching and Up Next, split and filtered in C++.
+    readonly property var nextUpModel: shelves.items
+    readonly property var continueWatchingModel: shelves.continueWatching
+    readonly property var displayedNextUpModel: shelves.nextUp
     property var recentlyAddedMap: ({}) // Map of libraryKey(connectionId, libraryId) -> items array
     // Merged spaces read Home rows through MergedCatalog across every
     // enabled source; single spaces keep using LibraryService.
@@ -44,9 +45,17 @@ FocusScope {
         librariesModel = []
         HomeSectionsViewModel.clear()
         recentlyAddedMap = ({})
-        nextUpModel = []
-        updateDisplayedNextUpModel()
+        shelves.clear()
         loadViews()
+    }
+
+    ContinueWatchingViewModel {
+        id: shelves
+        mergeRows: ConfigManager.mergeContinueWatchingWithNextUp
+        onItemsChanged: heroProvider.rebuild()
+        onRefreshRequested: root.refreshNextUp()
+        onUndoOffered: function(message) { cardToast.showWithAction(message, qsTr("Undo")) }
+        onActionFailed: function(message) { cardToast.show(message) }
     }
 
     SourceRouter {
@@ -150,7 +159,7 @@ FocusScope {
     }
 
     function hydrateBackdropFallbackFromSections() {
-        var fallbackItems = continueWatchingModel.concat(displayedNextUpModel)
+        var fallbackItems = Array.from(continueWatchingModel).concat(Array.from(displayedNextUpModel))
         for (var key in recentlyAddedMap) {
             fallbackItems = fallbackItems.concat(recentlyAddedMap[key] || [])
         }
@@ -294,22 +303,6 @@ FocusScope {
             recentlyAddedListRef: item ? (item["recentlyAddedListRef"] || null) : null,
             libraryId: item ? (item["libraryKey"] || "") : ""
         }
-    }
-
-    // The list arrives ordered from C++ (in-progress items first, most
-    // recently played first); this only splits it into the two rows.
-    function updateDisplayedNextUpModel() {
-        var inProgress = []
-        var nextItems = []
-        for (var i = 0; i < nextUpModel.length; i++) {
-            var episode = nextUpModel[i]
-            var pos = episode ? (episode.positionMs || 0) : 0
-            if (pos > 0) inProgress.push(episode)
-            else nextItems.push(episode)
-        }
-        continueWatchingModel = inProgress
-        displayedNextUpModel = ConfigManager.mergeContinueWatchingWithNextUp ? nextUpModel : nextItems
-        heroProvider.rebuild()
     }
 
     Connections {
@@ -651,6 +644,169 @@ FocusScope {
         }
     }
 
+    // The actions key (Menu, Shift+F10, controller Start) opens a card's
+    // actions; InputBindingManager posts Key_Menu for the controller.
+    function isActionsKey(event) {
+        return event.key === Qt.Key_Menu
+                || InputBindingManager.actionForKeyboardEvent(event.key, event.modifiers, "navigation") === "nav.menu"
+    }
+
+    // Elsewhere on Home the actions key only reaches the undo.
+    Keys.onPressed: function(event) {
+        if (isActionsKey(event) && shelves.undoAvailable) {
+            event.accepted = true
+            cardActionsMenu.openFor(null)
+        }
+    }
+
+    // Actions for a Continue Watching or Up Next card, from C++. While a
+    // removal can be undone, Undo leads the menu (the toast's button takes
+    // no keyboard focus). Back closes the menu and focus returns to the card.
+    BloomMenu {
+        id: cardActionsMenu
+        property var item: null
+        property var list: null
+        property var actions: []
+        property string pendingAction: ""
+        // Where focus goes back when the menu opened off a shelf.
+        property Item returnFocusItem: null
+
+        function openFor(shelf) {
+            var model = shelf ? shelf.model : null
+            var card = shelf && model && shelf.currentIndex >= 0 && shelf.currentIndex < model.length
+                    ? model[shelf.currentIndex] : null
+            var entries = []
+            if (shelves.undoAvailable)
+                entries.push({ id: "undo", text: qsTr("Undo removal"), enabled: true })
+            if (card)
+                entries = entries.concat(Array.from(shelves.actionsFor(card)))
+            if (entries.length === 0)
+                return
+            list = card ? shelf : null
+            returnFocusItem = Window.activeFocusItem
+            item = card
+            actions = entries
+            pendingAction = ""
+            var delegate = card ? shelf.itemAtIndex(shelf.currentIndex) : null
+            if (delegate)
+                popup(delegate, 0, delegate.height)
+            else
+                open()
+        }
+
+        onOpened: {
+            for (var i = 0; i < actions.length; i++) {
+                if (actions[i].enabled) {
+                    currentIndex = i
+                    break
+                }
+            }
+            forceActiveFocus()
+        }
+        // Run the action after the menu has closed, so the page it opens or
+        // the card focus it moves keeps focus.
+        onClosed: {
+            var actionId = pendingAction
+            var target = item
+            var shelf = list
+            var previousFocus = returnFocusItem
+            pendingAction = ""
+            returnFocusItem = null
+            Qt.callLater(function() {
+                if (actionId !== "")
+                    root.runCardAction(actionId, target, shelf)
+                if (actionId === "" || actionId === "undo") {
+                    if (shelf)
+                        shelf.forceActiveFocus()
+                    else if (previousFocus)
+                        previousFocus.forceActiveFocus()
+                }
+            })
+        }
+
+        Repeater {
+            model: cardActionsMenu.actions
+
+            BloomMenuItem {
+                required property var modelData
+                text: modelData.text
+                enabled: modelData.enabled
+                // Esc closes the menu instead of reaching Main's Home Esc
+                // shortcut (the power menu).
+                Keys.onShortcutOverride: function(event) {
+                    event.accepted = event.key === Qt.Key_Escape
+                }
+                onTriggered: {
+                    cardActionsMenu.pendingAction = modelData.id
+                    cardActionsMenu.close()
+                }
+            }
+        }
+    }
+
+    function runCardAction(actionId, item, shelf) {
+        if (actionId === "undo") {
+            sourceRouter.run(shelves.undoConnectionId, function() { shelves.undo() })
+            cardToast.hide()
+            return
+        }
+        if (!item)
+            return
+        if (actionId === "openDetails") {
+            handleNextUpSelection(item)
+            return
+        }
+        if (actionId === "openSeries") {
+            saveFocusState()
+            var seriesId = item.seriesId || ""
+            sourceRouter.run(item.connectionId || "", function() {
+                navigateToSeries(seriesId, "", "")
+            })
+            return
+        }
+        var shelfOrder = shelfLists().indexOf(shelf)
+        var index = shelf ? shelf.currentIndex : 0
+        // Merged cards write through their own server.
+        sourceRouter.run(item.connectionId || "", function() {
+            shelves.trigger(actionId, item)
+            root.focusShelfAfterChange(shelf, index, shelfOrder)
+        })
+    }
+
+    // After a card leaves its shelf, focus the card that took its place (or
+    // the one before it); an emptied shelf hands focus to the shelf that
+    // took its place, then the one above, then the hero.
+    function focusShelfAfterChange(shelf, index, shelfOrder) {
+        Qt.callLater(function() {
+            if (root.StackView.status !== StackView.Active)
+                return
+            if (shelf && shelf.visible && shelf.count > 0) {
+                shelf.currentIndex = Math.max(0, Math.min(index, shelf.count - 1))
+                shelf.forceActiveFocus()
+                ensureListItemVisible(shelf)
+            } else {
+                var lists = shelfLists()
+                if (lists.length > 0) {
+                    lists[Math.max(0, Math.min(shelfOrder, lists.length - 1))].forceActiveFocus()
+                } else if (heroBanner.visible) {
+                    heroBanner.resetToCarousel()
+                    heroBanner.forceActiveFocus()
+                }
+            }
+            // A Next Up refresh restores focus from the saved state.
+            saveFocusState()
+        })
+    }
+
+    ToastNotification {
+        id: cardToast
+        z: 10
+        displayDuration: 8000
+        onActionTriggered: sourceRouter.run(shelves.undoConnectionId, function() { shelves.undo() })
+        // An undo waiting for its route still needs the record.
+        onDismissed: if (!sourceRouter.busy) shelves.dismissUndo()
+    }
+
     // Poster card for Recently Added.
     Component {
         id: posterCardDelegate
@@ -839,6 +995,12 @@ FocusScope {
                     model: continueWatchingModel
                     delegate: landscapeCardDelegate
                     Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(continueWatchingList, -1) }
+                    Keys.onPressed: function(event) {
+                        if (root.isActionsKey(event)) {
+                            event.accepted = true
+                            cardActionsMenu.openFor(continueWatchingList)
+                        }
+                    }
                     Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(continueWatchingList, 1) }
                     Keys.onReturnPressed: {
                         if (currentIndex >= 0 && currentIndex < continueWatchingModel.length)
@@ -882,6 +1044,12 @@ FocusScope {
                     model: displayedNextUpModel
                     delegate: landscapeCardDelegate
                     Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(nextUpList, -1) }
+                    Keys.onPressed: function(event) {
+                        if (root.isActionsKey(event)) {
+                            event.accepted = true
+                            cardActionsMenu.openFor(nextUpList)
+                        }
+                    }
                     Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(nextUpList, 1) }
                     Keys.onReturnPressed: {
                         if (currentIndex >= 0 && currentIndex < displayedNextUpModel.length)
@@ -1305,8 +1473,7 @@ FocusScope {
     }
 
     function applyNextUp(items) {
-        nextUpModel = items
-        updateDisplayedNextUpModel()
+        shelves.setItems(items)
 
         // Use section fallback only if global pool is unavailable.
         if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
@@ -1485,9 +1652,6 @@ FocusScope {
 
     Connections {
         target: ConfigManager
-        function onMergeContinueWatchingWithNextUpChanged() {
-            updateDisplayedNextUpModel()
-        }
         function onNextUpRewatchingChanged() { root.refreshNextUp() }
         function onNextUpCutoffDaysChanged() { root.refreshNextUp() }
         function onHomeFavoritesRowEnabledChanged() {
