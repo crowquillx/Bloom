@@ -2,6 +2,19 @@
 
 A live gate passes only when the required behavior is observed. Source inspection, a unit test, and a successful HTTP status do not establish a platform runtime pass. `UNAVAILABLE` and `NOT RUN` are not automated passes.
 
+## Home card actions, 2026-11-01 UTC
+
+Continue Watching and Up Next cards on Home get an actions menu (`nav.menu`: Menu, Shift+F10, controller Start; right-click or press-and-hold), Silo dismissals with undo, a confirmation before a Silo episode drops its show, and Jellyfin's resume reset (see [view models](viewmodels.md#continuewatchingviewmodel)).
+
+| Gate | Result | Evidence or procedure |
+| --- | --- | --- |
+| Automated checks | PASS | `./scripts/dev-build.sh --tests` passed; local CTest passed 57/57, including `ContinueWatchingViewModelTest` (22 cases), `SiloCatalogServiceTest::homeCardWriteAnswersWhenTheSessionChanges` and `InputBindingManagerTest::controllerStartFollowsAnyPlayback`. QML lint passed. |
+| Live Silo dismissals | NOT RUN | On a Silo profile, remove a movie from Continue Watching: it must leave at once, the toast must name the key that reaches Undo, and Undo (from the menu, last entry) must bring it back where it was. On an episode, "Stop watching ‹series›" must ask first; confirmed, every card of the show must leave both rows, and a connected Trakt account must show the show as dropped. Undo must undrop it. |
+| Live Jellyfin resume reset | NOT RUN | Remove an in-progress Jellyfin movie: it must leave Continue Watching and stay at its played state. On Silo's compatibility listener the first attempt must fail with a toast and later menus must no longer offer Remove. |
+| Keyboard, gamepad and pointer | NOT RUN | With only the D-pad/arrows, A/Enter, B/Escape and Start/Menu: open the menu on a card, move, run each action, and close it with Back; focus must stay on the card or its neighbour and never jump to another shelf when Next Up refreshes. Right-click and press-and-hold must open the same menu. |
+| External mpv Start | NOT RUN | During external mpv playback on Linux, controller Start must toggle pause and never open a card menu behind the player. |
+| Windows embedded playback | NOT RUN | `Main.qml` changed (runtime-context binding): on Windows, controls must show above video, and video must not move or clip across show/hide, resize, minimize/restore, maximize and fullscreen. |
+
 ## Jellyfin recommendation rows on Home, 2026-11-01 UTC
 
 Jellyfin Home shows personalised movie rows ("Because you watched", "More like", "Directed by", "Starring") below the Favorites row, read per visible movie library from `GET /Movies/Recommendations`, behind Settings › Home › Show recommendations on Home (see [provider compatibility](provider-compatibility.md#jellyfin-home)). Items outside the visible movie libraries are dropped after a batched `GET /Items?ParentId=&Ids=` read per library; "similar to" rows show only on Jellyfin 10.10 and older or 12.0 and newer (`GET /System/Info/Public`); a read is reused for 45 minutes and repeated on a new Home, after playback and when the setting is turned on. No Jellyfin server was available.

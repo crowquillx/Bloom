@@ -213,6 +213,7 @@ private slots:
     void homeDismissalRequestsCarryTheirAnchor();
     void homeDismissalWritesReportSuccessAndFailure();
     void homeCardCapabilitiesFollowTheCardsProvider();
+    void homeCardWriteAnswersWhenTheSessionChanges();
     void jellyfinHasNoWatchlistOrCuratedRows();
     void jellyfinItemExtrasPutTrailersFirstAndFlagPartialAnswers();
     void siloItemExtrasAnswerEmptyWithoutRequests();
@@ -2330,6 +2331,47 @@ void SiloCatalogServiceTest::homeDismissalWritesReportSuccessAndFailure()
     QCOMPARE(finished.count(), 4);
     QVERIFY(!finished.at(3).at(2).toBool());
     QCOMPARE(manager.requests.size(), firstRequest + 3);
+}
+
+void SiloCatalogServiceTest::homeCardWriteAnswersWhenTheSessionChanges()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QSignalSpy finished(&service, &LibraryService::homeCardWriteFinished);
+    const QString connectionId = auth.activeConnectionId();
+
+    // The write never answers before the account changes.
+    manager.responses = { { 204, QByteArray(), true } };
+    const qsizetype firstRequest = manager.requests.size();
+    service.setHomeItemState(QStringLiteral("key-1"), QStringLiteral("favorite"),
+                             QStringLiteral("movie:heat-1995"), true);
+    QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), firstRequest + 1, 1000);
+    QPointer<ControlledReply> staleReply = manager.replies.constLast();
+    QVERIFY(staleReply);
+    QCOMPARE(finished.count(), 0);
+
+    auth.replaceAccount(QStringLiteral("account-2"), QStringLiteral("access-2"));
+    // Answered once, as a failure, for the connection that sent it.
+    QCOMPARE(finished.count(), 1);
+    QCOMPARE(finished.first().at(0).toString(), connectionId);
+    QCOMPARE(finished.first().at(1).toString(), QStringLiteral("key-1"));
+    QVERIFY(!finished.first().at(2).toBool());
+    QVERIFY(!finished.first().at(3).toString().isEmpty());
+
+    // A reply that still lands changes nothing.
+    staleReply->complete();
+    QCoreApplication::sendPostedEvents();
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(finished.count(), 1);
 }
 
 void SiloCatalogServiceTest::homeCardCapabilitiesFollowTheCardsProvider()

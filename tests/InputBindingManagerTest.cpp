@@ -80,6 +80,7 @@ private slots:
     void controllerNavigationAndPlaybackBindingsDoNotConflict();
     void crossContextBindingsDoNotConflict();
     void menuActionDefaults();
+    void controllerStartFollowsAnyPlayback();
     void sameContextConflictCanBeReassigned();
     void setBindingsForActionClearsSameContextConflicts();
     void emptyBindingsIntentionallyUnassignAction();
@@ -221,6 +222,30 @@ void InputBindingManagerTest::menuActionDefaults()
                                         QStringLiteral("nav.menu"),
                                         QStringLiteral("key:menu"),
                                         QStringLiteral("navigation")).isEmpty());
+}
+
+void InputBindingManagerTest::controllerStartFollowsAnyPlayback()
+{
+    BindingFixture fixture;
+    InputBindingManager manager(nullptr, &fixture.config);
+
+    // Main.qml binds the runtime context to this for embedded and external
+    // mpv alike, so Start stays play/pause and never opens the card menu
+    // on the page behind the player.
+    QCOMPARE(manager.runtimeContextFor(true, false), QStringLiteral("playback"));
+    QCOMPARE(manager.runtimeContextFor(false, false), QStringLiteral("navigation"));
+    // The screensaver over paused playback navigates.
+    QCOMPARE(manager.runtimeContextFor(true, true), QStringLiteral("navigation"));
+
+    manager.setCurrentRuntimeContext(manager.runtimeContextFor(true, false));
+    QCOMPARE(manager.actionForGamepadBinding(QStringLiteral("gamepad:start")),
+             QStringLiteral("playback.playPause"));
+    QVERIFY(manager.actionForGamepadBinding(QStringLiteral("gamepad:dpad_up"))
+                .startsWith(QStringLiteral("playback.")));
+
+    manager.setCurrentRuntimeContext(manager.runtimeContextFor(false, false));
+    QCOMPARE(manager.actionForGamepadBinding(QStringLiteral("gamepad:start")),
+             QStringLiteral("nav.menu"));
 }
 
 void InputBindingManagerTest::sameContextConflictCanBeReassigned()

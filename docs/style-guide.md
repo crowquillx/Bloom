@@ -181,11 +181,16 @@ Cards are always `MediaCard`:
   (`sourceLabel`). Do not stack extra badges on top of a card.
 - Continue Watching and Up Next cards have an actions menu: the actions key
   (`nav.menu`: Menu, Shift+F10, controller Start) opens a `BloomMenu` under
-  the focused card. Actions come from C++ (`ContinueWatchingViewModel`), and
-  an action the card cannot take shows disabled rather than missing. A
-  removed card leaves the shelf at once, focus moves to its neighbour, and a
-  `ToastNotification` reports failures or offers Undo. Other shelves have no
-  card menu yet; reuse this pattern when one needs it.
+  the focused card; right-click or press-and-hold opens it for the pointer
+  (`MediaCard.menuEnabled`). Actions come from C++
+  (`ContinueWatchingViewModel`), and an action the card cannot take shows
+  disabled rather than missing. An action that changes more than the card
+  (dropping a show on the profile's watch services) asks first in a dialog
+  whose Cancel takes focus. A removed card leaves the shelf at once, focus
+  moves to its neighbour, and a `ToastNotification` reports failures or
+  offers Undo, naming the key that reaches it; the menu's Undo comes last.
+  Other shelves have no card menu yet; reuse this pattern when one needs
+  it.
 - People use `PersonCard` (cast and crew on detail pages, People in Search).
   Enter or a click opens the person's page when the card has a `personId`.
   Don't introduce other card shapes without adding them to this table.

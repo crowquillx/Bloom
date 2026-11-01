@@ -34,6 +34,14 @@ public:
     Q_INVOKABLE QString actionForKeyboardEvent(int key, int modifiers) const;
     Q_INVOKABLE QString actionForKeyboardEvent(int key, int modifiers, const QString &runtimeContext) const;
     Q_INVOKABLE QString bindingForKeyboardEvent(int key, int modifiers) const;
+    // The action a controller binding ("gamepad:start") runs in the current
+    // runtime context.
+    Q_INVOKABLE QString actionForGamepadBinding(const QString &binding) const;
+    // The runtime context for the app's state: "playback" while any
+    // playback is active (embedded or external mpv) and no navigation modal
+    // (the screensaver) is up, so controller buttons keep their playback
+    // meaning and never reach the page behind the player.
+    Q_INVOKABLE QString runtimeContextFor(bool playbackActive, bool navigationModalActive) const;
     // Keyboard bindings of a runtime context as window shortcuts:
     // [{sequence: "Shift+I", actionId: "playback.statsOnce"}, ...]. A key
     // bound to several actions maps to the one actionForKeyboardEvent picks.

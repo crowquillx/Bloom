@@ -166,6 +166,17 @@ QString InputBindingManager::actionForKeyboardEvent(int key, int modifiers, cons
     return actionId;
 }
 
+QString InputBindingManager::actionForGamepadBinding(const QString &binding) const
+{
+    return actionForBinding(kDeviceGamepad, binding, m_currentRuntimeContext);
+}
+
+QString InputBindingManager::runtimeContextFor(bool playbackActive, bool navigationModalActive) const
+{
+    return QString::fromLatin1(playbackActive && !navigationModalActive ? kRuntimePlayback
+                                                                        : kRuntimeNavigation);
+}
+
 QVariantList InputBindingManager::keyboardShortcuts(const QString &runtimeContext) const
 {
     const QString normalizedRuntimeContext = normalizeRuntimeContext(runtimeContext);

@@ -1139,16 +1139,11 @@ target_link_libraries(LibrarySectionsViewModelTest
 
 add_test(NAME LibrarySectionsViewModelTest COMMAND LibrarySectionsViewModelTest)
 
+# No production target holds view models, so the view model's own source
+# is compiled here; the services come from Bloom::Network.
 add_executable(ContinueWatchingViewModelTest
     ContinueWatchingViewModelTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/ContinueWatchingViewModel.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
-    ${TEST_PROVIDER_BOUNDARY_SOURCES}
-    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
-    ${TEST_CONFIG_SOURCES}
 )
 
 target_include_directories(ContinueWatchingViewModelTest PRIVATE
@@ -1158,6 +1153,7 @@ target_include_directories(ContinueWatchingViewModelTest PRIVATE
 
 target_link_libraries(ContinueWatchingViewModelTest
     PRIVATE
+        Bloom::Network
         Qt6::Core
         Qt6::Network
         Qt6::Concurrent

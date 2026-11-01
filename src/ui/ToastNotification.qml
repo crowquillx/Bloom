@@ -17,8 +17,14 @@ Rectangle {
     property int displayDuration: 5000  // ms
     property bool autoHide: true
     /// Optional action shown after the message (Undo). It takes no
-    /// keyboard focus: screens offer the same action in a focusable place.
+    /// keyboard focus: screens offer the same action in a focusable place
+    /// and say how to reach it in `hint`.
     property string actionText: ""
+    /// Optional second line, such as the key that reaches the action.
+    property string hint: ""
+    /// Holds the timeout while the action can be reached elsewhere (a menu
+    /// offering it is open); the full duration starts again afterwards.
+    property bool paused: false
 
     signal actionTriggered()
     /// The toast went away (timeout, hide(), or its action).
@@ -34,7 +40,7 @@ Rectangle {
 
     // Size based on content
     width: Math.min(contentRow.implicitWidth + Theme.spacingXLarge * 2, parent.width - Theme.paddingLarge * 2)
-    height: Math.max(Theme.buttonHeightLarge, contentText.implicitHeight + Theme.spacingLarge * 2)
+    height: Math.max(Theme.buttonHeightLarge, textColumn.implicitHeight + Theme.spacingLarge * 2)
 
     // Appearance
     radius: Theme.radiusLarge
@@ -53,7 +59,7 @@ Rectangle {
     }
 
     Accessible.role: Accessible.AlertMessage
-    Accessible.name: message
+    Accessible.name: hint !== "" ? message + ". " + hint : message
 
     Row {
         id: contentRow
@@ -68,16 +74,34 @@ Rectangle {
             color: Theme.accentPrimary
         }
 
-        Text {
-            id: contentText
+        Column {
+            id: textColumn
             anchors.verticalCenter: parent.verticalCenter
-            width: Math.min(implicitWidth, root.parent ? root.parent.width - Theme.paddingLarge * 2 - Theme.spacingXLarge * 3 : implicitWidth)
-            text: root.message
-            color: Theme.textPrimary
-            font.pixelSize: Theme.fontSizeBody
-            font.family: Theme.fontPrimary
-            font.weight: Theme.fontWeightMedium
-            wrapMode: Text.WordWrap
+            readonly property real maxTextWidth: root.parent
+                ? root.parent.width - Theme.paddingLarge * 2 - Theme.spacingXLarge * 3
+                : Number.MAX_VALUE
+            spacing: Theme.spacingXSmall
+
+            Text {
+                id: contentText
+                width: Math.min(implicitWidth, textColumn.maxTextWidth)
+                text: root.message
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fontSizeBody
+                font.family: Theme.fontPrimary
+                font.weight: Theme.fontWeightMedium
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
+                width: Math.min(implicitWidth, textColumn.maxTextWidth)
+                visible: root.hint !== ""
+                text: root.hint
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSizeSmall
+                font.family: Theme.fontPrimary
+                wrapMode: Text.WordWrap
+            }
         }
 
         ActionButton {
@@ -97,19 +121,21 @@ Rectangle {
     Timer {
         id: hideTimer
         interval: root.displayDuration
-        running: root.showing && root.autoHide
+        running: root.showing && root.autoHide && !root.paused
         onTriggered: root.hide()
     }
 
     function show(text) {
-        showWithAction(text, "")
+        showWithAction(text, "", "")
     }
 
-    function showWithAction(text, action) {
+    function showWithAction(text, action, actionHint) {
         message = text
         actionText = action
+        hint = actionHint || ""
         showing = true
-        hideTimer.restart()
+        if (!paused)
+            hideTimer.restart()
     }
 
     function hide() {

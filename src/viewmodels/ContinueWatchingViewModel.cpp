@@ -4,7 +4,7 @@
 #include "../network/LibraryService.h"
 
 #include <QAtomicInteger>
-#include <QTimer>
+#include <QSet>
 #include <algorithm>
 
 namespace {
@@ -17,7 +17,123 @@ QString itemString(const QVariantMap &item, const QString &key)
     return item.value(key).toString();
 }
 
+bool sameCard(const QVariantMap &item, const QString &connectionId, const QString &itemId)
+{
+    return itemString(item, QStringLiteral("connectionId")) == connectionId
+        && itemString(item, QStringLiteral("itemId")) == itemId;
+}
+
 } // namespace
+
+HomeCardListModel::HomeCardListModel(QObject *parent)
+    : QAbstractListModel(parent)
+{
+}
+
+int HomeCardListModel::rowCount(const QModelIndex &parent) const
+{
+    return parent.isValid() ? 0 : count();
+}
+
+QVariant HomeCardListModel::data(const QModelIndex &index, int role) const
+{
+    if (!index.isValid() || index.row() < 0 || index.row() >= m_items.size()
+        || role != ModelDataRole) {
+        return {};
+    }
+    return m_items.at(index.row());
+}
+
+QHash<int, QByteArray> HomeCardListModel::roleNames() const
+{
+    return {{ModelDataRole, "modelData"}};
+}
+
+QVariantMap HomeCardListModel::get(int index) const
+{
+    return index >= 0 && index < m_items.size() ? m_items.at(index).toMap() : QVariantMap();
+}
+
+QString HomeCardListModel::keyOf(const QVariant &item)
+{
+    const QVariantMap map = item.toMap();
+    const QString itemId = itemString(map, QStringLiteral("itemId"));
+    return itemId.isEmpty()
+        ? QString()
+        : itemString(map, QStringLiteral("connectionId")) + QLatin1Char('\n') + itemId;
+}
+
+void HomeCardListModel::setItems(const QVariantList &items)
+{
+    const int oldCount = count();
+    // Rows are matched by key; a list without unique keys is reset.
+    QStringList keys;
+    keys.reserve(items.size());
+    QSet<QString> newKeys;
+    bool unique = true;
+    for (const QVariant &item : items) {
+        const QString key = keyOf(item);
+        unique = unique && !key.isEmpty() && !newKeys.contains(key);
+        newKeys.insert(key);
+        keys.append(key);
+    }
+    QSet<QString> oldKeys;
+    for (const QVariant &item : std::as_const(m_items)) {
+        const QString key = keyOf(item);
+        unique = unique && !key.isEmpty() && !oldKeys.contains(key);
+        oldKeys.insert(key);
+    }
+    if (!unique) {
+        beginResetModel();
+        m_items = items;
+        endResetModel();
+        if (count() != oldCount) {
+            emit countChanged();
+        }
+        return;
+    }
+
+    for (qsizetype i = 0; i < items.size(); ++i) {
+        while (i < m_items.size() && !newKeys.contains(keyOf(m_items.at(i)))) {
+            beginRemoveRows({}, static_cast<int>(i), static_cast<int>(i));
+            m_items.removeAt(i);
+            endRemoveRows();
+        }
+        // Rows before i already match the new list.
+        qsizetype from = -1;
+        for (qsizetype j = i; j < m_items.size(); ++j) {
+            if (keyOf(m_items.at(j)) == keys.at(i)) {
+                from = j;
+                break;
+            }
+        }
+        if (from < 0) {
+            beginInsertRows({}, static_cast<int>(i), static_cast<int>(i));
+            m_items.insert(i, items.at(i));
+            endInsertRows();
+            continue;
+        }
+        if (from != i) {
+            beginMoveRows({}, static_cast<int>(from), static_cast<int>(from), {},
+                          static_cast<int>(i));
+            m_items.move(from, i);
+            endMoveRows();
+        }
+        if (m_items.at(i) != items.at(i)) {
+            m_items[i] = items.at(i);
+            const QModelIndex changed = index(static_cast<int>(i));
+            emit dataChanged(changed, changed, {ModelDataRole});
+        }
+    }
+    if (m_items.size() > items.size()) {
+        beginRemoveRows({}, static_cast<int>(items.size()), static_cast<int>(m_items.size() - 1));
+        m_items.erase(m_items.begin() + items.size(), m_items.end());
+        endRemoveRows();
+    }
+    if (count() != oldCount) {
+        emit countChanged();
+    }
+}
 
 ContinueWatchingViewModel::ContinueWatchingViewModel(QObject *parent)
     : ContinueWatchingViewModel(ServiceLocator::tryGet<LibraryService>(), parent)
@@ -28,6 +144,8 @@ ContinueWatchingViewModel::ContinueWatchingViewModel(LibraryService *libraryServ
                                                      QObject *parent)
     : QObject(parent)
     , m_libraryService(libraryService)
+    , m_continueWatchingModel(new HomeCardListModel(this))
+    , m_nextUpModel(new HomeCardListModel(this))
 {
     connectService();
 }
@@ -39,30 +157,6 @@ void ContinueWatchingViewModel::connectService()
     }
     connect(m_libraryService, &LibraryService::homeCardWriteFinished,
             this, &ContinueWatchingViewModel::onHomeCardWriteFinished);
-    connect(m_libraryService, &LibraryService::itemPlayedStatusChanged,
-            this, [this](const QString &itemId, bool played) {
-        onPlayedChanged(itemId, played, true, QString());
-    });
-    connect(m_libraryService, &LibraryService::itemPlayedStatusFailed,
-            this, [this](const QString &itemId, bool played, const QString &error) {
-        onPlayedChanged(itemId, played, false, error);
-    });
-    connect(m_libraryService, &LibraryService::favoriteStatusChanged,
-            this, [this](const QString &itemId, bool favorite) {
-        onFavoriteChanged(itemId, favorite, true, QString());
-    });
-    connect(m_libraryService, &LibraryService::favoriteStatusFailed,
-            this, [this](const QString &itemId, bool favorite, const QString &error) {
-        onFavoriteChanged(itemId, favorite, false, error);
-    });
-    connect(m_libraryService, &LibraryService::watchlistStatusChanged,
-            this, [this](const QString &itemId, bool inWatchlist) {
-        onWatchlistChanged(itemId, inWatchlist, true, QString());
-    });
-    connect(m_libraryService, &LibraryService::watchlistStatusFailed,
-            this, [this](const QString &itemId, bool inWatchlist, const QString &error) {
-        onWatchlistChanged(itemId, inWatchlist, false, error);
-    });
 }
 
 void ContinueWatchingViewModel::setMergeRows(bool mergeRows)
@@ -96,6 +190,16 @@ void ContinueWatchingViewModel::setItems(const QVariantList &items)
             it = m_hides.erase(it);
         } else {
             ++it;
+        }
+    }
+    // A list read before a write in flight landed still has the old state:
+    // keep the value sent, and keep an undo's cards shown.
+    for (const Pending &pending : std::as_const(m_pending)) {
+        if (!pending.field.isEmpty()) {
+            applyField(pending.connectionId, pending.itemId, pending.field, pending.value);
+        }
+        if (pending.isUndo && pending.undo) {
+            restoreSnapshots(pending.undo->snapshots);
         }
     }
     rebuild();
@@ -134,6 +238,7 @@ QVariantList ContinueWatchingViewModel::actionsFor(const QVariantMap &item) cons
     const bool isMovie = mediaType == QStringLiteral("Movie");
     const bool isEpisode = mediaType == QStringLiteral("Episode");
     const QString seriesId = itemString(item, QStringLiteral("seriesId"));
+    const QString title = titleOf(item);
 
     if (isEpisode) {
         add(QStringLiteral("openSeries"), tr("Go to series"), !seriesId.isEmpty(), true);
@@ -141,15 +246,33 @@ QVariantList ContinueWatchingViewModel::actionsFor(const QVariantMap &item) cons
         add(QStringLiteral("openDetails"), tr("Go to details"), true, true);
     }
 
+    // Silo drops the whole show from both rows, and on the profile's watch
+    // providers, for an episode on either surface.
+    const bool dropsShow = capabilities.dismissals && isEpisode;
+    const auto addDismissal = [&](const QString &id, const QString &text, bool enabled) {
+        add(id, dropsShow ? tr("Stop watching %1").arg(title) : text, enabled);
+        if (!dropsShow) {
+            return;
+        }
+        QVariantMap action = actions.takeLast().toMap();
+        action.insert(QStringLiteral("confirmTitle"), tr("Stop watching %1?").arg(title));
+        action.insert(QStringLiteral("confirmMessage"),
+                      tr("%1 leaves Continue Watching and Up Next until you play it again. "
+                         "The server also marks the show as dropped on the watch services "
+                         "connected to this profile, such as Trakt.")
+                          .arg(title));
+        action.insert(QStringLiteral("confirmText"), tr("Stop watching"));
+        actions.append(action);
+    };
     if (surfaceOf(item) == kContinueWatching) {
         if (capabilities.dismissals) {
-            add(QStringLiteral("remove"), tr("Remove from Continue Watching"),
-                !itemString(item, QStringLiteral("progressUpdatedAt")).isEmpty());
+            addDismissal(QStringLiteral("remove"), tr("Remove from Continue Watching"),
+                         !itemString(item, QStringLiteral("progressUpdatedAt")).isEmpty());
         } else if (capabilities.resumeReset) {
             add(QStringLiteral("remove"), tr("Remove from Continue Watching"), true);
         }
     } else if (capabilities.dismissals) {
-        add(QStringLiteral("hide"), tr("Hide from Up Next"), !seriesId.isEmpty());
+        addDismissal(QStringLiteral("hide"), tr("Hide from Up Next"), !seriesId.isEmpty());
     }
 
     if (item.value(QStringLiteral("watched")).toBool()) {
@@ -169,6 +292,13 @@ QVariantList ContinueWatchingViewModel::actionsFor(const QVariantMap &item) cons
                 add(QStringLiteral("watchlistRemove"), tr("Remove from watchlist"), true);
             } else {
                 add(QStringLiteral("watchlistAdd"), tr("Add to watchlist"), true);
+            }
+        }
+        if (capabilities.notInterested) {
+            if (item.value(QStringLiteral("notInterested")).toBool()) {
+                add(QStringLiteral("interested"), tr("Interested again"), true);
+            } else {
+                add(QStringLiteral("notInterested"), tr("Not interested"), true);
             }
         }
     }
@@ -237,7 +367,7 @@ bool ContinueWatchingViewModel::trigger(const QString &actionId, const QVariantM
         m_hides.insert(key, hide);
         rebuild();
         if (actionId == QStringLiteral("markWatched")) {
-            m_libraryService->markItemPlayed(itemId);
+            m_libraryService->setHomeItemState(key, QStringLiteral("watched"), itemId, true);
         } else if (pending.wireSurface.isEmpty()) {
             m_libraryService->clearResumePosition(key, itemId);
         } else {
@@ -260,23 +390,18 @@ bool ContinueWatchingViewModel::trigger(const QString &actionId, const QVariantM
                || actionId == QStringLiteral("watchlistRemove")) {
         pending.field = QStringLiteral("inWatchlist");
         value = actionId == QStringLiteral("watchlistAdd");
+    } else if (actionId == QStringLiteral("notInterested")
+               || actionId == QStringLiteral("interested")) {
+        pending.field = QStringLiteral("notInterested");
+        value = actionId == QStringLiteral("notInterested");
     } else {
         return false;
     }
+    pending.value = value;
     pending.previousValue = item.value(pending.field, false);
-    startPending(pending);
+    const QString key = startPending(pending);
     setField(connectionId, itemId, pending.field, value);
-    if (actionId == QStringLiteral("markUnwatched")) {
-        m_libraryService->markItemUnplayed(itemId);
-    } else if (pending.field == QStringLiteral("favorite")) {
-        if (value.toBool()) {
-            m_libraryService->markItemFavorite(itemId);
-        } else {
-            m_libraryService->markItemUnfavorite(itemId);
-        }
-    } else {
-        m_libraryService->setItemWatchlisted(itemId, value.toBool());
-    }
+    m_libraryService->setHomeItemState(key, pending.field, itemId, value.toBool());
     return true;
 }
 
@@ -295,20 +420,7 @@ bool ContinueWatchingViewModel::undo()
 
     // Show the cards again, also when a newer list already left them out.
     m_hides.remove(undo.hideKey);
-    for (const Snapshot &snapshot : undo.snapshots) {
-        const QString itemId = itemString(snapshot.item, QStringLiteral("itemId"));
-        const QString connectionId = itemString(snapshot.item, QStringLiteral("connectionId"));
-        const bool listed = std::any_of(m_items.cbegin(), m_items.cend(),
-                                        [&](const QVariant &value) {
-            const QVariantMap item = value.toMap();
-            return itemString(item, QStringLiteral("itemId")) == itemId
-                && itemString(item, QStringLiteral("connectionId")) == connectionId;
-        });
-        if (!listed) {
-            m_items.insert(std::clamp<qsizetype>(snapshot.index, 0, m_items.size()),
-                           snapshot.item);
-        }
-    }
+    restoreSnapshots(undo.snapshots);
     rebuild();
 
     Pending pending;
@@ -335,8 +447,8 @@ void ContinueWatchingViewModel::dismissUndo()
 void ContinueWatchingViewModel::rebuild()
 {
     m_visible.clear();
-    m_continueWatching.clear();
-    m_nextUp.clear();
+    QVariantList continueWatching;
+    QVariantList nextUp;
     for (const QVariant &value : std::as_const(m_items)) {
         const QVariantMap item = value.toMap();
         if (isHidden(item)) {
@@ -344,14 +456,16 @@ void ContinueWatchingViewModel::rebuild()
         }
         m_visible.append(value);
         if (surfaceOf(item) == kContinueWatching) {
-            m_continueWatching.append(value);
+            continueWatching.append(value);
         } else if (!m_mergeRows) {
-            m_nextUp.append(value);
+            nextUp.append(value);
         }
     }
     if (m_mergeRows) {
-        m_nextUp = m_visible;
+        nextUp = m_visible;
     }
+    m_continueWatchingModel->setItems(continueWatching);
+    m_nextUpModel->setItems(nextUp);
     emit itemsChanged();
 }
 
@@ -388,13 +502,28 @@ QList<ContinueWatchingViewModel::Snapshot> ContinueWatchingViewModel::snapshotsF
     return snapshots;
 }
 
-void ContinueWatchingViewModel::setField(const QString &connectionId, const QString &itemId,
-                                         const QString &field, const QVariant &value)
+void ContinueWatchingViewModel::restoreSnapshots(const QList<Snapshot> &snapshots)
+{
+    for (const Snapshot &snapshot : snapshots) {
+        const QString itemId = itemString(snapshot.item, QStringLiteral("itemId"));
+        const QString connectionId = itemString(snapshot.item, QStringLiteral("connectionId"));
+        const bool listed = std::any_of(m_items.cbegin(), m_items.cend(),
+                                        [&](const QVariant &value) {
+            return sameCard(value.toMap(), connectionId, itemId);
+        });
+        if (!listed) {
+            m_items.insert(std::clamp<qsizetype>(snapshot.index, 0, m_items.size()),
+                           snapshot.item);
+        }
+    }
+}
+
+void ContinueWatchingViewModel::applyField(const QString &connectionId, const QString &itemId,
+                                           const QString &field, const QVariant &value)
 {
     for (QVariant &entry : m_items) {
         QVariantMap item = entry.toMap();
-        if (itemString(item, QStringLiteral("connectionId")) != connectionId
-            || itemString(item, QStringLiteral("itemId")) != itemId) {
+        if (!sameCard(item, connectionId, itemId)) {
             continue;
         }
         item.insert(field, value);
@@ -405,6 +534,12 @@ void ContinueWatchingViewModel::setField(const QString &connectionId, const QStr
         }
         entry = item;
     }
+}
+
+void ContinueWatchingViewModel::setField(const QString &connectionId, const QString &itemId,
+                                         const QString &field, const QVariant &value)
+{
+    applyField(connectionId, itemId, field, value);
     rebuild();
 }
 
@@ -423,7 +558,6 @@ QString ContinueWatchingViewModel::startPending(Pending pending)
 {
     const QString key = newRequestKey();
     m_pending.insert(key, std::move(pending));
-    QTimer::singleShot(m_pendingTimeoutMs, this, [this, key]() { expire(key); });
     return key;
 }
 
@@ -474,10 +608,16 @@ void ContinueWatchingViewModel::finish(const QString &key, bool succeeded, const
             undo.snapshots = pending.snapshots;
             m_undo = undo;
             emit undoChanged();
-            emit undoOffered(pending.dropsSeries
-                                 ? tr("Removed %1 from Continue Watching and Up Next")
-                                       .arg(pending.title)
-                                 : tr("Removed %1 from Continue Watching").arg(pending.title));
+            QString message;
+            if (pending.dropsSeries) {
+                message = tr("Stopped watching %1. It is also marked as dropped on "
+                             "connected watch services.").arg(pending.title);
+            } else if (pending.wireSurface == kNextUp) {
+                message = tr("Hid %1 from Up Next").arg(pending.title);
+            } else {
+                message = tr("Removed %1 from Continue Watching").arg(pending.title);
+            }
+            emit undoOffered(message);
         }
         emit refreshRequested();
         return;
@@ -491,32 +631,6 @@ void ContinueWatchingViewModel::finish(const QString &key, bool succeeded, const
     if (pending.actionId == QStringLiteral("markUnwatched")) {
         emit refreshRequested();
     }
-}
-
-void ContinueWatchingViewModel::expire(const QString &key)
-{
-    const auto it = m_pending.find(key);
-    if (it == m_pending.end()) {
-        return;
-    }
-    const bool hides = it->hides;
-    m_pending.erase(it);
-    // No answer is coming; the next list shows the server's state.
-    if (hides && m_hides.remove(key) > 0) {
-        rebuild();
-    }
-    emit refreshRequested();
-}
-
-QString ContinueWatchingViewModel::findPending(const QString &actionId,
-                                               const QString &itemId) const
-{
-    for (auto it = m_pending.cbegin(); it != m_pending.cend(); ++it) {
-        if (it->actionId == actionId && it->itemId == itemId) {
-            return it.key();
-        }
-    }
-    return {};
 }
 
 QString ContinueWatchingViewModel::liveConnectionId() const
@@ -537,43 +651,17 @@ QString ContinueWatchingViewModel::newRequestKey()
     return QStringLiteral("home-card-%1").arg(counter.fetchAndAddRelaxed(1) + 1);
 }
 
-void ContinueWatchingViewModel::onHomeCardWriteFinished(const QString &,
+void ContinueWatchingViewModel::onHomeCardWriteFinished(const QString &connectionId,
                                                         const QString &requestKey,
                                                         bool succeeded,
                                                         const QString &error)
 {
+    // The key is ours alone; the connection must match too, so a reply for
+    // another account never settles this card.
+    const auto it = m_pending.constFind(requestKey);
+    if (it == m_pending.cend()
+        || (!it->connectionId.isEmpty() && it->connectionId != connectionId)) {
+        return;
+    }
     finish(requestKey, succeeded, error);
-}
-
-void ContinueWatchingViewModel::onPlayedChanged(const QString &itemId, bool played,
-                                                bool succeeded, const QString &error)
-{
-    const QString key = findPending(played ? QStringLiteral("markWatched")
-                                           : QStringLiteral("markUnwatched"),
-                                    itemId);
-    if (!key.isEmpty()) {
-        finish(key, succeeded, error);
-    }
-}
-
-void ContinueWatchingViewModel::onFavoriteChanged(const QString &itemId, bool favorite,
-                                                  bool succeeded, const QString &error)
-{
-    const QString key = findPending(favorite ? QStringLiteral("favorite")
-                                             : QStringLiteral("unfavorite"),
-                                    itemId);
-    if (!key.isEmpty()) {
-        finish(key, succeeded, error);
-    }
-}
-
-void ContinueWatchingViewModel::onWatchlistChanged(const QString &itemId, bool inWatchlist,
-                                                   bool succeeded, const QString &error)
-{
-    const QString key = findPending(inWatchlist ? QStringLiteral("watchlistAdd")
-                                                : QStringLiteral("watchlistRemove"),
-                                    itemId);
-    if (!key.isEmpty()) {
-        finish(key, succeeded, error);
-    }
 }

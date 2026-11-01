@@ -33,6 +33,8 @@ FocusScope {
     function loadViews() {
         librariesLoading = true
         librariesError = ""
+        // Card menus offer "Not interested" once the profile allows it.
+        LibraryService.loadNotInterestedCapability()
         if (mergedMode) {
             mergedViewsRequested = true
             MergedCatalog.refreshViews()
@@ -54,7 +56,7 @@ FocusScope {
         mergeRows: ConfigManager.mergeContinueWatchingWithNextUp
         onItemsChanged: heroProvider.rebuild()
         onRefreshRequested: root.refreshNextUp()
-        onUndoOffered: function(message) { cardToast.showWithAction(message, qsTr("Undo")) }
+        onUndoOffered: function(message) { cardToast.showWithAction(message, qsTr("Undo"), root.undoHint()) }
         onActionFailed: function(message) { cardToast.show(message) }
     }
 
@@ -635,10 +637,17 @@ FocusScope {
             durationMs: modelData.durationMs || 0
             sourceLabel: root.mergedMode ? (modelData.sourceLabel || "") : ""
             focused: ListView.isCurrentItem && ListView.view.activeFocus
+            menuEnabled: true
             onClicked: {
                 landscapeCard.ListView.view.currentIndex = index
                 landscapeCard.ListView.view.forceActiveFocus()
                 handleNextUpSelection(modelData)
+            }
+            onMenuRequested: {
+                var shelf = landscapeCard.ListView.view
+                shelf.currentIndex = index
+                shelf.forceActiveFocus()
+                cardActionsMenu.openFor(shelf, index)
             }
             Accessible.description: qsTr("Continue watching %1").arg(modelData.seriesName || modelData.name || "")
         }
@@ -646,48 +655,68 @@ FocusScope {
 
     // The actions key (Menu, Shift+F10, controller Start) opens a card's
     // actions; InputBindingManager posts Key_Menu for the controller.
+    // Right-click or press-and-hold on a card opens the same menu.
     function isActionsKey(event) {
         return event.key === Qt.Key_Menu
                 || InputBindingManager.actionForKeyboardEvent(event.key, event.modifiers, "navigation") === "nav.menu"
+    }
+
+    // The key the undo toast names: the controller's actions button when a
+    // controller is connected, else the keyboard's first nav.menu key.
+    function actionsKeyText() {
+        var devices = InputBindingManager.gamepadAvailable ? ["gamepad", "keyboard"] : ["keyboard"]
+        for (var i = 0; i < devices.length; i++) {
+            var bindings = InputBindingManager.bindingsForAction(devices[i], "nav.menu")
+            if (bindings && bindings.length > 0)
+                return InputBindingManager.displayTextForBinding(bindings[0])
+        }
+        return ""
+    }
+
+    function undoHint() {
+        var key = actionsKeyText()
+        return key !== "" ? qsTr("To undo, press %1 and choose Undo removal.").arg(key) : ""
     }
 
     // Elsewhere on Home the actions key only reaches the undo.
     Keys.onPressed: function(event) {
         if (isActionsKey(event) && shelves.undoAvailable) {
             event.accepted = true
-            cardActionsMenu.openFor(null)
+            cardActionsMenu.openFor(null, -1)
         }
     }
 
     // Actions for a Continue Watching or Up Next card, from C++. While a
-    // removal can be undone, Undo leads the menu (the toast's button takes
-    // no keyboard focus). Back closes the menu and focus returns to the card.
+    // removal can be undone, "Undo removal" ends the menu (the toast's button
+    // takes no keyboard focus), so focus starts on the card's first action.
+    // Back closes the menu and focus returns to the card.
     BloomMenu {
         id: cardActionsMenu
         property var item: null
         property var list: null
         property var actions: []
-        property string pendingAction: ""
+        // The entry picked, run once the menu has closed.
+        property var pendingAction: null
         // Where focus goes back when the menu opened off a shelf.
         property Item returnFocusItem: null
 
-        function openFor(shelf) {
+        function openFor(shelf, index) {
             var model = shelf ? shelf.model : null
-            var card = shelf && model && shelf.currentIndex >= 0 && shelf.currentIndex < model.length
-                    ? model[shelf.currentIndex] : null
-            var entries = []
+            var at = index >= 0 ? index : (shelf ? shelf.currentIndex : -1)
+            var card = model && at >= 0 && at < model.count ? model.get(at) : null
+            var entries = card ? Array.from(shelves.actionsFor(card)) : []
             if (shelves.undoAvailable)
-                entries.push({ id: "undo", text: qsTr("Undo removal"), enabled: true })
-            if (card)
-                entries = entries.concat(Array.from(shelves.actionsFor(card)))
+                entries.push({ id: "undo", text: qsTr("Undo removal"), enabled: true, navigation: false })
             if (entries.length === 0)
                 return
+            if (card && shelf.currentIndex !== at)
+                shelf.currentIndex = at
             list = card ? shelf : null
-            returnFocusItem = Window.activeFocusItem
+            returnFocusItem = card ? shelf : Window.activeFocusItem
             item = card
             actions = entries
-            pendingAction = ""
-            var delegate = card ? shelf.itemAtIndex(shelf.currentIndex) : null
+            pendingAction = null
+            var delegate = card ? shelf.itemAtIndex(at) : null
             if (delegate)
                 popup(delegate, 0, delegate.height)
             else
@@ -706,21 +735,16 @@ FocusScope {
         // Run the action after the menu has closed, so the page it opens or
         // the card focus it moves keeps focus.
         onClosed: {
-            var actionId = pendingAction
+            var action = pendingAction
             var target = item
             var shelf = list
             var previousFocus = returnFocusItem
-            pendingAction = ""
+            pendingAction = null
             returnFocusItem = null
             Qt.callLater(function() {
-                if (actionId !== "")
-                    root.runCardAction(actionId, target, shelf)
-                if (actionId === "" || actionId === "undo") {
-                    if (shelf)
-                        shelf.forceActiveFocus()
-                    else if (previousFocus)
-                        previousFocus.forceActiveFocus()
-                }
+                root.returnCardFocus(shelf, previousFocus)
+                if (action)
+                    root.pickCardAction(action, target, shelf)
             })
         }
 
@@ -737,19 +761,87 @@ FocusScope {
                     event.accepted = event.key === Qt.Key_Escape
                 }
                 onTriggered: {
-                    cardActionsMenu.pendingAction = modelData.id
+                    cardActionsMenu.pendingAction = modelData
                     cardActionsMenu.close()
                 }
             }
         }
     }
 
-    function runCardAction(actionId, item, shelf) {
-        if (actionId === "undo") {
-            sourceRouter.run(shelves.undoConnectionId, function() { shelves.undo() })
-            cardToast.hide()
+    // A Next Up refresh restoring shelf focus never strands the open menu.
+    ModalFocusGuard {
+        popup: cardActionsMenu
+    }
+
+    function returnCardFocus(shelf, previousFocus) {
+        if (root.StackView.status !== StackView.Active)
+            return
+        if (shelf && shelf.visible && shelf.count > 0)
+            shelf.forceActiveFocus()
+        else if (previousFocus && previousFocus.visible)
+            previousFocus.forceActiveFocus()
+    }
+
+    function pickCardAction(action, item, shelf) {
+        if (action.id === "undo") {
+            requestUndo()
+        } else if (action.confirmTitle) {
+            stopWatchingDialog.ask(action, item, shelf)
+        } else {
+            runCardAction(action.id, item, shelf)
+        }
+    }
+
+    // The undo waiting for its route, so its toast closing does not forget
+    // it and a failed route can say so.
+    property var undoRouteAction: null
+
+    function requestUndo() {
+        // The toast may have closed, or a newer removal replaced it, while
+        // the menu was open.
+        if (!shelves.undoAvailable) {
+            cardToast.show(qsTr("That removal can no longer be undone."))
             return
         }
+        var action = function() {
+            if (root.undoRouteAction !== action)
+                return
+            root.undoRouteAction = null
+            shelves.undo()
+        }
+        undoRouteAction = action
+        cardToast.hide()
+        sourceRouter.run(shelves.undoConnectionId, action)
+    }
+
+    // A newer route replaced the undo before it ran.
+    function settleUndoRoute() {
+        if (!undoRouteAction)
+            return
+        undoRouteAction = null
+        if (!cardToast.showing)
+            shelves.dismissUndo()
+    }
+
+    Connections {
+        target: sourceRouter
+        function onPendingActionChanged() {
+            if (root.undoRouteAction && sourceRouter.pendingAction !== root.undoRouteAction)
+                Qt.callLater(root.settleUndoRoute)
+        }
+        function onFailed(message) {
+            var detail = message || qsTr("The server isn't reachable.")
+            if (root.undoRouteAction) {
+                root.undoRouteAction = null
+                shelves.dismissUndo()
+                cardToast.show(qsTr("Couldn't undo the removal. %1").arg(detail))
+            } else {
+                cardToast.show(qsTr("Couldn't switch to that title's server. %1").arg(detail))
+            }
+        }
+    }
+
+    function runCardAction(actionId, item, shelf) {
         if (!item)
             return
         if (actionId === "openDetails") {
@@ -778,11 +870,15 @@ FocusScope {
     // took its place, then the one above, then the hero.
     function focusShelfAfterChange(shelf, index, shelfOrder) {
         Qt.callLater(function() {
-            if (root.StackView.status !== StackView.Active)
+            if (root.StackView.status !== StackView.Active || root.cardModalOpen)
+                return
+            // Focus moved on while a merged card waited for its route.
+            if (!(shelf && shelf.activeFocus) && !root.homeFocusIdle())
                 return
             if (shelf && shelf.visible && shelf.count > 0) {
                 shelf.currentIndex = Math.max(0, Math.min(index, shelf.count - 1))
-                shelf.forceActiveFocus()
+                if (!shelf.activeFocus)
+                    shelf.forceActiveFocus()
                 ensureListItemVisible(shelf)
             } else {
                 var lists = shelfLists()
@@ -798,13 +894,156 @@ FocusScope {
         })
     }
 
+    // The card menu or its confirmation holds focus.
+    readonly property bool cardModalOpen: cardActionsMenu.opened || stopWatchingDialog.opened
+
+    // Nothing on Home holds focus: the focused card's shelf went away, or
+    // focus fell back to the page itself.
+    function homeFocusIdle() {
+        var focused = Window.activeFocusItem
+        return !focused || focused === root || focused === mainFlickable
+                || focused === mainFlickable.contentItem
+    }
+
+    // Asks before a Silo episode's dismissal drops its whole show, which
+    // the server also sends on to the profile's watch services.
+    Dialog {
+        id: stopWatchingDialog
+        parent: Overlay.overlay
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(Math.round(680 * Theme.layoutScale),
+                        Math.max(0, root.width - Theme.spacingLarge * 2))
+        padding: Theme.dialogPadding
+        topPadding: Theme.spacingLarge
+
+        property var action: null
+        property var item: null
+        property var shelf: null
+        property bool confirmed: false
+
+        function ask(cardAction, card, cardShelf) {
+            action = cardAction
+            item = card
+            shelf = cardShelf
+            open()
+        }
+
+        background: DialogSurface {}
+        Overlay.modal: ModalScrim {}
+
+        ModalFocusGuard {
+            popup: stopWatchingDialog
+            fallbackItem: stopWatchingCancelButton
+        }
+
+        header: Item {
+            implicitHeight: stopWatchingTitle.implicitHeight + Theme.dialogPadding + Theme.spacingSmall
+
+            Text {
+                id: stopWatchingTitle
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: Theme.dialogPadding
+                anchors.rightMargin: Theme.dialogPadding
+                text: stopWatchingDialog.action ? stopWatchingDialog.action.confirmTitle : ""
+                font.family: Theme.fontDisplay
+                font.pixelSize: Theme.fontSizeTitle
+                font.weight: Theme.fontWeightHeavy
+                color: Theme.textPrimary
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        contentItem: Text {
+            text: stopWatchingDialog.action ? stopWatchingDialog.action.confirmMessage : ""
+            font.family: Theme.fontPrimary
+            font.pixelSize: Theme.fontSizeBody
+            color: Theme.textSecondary
+            wrapMode: Text.WordWrap
+        }
+
+        footer: Item {
+            implicitHeight: Theme.buttonHeightMedium + Theme.dialogPadding + Theme.spacingMedium
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.dialogPadding
+                anchors.topMargin: Theme.spacingMedium
+                spacing: Theme.controlSpacing
+
+                Keys.onShortcutOverride: function(event) {
+                    event.accepted = event.key === Qt.Key_Escape
+                }
+                Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back
+                            || event.key === Qt.Key_Backspace) {
+                        event.accepted = true
+                        stopWatchingDialog.close()
+                    }
+                }
+
+                // Cancel takes focus first, so a stray Select changes nothing.
+                ActionButton {
+                    id: stopWatchingCancelButton
+                    variant: "secondary"
+                    Layout.fillWidth: true
+                    text: qsTr("Cancel")
+                    focusPolicy: Qt.StrongFocus
+                    KeyNavigation.right: stopWatchingConfirmButton
+                    Keys.onReturnPressed: stopWatchingDialog.close()
+                    Keys.onEnterPressed: stopWatchingDialog.close()
+                    onClicked: stopWatchingDialog.close()
+                }
+
+                ActionButton {
+                    id: stopWatchingConfirmButton
+                    variant: "destructive"
+                    Layout.fillWidth: true
+                    text: stopWatchingDialog.action ? stopWatchingDialog.action.confirmText : ""
+                    focusPolicy: Qt.StrongFocus
+                    KeyNavigation.left: stopWatchingCancelButton
+                    Keys.onReturnPressed: clicked()
+                    Keys.onEnterPressed: clicked()
+                    onClicked: {
+                        stopWatchingDialog.confirmed = true
+                        stopWatchingDialog.close()
+                    }
+                }
+            }
+        }
+
+        onOpened: {
+            confirmed = false
+            Qt.callLater(function() { stopWatchingCancelButton.forceActiveFocus() })
+        }
+        onClosed: {
+            var cardAction = action
+            var card = item
+            var cardShelf = shelf
+            var run = confirmed
+            action = null
+            item = null
+            shelf = null
+            confirmed = false
+            Qt.callLater(function() {
+                root.returnCardFocus(cardShelf, null)
+                if (run && cardAction)
+                    root.runCardAction(cardAction.id, card, cardShelf)
+            })
+        }
+    }
+
     ToastNotification {
         id: cardToast
         z: 10
         displayDuration: 8000
-        onActionTriggered: sourceRouter.run(shelves.undoConnectionId, function() { shelves.undo() })
+        // The menu offers the same undo; its timeout waits for the menu.
+        paused: root.cardModalOpen
+        onActionTriggered: root.requestUndo()
         // An undo waiting for its route still needs the record.
-        onDismissed: if (!sourceRouter.busy) shelves.dismissUndo()
+        onDismissed: if (!root.undoRouteAction) shelves.dismissUndo()
     }
 
     // Poster card for Recently Added.
@@ -992,23 +1231,25 @@ FocusScope {
                     Layout.fillWidth: true
                     Layout.preferredHeight: implicitHeight
                     cardHeight: Theme.landscapeCardHeight
-                    model: continueWatchingModel
+                    // A list model, so the focused card keeps its place
+                    // while other cards come and go.
+                    model: shelves.continueWatchingModel
                     delegate: landscapeCardDelegate
                     Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(continueWatchingList, -1) }
                     Keys.onPressed: function(event) {
                         if (root.isActionsKey(event)) {
                             event.accepted = true
-                            cardActionsMenu.openFor(continueWatchingList)
+                            cardActionsMenu.openFor(continueWatchingList, -1)
                         }
                     }
                     Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(continueWatchingList, 1) }
                     Keys.onReturnPressed: {
-                        if (currentIndex >= 0 && currentIndex < continueWatchingModel.length)
-                            handleNextUpSelection(continueWatchingModel[currentIndex])
+                        if (currentIndex >= 0 && currentIndex < count)
+                            handleNextUpSelection(model.get(currentIndex))
                     }
                     Keys.onEnterPressed: {
-                        if (currentIndex >= 0 && currentIndex < continueWatchingModel.length)
-                            handleNextUpSelection(continueWatchingModel[currentIndex])
+                        if (currentIndex >= 0 && currentIndex < count)
+                            handleNextUpSelection(model.get(currentIndex))
                     }
                     onCurrentIndexChanged: if (activeFocus) root.cancelInitialFocus()
                     onActiveFocusChanged: {
@@ -1041,23 +1282,25 @@ FocusScope {
                     Layout.fillWidth: true
                     Layout.preferredHeight: implicitHeight
                     cardHeight: Theme.landscapeCardHeight
-                    model: displayedNextUpModel
+                    // A list model, so the focused card keeps its place
+                    // while other cards come and go.
+                    model: shelves.nextUpModel
                     delegate: landscapeCardDelegate
                     Keys.onUpPressed: function(event) { event.accepted = root.moveShelfFocus(nextUpList, -1) }
                     Keys.onPressed: function(event) {
                         if (root.isActionsKey(event)) {
                             event.accepted = true
-                            cardActionsMenu.openFor(nextUpList)
+                            cardActionsMenu.openFor(nextUpList, -1)
                         }
                     }
                     Keys.onDownPressed: function(event) { event.accepted = root.moveShelfFocus(nextUpList, 1) }
                     Keys.onReturnPressed: {
-                        if (currentIndex >= 0 && currentIndex < displayedNextUpModel.length)
-                            handleNextUpSelection(displayedNextUpModel[currentIndex])
+                        if (currentIndex >= 0 && currentIndex < count)
+                            handleNextUpSelection(model.get(currentIndex))
                     }
                     Keys.onEnterPressed: {
-                        if (currentIndex >= 0 && currentIndex < displayedNextUpModel.length)
-                            handleNextUpSelection(displayedNextUpModel[currentIndex])
+                        if (currentIndex >= 0 && currentIndex < count)
+                            handleNextUpSelection(model.get(currentIndex))
                     }
                     onCurrentIndexChanged: if (activeFocus) root.cancelInitialFocus()
                     onActiveFocusChanged: {
@@ -1480,11 +1723,21 @@ FocusScope {
             root.addBackdropCandidates(items)
         }
 
-        // Restore focus if we had focus in Next Up section AND we're still the active screen
+        // The shelves are list models, so a focused card keeps its place.
+        // Focus is restored only when nothing on Home holds it (its shelf
+        // emptied or Home just came back), never from another shelf, the
+        // navigation bar, or an open card menu.
         Qt.callLater(function() {
-            if ((lastFocusedSection === "nextUp" || lastFocusedSection === "continueWatching") && root.StackView.status === StackView.Active) {
-                restoreFocusState()
+            if (root.StackView.status !== StackView.Active || root.cardModalOpen)
+                return
+            if (lastFocusedSection !== "nextUp" && lastFocusedSection !== "continueWatching")
+                return
+            if (continueWatchingList.activeFocus || nextUpList.activeFocus) {
+                saveFocusState()
+                return
             }
+            if (root.homeFocusIdle())
+                restoreFocusState()
         })
     }
 

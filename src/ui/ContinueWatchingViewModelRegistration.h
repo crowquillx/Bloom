@@ -16,3 +16,11 @@ struct ContinueWatchingViewModelRegistration
     QML_FOREIGN(ContinueWatchingViewModel)
     QML_NAMED_ELEMENT(ContinueWatchingViewModel)
 };
+
+// The shelves' list models, read through ContinueWatchingViewModel only.
+struct HomeCardListModelRegistration
+{
+    Q_GADGET
+    QML_FOREIGN(HomeCardListModel)
+    QML_ANONYMOUS
+};

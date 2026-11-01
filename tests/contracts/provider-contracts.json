@@ -1734,7 +1734,7 @@
         ],
         "requiredSemantics": [
           "A dismissed card leaves the surface for the acting profile until the item is played again or the dismissal is undone.",
-          "Dismissing an episode drops the whole show: every card of that series leaves both rows, and Bloom hides them all at once.",
+          "Dismissing an episode drops the whole show: every card of that series leaves both rows, and Bloom hides them all at once. The server also sends the drop to the profile's watch providers, so Bloom labels it Stop watching and asks first.",
           "Undismissing shows the card again; a card that was not dismissed is left as is."
         ],
         "evidenceSources": [
