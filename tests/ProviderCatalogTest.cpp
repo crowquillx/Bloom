@@ -22,7 +22,7 @@ namespace {
 // Silo artwork-bearing reads ask for the widths Bloom draws on a 4K screen.
 QString withArtworkWidths(const QString &endpoint)
 {
-    return endpoint + QStringLiteral("?poster_width=1000&backdrop_width=3840&logo_width=1280");
+    return endpoint + QStringLiteral("?poster_width=1000&backdrop_width=3840&logo_width=1280&still_width=1280");
 }
 
 } // namespace

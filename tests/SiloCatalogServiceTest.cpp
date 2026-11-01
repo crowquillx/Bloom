@@ -35,7 +35,7 @@ namespace {
 QString withArtworkWidths(const QString &endpoint)
 {
     return endpoint + (endpoint.contains(QLatin1Char('?')) ? QStringLiteral("&") : QStringLiteral("?"))
-        + QStringLiteral("poster_width=1000&backdrop_width=3840&logo_width=1280");
+        + QStringLiteral("poster_width=1000&backdrop_width=3840&logo_width=1280&still_width=1280");
 }
 
 class ControlledReply final : public QNetworkReply
@@ -1471,7 +1471,8 @@ void SiloCatalogServiceTest::artworkWidthsOnlyOnRoutesThatDeclareThem()
         const QUrlQuery parameters(QUrl(request.relativeEndpoint).query());
         return parameters.queryItemValue(QStringLiteral("poster_width")) == QStringLiteral("1000")
             && parameters.queryItemValue(QStringLiteral("backdrop_width")) == QStringLiteral("3840")
-            && parameters.queryItemValue(QStringLiteral("logo_width")) == QStringLiteral("1280");
+            && parameters.queryItemValue(QStringLiteral("logo_width")) == QStringLiteral("1280")
+            && parameters.queryItemValue(QStringLiteral("still_width")) == QStringLiteral("1280");
     };
     const auto mentionsWidths = [](const ProviderCatalogRequest &request) {
         return request.relativeEndpoint.contains(QStringLiteral("_width"));
