@@ -71,7 +71,8 @@ public:
     QVariantMap mapMediaItem(const QJsonObject &wireItem,
                              const QString &connectionId) const override
     {
-        return SiloModelMapper::mediaItem(wireItem, connectionId);
+        // A single item is always a catalog item detail.
+        return SiloModelMapper::mediaDetail(wireItem, connectionId);
     }
 
     QVariantList mapMediaItems(const QJsonArray &wireItems,
@@ -85,6 +86,13 @@ public:
                                      const QString &itemId) const override
     {
         return SiloModelMapper::chaptersFromItem(wireItem, connectionId, itemId);
+    }
+
+    QVariantList mapExtras(const QJsonArray &wireExtras,
+                           const QString &connectionId,
+                           const QString &parentId) const override
+    {
+        return SiloModelMapper::extras(wireExtras, connectionId, parentId);
     }
 
     bool supportsCapability(ProviderCapability capability) const override

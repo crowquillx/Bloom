@@ -99,6 +99,13 @@ public:
             wireItem.value(QStringLiteral("Chapters")).toArray(), connectionId, itemId);
     }
 
+    QVariantList mapExtras(const QJsonArray &wireExtras,
+                           const QString &connectionId,
+                           const QString &parentId) const override
+    {
+        return JellyfinModelMapper::extras(wireExtras, connectionId, parentId);
+    }
+
 private:
     JellyfinCatalogProvider m_catalogProvider;
     JellyfinAuthenticator m_authenticator;

@@ -92,6 +92,8 @@
     "sessions.revoke",
     "metadata.provider-ids",
     "metadata.theme-songs",
+    "metadata.special-features",
+    "metadata.local-trailers",
     "subtitles.delivery-url",
     "cache.conditional-refresh",
     "errors.expired-session",
@@ -495,6 +497,32 @@
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Optional series ambience feature used by Bloom."},
         "silo-8044eb8-compat": {"outcome": "stubbed", "evidence": "Dedicated handler returns an empty ThemeMediaResult."}
+      }
+    },
+    {
+      "id": "metadata.special-features",
+      "journey": "metadata",
+      "bloomCaller": "LibraryService::getItemExtras",
+      "method": "GET",
+      "path": "/Items/{itemId}/SpecialFeatures",
+      "requestSemantics": ["userId is sent; itemId is the movie or series", "Requested only when the item detail does not carry its extras"],
+      "requiredSemantics": ["Response is a bare BaseItemDto array of the item's local extras with Id, Name, ExtraType and RunTimeTicks", "Samples, theme songs and theme videos are not shown as extras"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "GetSpecialFeatures is a current Jellyfin 12 operation; extras play through the normal PlaybackInfo path."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "The pinned compat router serves the route from local extras (non-trailer kinds); not live-validated with a fixture that has extras."}
+      }
+    },
+    {
+      "id": "metadata.local-trailers",
+      "journey": "metadata",
+      "bloomCaller": "LibraryService::getItemExtras",
+      "method": "GET",
+      "path": "/Items/{itemId}/LocalTrailers",
+      "requestSemantics": ["userId is sent; itemId is the movie or series", "Remote (YouTube) trailers and the obsolete GET /Trailers are never requested; Bloom's mpv runs without ytdl"],
+      "requiredSemantics": ["Response is a bare BaseItemDto array of local trailer files; each entry is treated as a trailer"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "GetLocalTrailers is a current Jellyfin 12 operation."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "The pinned compat router serves the route from local trailer extras; not live-validated with a fixture that has a trailer."}
       }
     },
     {
@@ -1239,7 +1267,8 @@
           "Profile-scoped content identity."
         ],
         "requiredSemantics": [
-          "Detail contains provider IDs, user state, versions, themes and playback variants."
+          "Detail contains provider IDs, user state, versions, themes and playback variants.",
+          "Detail extras[] lists local extras with string content_id, kind (trailer, teaser, featurette, clip, behind_the_scenes, bloopers, deleted_scene, other; unknown kinds read as other), title, duration_seconds and a signed 16:9 still_url; each content_id plays through the watch and playback routes."
         ],
         "evidenceSources": [
           "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
@@ -1448,7 +1477,8 @@
           "discovery": "Pinned v2 operation."
         },
         "requestSemantics": [
-          "Refetch the resource that owns an expired artwork URL."
+          "Refetch the resource that owns an expired artwork URL.",
+          "An extra's expired still_url is refetched from its parent item's detail."
         ],
         "requiredSemantics": [
           "Artwork URLs are opaque fetch locations; preserve their signed query."

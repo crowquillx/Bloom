@@ -1,4 +1,6 @@
 #include "JellyfinModelMapper.h"
+#include "models/MediaExtras.h"
+#include <QHash>
 
 #include <QDateTime>
 #include <QUrl>
@@ -682,6 +684,67 @@ QVariantList JellyfinModelMapper::mediaItems(const QJsonArray &wireItems,
         }
     }
     return items;
+}
+
+QVariantMap JellyfinModelMapper::extra(const QJsonObject &wireItem,
+                                      const QString &connectionId,
+                                      const QString &parentId)
+{
+    namespace Extras = Bloom::MediaExtras;
+    static const QHash<QString, QString> kinds{
+        {QStringLiteral("Trailer"), Extras::kTrailer},
+        {QStringLiteral("Featurette"), Extras::kFeaturette},
+        {QStringLiteral("Clip"), Extras::kClip},
+        {QStringLiteral("BehindTheScenes"), Extras::kBehindTheScenes},
+        {QStringLiteral("DeletedScene"), Extras::kDeletedScene},
+        {QStringLiteral("Interview"), Extras::kInterview},
+        {QStringLiteral("Scene"), Extras::kScene},
+        {QStringLiteral("Short"), Extras::kShort},
+        {QStringLiteral("Unknown"), Extras::kOther}};
+
+    const QString itemId = wireItem.value(QStringLiteral("Id")).toString();
+    const QJsonValue extraType = wireItem.value(QStringLiteral("ExtraType"));
+    const QString wireKind = extraType.isString() ? extraType.toString() : QStringLiteral("Unknown");
+    if (itemId.isEmpty() || !kinds.contains(wireKind)
+        || wireItem.value(QStringLiteral("LocationType")).toString() == QStringLiteral("Virtual")) {
+        return {};
+    }
+
+    const QVariantMap item = mediaItem(wireItem, connectionId);
+    QVariantMap result{
+        {QStringLiteral("media"), item.value(QStringLiteral("media"))},
+        {QStringLiteral("connectionId"), connectionId},
+        {QStringLiteral("itemId"), itemId},
+        {QStringLiteral("parentId"), parentId},
+        {QStringLiteral("name"), item.value(QStringLiteral("name"))},
+        {QStringLiteral("extraKind"), kinds.value(wireKind)},
+        {QStringLiteral("durationMs"), item.value(QStringLiteral("durationMs"))}
+    };
+    // Extras carry their own 16:9 Primary still when the server has one;
+    // a Thumb serves when Primary is missing.
+    for (const QString &property : {QStringLiteral("primaryArtwork"), QStringLiteral("thumbArtwork")}) {
+        if (item.contains(property)) {
+            result.insert(QStringLiteral("primaryArtwork"), item.value(property));
+            result.insert(QStringLiteral("artwork"), QVariantList{item.value(property)});
+            break;
+        }
+    }
+    return result;
+}
+
+QVariantList JellyfinModelMapper::extras(const QJsonArray &wireItems,
+                                         const QString &connectionId,
+                                         const QString &parentId)
+{
+    QVariantList result;
+    for (const QJsonValue &value : wireItems) {
+        const QVariantMap mapped = value.isObject()
+            ? extra(value.toObject(), connectionId, parentId) : QVariantMap{};
+        if (!mapped.isEmpty()) {
+            result.append(mapped);
+        }
+    }
+    return result;
 }
 
 Bloom::Chapter JellyfinModelMapper::chapter(const QJsonObject &wireChapter,

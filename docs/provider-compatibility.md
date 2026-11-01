@@ -122,6 +122,8 @@ None of these fields has an `*_expires_at`. When the series backdrop replaces th
 
 Catalog cards (`CatalogItem`) carry `overlay_summary` but no unwatched episode count: their `user_state` holds only `played`, `is_favorite`, `in_watchlist`, and `not_interested`. Seasons and item details carry the full watch rollup, so Silo series posters show a watched check but no count. Poster badge preferences come from the profile-scoped effective `ui.card_overlays` and `ui.card_overlays_enabled` settings and `GET /api/v2/settings/overlay-config`; see [poster badges](poster-badges.md).
 
+Local extras (trailers, featurettes, deleted scenes and other files the scanner files under a movie or series) come with the detail: `GET /api/v2/catalog/items/{id}` returns `extras[]` (`ItemExtraInfo`: required `content_id` and `kind`, optional `title`, `duration_seconds`, `file_id`, `still_url`, `still_thumbhash`). `kind` is a free string; the server's vocabulary is `trailer`, `teaser`, `featurette`, `clip`, `behind_the_scenes`, `bloopers`, `deleted_scene` and `other`, and `SiloModelMapper::extras` reads anything else as `other`, as the server's own `NormalizeExtraKind` does. An entry without `content_id` is dropped. `still_url` is the 16:9 still at the `still_width` rung (1280 px). An extra has no catalog route, so its still is owned by the parent (`ArtworkOwnerKind::Extra`): a refresh re-reads the parent detail and takes the still whose path still matches the reference's tag, else the one at the same position. Each `content_id` plays through `/api/v2/watch/{id}` and protocol 3 like any item, and the server authorizes it through its parent. Remote provider videos (`item_videos`, YouTube) are not in `extras[]` and Bloom does not play them: its mpv runs without ytdl. There is no separate extras read, so `SpecialFeatures` and `LocalTrailers` are unsupported operations on native Silo.
+
 Silo has no series-wide episode route, so `LibraryService::getNextUnplayedEpisode` lists the seasons, reads each season's episodes, and runs `NextEpisodeResolver` over the whole series. The series page and autoplay therefore share the Jellyfin rules, including the excluded current episode. The catalog query source has no random order. For the Home backdrop, hero, screensaver and Search suggestions, `LibraryService::sendRandomSampleRequest` reads the count of matching movies and series, fetches a 100-item window at a random `seek` offset, and shuffles it locally. The full backdrop index pages through the same catalog query. A provider that implements these operations natively, such as Jellyfin, keeps its own request.
 
 Conditional playback and theme capability reads return ETags. Bloom sends `If-None-Match` and reuses the cached representation on `304`. The watched, favorite, watchlist, authentication-session revoke, playback, and theme-grant operations Bloom uses do not declare guarded writes. Bloom does not invent `If-Match` for them. A future guarded write must preserve the resource ETag and reconcile `412` after a fresh read.
@@ -218,6 +220,15 @@ not branch the core catalog/playback contract by server version. In particular:
   `Policy.IsAdministrator`, which Bloom keeps as the account's administrator
   flag; the playback recovery ping uses the same route instead of
   `/System/Info`;
+- local extras come from `GET /Items/{itemId}/LocalTrailers` and
+  `GET /Items/{itemId}/SpecialFeatures` (`GetLocalTrailers`,
+  `GetSpecialFeatures`) with `userId`; both answer a bare `BaseItemDto` array.
+  Every local trailer is a trailer, whatever its `ExtraType`. Special
+  features map `ExtraType` (`Featurette`, `Clip`, `BehindTheScenes`,
+  `DeletedScene`, `Interview`, `Scene`, `Short`; `Unknown` or none is
+  `other`) and drop `Sample`, `ThemeSong` and `ThemeVideo`. The obsolete
+  `GET /Trailers` and remote `RemoteTrailers` are never used. Silo's
+  compatibility surface serves both routes at the pinned compat revision;
 - sign-out sends `POST /Sessions/Logout` (`ReportSessionEnded`) once, best
   effort, before deleting the token. It deletes only that account's token;
   Jellyfin also ends the in-memory session of any other account using

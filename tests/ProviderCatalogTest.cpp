@@ -10,7 +10,9 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <limits>
+#include <tuple>
 
+#include "models/MediaExtras.h"
 #include "providers/ICatalogProvider.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include "providers/silo/SiloModelMapper.h"
@@ -46,6 +48,9 @@ private slots:
     void siloArtworkCacheIdentityFollowsStoredVariant();
     void siloNumericSeasonRoutesAndEnvelopeOperation();
     void siloThemeMetadataCapabilitiesAndGrants();
+    void jellyfinExtrasUseOpenApiRoutesAndMapKinds();
+    void siloExtrasMapFromCatalogItemDetail();
+    void preferredTrailerPrefersTrailerThenTeaser();
 
 };
 
@@ -1019,6 +1024,264 @@ void ProviderCatalogTest::siloThemeMetadataCapabilitiesAndGrants()
     grant["delivery"] = "original";
     grant["expires_at"] = QDateTime::currentDateTimeUtc().addSecs(-1).toString(Qt::ISODateWithMs);
     QVERIFY(!provider.parseResponse(ProviderCatalogOperation::ThemeSongPlayback, QJsonDocument(grant).toJson()).valid);
+}
+
+void ProviderCatalogTest::jellyfinExtrasUseOpenApiRoutesAndMapKinds()
+{
+    JellyfinProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    ProviderCatalogQuery query;
+    query.userId = QStringLiteral("user-1");
+    query.itemId = QStringLiteral("movie 1");
+
+    QFile openApiManifest(QStringLiteral(BLOOM_JELLYFIN_OPENAPI_MANIFEST));
+    QVERIFY2(openApiManifest.open(QIODevice::ReadOnly),
+             qPrintable(openApiManifest.errorString()));
+    const QJsonArray operations = QJsonDocument::fromJson(openApiManifest.readAll())
+                                      .object().value(QStringLiteral("operations")).toArray();
+    const auto manifestOperation = [&operations](const QString &operationId) {
+        for (const QJsonValue &value : operations) {
+            if (value.toObject().value(QStringLiteral("operationId")).toString() == operationId) {
+                return value.toObject();
+            }
+        }
+        return QJsonObject{};
+    };
+
+    // Both reads exist, are current, and take only the userId query.
+    for (const auto &[operation, operationId, path] : {
+             std::tuple{ProviderCatalogOperation::SpecialFeatures,
+                        QStringLiteral("GetSpecialFeatures"),
+                        QStringLiteral("/Items/movie 1/SpecialFeatures")},
+             std::tuple{ProviderCatalogOperation::LocalTrailers,
+                        QStringLiteral("GetLocalTrailers"),
+                        QStringLiteral("/Items/movie 1/LocalTrailers")}}) {
+        const ProviderCatalogRequest request = catalog->createRequest(operation, query);
+        QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+        QCOMPARE(request.method, ProviderHttpMethod::Get);
+        QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+        const QUrl url(request.relativeEndpoint);
+        QCOMPARE(url.path(), path);
+        const QUrlQuery urlQuery(url);
+        QCOMPARE(urlQuery.queryItems().size(), 1);
+        QCOMPARE(urlQuery.queryItemValue(QStringLiteral("userId")), query.userId);
+
+        const QJsonObject contract = manifestOperation(operationId);
+        QVERIFY2(!contract.isEmpty(), qPrintable(operationId));
+        QCOMPARE(contract.value(QStringLiteral("method")).toString(), QStringLiteral("GET"));
+        QCOMPARE(contract.value(QStringLiteral("deprecated")).toBool(), false);
+        QCOMPARE(contract.value(QStringLiteral("path")).toString(),
+                 QString(path).replace(QStringLiteral("movie 1"), QStringLiteral("{itemId}")));
+        bool userIdDeclared = false;
+        for (const QJsonValue &parameter : contract.value(QStringLiteral("parameters")).toArray()) {
+            const QJsonObject declared = parameter.toObject();
+            if (declared.value(QStringLiteral("name")).toString() == QStringLiteral("userId")) {
+                userIdDeclared = !declared.value(QStringLiteral("deprecated")).toBool();
+            }
+        }
+        QVERIFY(userIdDeclared);
+
+        ProviderCatalogQuery missingItem = query;
+        missingItem.itemId.clear();
+        QVERIFY(!catalog->createRequest(operation, missingItem).supported);
+        QVERIFY(!catalog->parseResponse(operation, QByteArrayLiteral("{}")).valid);
+    }
+
+    // Local trailers are trailers even when ExtraType is missing.
+    const ProviderCatalogResponse trailers = catalog->parseResponse(
+        ProviderCatalogOperation::LocalTrailers,
+        QJsonDocument(QJsonArray{QJsonObject{{QStringLiteral("Id"), QStringLiteral("trailer-1")},
+                                             {QStringLiteral("Name"), QStringLiteral("Trailer")}}})
+            .toJson());
+    QVERIFY(trailers.valid);
+    const QVariantList mappedTrailers = adapter.mapExtras(
+        trailers.rawItems, QStringLiteral("jf"), QStringLiteral("movie 1"));
+    QCOMPARE(mappedTrailers.size(), 1);
+    QCOMPARE(mappedTrailers.first().toMap().value(QStringLiteral("extraKind")).toString(),
+             Bloom::MediaExtras::kTrailer);
+
+    const auto extra = [](const QString &id, const QJsonValue &type) {
+        QJsonObject wire{{QStringLiteral("Id"), id}, {QStringLiteral("Name"), id}};
+        if (!type.isUndefined()) {
+            wire.insert(QStringLiteral("ExtraType"), type);
+        }
+        return wire;
+    };
+    QJsonObject featurette = extra(QStringLiteral("featurette"), QStringLiteral("Featurette"));
+    featurette.insert(QStringLiteral("RunTimeTicks"), 1234567890LL);
+    featurette.insert(QStringLiteral("ImageTags"),
+                      QJsonObject{{QStringLiteral("Primary"), QStringLiteral("tag-1")}});
+    const ProviderCatalogResponse features = catalog->parseResponse(
+        ProviderCatalogOperation::SpecialFeatures,
+        QJsonDocument(QJsonArray{
+            featurette,
+            extra(QStringLiteral("bts"), QStringLiteral("BehindTheScenes")),
+            extra(QStringLiteral("deleted"), QStringLiteral("DeletedScene")),
+            extra(QStringLiteral("interview"), QStringLiteral("Interview")),
+            extra(QStringLiteral("scene"), QStringLiteral("Scene")),
+            extra(QStringLiteral("short"), QStringLiteral("Short")),
+            extra(QStringLiteral("clip"), QStringLiteral("Clip")),
+            extra(QStringLiteral("unknown"), QStringLiteral("Unknown")),
+            extra(QStringLiteral("untyped"), QJsonValue::Null),
+            extra(QStringLiteral("theme-song"), QStringLiteral("ThemeSong")),
+            extra(QStringLiteral("theme-video"), QStringLiteral("ThemeVideo")),
+            extra(QStringLiteral("sample"), QStringLiteral("Sample")),
+            QJsonObject{{QStringLiteral("ExtraType"), QStringLiteral("Clip")}}})
+            .toJson());
+    QVERIFY(features.valid);
+    const QVariantList mapped = adapter.mapExtras(
+        features.rawItems, QStringLiteral("jf"), QStringLiteral("movie 1"));
+    QStringList kinds;
+    QStringList ids;
+    for (const QVariant &value : mapped) {
+        ids.append(value.toMap().value(QStringLiteral("itemId")).toString());
+        kinds.append(value.toMap().value(QStringLiteral("extraKind")).toString());
+    }
+    QCOMPARE(ids, (QStringList{QStringLiteral("featurette"), QStringLiteral("bts"),
+                               QStringLiteral("deleted"), QStringLiteral("interview"),
+                               QStringLiteral("scene"), QStringLiteral("short"),
+                               QStringLiteral("clip"), QStringLiteral("unknown"),
+                               QStringLiteral("untyped")}));
+    QCOMPARE(kinds, (QStringList{QStringLiteral("featurette"), QStringLiteral("behindTheScenes"),
+                                 QStringLiteral("deletedScene"), QStringLiteral("interview"),
+                                 QStringLiteral("scene"), QStringLiteral("short"),
+                                 QStringLiteral("clip"), QStringLiteral("other"),
+                                 QStringLiteral("other")}));
+
+    const QVariantMap first = mapped.first().toMap();
+    QCOMPARE(first.value(QStringLiteral("connectionId")).toString(), QStringLiteral("jf"));
+    QCOMPARE(first.value(QStringLiteral("parentId")).toString(), QStringLiteral("movie 1"));
+    QCOMPARE(first.value(QStringLiteral("name")).toString(), QStringLiteral("featurette"));
+    QCOMPARE(first.value(QStringLiteral("durationMs")).toLongLong(), 123456LL);
+    QCOMPARE(first.value(QStringLiteral("media")).toMap().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("featurette"));
+    const QVariantMap still = first.value(QStringLiteral("primaryArtwork")).toMap();
+    QCOMPARE(still.value(QStringLiteral("itemId")).toString(), QStringLiteral("featurette"));
+    QCOMPARE(still.value(QStringLiteral("kind")).toString(), QStringLiteral("primary"));
+    QCOMPARE(still.value(QStringLiteral("tag")).toString(), QStringLiteral("tag-1"));
+    // Missing runtime and image stay empty rather than invented.
+    const QVariantMap bare = mapped.at(1).toMap();
+    QCOMPARE(bare.value(QStringLiteral("durationMs")).toLongLong(), 0LL);
+    QVERIFY(!bare.contains(QStringLiteral("primaryArtwork")));
+
+    QVERIFY(adapter.mapExtras({}, QStringLiteral("jf"), QStringLiteral("movie 1")).isEmpty());
+}
+
+void ProviderCatalogTest::siloExtrasMapFromCatalogItemDetail()
+{
+    SiloProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+    ProviderCatalogQuery query;
+    query.itemId = QStringLiteral("movie-1");
+    // Extras arrive with the detail; there is no separate extras read.
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::SpecialFeatures, query).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LocalTrailers, query).supported);
+    QVERIFY(catalog->createRequest(ProviderCatalogOperation::Item, query).relativeEndpoint
+                .contains(QStringLiteral("still_width=1280")));
+
+    const QJsonObject detail{
+        {QStringLiteral("content_id"), QStringLiteral("movie-1")},
+        {QStringLiteral("type"), QStringLiteral("movie")},
+        {QStringLiteral("extras"), QJsonArray{
+             QJsonObject{{QStringLiteral("content_id"), QStringLiteral("x-trailer")},
+                         {QStringLiteral("kind"), QStringLiteral("trailer")},
+                         {QStringLiteral("title"), QStringLiteral(" Official Trailer ")},
+                         {QStringLiteral("duration_seconds"), 151},
+                         {QStringLiteral("file_id"), 42},
+                         {QStringLiteral("still_url"), QStringLiteral(
+                              "https://s3.example/local/extras/x-trailer/still/original.a.webp?X-Amz-Signature=1")},
+                         {QStringLiteral("still_thumbhash"), QStringLiteral("hash-1")}},
+             QJsonObject{{QStringLiteral("content_id"), QStringLiteral("x-teaser")},
+                         {QStringLiteral("kind"), QStringLiteral("teaser")}},
+             QJsonObject{{QStringLiteral("content_id"), QStringLiteral("x-bts")},
+                         {QStringLiteral("kind"), QStringLiteral("behind_the_scenes")}},
+             QJsonObject{{QStringLiteral("content_id"), QStringLiteral("x-deleted")},
+                         {QStringLiteral("kind"), QStringLiteral("deleted_scene")}},
+             QJsonObject{{QStringLiteral("content_id"), QStringLiteral("x-bloopers")},
+                         {QStringLiteral("kind"), QStringLiteral("bloopers")}},
+             QJsonObject{{QStringLiteral("content_id"), QStringLiteral("x-new")},
+                         {QStringLiteral("kind"), QStringLiteral("making_of")}},
+             QJsonObject{{QStringLiteral("kind"), QStringLiteral("featurette")}}}}
+    };
+    const QVariantMap item = adapter.mapMediaItem(detail, QStringLiteral("silo"));
+    const QVariantList extras = item.value(QStringLiteral("extras")).toList();
+    QStringList kinds;
+    for (const QVariant &value : extras) {
+        kinds.append(value.toMap().value(QStringLiteral("extraKind")).toString());
+    }
+    // An extra without content_id cannot play and is dropped; an unknown
+    // kind folds to other.
+    QCOMPARE(kinds, (QStringList{QStringLiteral("trailer"), QStringLiteral("teaser"),
+                                 QStringLiteral("behindTheScenes"), QStringLiteral("deletedScene"),
+                                 QStringLiteral("bloopers"), QStringLiteral("other")}));
+
+    const QVariantMap trailer = extras.first().toMap();
+    QCOMPARE(trailer.value(QStringLiteral("itemId")).toString(), QStringLiteral("x-trailer"));
+    QCOMPARE(trailer.value(QStringLiteral("connectionId")).toString(), QStringLiteral("silo"));
+    QCOMPARE(trailer.value(QStringLiteral("parentId")).toString(), QStringLiteral("movie-1"));
+    QCOMPARE(trailer.value(QStringLiteral("name")).toString(), QStringLiteral("Official Trailer"));
+    QCOMPARE(trailer.value(QStringLiteral("durationMs")).toLongLong(), 151000LL);
+    QCOMPARE(trailer.value(QStringLiteral("fileId")).toString(), QStringLiteral("42"));
+    QCOMPARE(trailer.value(QStringLiteral("media")).toMap().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("x-trailer"));
+    const QVariantMap still = trailer.value(QStringLiteral("primaryArtwork")).toMap();
+    // The parent owns the still; signed query changes keep its cache key.
+    QCOMPARE(still.value(QStringLiteral("itemId")).toString(), QStringLiteral("movie-1"));
+    QCOMPARE(still.value(QStringLiteral("ownerKind")).toString(), QStringLiteral("extra"));
+    QCOMPARE(still.value(QStringLiteral("index")).toInt(), 0);
+    QCOMPARE(trailer.value(QStringLiteral("artworkThumbhashes")).toMap()
+                 .value(QStringLiteral("poster")).toString(),
+             QStringLiteral("hash-1"));
+    QCOMPARE(Bloom::ArtworkRef::fromVariantMap(still).ownerKind, Bloom::ArtworkOwnerKind::Extra);
+
+    // Missing title, runtime and still stay empty.
+    const QVariantMap teaser = extras.at(1).toMap();
+    QVERIFY(teaser.value(QStringLiteral("name")).toString().isEmpty());
+    QCOMPARE(teaser.value(QStringLiteral("durationMs")).toLongLong(), 0LL);
+    QVERIFY(!teaser.contains(QStringLiteral("primaryArtwork")));
+
+    // Cards carry no extras key.
+    const QVariantList cards = adapter.mapMediaItems(
+        QJsonArray{QJsonObject{{QStringLiteral("content_id"), QStringLiteral("movie-1")},
+                               {QStringLiteral("type"), QStringLiteral("movie")}}},
+        QStringLiteral("silo"));
+    QCOMPARE(cards.size(), 1);
+    QVERIFY(!cards.first().toMap().contains(QStringLiteral("extras")));
+    // A detail always carries the key, empty when Silo sends an empty list
+    // or (as it does when there are none) omits `extras`, so the fresh
+    // detail replaces extras cached from an earlier one.
+    for (const QJsonObject &wire : {
+             QJsonObject{{QStringLiteral("content_id"), QStringLiteral("movie-1")},
+                         {QStringLiteral("extras"), QJsonArray{}}},
+             QJsonObject{{QStringLiteral("content_id"), QStringLiteral("movie-1")}}}) {
+        const QVariantMap noExtras = adapter.mapMediaItem(wire, QStringLiteral("silo"));
+        QVERIFY(noExtras.contains(QStringLiteral("extras")));
+        QVERIFY(noExtras.value(QStringLiteral("extras")).toList().isEmpty());
+    }
+}
+
+void ProviderCatalogTest::preferredTrailerPrefersTrailerThenTeaser()
+{
+    namespace Extras = Bloom::MediaExtras;
+    const auto extra = [](const QString &id, const QString &kind) {
+        return QVariantMap{{QStringLiteral("itemId"), id}, {QStringLiteral("extraKind"), kind}};
+    };
+    QVERIFY(Extras::preferredTrailer({}).isEmpty());
+    QVERIFY(Extras::preferredTrailer({extra(QStringLiteral("a"), Extras::kFeaturette)}).isEmpty());
+    QCOMPARE(Extras::preferredTrailer({extra(QStringLiteral("a"), Extras::kFeaturette),
+                                       extra(QStringLiteral("b"), Extras::kTeaser)})
+                 .value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("b"));
+    QCOMPARE(Extras::preferredTrailer({extra(QStringLiteral("b"), Extras::kTeaser),
+                                       extra(QString(), Extras::kTrailer),
+                                       extra(QStringLiteral("c"), Extras::kTrailer)})
+                 .value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("c"));
+    QCOMPARE(Extras::normalizedKind(QStringLiteral("making_of")), Extras::kOther);
+    QCOMPARE(Extras::normalizedKind(Extras::kDeletedScene), Extras::kDeletedScene);
 }
 
 QTEST_MAIN(ProviderCatalogTest)

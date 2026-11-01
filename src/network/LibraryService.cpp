@@ -11,6 +11,7 @@
 #include <QFutureWatcher>
 #include <QJsonObject>
 #include <QRandomGenerator>
+#include <QSet>
 #include <QTimer>
 #include <QUrl>
 #include <QtConcurrent>
@@ -1122,6 +1123,81 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
             emit canonicalSimilarItemsFailedForConnection(
                 connectionId, itemId, error.userMessage);
         });
+}
+
+void LibraryService::getItemExtras(const QString &itemId)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    if (itemId.isEmpty()) {
+        emit canonicalItemExtrasFailed(connectionId, itemId, tr("Item ID is empty"));
+        return;
+    }
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+
+    // Local trailers lead, then the special features in server order.
+    QList<ProviderCatalogOperation> operations;
+    const ICatalogProvider *provider = catalogRequestIdentity().provider;
+    for (const ProviderCatalogOperation operation :
+         {ProviderCatalogOperation::LocalTrailers, ProviderCatalogOperation::SpecialFeatures}) {
+        if (provider && provider->createRequest(operation, query).supported) {
+            operations.append(operation);
+        }
+    }
+    if (operations.isEmpty()) {
+        emit canonicalItemExtrasLoaded(connectionId, itemId, {}, true);
+        return;
+    }
+
+    struct State {
+        QList<QVariantList> results;
+        int pending = 0;
+        int failures = 0;
+        QString error;
+    };
+    auto state = std::make_shared<State>();
+    state->results.resize(operations.size());
+    state->pending = static_cast<int>(operations.size());
+    const auto finish = [this, connectionId, itemId, state]() {
+        if (--state->pending > 0) {
+            return;
+        }
+        if (state->failures == state->results.size()) {
+            emit canonicalItemExtrasFailed(connectionId, itemId, state->error);
+            return;
+        }
+        QVariantList extras;
+        QSet<QString> seen;
+        for (const QVariantList &result : std::as_const(state->results)) {
+            for (const QVariant &extra : result) {
+                const QString extraId = extra.toMap().value(QStringLiteral("itemId")).toString();
+                if (!seen.contains(extraId)) {
+                    seen.insert(extraId);
+                    extras.append(extra);
+                }
+            }
+        }
+        // A partial answer still shows what arrived, flagged so it is not
+        // cached in place of the full list.
+        emit canonicalItemExtrasLoaded(connectionId, itemId, extras, state->failures == 0);
+    };
+    for (qsizetype index = 0; index < operations.size(); ++index) {
+        sendCatalogRequest(
+            QStringLiteral("getItemExtras"),
+            operations.at(index),
+            query,
+            [this, connectionId, itemId, state, index, finish](
+                const ProviderCatalogResponse &response) {
+                state->results[index] =
+                    m_authService->mapExtras(response.rawItems, connectionId, itemId);
+                finish();
+            },
+            [state, finish](const NetworkError &error) {
+                ++state->failures;
+                state->error = error.userMessage;
+                finish();
+            });
+    }
 }
 
 void LibraryService::getNextUnplayedEpisode(const QString &seriesId,

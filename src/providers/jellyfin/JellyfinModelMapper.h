@@ -35,6 +35,15 @@ public:
                                  const QString &connectionId);
     static QVariantList mediaItems(const QJsonArray &wireItems,
                                    const QString &connectionId);
+    // Local extras from GetSpecialFeatures/GetLocalTrailers as canonical
+    // extras (models/MediaExtras.h) of `parentId`. Samples, theme songs and
+    // theme videos are not extras and are dropped.
+    static QVariantMap extra(const QJsonObject &wireItem,
+                             const QString &connectionId,
+                             const QString &parentId);
+    static QVariantList extras(const QJsonArray &wireItems,
+                               const QString &connectionId,
+                               const QString &parentId);
     static Bloom::Chapter chapter(const QJsonObject &wireChapter,
                                   const QString &connectionId,
                                   const QString &itemId,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BaseViewModel.h"
+#include "ItemExtrasState.h"
 #include "network/Types.h"
 #include <QAbstractListModel>
 #include <QJsonArray>
@@ -161,6 +162,13 @@ class SeriesDetailsViewModel : public BaseViewModel
     Q_PROPERTY(QStringList genres READ genres NOTIFY genresChanged)
     Q_PROPERTY(QVariantList similarItems READ similarItems NOTIFY similarItemsChanged)
     Q_PROPERTY(bool similarItemsLoading READ similarItemsLoading NOTIFY similarItemsLoadingChanged)
+    // Canonical local extras (models/MediaExtras.h) and the one Play Trailer
+    // starts (empty when the series has no local trailer).
+    Q_PROPERTY(QVariantList extras READ extras NOTIFY extrasChanged)
+    Q_PROPERTY(QVariantMap trailer READ trailer NOTIFY extrasChanged)
+    // True while a requested extras answer is outstanding, so a return
+    // state that targets the Extras shelf can wait for it.
+    Q_PROPERTY(bool extrasLoading READ extrasLoading NOTIFY extrasLoadingChanged)
 
     Q_PROPERTY(int seasonCount READ seasonCount NOTIFY seasonCountChanged)
     Q_PROPERTY(QString officialRating READ officialRating NOTIFY officialRatingChanged)
@@ -218,6 +226,9 @@ public:
     QStringList genres() const { return m_genres; }
     QVariantList similarItems() const { return m_similarItems; }
     bool similarItemsLoading() const { return m_similarItemsLoading; }
+    QVariantList extras() const { return m_extras.extras(); }
+    QVariantMap trailer() const { return m_extras.trailer(); }
+    bool extrasLoading() const { return m_extras.loading(); }
 
     int seasonCount() const { return m_seasonCount; }
     QString officialRating() const { return m_officialRating; }
@@ -371,6 +382,8 @@ signals:
     void genresChanged();
     void similarItemsChanged();
     void similarItemsLoadingChanged();
+    void extrasChanged();
+    void extrasLoadingChanged();
 
     void seasonCountChanged();
     void officialRatingChanged();
@@ -422,6 +435,13 @@ private slots:
     void onFavoriteStatusChanged(const QString &itemId, bool isFavorite);
     void onWatchlistStatusChanged(const QString &itemId, bool inWatchlist);
     void onWatchlistStatusFailed(const QString &itemId, bool inWatchlist, const QString &error);
+    void onExtrasLoaded(const QString &connectionId,
+                        const QString &itemId,
+                        const QVariantList &extras,
+                        bool complete);
+    void onExtrasFailed(const QString &connectionId,
+                        const QString &itemId,
+                        const QString &error);
     void onSimilarItemsLoaded(const QString &connectionId,
                               const QString &itemId,
                               const QVariantList &items);
@@ -474,6 +494,9 @@ private:
     QVariantList m_similarItems;
     bool m_similarItemsAttempted = false;
     bool m_similarItemsLoading = false;
+    ItemExtrasState m_extras;
+    bool m_extrasLoadingNotified = false;
+    void notifyExtrasLoading();
 
     int m_seasonCount = 0;
     QString m_officialRating;

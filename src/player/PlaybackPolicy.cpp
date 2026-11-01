@@ -747,6 +747,33 @@ QVariantMap boundaryEpisode(const QVariantList &seasonItems, bool fromEnd)
     return (fromEnd ? episodes.last() : episodes.first()).toMap();
 }
 
+PlaybackContentKind playbackContentKindFromName(const QString &name)
+{
+    return name.trimmed().compare(QStringLiteral("extra"), Qt::CaseInsensitive) == 0
+        ? PlaybackContentKind::Extra
+        : PlaybackContentKind::Feature;
+}
+
+QString playbackContentKindName(PlaybackContentKind kind)
+{
+    return kind == PlaybackContentKind::Extra ? QStringLiteral("extra")
+                                              : QStringLiteral("feature");
+}
+
+PlaybackContentRules playbackContentRules(PlaybackContentKind kind)
+{
+    PlaybackContentRules rules;
+    if (kind == PlaybackContentKind::Extra) {
+        rules.resumesFromRequestedPosition = false;
+        rules.keepsSeriesContext = false;
+        rules.allowsNextEpisode = false;
+        rules.allowsUpNext = false;
+        rules.persistsTrackPreferences = false;
+        rules.persistsSubtitleDelay = false;
+    }
+    return rules;
+}
+
 bool meetsCompletionThreshold(const CompletionInput &input)
 {
     return !input.alreadyEvaluated

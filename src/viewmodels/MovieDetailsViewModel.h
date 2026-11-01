@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BaseViewModel.h"
+#include "ItemExtrasState.h"
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
@@ -51,6 +52,13 @@ class MovieDetailsViewModel : public BaseViewModel
     Q_PROPERTY(QStringList genres READ genres NOTIFY genresChanged)
     Q_PROPERTY(QVariantList similarItems READ similarItems NOTIFY similarItemsChanged)
     Q_PROPERTY(bool similarItemsLoading READ similarItemsLoading NOTIFY similarItemsLoadingChanged)
+    // Canonical local extras (models/MediaExtras.h) and the one Play Trailer
+    // starts (empty when the movie has no local trailer).
+    Q_PROPERTY(QVariantList extras READ extras NOTIFY extrasChanged)
+    Q_PROPERTY(QVariantMap trailer READ trailer NOTIFY extrasChanged)
+    // True while a requested extras answer is outstanding, so a return
+    // state that targets the Extras shelf can wait for it.
+    Q_PROPERTY(bool extrasLoading READ extrasLoading NOTIFY extrasLoadingChanged)
     Q_PROPERTY(QDateTime premiereDate READ premiereDate NOTIFY premiereDateChanged)
 
     // MDBList Ratings
@@ -82,6 +90,9 @@ public:
     QStringList genres() const { return m_genres; }
     QVariantList similarItems() const { return m_similarItems; }
     bool similarItemsLoading() const { return m_similarItemsLoading; }
+    QVariantList extras() const { return m_extras.extras(); }
+    QVariantMap trailer() const { return m_extras.trailer(); }
+    bool extrasLoading() const { return m_extras.loading(); }
     QDateTime premiereDate() const { return m_premiereDate; }
 
     // Property accessors - MDBList
@@ -164,6 +175,8 @@ signals:
     void genresChanged();
     void similarItemsChanged();
     void similarItemsLoadingChanged();
+    void extrasChanged();
+    void extrasLoadingChanged();
     void premiereDateChanged();
     void mdbListRatingsChanged();
 
@@ -179,6 +192,13 @@ private slots:
     void onSimilarItemsFailed(const QString &connectionId,
                               const QString &itemId,
                               const QString &error);
+    void onExtrasLoaded(const QString &connectionId,
+                        const QString &itemId,
+                        const QVariantList &extras,
+                        bool complete);
+    void onExtrasFailed(const QString &connectionId,
+                        const QString &itemId,
+                        const QString &error);
     void onMovieChaptersLoaded(const QString &connectionId,
                                const QString &itemId,
                                const QVariantList &chapters);
@@ -227,6 +247,9 @@ private:
     bool m_similarItemsAttempted = false;
     bool m_similarItemsLoading = false;
     QString m_similarItemsRequestConnectionId;
+    ItemExtrasState m_extras;
+    bool m_extrasLoadingNotified = false;
+    void notifyExtrasLoading();
     QDateTime m_premiereDate;
 
     QJsonObject m_movieData;

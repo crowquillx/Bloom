@@ -146,6 +146,9 @@ public:
     // Series details and episodes
     Q_INVOKABLE virtual void getSeriesDetails(const QString &seriesId);
     Q_INVOKABLE virtual void getSimilarItems(const QString &itemId, int limit = 12);
+    // Local extras of a movie or series (trailers first). Providers that
+    // carry extras in the item detail (Silo) answer an empty list here.
+    Q_INVOKABLE virtual void getItemExtras(const QString &itemId);
     Q_INVOKABLE virtual void getNextUnplayedEpisode(const QString &seriesId,
                                                     const QString &excludeItemId = QString(),
                                                     const QString &requestContext = QString());
@@ -315,6 +318,16 @@ signals:
     void canonicalSimilarItemsFailedForConnection(const QString &connectionId,
                                                   const QString &itemId,
                                                   const QString &error);
+    // `complete` is false when one of several provider requests failed:
+    // `extras` is then only what arrived and must not be cached as the
+    // item's full list.
+    void canonicalItemExtrasLoaded(const QString &connectionId,
+                                   const QString &itemId,
+                                   const QVariantList &extras,
+                                   bool complete);
+    void canonicalItemExtrasFailed(const QString &connectionId,
+                                   const QString &itemId,
+                                   const QString &error);
     void canonicalNextUnplayedEpisodeLoaded(const QString &connectionId,
                                             const QString &seriesId,
                                             const QVariantMap &episodeData,

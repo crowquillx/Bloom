@@ -122,6 +122,10 @@ set_source_files_properties(ui/TrackUtils.js PROPERTIES
     QT_QML_SKIP_QMLDIR_ENTRY TRUE
 )
 
+set_source_files_properties(ui/ExtrasUtils.js PROPERTIES
+    QT_QML_SKIP_QMLDIR_ENTRY TRUE
+)
+
 qt6_add_shaders(Bloom "bloom_shaders"
     PREFIX /shaders
     OUTPUTS
@@ -226,6 +230,7 @@ qt_add_qml_module(Bloom
         ui/ActiveSessionsScreen.qml
         ui/EpisodeSelection.js
         ui/TrackUtils.js
+        ui/ExtrasUtils.js
 )
 
 # The packaged mpv stack is verified for Dolby Vision Profile 7 FEL when it is

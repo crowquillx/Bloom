@@ -382,6 +382,20 @@ Playback overlay metadata
   - Episodes: series title + `Sxx Exx - Episode Name`.
 - Fallback behavior still exists (`currentItemId`) when explicit metadata is not provided.
 
+Playing extras
+- Detail pages play a local extra (trailer, featurette, deleted scene, ...) with an ordinary `PlayerController::requestPlayback` whose request carries `contentKind: "extra"` and the extra's own `itemId`. Playback info, descriptors, version choice, and reporting go through the normal provider path. See [canonical models](canonical-models.md#local-extras).
+- `PlayerPolicy::playbackContentRules(PlaybackContentKind::Extra)` (Qt Core only, no I/O) decides what an extra may touch. The controller applies it when the request arrives and keeps the kind for the playing item:
+  - it starts at the beginning: the request's start position is dropped, so the parent's resume point is never used. A retry, recovery, or version switch of a playing extra carries `contentKind` (and `RecoveryContext` keeps it) plus `continuesSession: true`, so it stays an extra and continues where it was;
+  - its series and season are dropped, so there is no season track scope, no previous/next episode controls, and no autoplay series;
+  - it never prefetches or resolves a next episode and never opens Up Next or autoplays, even past the completion threshold;
+  - audio and subtitle picks during it are not saved for any scope, so nothing is written back to the server's track preferences;
+  - it starts with no subtitle delay, and subtitle timing changed during it is not saved for any scope. (Audio delay is a global setting, not per scope.)
+- Reporting names only the extra. Start, progress, and stop carry the extra's own ID, and Bloom never calls the watched endpoint at a threshold, so the parent movie or series is never marked watched and its resume position and Continue Watching entry are untouched.
+- What the server keeps for the extra itself:
+  - Jellyfin extras are ordinary items with their own user data, so Jellyfin records their position and played state on the extra's ID. Bloom does not read it: extras always start from the beginning and the shelf shows no progress. Jellyfin's resume and Next Up queries list library items, not extras owned by a movie or series; this is expected but not live-validated.
+  - Silo records protocol 3 progress against the extra's `content_id`. `ItemExtraInfo` carries no user state, so Bloom shows none. Silo's Continue Watching lists catalog items, and its extras live in a separate table; this is also not live-validated.
+- In a merged space the detail page routes to the extra's `connectionId` (`SourceRouter`) before requesting playback. Leaving the extra returns to the detail page with focus on the card or Play Trailer button that started it.
+
 In-playback version switching
 - `launchResolvedPlaybackRequest` records the primary presentation sources of the launched item as `PlayerController.playbackVersions` (`{id, title, subtitle, selected}`, built by `PlayerPolicy::playbackVersionOptions`). The list is scoped to the item it was built for and reads as empty for any other current item. Multipart items publish no versions: a restart always begins at the first part, so switching mid-item would lose the position.
 - `switchPlaybackVersion(mediaSourceId)` ignores unknown or already-selected versions. Otherwise it issues an ordinary `requestPlayback` for the current item at the current position (or the queued resume position while the item is still loading) with `mediaSourceId` set, which forces that source and skips the version prompt. Track indices differ between versions, so the new version resolves audio/subtitles from the saved scope preferences. Replacement goes through the normal queued replacement path, so the previous attempt reports stop exactly once.

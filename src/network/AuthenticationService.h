@@ -157,6 +157,9 @@ public:
     QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
                                      const QString &connectionId,
                                      const QString &itemId) const;
+    QVariantList mapExtras(const QJsonArray &wireExtras,
+                           const QString &connectionId,
+                           const QString &parentId) const;
     /// The live session's authenticated identity route (Silo
     /// `/api/v2/account/me`, Jellyfin `/Users/{id}`); empty without an account.
     /// It answers 401 when the server refuses the access token.

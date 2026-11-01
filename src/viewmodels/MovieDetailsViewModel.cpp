@@ -134,6 +134,10 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
                 this, &MovieDetailsViewModel::onSimilarItemsLoaded);
         connect(m_libraryService, &LibraryService::canonicalSimilarItemsFailedForConnection,
                 this, &MovieDetailsViewModel::onSimilarItemsFailed);
+        connect(m_libraryService, &LibraryService::canonicalItemExtrasLoaded,
+                this, &MovieDetailsViewModel::onExtrasLoaded);
+        connect(m_libraryService, &LibraryService::canonicalItemExtrasFailed,
+                this, &MovieDetailsViewModel::onExtrasFailed);
         connect(m_libraryService, &LibraryService::canonicalChaptersLoaded,
                 this, &MovieDetailsViewModel::onMovieChaptersLoaded);
         connect(m_libraryService, &LibraryService::chaptersFailed,
@@ -418,6 +422,7 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     m_similarItemsAttempted = false;
     m_similarItemsLoading = false;
     m_similarItemsRequestConnectionId.clear();
+    const bool extrasChangedOnClear = m_extras.clear();
     m_premiereDate = QDateTime();
     
     m_movieData = QJsonObject();
@@ -456,6 +461,10 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     emit genresChanged();
     emit similarItemsChanged();
     emit similarItemsLoadingChanged();
+    if (extrasChangedOnClear) {
+        emit extrasChanged();
+    }
+    notifyExtrasLoading();
     emit premiereDateChanged();
     if (!preserveArtwork) {
         emit mdbListRatingsChanged();
@@ -601,6 +610,37 @@ void MovieDetailsViewModel::onSimilarItemsFailed(const QString &connectionId,
     qCWarning(lcViewModels) << "MovieDetailsViewModel similar items error:" << error;
 }
 
+void MovieDetailsViewModel::onExtrasLoaded(const QString &connectionId,
+                                           const QString &itemId,
+                                           const QVariantList &extras,
+                                           bool complete)
+{
+    if (itemId == m_movieId && m_extras.applyLoaded(connectionId, itemId, extras, complete)) {
+        emit extrasChanged();
+    }
+    notifyExtrasLoading();
+}
+
+void MovieDetailsViewModel::onExtrasFailed(const QString &connectionId,
+                                           const QString &itemId,
+                                           const QString &error)
+{
+    if (itemId != m_movieId) {
+        return;
+    }
+    qCWarning(lcViewModels) << "MovieDetailsViewModel extras error:" << error;
+    m_extras.applyFailed(connectionId, itemId);
+    notifyExtrasLoading();
+}
+
+void MovieDetailsViewModel::notifyExtrasLoading()
+{
+    if (m_extras.loading() != m_extrasLoadingNotified) {
+        m_extrasLoadingNotified = m_extras.loading();
+        emit extrasLoadingChanged();
+    }
+}
+
 void MovieDetailsViewModel::onMovieChaptersLoaded(const QString &connectionId,
                                                   const QString &itemId,
                                                   const QVariantList &chapters)
@@ -719,6 +759,15 @@ QVariantList MovieDetailsViewModel::normalizeSimilarItems(const QVariantList &it
 
 void MovieDetailsViewModel::updateMovieMetadata(const QVariantMap &data)
 {
+    const ItemExtrasState::LoadResult extras =
+        m_extras.load(activeCacheScope(), m_movieId, data);
+    if (extras.changed) {
+        emit extrasChanged();
+    }
+    notifyExtrasLoading();
+    if (extras.request && m_libraryService) {
+        m_libraryService->getItemExtras(m_movieId);
+    }
     m_title = data.value(QStringLiteral("name")).toString();
     m_overview = data.value(QStringLiteral("overview")).toString();
     m_productionYear = data.value(QStringLiteral("productionYear")).toInt();

@@ -41,12 +41,23 @@ public:
                                       const QString &itemId);
     static QVariantMap mediaItem(const QJsonObject &wireItem,
                                  const QString &connectionId);
+    /// A catalog item detail: mediaItem() plus an `extras` list that is
+    /// always present. Silo omits `extras` when the item has none, so an
+    /// empty list here replaces extras cached from an earlier detail.
+    static QVariantMap mediaDetail(const QJsonObject &wireItem,
+                                   const QString &connectionId);
     static QVariantList mediaItems(const QJsonArray &wireItems,
                                    const QString &connectionId);
     /// The token-free tag of a signed artwork URL: a hash of its path, which
     /// names the stored size variant and its content.
     static QString artworkTag(const QString &url);
 
+    // ItemExtraInfo entries of a catalog item detail as canonical extras
+    // (models/MediaExtras.h) of `parentId`. The still is owned by the parent
+    // (ArtworkOwnerKind::Extra), since an extra has no catalog route.
+    static QVariantList extras(const QJsonArray &wireExtras,
+                               const QString &connectionId,
+                               const QString &parentId);
     static QVariantMap chapter(const QJsonObject &wireChapter,
                                const QString &connectionId,
                                const QString &itemId,
