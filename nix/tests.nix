@@ -99,6 +99,7 @@ stdenv.mkDerivation {
       HomeRowsAndWatchlistTest \
       MediaRequestServiceTest \
       UpNextRecommendationsViewModelTest \
+      SessionServiceTest \
       UpdateServiceTest
     runHook postBuild
   '';
