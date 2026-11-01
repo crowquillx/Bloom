@@ -93,6 +93,10 @@ class LibraryViewModel : public BaseViewModel
     Q_PROPERTY(QStringList availableStudios READ availableStudios NOTIFY filterOptionsChanged)
     Q_PROPERTY(bool filterOptionsLoading READ filterOptionsLoading NOTIFY filterOptionsLoadingChanged)
     Q_PROPERTY(int activeFilterCount READ activeFilterCount NOTIFY activeFilterCountChanged)
+    // Canonical sorts (beyond library order) and filters the active
+    // connection serves; see ProviderLibraryQueryCapabilities.
+    Q_PROPERTY(QStringList supportedSorts READ supportedSorts NOTIFY queryCapabilitiesChanged)
+    Q_PROPERTY(QStringList supportedFilters READ supportedFilters NOTIFY queryCapabilitiesChanged)
 
 public:
     enum class LoadKind {
@@ -149,6 +153,8 @@ public:
     QStringList availableStudios() const { return m_availableStudios; }
     bool filterOptionsLoading() const { return m_filterOptionsLoading; }
     int activeFilterCount() const;
+    QStringList supportedSorts() const { return m_queryCapabilities.sorts; }
+    QStringList supportedFilters() const { return m_queryCapabilities.filters; }
 
     /**
      * @brief Load items for a specific parent folder.
@@ -243,6 +249,7 @@ signals:
     void filterOptionsChanged();
     void filterOptionsLoadingChanged();
     void activeFilterCountChanged();
+    void queryCapabilitiesChanged();
 
 private slots:
     void onViewsLoaded(const QString &connectionId,
@@ -299,6 +306,9 @@ private:
     QStringList includeItemTypesForCollection(const QString &collectionType) const;
     LibraryItemQuery::TriState triStateFromFilter(const QString &filter) const;
     QDate addedSinceDate() const;
+    bool supportsFilter(const QString &filter) const;
+    void refreshQueryCapabilities();
+    void dropUnsupportedQuery();
     void emitActiveFilterCountChanged();
     void setFilterOptionsLoading(bool loading);
     void toggleString(QStringList &list, const QString &value, void (LibraryViewModel::*signal)());
@@ -374,6 +384,7 @@ private:
     QStringList m_availableTags;
     QStringList m_availableStudios;
     bool m_filterOptionsLoading = false;
+    ProviderLibraryQueryCapabilities m_queryCapabilities;
     quint64 m_requestGeneration = 0;
     quint64 m_requestSerial = 0;
     QHash<QString, RequestIdentity> m_pendingRequests;

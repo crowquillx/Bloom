@@ -30,7 +30,42 @@ public:
         return request;
     }
 
+    // Silo's catalog rules have no tag or keyword field, and the query
+    // source sorts only by the query sort vocabulary, which has no random
+    // order.
+    ProviderLibraryQueryCapabilities libraryQueryCapabilities() const override
+    {
+        ProviderLibraryQueryCapabilities capabilities;
+        capabilities.sorts.removeAll(QStringLiteral("random"));
+        capabilities.filters.removeAll(QStringLiteral("tags"));
+        return capabilities;
+    }
+
+    // Silo's added_at rule takes a span ending now ("30d") rather than an
+    // inclusive minimum date. The span is counted in whole hours from the
+    // local start of minDate, rounded up, so it covers the whole first day
+    // and at most one more hour. Empty when minDate is in the future or
+    // beyond the span Silo accepts.
+    static QString addedSinceSpan(const QDate &minDate, const QDateTime &now)
+    {
+        if (!minDate.isValid() || !now.isValid()) {
+            return {};
+        }
+        const qint64 seconds = minDate.startOfDay().secsTo(now);
+        if (seconds < 0) {
+            return {};
+        }
+        const qint64 hours = qMax<qint64>(1, (seconds + 3599) / 3600);
+        if (hours > kMaxAddedSinceHours) {
+            return {};
+        }
+        return QString::number(hours) + QLatin1Char('h');
+    }
+
 private:
+    // Silo refuses longer spans; this bound reaches thousands of years.
+    static constexpr qint64 kMaxAddedSinceHours = 100'000'000;
+
     static ProviderCatalogRequest createOperationRequest(
         ProviderCatalogOperation operation,
         const ProviderCatalogQuery &query)
@@ -755,9 +790,10 @@ private:
             || !query.seriesIds.isEmpty() || !query.excludeItemId.trimmed().isEmpty()) {
             return QStringLiteral("Silo catalog does not support the requested ID-set filter semantics");
         }
-        if (query.minDateLastSaved.isValid()) {
+        if (query.minDateLastSaved.isValid()
+            && addedSinceSpan(query.minDateLastSaved, QDateTime::currentDateTime()).isEmpty()) {
             return QStringLiteral(
-                "Silo's added_at filter is exclusive and cannot represent Bloom's inclusive minimum date");
+                "Silo's added_at span cannot represent a future or unbounded minimum date");
         }
         if (query.minPremiereDate.isValid() != query.maxPremiereDate.isValid()) {
             return QStringLiteral(
@@ -828,6 +864,11 @@ private:
             rules.append({QStringLiteral("release_date"), QStringLiteral("between"),
                           QJsonArray{query.minPremiereDate.toString(Qt::ISODate),
                                      query.maxPremiereDate.toString(Qt::ISODate)}});
+        }
+        if (query.minDateLastSaved.isValid()) {
+            rules.append({QStringLiteral("added_at"), QStringLiteral("in_last"),
+                          addedSinceSpan(query.minDateLastSaved,
+                                         QDateTime::currentDateTime())});
         }
         if (query.minCommunityRating > 0.0) {
             rules.append({QStringLiteral("rating_imdb"), QStringLiteral("gte"),

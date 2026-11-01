@@ -241,8 +241,10 @@ class CanonicalBoundaryContractTest(unittest.TestCase):
         for path in sources:
             text = without_comments(path.read_text(encoding="utf-8"))
             if path.suffix == ".qml":
+                # Display labels (a combo model or an option's label) are
+                # user-facing text, not sort keys.
                 text = re.sub(
-                    r"\bmodel\s*:\s*\[[^\]]*\]",
+                    r"\bmodel\s*:\s*\[[^\]]*\]|\blabel\s*:\s*\"[^\"]*\"",
                     lambda match: "".join(
                         character if character == "\n" else " "
                         for character in match.group(0)

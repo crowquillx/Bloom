@@ -1892,6 +1892,14 @@ QString LibraryService::getActiveConnectionId() const
     return activeConnectionId(m_authService);
 }
 
+ProviderLibraryQueryCapabilities LibraryService::libraryQueryCapabilities() const
+{
+    const ICatalogProvider *provider =
+        m_authService ? m_authService->catalogProvider() : nullptr;
+    return provider ? provider->libraryQueryCapabilities()
+                    : ProviderLibraryQueryCapabilities{};
+}
+
 QString LibraryService::getStreamUrl(const QString &itemId)
 {
     return getStreamUrlWithTracks(itemId, {}, -1, -1);

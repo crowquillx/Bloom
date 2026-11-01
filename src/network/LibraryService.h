@@ -176,6 +176,9 @@ public:
     
     // URL helpers and request ownership
     Q_INVOKABLE virtual QString getActiveConnectionId() const;
+    // The library sorts and filters the active connection's provider serves;
+    // every canonical one when no provider is active.
+    virtual ProviderLibraryQueryCapabilities libraryQueryCapabilities() const;
     Q_INVOKABLE virtual QString getStreamUrl(const QString &itemId);
     Q_INVOKABLE virtual QString getStreamUrlWithTracks(const QString &itemId, const QString &mediaSourceId = QString(),
                                                 int audioStreamIndex = -1, int subtitleStreamIndex = -1);

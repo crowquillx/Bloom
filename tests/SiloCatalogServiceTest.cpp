@@ -185,6 +185,8 @@ private slots:
     void structuredFiltersUseNativeQueryBody();
     void bookQueriesUseEbookType();
     void unsupportedFiltersAreExplicit();
+    void addedSinceUsesInLastSpan();
+    void libraryQueryCapabilitiesFollowProvider();
     void responsePreservesSnapshotAndPaginationTruth();
     void nativeResponseShapesPreserveHomeLibrarySearchAndDetailData();
     void sparseNativeMappingsPreserveFallbacksAndState();
@@ -685,6 +687,87 @@ void SiloCatalogServiceTest::unsupportedFiltersAreExplicit()
     QCOMPARE(nextUp.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/home/sections")));
     verifyUnsupported(ProviderCatalogOperation::RandomItems, query);
     verifyUnsupported(ProviderCatalogOperation::ResolveLibrary, query);
+}
+
+void SiloCatalogServiceTest::addedSinceUsesInLastSpan()
+{
+    // Whole hours from the local start of the minimum date, rounded up.
+    const QDate minDate(2026, 7, 1);
+    QCOMPARE(SiloCatalogProvider::addedSinceSpan(
+                 minDate, QDateTime(QDate(2026, 7, 8), QTime(9, 30))),
+             QStringLiteral("178h"));
+    QCOMPARE(SiloCatalogProvider::addedSinceSpan(
+                 minDate, QDateTime(QDate(2026, 7, 8), QTime(0, 0))),
+             QStringLiteral("168h"));
+    QCOMPARE(SiloCatalogProvider::addedSinceSpan(minDate, minDate.startOfDay()),
+             QStringLiteral("1h"));
+    QVERIFY(SiloCatalogProvider::addedSinceSpan(
+                minDate, QDateTime(QDate(2026, 6, 30), QTime(23, 0))).isEmpty());
+    QVERIFY(SiloCatalogProvider::addedSinceSpan(QDate(), QDateTime::currentDateTime()).isEmpty());
+
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery query;
+    query.parentId = QStringLiteral("17");
+    query.minDateLastSaved = QDate::currentDate().addDays(-7);
+    const ProviderCatalogRequest request = provider.createRequest(
+        ProviderCatalogOperation::Items, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    const QJsonObject body = QJsonDocument::fromJson(request.body).object();
+    const QJsonArray groups = body.value(QStringLiteral("groups")).toArray();
+    QCOMPARE(groups.size(), 1);
+    const QJsonArray rules = groups.first().toObject().value(QStringLiteral("rules")).toArray();
+    QCOMPARE(rules.size(), 1);
+    const QJsonObject rule = rules.first().toObject();
+    QCOMPARE(rule.value(QStringLiteral("field")).toString(), QStringLiteral("added_at"));
+    QCOMPARE(rule.value(QStringLiteral("op")).toString(), QStringLiteral("in_last"));
+    const QString span = rule.value(QStringLiteral("value")).toString();
+    QVERIFY2(span.endsWith(QLatin1Char('h')), qPrintable(span));
+    bool numberOk = false;
+    const int hours = span.chopped(1).toInt(&numberOk);
+    QVERIFY(numberOk);
+    // Seven days plus today so far; a DST change moves it by an hour.
+    QVERIFY2(hours >= 7 * 24 - 1 && hours <= 8 * 24 + 1, qPrintable(span));
+
+    query.minDateLastSaved = QDate::currentDate().addDays(2);
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::Items, query).supported);
+}
+
+void SiloCatalogServiceTest::libraryQueryCapabilitiesFollowProvider()
+{
+    SiloProviderAdapter silo;
+    QVERIFY(silo.catalogProvider());
+    const ProviderLibraryQueryCapabilities siloCapabilities =
+        silo.catalogProvider()->libraryQueryCapabilities();
+    QVERIFY(!siloCapabilities.sorts.contains(QStringLiteral("random")));
+    QVERIFY(!siloCapabilities.filters.contains(QStringLiteral("tags")));
+    QVERIFY(siloCapabilities.filters.contains(QStringLiteral("addedSince")));
+
+    // Every sort and filter Silo reports is one its catalog request accepts.
+    SiloCatalogProvider provider;
+    for (const QString &sort : siloCapabilities.sorts) {
+        ProviderCatalogQuery query;
+        query.sortBy = sort;
+        query.sortOrder = QStringLiteral("descending");
+        QVERIFY2(provider.createRequest(ProviderCatalogOperation::Items, query).supported,
+                 qPrintable(sort));
+    }
+    ProviderCatalogQuery random;
+    random.sortBy = QStringLiteral("random");
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::Items, random).supported);
+
+    JellyfinProviderAdapter jellyfin;
+    QVERIFY(jellyfin.catalogProvider());
+    QVERIFY(jellyfin.catalogProvider()->libraryQueryCapabilities()
+            == ProviderLibraryQueryCapabilities{});
+
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    ExposedAuthenticationService auth(&transport, &silo);
+    LibraryService service(&auth);
+    QVERIFY(service.libraryQueryCapabilities() == siloCapabilities);
+    LibraryService detached(nullptr);
+    QVERIFY(detached.libraryQueryCapabilities() == ProviderLibraryQueryCapabilities{});
 }
 
 void SiloCatalogServiceTest::sparseNativeMappingsPreserveFallbacksAndState()
