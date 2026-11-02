@@ -20,11 +20,12 @@ public:
     bool supportsCapability(ProviderCapability capability) const override
     {
         // Jellyfin's Next Up takes rewatching and a last-watched cutoff, its
-        // resume list is a separate read, and it recommends movies per
-        // library.
+        // resume list is a separate read, it recommends movies per library,
+        // and its personal rating is a like or a dislike.
         return capability == ProviderCapability::NextUpOptions
             || capability == ProviderCapability::ResumeItems
-            || capability == ProviderCapability::MovieRecommendations;
+            || capability == ProviderCapability::MovieRecommendations
+            || capability == ProviderCapability::LikeRatings;
     }
     std::optional<QString> endpointFor(
         ProviderRoute route, const ProviderRouteContext &context) const override

@@ -95,6 +95,7 @@ private slots:
     void filtersMultipartSourcesAndBuildsSubtitles();
     void extrasPlayAloneWithoutTouchingTheParent();
     void evaluatesCompletionAndPrefetchThresholds();
+    void choosesPostPlaybackScreen();
     void validatesPrefetchedEpisodesAndContexts();
     void classifiesEndFileReasons();
     void picksSkipRangeForPosition();
@@ -1113,6 +1114,64 @@ void PlaybackPolicyTest::evaluatesCompletionAndPrefetchThresholds()
     prefetch.playbackActive = true;
     prefetch.alreadyRequested = true;
     QVERIFY(!PlayerPolicy::shouldPrefetchNextEpisode(prefetch));
+}
+
+void PlaybackPolicyTest::choosesPostPlaybackScreen()
+{
+    using PlayerPolicy::PostPlaybackScreen;
+    // A movie that reaches the threshold leads into the after-movie screen.
+    PlayerPolicy::PostPlaybackInput movie;
+    movie.itemId = QStringLiteral("movie-1");
+    movie.isMovie = true;
+    movie.positionSeconds = 95.0;
+    movie.durationSeconds = 100.0;
+    movie.thresholdPercent = 90;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(movie), PostPlaybackScreen::AfterMovie);
+
+    // An episode leads into Up Next instead.
+    PlayerPolicy::PostPlaybackInput episode = movie;
+    episode.seriesId = QStringLiteral("series-1");
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(episode), PostPlaybackScreen::UpNext);
+
+    // Stopped early, ended by an error, already evaluated, or with nothing
+    // known about the item: back where playback started.
+    PlayerPolicy::PostPlaybackInput early = movie;
+    early.positionSeconds = 40.0;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(early), PostPlaybackScreen::None);
+    PlayerPolicy::PostPlaybackInput failed = movie;
+    failed.endedWithError = true;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(failed), PostPlaybackScreen::None);
+    PlayerPolicy::PostPlaybackInput repeated = movie;
+    repeated.alreadyEvaluated = true;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(repeated), PostPlaybackScreen::None);
+    PlayerPolicy::PostPlaybackInput unknownDuration = movie;
+    unknownDuration.durationSeconds = 0.0;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(unknownDuration), PostPlaybackScreen::None);
+    PlayerPolicy::PostPlaybackInput noItem = movie;
+    noItem.itemId.clear();
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(noItem), PostPlaybackScreen::None);
+
+    // Without a series, only an item the request marked as a movie opens the
+    // after-movie screen.
+    PlayerPolicy::PostPlaybackInput notMovie = movie;
+    notMovie.isMovie = false;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(notMovie), PostPlaybackScreen::None);
+
+    // The sleep timer ending the session suppresses both screens.
+    PlayerPolicy::PostPlaybackInput sleptMovie = movie;
+    sleptMovie.endedBySleepTimer = true;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(sleptMovie), PostPlaybackScreen::None);
+    PlayerPolicy::PostPlaybackInput sleptEpisode = episode;
+    sleptEpisode.endedBySleepTimer = true;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(sleptEpisode), PostPlaybackScreen::None);
+
+    // An extra never leads anywhere, finished or not.
+    PlayerPolicy::PostPlaybackInput extra = movie;
+    extra.contentKind = PlayerPolicy::PlaybackContentKind::Extra;
+    extra.positionSeconds = 100.0;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(extra), PostPlaybackScreen::None);
+    extra.seriesId = QStringLiteral("series-1");
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(extra), PostPlaybackScreen::None);
 }
 
 namespace {

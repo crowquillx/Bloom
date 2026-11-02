@@ -52,6 +52,11 @@ public:
     {
         notInterestedWrites.append({itemId, notInterested});
     }
+    QString userRatingScale() const override { return ratingScale; }
+    void setUserRating(const QString &itemId, int value) override
+    {
+        ratingWrites.append({itemId, value});
+    }
     bool supportsNextAiring() const override { return airingCalendar; }
     void getNextAiring(const QString &seriesId) override
     {
@@ -107,6 +112,23 @@ public:
     {
         emit notInterestedStatusFailed(itemId, notInterested, QStringLiteral("Unprocessable"));
     }
+    void allowRatings(const QString &scale)
+    {
+        ratingScale = scale;
+        emit userRatingSupportChanged();
+    }
+    void confirmRating(const QString &itemId, int value)
+    {
+        emit userRatingChanged(connectionId, itemId, value);
+    }
+    void confirmRatingOn(const QString &forConnection, const QString &itemId, int value)
+    {
+        emit userRatingChanged(forConnection, itemId, value);
+    }
+    void refuseRating(const QString &itemId, int value)
+    {
+        emit userRatingFailed(connectionId, itemId, value, QStringLiteral("Unprocessable"));
+    }
     void loadAiring(const QString &seriesId, const QVariantMap &airing)
     {
         emit nextAiringLoaded(seriesId, airing);
@@ -140,6 +162,8 @@ public:
     bool notInterestedAllowed = false;
     int notInterestedCapabilityReads = 0;
     QList<WatchlistWrite> notInterestedWrites;
+    QString ratingScale;
+    QList<std::pair<QString, int>> ratingWrites;
     bool airingCalendar = true;
     bool answerAiringAtOnce = false;
     QStringList airingRequests;
@@ -229,6 +253,8 @@ private slots:
 
     void homeRowsRefreshAfterNotInterestedChange();
     void movieNotInterestedWaitsForCapabilityAndRollsBack();
+    void movieStarRatingWaitsForCapabilityAndRollsBack();
+    void seriesLikeRatingIsOptimisticAndRollsBack();
     void seriesNotInterestedToggleIsOptimisticAndRollsBack();
     void seriesNextAiringComesFromDetailsOrCalendar();
     void seriesNextAiringReservesTheChipOnlyWhileAsking();
@@ -911,6 +937,116 @@ void HomeRowsAndWatchlistTest::movieNotInterestedWaitsForCapabilityAndRollsBack(
     QVERIFY(!vm.notInterested());
     vm.loadMovieDetails(QStringLiteral("movie-1"));
     QVERIFY(vm.notInterested());
+}
+
+void HomeRowsAndWatchlistTest::movieStarRatingWaitsForCapabilityAndRollsBack()
+{
+    MovieDetailsViewModel vm;
+    UserRatingState *rating = vm.userRating();
+    QVERIFY(rating);
+    vm.loadMovieDetails(QStringLiteral("movie-1"));
+    // No control while the live provider has no rating scale.
+    QCOMPARE(rating->connectionId(), QStringLiteral("connection-1"));
+    QVERIFY(!rating->supported());
+    QVariantMap data = detail(QStringLiteral("movie-1"), QStringLiteral("Movie"), false);
+    data.insert(QStringLiteral("userRating"), 3);
+    m_service->loadMovie(QStringLiteral("movie-1"), data);
+    rating->rate(4);
+    QVERIFY(m_service->ratingWrites.isEmpty());
+
+    // The details' rating shows once the capability allows stars.
+    QSignalSpy scale(rating, &UserRatingState::scaleChanged);
+    m_service->allowRatings(QStringLiteral("stars"));
+    QCOMPARE(scale.count(), 1);
+    QVERIFY(rating->supported());
+    QCOMPARE(rating->scale(), QStringLiteral("stars"));
+    QCOMPARE(rating->value(), 3);
+
+    // Optimistic, and ignored while in flight; older details do not undo it.
+    QSignalSpy failed(rating, &UserRatingState::updateFailed);
+    rating->rate(5);
+    QCOMPARE(rating->value(), 5);
+    QVERIFY(rating->pending());
+    QCOMPARE(m_service->ratingWrites.size(), 1);
+    QCOMPARE(m_service->ratingWrites.first(), std::make_pair(QStringLiteral("movie-1"), 5));
+    rating->rate(2);
+    QCOMPARE(m_service->ratingWrites.size(), 1);
+    m_service->loadMovie(QStringLiteral("movie-1"), data);
+    QCOMPARE(rating->value(), 5);
+
+    // A refusal restores the earlier rating.
+    m_service->refuseRating(QStringLiteral("movie-1"), 5);
+    QCOMPARE(rating->value(), 3);
+    QVERIFY(!rating->pending());
+    QCOMPARE(failed.count(), 1);
+    QVERIFY(!failed.first().at(0).toString().isEmpty());
+
+    // Out-of-scale values are not sent; the current value clears it.
+    rating->rate(-1);
+    rating->rate(6);
+    QVERIFY(m_service->ratingWrites.size() == 1);
+    rating->rate(3);
+    QCOMPARE(rating->value(), 0);
+    QCOMPARE(m_service->ratingWrites.last(), std::make_pair(QStringLiteral("movie-1"), 0));
+    m_service->confirmRating(QStringLiteral("movie-1"), 0);
+    QCOMPARE(rating->value(), 0);
+    rating->rate(4);
+    m_service->confirmRating(QStringLiteral("movie-1"), 4);
+    QCOMPARE(rating->value(), 4);
+    QCOMPARE(failed.count(), 1);
+    // Another item's answer changes nothing, nor the same id on another
+    // connection of a merged space.
+    m_service->confirmRating(QStringLiteral("movie-2"), 1);
+    QCOMPARE(rating->value(), 4);
+    m_service->confirmRatingOn(QStringLiteral("connection-2"), QStringLiteral("movie-1"), 1);
+    QCOMPARE(rating->value(), 4);
+    // While another connection is live nothing is sent to it.
+    const qsizetype writesBefore = m_service->ratingWrites.size();
+    m_service->connectionId = QStringLiteral("connection-2");
+    rating->rate(2);
+    QCOMPARE(m_service->ratingWrites.size(), writesBefore);
+    QVERIFY(!rating->pending());
+    m_service->connectionId = QStringLiteral("connection-1");
+
+    // The confirmed rating reaches the details cache for the next visit.
+    vm.clear();
+    QCOMPARE(rating->value(), 0);
+    vm.loadMovieDetails(QStringLiteral("movie-1"));
+    QCOMPARE(rating->value(), 4);
+}
+
+void HomeRowsAndWatchlistTest::seriesLikeRatingIsOptimisticAndRollsBack()
+{
+    m_service->connectionId.clear();
+    m_service->ratingScale = QStringLiteral("likes");
+    SeriesDetailsViewModel vm;
+    UserRatingState *rating = vm.userRating();
+    vm.loadSeriesDetails(QStringLiteral("series-1"));
+    QVERIFY(rating->supported());
+    QCOMPARE(rating->scale(), QStringLiteral("likes"));
+    QVariantMap data = detail(QStringLiteral("series-1"), QStringLiteral("Series"), false);
+    data.insert(QStringLiteral("userLikes"), -1);
+    m_service->loadSeries(QStringLiteral("series-1"), data);
+    QCOMPARE(rating->value(), -1);
+
+    QSignalSpy failed(rating, &UserRatingState::updateFailed);
+    rating->rate(1);
+    QCOMPARE(rating->value(), 1);
+    QCOMPARE(m_service->ratingWrites.size(), 1);
+    QCOMPARE(m_service->ratingWrites.first(), std::make_pair(QStringLiteral("series-1"), 1));
+    m_service->refuseRating(QStringLiteral("series-1"), 1);
+    QCOMPARE(rating->value(), -1);
+    QCOMPARE(failed.count(), 1);
+
+    // Disliking a disliked series clears it; stars are not likes.
+    rating->rate(3);
+    QCOMPARE(m_service->ratingWrites.size(), 1);
+    rating->rate(-1);
+    QCOMPARE(rating->value(), 0);
+    QCOMPARE(m_service->ratingWrites.last(), std::make_pair(QStringLiteral("series-1"), 0));
+    m_service->confirmRating(QStringLiteral("series-1"), 0);
+    QCOMPARE(rating->value(), 0);
+    QVERIFY(!rating->pending());
 }
 
 void HomeRowsAndWatchlistTest::seriesNotInterestedToggleIsOptimisticAndRollsBack()

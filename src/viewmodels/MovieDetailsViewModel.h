@@ -2,6 +2,7 @@
 
 #include "BaseViewModel.h"
 #include "ItemExtrasState.h"
+#include "UserRatingState.h"
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
@@ -45,6 +46,8 @@ class MovieDetailsViewModel : public BaseViewModel
     // only where the provider offers it to the profile (Silo).
     Q_PROPERTY(bool notInterestedSupported READ notInterestedSupported NOTIFY notInterestedSupportedChanged)
     Q_PROPERTY(bool notInterested READ notInterested NOTIFY notInterestedChanged)
+    // The viewer's own rating (stars or likes, per provider).
+    Q_PROPERTY(UserRatingState *userRating READ userRating CONSTANT)
     
     Q_PROPERTY(QString officialRating READ officialRating NOTIFY officialRatingChanged)
     Q_PROPERTY(qint64 durationMs READ durationMs NOTIFY durationMsChanged)
@@ -85,6 +88,7 @@ public:
     bool inWatchlist() const { return m_inWatchlist; }
     bool notInterestedSupported() const;
     bool notInterested() const { return m_notInterested; }
+    UserRatingState *userRating() const { return m_userRating; }
     
     QString officialRating() const { return m_officialRating; }
     qint64 durationMs() const { return m_durationMs; }
@@ -255,6 +259,7 @@ private:
     bool m_watchlistPending = false;
     bool m_notInterested = false;
     bool m_notInterestedPending = false;
+    UserRatingState *m_userRating = nullptr;
     
     QString m_officialRating;
     qint64 m_durationMs = 0;

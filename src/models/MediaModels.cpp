@@ -208,6 +208,8 @@ QVariantMap UserMediaState::toVariantMap() const
         {QStringLiteral("favorite"), favorite},
         {QStringLiteral("inWatchlist"), inWatchlist},
         {QStringLiteral("notInterested"), notInterested},
+        {QStringLiteral("userRating"), userRating},
+        {QStringLiteral("userLikes"), userLikes},
         {QStringLiteral("positionMs"), positionMs},
         {QStringLiteral("unplayedItemCount"), unplayedItemCount},
         {QStringLiteral("lastPlayedAt"), lastPlayedAt}

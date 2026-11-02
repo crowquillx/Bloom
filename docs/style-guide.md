@@ -62,7 +62,7 @@ the shell's `NavigationBar` floating above it.
 
 | Archetype | Pages | Stage | Header | Body |
 |-----------|-------|-------|--------|------|
-| **Hero** | Home, movie/series/season/episode details, Up Next | `mode: "hero"`, the subject's backdrop | Hero block | Shelves below the hero |
+| **Hero** | Home, movie/series/season/episode details, Up Next and its movie counterpart (the after-movie screen) | `mode: "hero"`, the subject's backdrop | Hero block | Shelves below the hero |
 | **Browse** | Library grids, Search, Discover and its Browse pages, collections, person pages | `mode: "ambient"`, optionally the focused item's backdrop | `PageHeader` + toolbar | Poster grid or shelves |
 | **Panel** | Settings, Active Sessions, account pages | `mode: "ambient"`, no art | `PageHeader` | Category list + content column of rows |
 
@@ -130,14 +130,30 @@ screens don't stretch the reading measure). Top to bottom:
 6. **Actions**: one primary `ActionButton` (`variant: "primary"`, height
    `buttonHeightHero`, label `fontSizeMedium`), then secondary buttons, then
    icon-only buttons. One primary per hero. Occasional actions (watched
-   state, "Not Interested", the mpv profile) go in the trailing "More
-   options" `BloomMenu`; an action the provider does not offer is hidden,
-   not disabled.
+   state, "Not Interested", the viewer's rating, the mpv profile) go in the
+   trailing "More options" `BloomMenu`; an action the provider does not
+   offer is hidden, not disabled. The rating item reads "Rate…" or the
+   current rating and opens `UserRatingDialog`.
 7. **Progress** (optional): a slim bar under the primary action with
    "18 min left".
 
 Detail pages (movie, series, season, episode) build this block with
-`DetailHero`; Home's carousel and Up Next lay it out themselves.
+`DetailHero`; Home's carousel, Up Next and the after-movie screen lay it out
+themselves.
+
+### After-movie screen
+
+`AfterMovieScreen.qml` follows a movie that played past the completion
+threshold, the way Up Next follows an episode. It keeps the hero archetype:
+the movie's backdrop on a hero `StageBackdrop`, a "You Just Watched"
+eyebrow, logo or display title, a metadata line, then "How was it?" with a
+`UserRatingControl` (only where the provider has ratings) and one primary
+Done button. It has no countdown. "Because You Watched …" is a poster
+`ShelfList` along the bottom, hidden when empty. Focus starts on Done; Up
+reaches the rating, Down the shelf. Done, Escape and Back pop only this
+screen, back to the page playback started from; a card replaces the screen
+with that title's page. The rating buttons stay focusable while a rating is
+being saved; they dim instead of disabling.
 
 Nothing in the hero moves unless the user moves it. Anything that loads after
 the page's details keeps its slot reserved from the start: quality badges
