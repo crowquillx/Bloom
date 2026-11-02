@@ -31,4 +31,23 @@ public:
         const QVariantMap &providerSource = {}) const override;
 
     PlaybackReportRequest createReportRequest(const PlaybackReport &report) const override;
+
+    // Remote subtitles (SearchRemoteSubtitles, DownloadRemoteSubtitles).
+    // Jellyfin has no status document: the search is always offered and the
+    // server answers 403 to users without subtitle management.
+    bool supportsSubtitleSearch() const override { return true; }
+    SubtitleSearchRequest createSubtitleSearchRequest(
+        const PlaybackProviderContext &context,
+        const SubtitleSearchTarget &target,
+        const QString &language) const override;
+    SubtitleSearchParseResult parseSubtitleSearchResponse(const QByteArray &body) const override;
+    SubtitleSearchRequest createSubtitleDownloadRequest(
+        const PlaybackProviderContext &context,
+        const SubtitleSearchTarget &target,
+        const Bloom::SubtitleSearchResult &result) const override;
+    SubtitleDownloadParseResult parseSubtitleDownloadResponse(
+        const PlaybackProviderContext &context,
+        const SubtitleSearchTarget &target,
+        const Bloom::SubtitleSearchResult &result,
+        const QByteArray &body) const override;
 };

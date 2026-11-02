@@ -52,6 +52,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.theme-songs",
     "native.poster-badges",
     "native.requests",
+    "native.subtitles.search",
 }
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -159,6 +160,8 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         ("POST", "/QuickConnect/Initiate"): set(),
         ("GET", "/QuickConnect/Connect"): {"secret"},
         ("POST", "/Users/AuthenticateWithQuickConnect"): set(),
+        ("GET", "/Items/{itemId}/RemoteSearch/Subtitles/{language}"): {"itemId", "language"},
+        ("POST", "/Items/{itemId}/RemoteSearch/Subtitles/{subtitleId}"): {"itemId", "subtitleId"},
     }
     for operation_key, required_parameters in required_operations.items():
         operation = operations.get(operation_key)
@@ -215,6 +218,14 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         "PlaybackPositionTicks" in user_data_update
         and not user_data_update["PlaybackPositionTicks"].get("deprecated", False),
         "UpdateUserItemDataDto.PlaybackPositionTicks must remain supported",
+    )
+    remote_subtitle = schemas.get("RemoteSubtitleInfo", {}).get("properties", {})
+    _require(
+        all(name in remote_subtitle and not remote_subtitle[name].get("deprecated", False)
+            for name in ("Id", "ProviderName", "ThreeLetterISOLanguageName", "Name", "Format",
+                         "DownloadCount", "CommunityRating", "IsHashMatch", "HearingImpaired",
+                         "Forced", "MachineTranslated", "AiTranslated")),
+        "RemoteSubtitleInfo fields Bloom reads must remain supported",
     )
     progress_properties = schemas.get("PlaybackProgressInfo", {}).get("properties", {})
     _require(

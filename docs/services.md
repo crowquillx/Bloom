@@ -60,7 +60,7 @@ Key services
 10. PlayerController — depends on IPlayerBackend, ConfigManager, TrackPreferencesManager, DisplayManager, PlaybackService, LibraryService, AuthenticationService; provider-aware recovery refreshes through the selected `IPlaybackProvider` rather than assuming Jellyfin endpoints.
 11. TrickplayProcessor — created by PlayerController; uses AuthenticationService + PlaybackService. Native Silo has no trickplay contract at the pinned revision, so the capability remains unavailable.
 12. ThemeSongManager — depends on LibraryService, ConfigManager, PlayerController.
-13. ViewModels — e.g., LibraryViewModel, SeriesDetailsViewModel (depend on LibraryService).
+13. ViewModels — e.g., LibraryViewModel, SeriesDetailsViewModel (depend on LibraryService). SubtitleSearchViewModel (`SubtitleSearch` in QML) comes after them and depends on PlaybackService, PlayerController and ConfigManager.
 14. SidebarSettings — UI preference persistence for the navigation shell (library order, reduce motion).
 15. UiSoundController — depends on ConfigManager for UI sound settings.
 16. SystemPowerController — depends on ConfigManager for pre-action config saves and is exposed to QML.

@@ -29,6 +29,7 @@
 #include "viewmodels/UpNextRecommendationsViewModel.h"
 #include "viewmodels/HomeSectionsViewModel.h"
 #include "viewmodels/LibrarySectionsViewModel.h"
+#include "viewmodels/SubtitleSearchViewModel.h"
 #include "utils/SidebarSettings.h"
 #include "utils/SystemPowerController.h"
 #include "ui/UiSoundController.h"
@@ -362,6 +363,11 @@ void ApplicationInitializer::registerServices()
     // 7.8 LibrarySectionsViewModel - Depends on LibraryService
     m_librarySectionsViewModel = std::make_unique<LibrarySectionsViewModel>();
     ServiceLocator::registerService<LibrarySectionsViewModel>(m_librarySectionsViewModel.get());
+
+    // 7.9 SubtitleSearchViewModel - Depends on PlaybackService, PlayerController and ConfigManager
+    m_subtitleSearchViewModel = std::make_unique<SubtitleSearchViewModel>(
+        m_playbackService.get(), m_playerController.get(), m_configManager.get());
+    ServiceLocator::registerService<SubtitleSearchViewModel>(m_subtitleSearchViewModel.get());
 
     // 8. SidebarSettings
     m_sidebarSettings = std::make_unique<SidebarSettings>();

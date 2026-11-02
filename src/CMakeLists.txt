@@ -77,6 +77,8 @@ qt_add_executable(Bloom
     ui/PersonViewModelRegistration.h
     viewmodels/LibrarySectionsViewModel.h
     viewmodels/LibrarySectionsViewModel.cpp
+    viewmodels/SubtitleSearchViewModel.h
+    viewmodels/SubtitleSearchViewModel.cpp
     viewmodels/ContinueWatchingViewModel.h
     viewmodels/ContinueWatchingViewModel.cpp
     ui/ContinueWatchingViewModelRegistration.h

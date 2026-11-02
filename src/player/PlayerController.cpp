@@ -4778,22 +4778,22 @@ void PlayerController::addExternalSubtitleTrack(const QString &subtitleUrl,
     addExternalSubtitleTrackInternal(subtitleUrl, displayTitle, language, sourceStreamIndexHint, true);
 }
 
-void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleUrl,
-                                                        const QString &displayTitle,
-                                                        const QString &language,
-                                                        int sourceStreamIndexHint,
-                                                        bool select,
-                                                        bool loadInMpv)
+int PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleUrl,
+                                                       const QString &displayTitle,
+                                                       const QString &language,
+                                                       int sourceStreamIndexHint,
+                                                       bool select,
+                                                       bool loadInMpv)
 {
     const QString normalizedSubtitleUrl = subtitleUrl.trimmed();
     if (normalizedSubtitleUrl.isEmpty()) {
         qCWarning(lcPlayback) << "Cannot add external subtitle: empty URL/path";
-        return;
+        return kNoSubtitleTrackIndex;
     }
 
     if (!(m_playbackState == Playing || m_playbackState == Paused)) {
         qCWarning(lcPlayback) << "Cannot add external subtitle outside active playback state";
-        return;
+        return kNoSubtitleTrackIndex;
     }
 
     // mpv sends http-header-fields with every request, so while the stream
@@ -4810,7 +4810,7 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
             || sidecar.host().compare(stream.host(), Qt::CaseInsensitive) != 0
             || port(sidecar) != port(stream)) {
             qCWarning(lcPlayback) << "Skipping a cross-origin subtitle while stream headers are active";
-            return;
+            return kNoSubtitleTrackIndex;
         }
     }
 
@@ -4827,7 +4827,7 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
         && m_externalSubtitleTrackMap.contains(syntheticIndex)
         && m_externalSubtitleTrackMap.value(syntheticIndex) != -1) {
         qCDebug(lcPlayback) << "Skipping external subtitle; index already present and resolved:" << syntheticIndex;
-        return;
+        return syntheticIndex;
     }
 
     QVariantMap option;
@@ -4859,7 +4859,7 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
     }
     m_externalSubtitleTrackMap.insert(syntheticIndex, -1);
     if (!loadInMpv) {
-        return;
+        return syntheticIndex;
     }
     if (select) {
         m_pendingExternalSubtitleIndex = syntheticIndex;
@@ -4872,6 +4872,43 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
         option.value(QStringLiteral("displayTitle")).toString(),
         option.value(QStringLiteral("language")).toString()
     });
+    return syntheticIndex;
+}
+
+bool PlayerController::addDownloadedSubtitleTrack(const QString &subtitleUrl,
+                                                  const QString &displayTitle,
+                                                  const QString &language,
+                                                  int sourceIndex)
+{
+    if (!(m_playbackState == Playing || m_playbackState == Paused)) {
+        return false;
+    }
+    const bool alreadyLoaded = sourceIndex >= 0
+        && m_externalSubtitleTrackMap.value(sourceIndex, -1) > 0;
+    if (alreadyLoaded) {
+        setSelectedSubtitleTrack(sourceIndex);
+        return true;
+    }
+    const int index = addExternalSubtitleTrackInternal(
+        subtitleUrl, displayTitle, language, sourceIndex >= 0 ? sourceIndex : -1, true);
+    if (index == kNoSubtitleTrackIndex) {
+        return false;
+    }
+    // sub-add selects the track; mpv's sid report maps it. The selection and
+    // the saved pick follow at once, as for a pick from the menu. A track
+    // without a provider index has only a session-local menu index, which
+    // is not saved.
+    if (m_selectedSubtitleTrack != index) {
+        m_selectedSubtitleTrack = index;
+        emit selectedSubtitleTrackChanged();
+    }
+    if (index >= 0) {
+        persistSubtitlePreferenceForCurrentScope(index);
+    }
+    if (m_activePlaybackSegmentIndex >= 0 && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
+        m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("subtitleIndex")] = index;
+    }
+    return true;
 }
 
 void PlayerController::cycleAudioTrack()

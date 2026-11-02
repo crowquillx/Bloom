@@ -10,6 +10,7 @@
 #include <QStringList>
 #include <QUrl>
 #include <QVariantMap>
+#include <limits>
 #include <QVariantList>
 #include <QPointer>
 #include <QPointF>
@@ -359,6 +360,14 @@ public:
                                               const QString &displayTitle = QString(),
                                               const QString &language = QString(),
                                               int sourceStreamIndexHint = -1);
+    // Loads a subtitle the server has just downloaded for the playing file
+    // (subtitle search) and selects it. With the provider's stream index
+    // (sourceIndex >= 0) the pick is saved for the season or movie like any
+    // other subtitle choice. False when playback cannot take the track.
+    Q_INVOKABLE bool addDownloadedSubtitleTrack(const QString &subtitleUrl,
+                                                const QString &displayTitle,
+                                                const QString &language,
+                                                int sourceIndex = -1);
     Q_INVOKABLE void cycleAudioTrack();
     Q_INVOKABLE void cycleSubtitleTrack();
     Q_INVOKABLE void previousChapter();
@@ -565,6 +574,7 @@ private slots:
 private:
 #ifdef BLOOM_TESTING
     friend class PlayerControllerAutoplayContextTest;
+    friend class SubtitleSearchTest;
 #endif
     enum class TerminalReason {
         Stop,
@@ -849,12 +859,15 @@ private:
                                                 int *selectedSubtitleIndex) const;
     void queueActiveSegmentExternalSubtitleTracks();
     void applyPendingExternalSubtitleTracks();
-    void addExternalSubtitleTrackInternal(const QString &subtitleUrl,
-                                          const QString &displayTitle,
-                                          const QString &language,
-                                          int sourceStreamIndexHint,
-                                          bool select,
-                                          bool loadInMpv = true);
+    // Returns the track's menu index, or kNoSubtitleTrackIndex when it was
+    // not added.
+    static constexpr int kNoSubtitleTrackIndex = std::numeric_limits<int>::min();
+    int addExternalSubtitleTrackInternal(const QString &subtitleUrl,
+                                         const QString &displayTitle,
+                                         const QString &language,
+                                         int sourceStreamIndexHint,
+                                         bool select,
+                                         bool loadInMpv = true);
     QVariantMap buildPlaybackVersionDialogModel(const QString &requestId) const;
     QString buildVersionSubtitle(const QVariantMap &mediaSource) const;
     /**

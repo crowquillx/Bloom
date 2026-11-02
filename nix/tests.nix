@@ -92,6 +92,7 @@ stdenv.mkDerivation {
       LocalSeekPreviewTest \
       DisplayManagerTest \
       PlayerControllerAutoplayContextTest \
+      SubtitleSearchTest \
       MediaSegmentProviderServiceTest \
       NextEpisodeResolverTest \
       EpisodeSelectionScriptTest \

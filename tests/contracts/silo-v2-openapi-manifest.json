@@ -10424,6 +10424,174 @@
     },
     {
       "method": "GET",
+      "path": "/api/v2/subtitles/providers/status",
+      "operationId": "getSubtitleProviderStatus",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "If-Match",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubtitleProviderStatus"
+              }
+            }
+          },
+          "headers": {
+            "Cache-Control": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "304": {
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "412": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          },
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": true,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
       "path": "/api/v2/system/info",
       "operationId": "getSystemInfo",
       "parameters": [],
@@ -13685,6 +13853,312 @@
           }
         },
         "409": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "413": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "415": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/subtitles/download",
+      "operationId": "downloadSubtitle",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SubtitleDownloadBody"
+            }
+          }
+        },
+        "required": true
+      },
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubtitleDownloadResult"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "408": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "413": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "415": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/subtitles/search",
+      "operationId": "searchSubtitles",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SubtitleSearchBody"
+            }
+          }
+        },
+        "required": true
+      },
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubtitleSearchResults"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "408": {
           "content": {
             "application/problem+json": {
               "schema": {
@@ -20818,6 +21292,63 @@
       },
       "type": "object"
     },
+    "StoredSubtitle": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "hearing_impaired": {
+          "type": "boolean"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "language": {
+          "pattern": "^(?:[a-z]{2,3}(?:-[0-9A-Za-z]{1,8})*|x(?:-[0-9A-Za-z]{1,8})+)?$",
+          "type": "string"
+        },
+        "media_file_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "release_name": {
+          "type": "string"
+        },
+        "score": {
+          "format": "double",
+          "type": "number"
+        },
+        "sync": {
+          "$ref": "#/components/schemas/SubtitleSyncJob"
+        },
+        "timing": {
+          "$ref": "#/components/schemas/SubtitleTiming"
+        }
+      },
+      "required": [
+        "id",
+        "media_file_id",
+        "provider",
+        "language",
+        "format",
+        "release_name",
+        "score",
+        "hearing_impaired",
+        "created_at",
+        "timing"
+      ],
+      "type": "object"
+    },
     "StreamV3": {
       "additionalProperties": false,
       "properties": {
@@ -20936,6 +21467,63 @@
       ],
       "type": "object"
     },
+    "SubtitleDownloadBody": {
+      "additionalProperties": false,
+      "properties": {
+        "hearing_impaired": {
+          "type": "boolean"
+        },
+        "language": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[\\s\\v\\x85\\p{Z}]*(?:[A-Za-z]{2,3}(?:[-_][0-9A-Za-z]{1,8})*|[XxIi](?:[-_][0-9A-Za-z]{1,8})+)[\\s\\v\\x85\\p{Z}]*$",
+          "type": "string"
+        },
+        "media_file_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "release_name": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "score": {
+          "format": "double",
+          "type": "number"
+        },
+        "subtitle_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "media_file_id",
+        "provider",
+        "subtitle_id",
+        "language",
+        "release_name",
+        "score",
+        "hearing_impaired"
+      ],
+      "type": "object"
+    },
+    "SubtitleDownloadResult": {
+      "additionalProperties": false,
+      "properties": {
+        "subtitle": {
+          "$ref": "#/components/schemas/StoredSubtitle"
+        }
+      },
+      "required": [
+        "subtitle"
+      ],
+      "type": "object"
+    },
     "SubtitleInfo": {
       "additionalProperties": false,
       "properties": {
@@ -21020,6 +21608,249 @@
         "default",
         "hearing_impaired",
         "delivery"
+      ],
+      "type": "object"
+    },
+    "SubtitleProviderStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "providers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "available",
+            "disabled",
+            "not_configured",
+            "unsupported"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "enabled",
+        "providers",
+        "revision",
+        "state",
+        "allowed"
+      ],
+      "type": "object"
+    },
+    "SubtitleSearchBody": {
+      "additionalProperties": false,
+      "properties": {
+        "languages": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "media_file_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "media_file_id",
+        "languages"
+      ],
+      "type": "object"
+    },
+    "SubtitleSearchResult": {
+      "additionalProperties": false,
+      "properties": {
+        "downloads": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "format": {
+          "type": "string"
+        },
+        "hearing_impaired": {
+          "type": "boolean"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "language": {
+          "pattern": "^(?:[a-z]{2,3}(?:-[0-9A-Za-z]{1,8})*|x(?:-[0-9A-Za-z]{1,8})+)$",
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "release_name": {
+          "type": "string"
+        },
+        "score": {
+          "format": "double",
+          "type": "number"
+        },
+        "upload_date": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "provider",
+        "language",
+        "release_name",
+        "format",
+        "score",
+        "downloads",
+        "hearing_impaired"
+      ],
+      "type": "object"
+    },
+    "SubtitleSearchResults": {
+      "additionalProperties": false,
+      "properties": {
+        "results": {
+          "items": {
+            "$ref": "#/components/schemas/SubtitleSearchResult"
+          },
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "results",
+        "warnings"
+      ],
+      "type": "object"
+    },
+    "SubtitleSyncJob": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "created_at": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": "string"
+        },
+        "failure": {
+          "enum": [
+            "subtitle_changed",
+            "no_audio",
+            "unavailable",
+            "error"
+          ],
+          "type": "string"
+        },
+        "finished_at": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "queued",
+            "analyzing",
+            "matching"
+          ],
+          "type": "string"
+        },
+        "progress": {
+          "format": "double",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "result": {
+          "$ref": "#/components/schemas/SubtitleTiming"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "synced",
+            "already_synced",
+            "no_match",
+            "failed"
+          ],
+          "type": "string"
+        },
+        "subtitle_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "trigger": {
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "subtitle_id",
+        "id",
+        "status",
+        "trigger",
+        "confidence",
+        "created_at",
+        "finished_at"
+      ],
+      "type": "object"
+    },
+    "SubtitleTiming": {
+      "additionalProperties": false,
+      "properties": {
+        "offset_ms": {
+          "format": "int64",
+          "maximum": 600000,
+          "minimum": -600000,
+          "type": "integer"
+        },
+        "scale": {
+          "format": "double",
+          "maximum": 1.1,
+          "minimum": 0.9,
+          "type": "number"
+        }
+      },
+      "required": [
+        "offset_ms",
+        "scale"
       ],
       "type": "object"
     },

@@ -26,6 +26,7 @@ add_library(BloomModels STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/models/MediaExtras.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/models/MediaModels.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/models/PosterBadges.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/models/SubtitleSearch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/Types.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/BloomLogging.cpp
 )

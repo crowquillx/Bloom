@@ -73,6 +73,28 @@ public:
         const PlaybackProviderContext &context,
         const QJsonObject &wireResponse) const override;
 
+    // Subtitle search: getSubtitleProviderStatus gates it, searchSubtitles
+    // and downloadSubtitle run it. A download is served to mpv through the
+    // session's sidecar route pinned to the stored subtitle.
+    bool supportsSubtitleSearch() const override { return true; }
+    SubtitleSearchRequest createSubtitleSearchStatusRequest(
+        const PlaybackProviderContext &context) const override;
+    SubtitleSearchStatus parseSubtitleSearchStatus(const QByteArray &body) const override;
+    SubtitleSearchRequest createSubtitleSearchRequest(
+        const PlaybackProviderContext &context,
+        const SubtitleSearchTarget &target,
+        const QString &language) const override;
+    SubtitleSearchParseResult parseSubtitleSearchResponse(const QByteArray &body) const override;
+    SubtitleSearchRequest createSubtitleDownloadRequest(
+        const PlaybackProviderContext &context,
+        const SubtitleSearchTarget &target,
+        const Bloom::SubtitleSearchResult &result) const override;
+    SubtitleDownloadParseResult parseSubtitleDownloadResponse(
+        const PlaybackProviderContext &context,
+        const SubtitleSearchTarget &target,
+        const Bloom::SubtitleSearchResult &result,
+        const QByteArray &body) const override;
+
 private:
     struct Session {
         Bloom::MediaRef media;

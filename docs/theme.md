@@ -139,7 +139,7 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `MetadataLine` | Year, runtime and rating text joined by a separator. |
 | `DetailHero` | Hero block of detail pages: eyebrow, logo or display title, subtitle, metadata, status/quality/rating chips (`statusBadges`, `qualityBadges`, `ratings`), synopsis with Read More, the action row (its children) and progress. Read More leaves Up unhandled so it reaches the navigation bar. |
 | `ChapterTimeline` | Compact chapter picker for chapters without images: a runtime track with a tick per chapter; Left/Right moves, Enter emits `chapterActivated(startMs)`. The owning view wires Up/Down. |
-| `StateMessage` | Loading, empty and error states with an optional focusable action. |
+| `StateMessage` | Loading, empty and error states with an optional focusable action. `titleColor`, `messageColor` and `iconColor` default to the theme tokens; the always-dark playback pop-out sets the `playbackTime*` ones. |
 | `ArtworkPlaceholder` | Missing or loading artwork with an icon and title. |
 | `ArtworkLogo` | Provider title logos; adds a legibility shadow on light themes (white logos over light scrims). |
 | `settings/SettingsRowBackground` | Settings row hover and focus treatment. |

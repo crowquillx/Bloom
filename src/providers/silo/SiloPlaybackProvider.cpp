@@ -4,6 +4,7 @@
 #include "player/AudioPolicy.h"
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QCryptographicHash>
 #include <QUuid>
 
@@ -777,4 +778,185 @@ PlaybackSessionLoss SiloPlaybackProvider::classifyReportFailure(
     if (httpStatus == 404)
         return PlaybackSessionLoss::Expired;
     return PlaybackSessionLoss::None;
+}
+
+namespace {
+
+// The language picker holds ISO 639-2 codes; Silo takes BCP 47 tags, so the
+// codes with a two-letter form are sent as that. Any other code is an ISO 639
+// code Silo accepts as is.
+QString bcp47Language(const QString &code)
+{
+    static const QHash<QString, QString> twoLetter = {
+        {QStringLiteral("eng"), QStringLiteral("en")}, {QStringLiteral("jpn"), QStringLiteral("ja")},
+        {QStringLiteral("spa"), QStringLiteral("es")}, {QStringLiteral("fre"), QStringLiteral("fr")},
+        {QStringLiteral("fra"), QStringLiteral("fr")}, {QStringLiteral("ger"), QStringLiteral("de")},
+        {QStringLiteral("deu"), QStringLiteral("de")}, {QStringLiteral("ita"), QStringLiteral("it")},
+        {QStringLiteral("por"), QStringLiteral("pt")}, {QStringLiteral("rus"), QStringLiteral("ru")},
+        {QStringLiteral("chi"), QStringLiteral("zh")}, {QStringLiteral("zho"), QStringLiteral("zh")},
+        {QStringLiteral("kor"), QStringLiteral("ko")}, {QStringLiteral("ara"), QStringLiteral("ar")},
+        {QStringLiteral("hin"), QStringLiteral("hi")}, {QStringLiteral("dut"), QStringLiteral("nl")},
+        {QStringLiteral("nld"), QStringLiteral("nl")}, {QStringLiteral("swe"), QStringLiteral("sv")},
+        {QStringLiteral("nor"), QStringLiteral("no")}, {QStringLiteral("dan"), QStringLiteral("da")},
+        {QStringLiteral("fin"), QStringLiteral("fi")}, {QStringLiteral("pol"), QStringLiteral("pl")},
+        {QStringLiteral("tur"), QStringLiteral("tr")}, {QStringLiteral("cze"), QStringLiteral("cs")},
+        {QStringLiteral("ces"), QStringLiteral("cs")}, {QStringLiteral("gre"), QStringLiteral("el")},
+        {QStringLiteral("ell"), QStringLiteral("el")}, {QStringLiteral("heb"), QStringLiteral("he")},
+        {QStringLiteral("ind"), QStringLiteral("id")}, {QStringLiteral("tha"), QStringLiteral("th")},
+        {QStringLiteral("vie"), QStringLiteral("vi")}};
+    const QString normalized = code.trimmed().toLower();
+    return twoLetter.value(normalized, normalized);
+}
+
+// The sidecar extension the stream handler serves a stored subtitle as:
+// ASS/SSA raw, every other text format converted to WebVTT.
+QString downloadedSubtitleExtension(const QString &format)
+{
+    const QString normalized = format.trimmed().toLower();
+    return normalized == QStringLiteral("ass") || normalized == QStringLiteral("ssa")
+        ? QStringLiteral(".ass")
+        : QStringLiteral(".vtt");
+}
+
+} // namespace
+
+SubtitleSearchRequest SiloPlaybackProvider::createSubtitleSearchStatusRequest(
+    const PlaybackProviderContext &) const
+{
+    SubtitleSearchRequest request;
+    request.endpoint = QStringLiteral("/api/v2/subtitles/providers/status");
+    request.method = QStringLiteral("GET");
+    request.replaySafe = true;
+    return request;
+}
+
+SubtitleSearchStatus SiloPlaybackProvider::parseSubtitleSearchStatus(const QByteArray &body) const
+{
+    SubtitleSearchStatus status;
+    const QJsonDocument document = QJsonDocument::fromJson(body);
+    if (!document.isObject()) {
+        return status;
+    }
+    const QJsonObject wire = document.object();
+    status.valid = wire.contains(QStringLiteral("state"));
+    // The state is configuration, not health: "available" with the
+    // principal allowed is the only state that searches.
+    status.available = wire.value(QStringLiteral("state")).toString() == QStringLiteral("available")
+        && wire.value(QStringLiteral("enabled")).toBool()
+        && wire.value(QStringLiteral("allowed")).toBool();
+    for (const QJsonValue &provider : wire.value(QStringLiteral("providers")).toArray()) {
+        if (!provider.toString().isEmpty()) {
+            status.providers.append(provider.toString());
+        }
+    }
+    return status;
+}
+
+SubtitleSearchRequest SiloPlaybackProvider::createSubtitleSearchRequest(
+    const PlaybackProviderContext &, const SubtitleSearchTarget &target,
+    const QString &language) const
+{
+    SubtitleSearchRequest request;
+    const QString tag = bcp47Language(language);
+    if (target.mediaVersionId.isEmpty() || tag.isEmpty()) {
+        return request;
+    }
+    request.endpoint = QStringLiteral("/api/v2/subtitles/search");
+    request.method = QStringLiteral("POST");
+    request.body = QJsonObject{{QStringLiteral("media_file_id"), target.mediaVersionId},
+                               {QStringLiteral("languages"), QJsonArray{tag}}};
+    // searchSubtitles is a read (natural_idempotent).
+    request.replaySafe = true;
+    return request;
+}
+
+SubtitleSearchParseResult SiloPlaybackProvider::parseSubtitleSearchResponse(
+    const QByteArray &body) const
+{
+    SubtitleSearchParseResult parsed;
+    const QJsonDocument document = QJsonDocument::fromJson(body);
+    if (!document.isObject() || !document.object().value(QStringLiteral("results")).isArray()) {
+        parsed.error = QStringLiteral("The server sent an unreadable subtitle list.");
+        return parsed;
+    }
+    for (const QJsonValue &value : document.object().value(QStringLiteral("results")).toArray()) {
+        const QJsonObject wire = value.toObject();
+        Bloom::SubtitleSearchResult result;
+        result.id = identityString(wire.value(QStringLiteral("id")));
+        if (result.id.isEmpty()) {
+            continue;
+        }
+        result.provider = wire.value(QStringLiteral("provider")).toString();
+        result.language = wire.value(QStringLiteral("language")).toString();
+        result.title = wire.value(QStringLiteral("release_name")).toString();
+        result.format = wire.value(QStringLiteral("format")).toString().toLower();
+        result.downloads = wire.value(QStringLiteral("downloads")).toInteger();
+        result.score = wire.value(QStringLiteral("score")).toDouble();
+        result.hearingImpaired = wire.value(QStringLiteral("hearing_impaired")).toBool();
+        result.uploadedAt = QDateTime::fromString(
+            wire.value(QStringLiteral("upload_date")).toString(), Qt::ISODateWithMs);
+        // The pinned result has no hash-match, forced or machine-translated
+        // flags; they stay false.
+        parsed.results.append(result);
+    }
+    parsed.valid = true;
+    return parsed;
+}
+
+SubtitleSearchRequest SiloPlaybackProvider::createSubtitleDownloadRequest(
+    const PlaybackProviderContext &, const SubtitleSearchTarget &target,
+    const Bloom::SubtitleSearchResult &result) const
+{
+    SubtitleSearchRequest request;
+    if (target.mediaVersionId.isEmpty() || result.id.isEmpty() || result.provider.isEmpty()
+        || result.language.isEmpty()) {
+        return request;
+    }
+    request.endpoint = QStringLiteral("/api/v2/subtitles/download");
+    request.method = QStringLiteral("POST");
+    // The result's fields go back exactly as searchSubtitles sent them.
+    request.body = QJsonObject{{QStringLiteral("media_file_id"), target.mediaVersionId},
+                               {QStringLiteral("provider"), result.provider},
+                               {QStringLiteral("subtitle_id"), result.id},
+                               {QStringLiteral("language"), result.language},
+                               {QStringLiteral("release_name"), result.title},
+                               {QStringLiteral("score"), result.score},
+                               {QStringLiteral("hearing_impaired"), result.hearingImpaired}};
+    // downloadSubtitle is non_retryable: a replay would fetch from the
+    // provider again.
+    request.replaySafe = false;
+    return request;
+}
+
+SubtitleDownloadParseResult SiloPlaybackProvider::parseSubtitleDownloadResponse(
+    const PlaybackProviderContext &context, const SubtitleSearchTarget &target,
+    const Bloom::SubtitleSearchResult &result, const QByteArray &body) const
+{
+    SubtitleDownloadParseResult parsed;
+    const QJsonObject stored =
+        QJsonDocument::fromJson(body).object().value(QStringLiteral("subtitle")).toObject();
+    const QString storedId = identityString(stored.value(QStringLiteral("id")));
+    if (storedId.isEmpty()) {
+        parsed.error = QStringLiteral("The server did not return the downloaded subtitle.");
+        return parsed;
+    }
+    parsed.valid = true;
+    parsed.subtitle.format = stored.value(QStringLiteral("format")).toString(result.format).toLower();
+    parsed.subtitle.language = stored.value(QStringLiteral("language")).toString(result.language);
+    parsed.subtitle.title = stored.value(QStringLiteral("release_name")).toString(result.title);
+    // The session's sidecar route serves a stored subtitle of its file when
+    // the URL pins its identity (downloaded_subtitle_id); the path ordinal
+    // is then only for display, so 0 serves. Without a session there is no
+    // URL, and the subtitle appears in the next session's inventory.
+    if (target.playbackSessionId.isEmpty() || target.mediaVersionId.isEmpty()) {
+        return parsed;
+    }
+    const QString path = QStringLiteral("/api/v2/stream/%1/subtitles/0%2")
+                             .arg(QString::fromLatin1(QUrl::toPercentEncoding(target.playbackSessionId)),
+                                  downloadedSubtitleExtension(parsed.subtitle.format));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("file_id"), target.mediaVersionId);
+    query.addQueryItem(QStringLiteral("downloaded_subtitle_id"), storedId);
+    parsed.subtitle.url = mediaConsumerUrl(context, path + QLatin1Char('?') + query.toString(QUrl::FullyEncoded));
+    return parsed;
 }

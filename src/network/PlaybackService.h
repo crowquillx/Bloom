@@ -4,6 +4,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
+#include <QPointer>
 #include <QNetworkReply>
 #include <QUrl>
 #include <QVariantMap>
@@ -18,6 +19,7 @@ namespace Bloom { class AudioOutputService; }
 class AuthenticationService;
 class ConfigManager;
 class HttpTransport;
+class HttpRequestHandle;
 class MediaSegmentProviderService;
 struct PlaybackReport;
 
@@ -132,6 +134,27 @@ public:
     /// not yet streamed (see IPlaybackProvider::queuedSessionsExpire).
     virtual bool queuedPlaybackSessionsExpire() const;
 
+    // Online subtitle search for the playing file through the live
+    // connection (docs/playback.md, "Searching for subtitles"). Every call
+    // names the caller's requestKey and answers once with it: a status, a
+    // result list, a downloaded subtitle, or subtitleSearchFailed. Answers
+    // from before a session change or a cancel are dropped.
+    virtual bool supportsSubtitleSearch() const;
+    virtual QString subtitleSearchConnectionId() const;
+    virtual void loadSubtitleSearchStatus(const QString &requestKey);
+    virtual void searchSubtitles(const QString &requestKey,
+                                 const SubtitleSearchTarget &target,
+                                 const QString &language);
+    virtual void downloadSubtitle(const QString &requestKey,
+                                  const SubtitleSearchTarget &target,
+                                  const Bloom::SubtitleSearchResult &result);
+    virtual void cancelSubtitleSearch(const QString &requestKey);
+
+    // Jellyfin lists a download once its item refresh finishes, so the
+    // PlaybackInfo read is repeated this many times, this far apart.
+    static constexpr int kDownloadedSubtitleReadAttempts = 6;
+    static constexpr int kDownloadedSubtitleReadIntervalMs = 2000;
+
 signals:
     // Playback info with media streams for track selection
     void playbackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
@@ -156,6 +179,12 @@ signals:
     void playbackInfoFailedForRequest(const QString &itemId,
                                       const QString &error,
                                       const QString &requestContext);
+    void subtitleSearchStatusLoaded(const QString &requestKey, bool available);
+    // Canonical SubtitleSearchResult maps, in the server's order.
+    void subtitleSearchResultsLoaded(const QString &requestKey, const QVariantList &results);
+    // A DownloadedSubtitle map, ready for mpv.
+    void subtitleDownloaded(const QString &requestKey, const QVariantMap &subtitle);
+    void subtitleSearchFailed(const QString &requestKey, const QString &error);
     void additionalPartsLoaded(const QString &itemId, const QVariantList &parts);
     void additionalPartsLoadedForRequest(const QString &itemId,
                                          const QVariantList &parts,
@@ -236,6 +265,16 @@ private:
     void handleReportFailure(const IPlaybackProvider *provider,
                              const PlaybackReport &report,
                              int httpStatus);
+    void sendSubtitleSearchRequest(const QString &requestKey,
+                                   const SubtitleSearchRequest &request,
+                                   std::function<void(const QByteArray &)> onSuccess);
+    void readDownloadedSubtitleStream(const QString &requestKey,
+                                      const SubtitleSearchTarget &target,
+                                      const Bloom::DownloadedSubtitle &downloaded,
+                                      int attempt);
+    void failSubtitleSearch(const QString &requestKey, const QString &error);
+    QString subtitleSearchErrorMessage(const NetworkError &error) const;
+    QHash<QString, QPointer<HttpRequestHandle>> m_subtitleSearchRequests;
     void sendPlaybackReport(const PlaybackReport &report,
                             std::function<void()> completion = {},
                             const IPlaybackProvider *providerOverride = nullptr);

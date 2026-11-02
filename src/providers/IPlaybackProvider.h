@@ -1,9 +1,13 @@
 #pragma once
 
 #include "models/MediaModels.h"
+#include "models/SubtitleSearch.h"
 #include "network/Types.h"
 
+#include <QByteArray>
 #include <QJsonObject>
+#include <QList>
+#include <QStringList>
 #include <QVariantMap>
 #include <QUrl>
 
@@ -115,6 +119,57 @@ enum class PlaybackSessionLoss {
     None,    // Transient or unrelated failure; keep playing.
     Expired, // The session is gone; a fresh session at the same position recovers.
     Ended,   // The server ended playback; the player must leave and not restart.
+};
+
+// A subtitle search request: the server searches online subtitle providers
+// for the playing file, or downloads one result for it.
+struct SubtitleSearchRequest
+{
+    QString endpoint;
+    QString method = QStringLiteral("GET");
+    QJsonObject body;
+
+    // Searches are reads; downloads are sent once (see each provider).
+    bool replaySafe = false;
+
+    [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
+};
+
+// The file a subtitle search is for: the playing item, its media version
+// (Silo file, Jellyfin media source) and the playback session.
+struct SubtitleSearchTarget
+{
+    Bloom::MediaRef media;
+    QString mediaVersionId;
+    QString playbackSessionId;
+    // Subtitle stream indices the player already lists; a subtitle that
+    // appears after a download is one of the others.
+    QList<int> knownSubtitleIndexes;
+};
+
+struct SubtitleSearchStatus
+{
+    bool valid = false;
+    bool available = false;
+    QStringList providers;
+};
+
+struct SubtitleSearchParseResult
+{
+    bool valid = false;
+    QString error;
+    QList<Bloom::SubtitleSearchResult> results;
+};
+
+struct SubtitleDownloadParseResult
+{
+    bool valid = false;
+    QString error;
+    // Ready to load (Silo). Otherwise, with needsPlaybackInfo, the subtitle
+    // becomes a stream of the media source and the caller finds it in a new
+    // PlaybackInfo read (Jellyfin).
+    Bloom::DownloadedSubtitle subtitle;
+    bool needsPlaybackInfo = false;
 };
 
 struct PlaybackProviderContext
@@ -242,6 +297,61 @@ public:
     {
         Q_UNUSED(context)
         Q_UNUSED(wireResponse)
+        return {};
+    }
+
+    /// Online subtitle search through the server (docs/playback.md,
+    /// "Searching for subtitles"). Providers without it keep the defaults.
+    virtual bool supportsSubtitleSearch() const { return false; }
+    /// The capability document that gates the search. Empty when the
+    /// provider has none and the search is always offered.
+    virtual SubtitleSearchRequest createSubtitleSearchStatusRequest(
+        const PlaybackProviderContext &context) const
+    {
+        Q_UNUSED(context)
+        return {};
+    }
+    virtual SubtitleSearchStatus parseSubtitleSearchStatus(const QByteArray &body) const
+    {
+        Q_UNUSED(body)
+        return {};
+    }
+    /// language is an ISO 639-2 code from the language picker ("eng").
+    virtual SubtitleSearchRequest createSubtitleSearchRequest(
+        const PlaybackProviderContext &context,
+        const SubtitleSearchTarget &target,
+        const QString &language) const
+    {
+        Q_UNUSED(context)
+        Q_UNUSED(target)
+        Q_UNUSED(language)
+        return {};
+    }
+    virtual SubtitleSearchParseResult parseSubtitleSearchResponse(const QByteArray &body) const
+    {
+        Q_UNUSED(body)
+        return {};
+    }
+    virtual SubtitleSearchRequest createSubtitleDownloadRequest(
+        const PlaybackProviderContext &context,
+        const SubtitleSearchTarget &target,
+        const Bloom::SubtitleSearchResult &result) const
+    {
+        Q_UNUSED(context)
+        Q_UNUSED(target)
+        Q_UNUSED(result)
+        return {};
+    }
+    virtual SubtitleDownloadParseResult parseSubtitleDownloadResponse(
+        const PlaybackProviderContext &context,
+        const SubtitleSearchTarget &target,
+        const Bloom::SubtitleSearchResult &result,
+        const QByteArray &body) const
+    {
+        Q_UNUSED(context)
+        Q_UNUSED(target)
+        Q_UNUSED(result)
+        Q_UNUSED(body)
         return {};
     }
 

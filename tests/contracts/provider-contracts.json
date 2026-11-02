@@ -97,6 +97,7 @@
     "metadata.special-features",
     "metadata.local-trailers",
     "subtitles.delivery-url",
+    "subtitles.remote-search",
     "cache.conditional-refresh",
     "errors.expired-session",
     "catalog.recommendations",
@@ -581,6 +582,19 @@
       }
     },
     {
+      "id": "subtitles.remote-search",
+      "journey": "playback",
+      "bloomCaller": "PlaybackService::searchSubtitles and downloadSubtitle through JellyfinPlaybackProvider, SubtitleSearchViewModel",
+      "method": "GET/POST",
+      "path": "/Items/{itemId}/RemoteSearch/Subtitles/{language} and /Items/{itemId}/RemoteSearch/Subtitles/{subtitleId}",
+      "requestSemantics": ["SearchRemoteSubtitles takes the three-letter language code and leaves isPerfectMatch out, so every result comes back", "DownloadRemoteSubtitles is sent once (no replay): a retry could fetch from the subtitle provider again", "After the download Bloom reads PlaybackInfo again for the playing media source, up to six times two seconds apart while the item refresh lists the new file"],
+      "requiredSemantics": ["Results carry Id, ProviderName, ThreeLetterISOLanguageName, Name, Format, DownloadCount, CommunityRating, IsHashMatch, HearingImpaired, Forced, MachineTranslated and AiTranslated; results without Id are dropped", "The download becomes an external subtitle stream with a new Index and a DeliveryUrl (or the GetSubtitle fallback), which Bloom sub-adds, selects and saves as the season or movie pick"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "SearchRemoteSubtitles and DownloadRemoteSubtitles are non-obsolete operations in the pinned Jellyfin 12 OpenAPI document; users without subtitle management get 403, which Bloom shows as an error. Not live-validated with a subtitle provider plugin."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "The pinned compatibility router has no RemoteSearch routes; native Silo searches through its v2 subtitle routes (native.subtitles.search)."}
+      }
+    },
+    {
       "id": "cache.conditional-refresh",
       "journey": "cache",
       "bloomCaller": "LibraryService item/list/detail cache validation",
@@ -893,7 +907,8 @@
       "native.trickplay",
       "native.theme-songs",
       "native.poster-badges",
-      "native.requests"
+      "native.requests",
+      "native.subtitles.search"
     ],
     "requirements": [
       {
@@ -2266,6 +2281,47 @@
           "src/providers/silo/SiloCatalogProvider.h",
           "src/providers/silo/SiloMediaRequestMapper.cpp",
           "src/network/MediaRequestService.cpp"
+        ]
+      },
+      {
+        "id": "native.subtitles.search",
+        "method": "GET/POST",
+        "path": "/api/v2/subtitles/providers/status and /api/v2/subtitles/search and /api/v2/subtitles/download",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/subtitles/providers/status"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/subtitles/search"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/subtitles/download"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "conditional",
+          "discovery": "getSubtitleProviderStatus for the selected profile: the player offers the search only when state is available, enabled and allowed hold, read once per connection while it plays."
+        },
+        "requestSemantics": [
+          "searchSubtitles is a read (natural_idempotent) POST with media_file_id (the playing file) and one BCP 47 language; Bloom sends the two-letter tag of the picker's ISO 639-2 code.",
+          "downloadSubtitle is non_retryable and sent once, with the chosen result's provider, subtitle_id, language, release_name, score and hearing_impaired exactly as the search returned them."
+        ],
+        "requiredSemantics": [
+          "Search results carry id, provider, language, release_name, format, score, downloads and hearing_impaired; the pin sends no hash-match, forced or machine-translated flags.",
+          "The download answers the stored subtitle; Bloom loads it into the session through getPlaybackSubtitle (/api/v2/stream/{session_id}/subtitles/{track}) pinned with file_id and downloaded_subtitle_id, so the path ordinal is display only, and the next session's inventory lists it as a downloaded track."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/api/handlers/stream.go"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloPlaybackProvider.cpp",
+          "src/network/PlaybackService.cpp",
+          "src/viewmodels/SubtitleSearchViewModel.cpp"
         ]
       }
     ],

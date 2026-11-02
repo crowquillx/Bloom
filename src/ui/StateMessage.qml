@@ -21,6 +21,11 @@ FocusScope {
     property string message: ""
     property string actionText: ""
     property bool compact: false
+    // Surfaces that keep one palette whatever the theme (the playback
+    // settings pop-out is always dark) set their own text colors.
+    property color titleColor: Theme.textPrimary
+    property color messageColor: Theme.textSecondary
+    property color iconColor: kind === "error" ? Theme.errorColor : Theme.textTertiary
 
     signal actionTriggered()
 
@@ -55,7 +60,7 @@ FocusScope {
             text: root.iconGlyph
             font.family: Theme.fontIcon
             font.pixelSize: Math.round((root.compact ? 44 : 64) * Theme.layoutScale)
-            color: root.kind === "error" ? Theme.errorColor : Theme.textTertiary
+            color: root.iconColor
         }
 
         Text {
@@ -67,7 +72,7 @@ FocusScope {
             font.pixelSize: root.compact ? Theme.fontSizeBody : Theme.fontSizeTitle
             font.family: Theme.fontPrimary
             font.weight: Theme.fontWeightStrong
-            color: Theme.textPrimary
+            color: root.titleColor
         }
 
         Text {
@@ -78,7 +83,7 @@ FocusScope {
             wrapMode: Text.WordWrap
             font.pixelSize: root.compact ? Theme.fontSizeSmall : Theme.fontSizeBody
             font.family: Theme.fontPrimary
-            color: Theme.textSecondary
+            color: root.messageColor
         }
 
         ActionButton {

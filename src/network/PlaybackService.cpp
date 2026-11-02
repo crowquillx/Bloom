@@ -4,6 +4,7 @@
 #include "HttpTransport.h"
 #include "MediaSegmentProviderService.h"
 #include "providers/ICatalogProvider.h"
+#include "player/PlaybackPolicy.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/BloomLogging.h"
 #include <QJsonDocument>
@@ -1565,4 +1566,309 @@ void PlaybackService::markItemPlayed(const QString &itemId)
         FailureHandler(),
         0,
         false);
+}
+
+// ============================================================================
+// Subtitle search
+// ============================================================================
+
+namespace {
+
+// One request per key at a time; a download keeps its own flow open across
+// the PlaybackInfo reads that find a Jellyfin download.
+const QString kSubtitleSearchRequest = QStringLiteral("subtitle-search");
+const QString kSubtitleDownloadFlow = QStringLiteral("subtitle-download");
+
+} // namespace
+
+bool PlaybackService::supportsSubtitleSearch() const
+{
+    const IPlaybackProvider *provider =
+        m_authService ? m_authService->playbackProvider() : nullptr;
+    return m_authService && m_authService->isAuthenticated() && provider
+        && provider->supportsSubtitleSearch();
+}
+
+QString PlaybackService::subtitleSearchConnectionId() const
+{
+    return activeConnectionId(m_authService, m_configManager);
+}
+
+void PlaybackService::loadSubtitleSearchStatus(const QString &requestKey)
+{
+    if (!supportsSubtitleSearch()) {
+        emit subtitleSearchStatusLoaded(requestKey, false);
+        return;
+    }
+    const IPlaybackProvider *provider = m_authService->playbackProvider();
+    const SubtitleSearchRequest request =
+        provider->createSubtitleSearchStatusRequest(providerContext());
+    if (!request.isValid()) {
+        // No status document: the search is always offered.
+        emit subtitleSearchStatusLoaded(requestKey, true);
+        return;
+    }
+    sendSubtitleSearchRequest(requestKey, request, [this, requestKey, provider](const QByteArray &body) {
+        const SubtitleSearchStatus status = provider->parseSubtitleSearchStatus(body);
+        emit subtitleSearchStatusLoaded(requestKey, status.valid && status.available);
+    });
+}
+
+void PlaybackService::searchSubtitles(const QString &requestKey,
+                                      const SubtitleSearchTarget &target,
+                                      const QString &language)
+{
+    if (!supportsSubtitleSearch()) {
+        failSubtitleSearch(requestKey, tr("Subtitle search is not available on this server."));
+        return;
+    }
+    const IPlaybackProvider *provider = m_authService->playbackProvider();
+    const SubtitleSearchRequest request =
+        provider->createSubtitleSearchRequest(providerContext(), target, language);
+    if (!request.isValid()) {
+        failSubtitleSearch(requestKey, tr("Subtitles cannot be searched for this file."));
+        return;
+    }
+    sendSubtitleSearchRequest(requestKey, request, [this, requestKey, provider](const QByteArray &body) {
+        const SubtitleSearchParseResult parsed = provider->parseSubtitleSearchResponse(body);
+        if (!parsed.valid) {
+            failSubtitleSearch(requestKey, parsed.error.isEmpty()
+                                               ? tr("The server sent an unreadable subtitle list.")
+                                               : parsed.error);
+            return;
+        }
+        QVariantList results;
+        results.reserve(parsed.results.size());
+        for (const Bloom::SubtitleSearchResult &result : parsed.results) {
+            results.append(result.toVariantMap());
+        }
+        emit subtitleSearchResultsLoaded(requestKey, results);
+    });
+}
+
+void PlaybackService::downloadSubtitle(const QString &requestKey,
+                                       const SubtitleSearchTarget &target,
+                                       const Bloom::SubtitleSearchResult &result)
+{
+    if (!supportsSubtitleSearch()) {
+        failSubtitleSearch(requestKey, tr("Subtitle search is not available on this server."));
+        return;
+    }
+    const IPlaybackProvider *provider = m_authService->playbackProvider();
+    const PlaybackProviderContext context = providerContext();
+    const SubtitleSearchRequest request =
+        provider->createSubtitleDownloadRequest(context, target, result);
+    if (!request.isValid()) {
+        failSubtitleSearch(requestKey, tr("This subtitle cannot be downloaded."));
+        return;
+    }
+    cancelSubtitleSearch(requestKey);
+    const quint64 flow = beginRequest(kSubtitleDownloadFlow, requestKey, QString());
+    sendSubtitleSearchRequest(
+        requestKey, request,
+        [this, requestKey, provider, context, target, result, flow](const QByteArray &body) {
+            if (!isCurrentRequest(kSubtitleDownloadFlow, requestKey, QString(), flow)) {
+                return;
+            }
+            const SubtitleDownloadParseResult parsed =
+                provider->parseSubtitleDownloadResponse(context, target, result, body);
+            if (!parsed.valid) {
+                failSubtitleSearch(requestKey, parsed.error.isEmpty()
+                                                   ? tr("The subtitle could not be downloaded.")
+                                                   : parsed.error);
+                return;
+            }
+            if (parsed.needsPlaybackInfo) {
+                readDownloadedSubtitleStream(requestKey, target, parsed.subtitle, 1);
+                return;
+            }
+            if (!parsed.subtitle.isValid()) {
+                failSubtitleSearch(
+                    requestKey,
+                    tr("The subtitle was downloaded and will be listed the next time this plays."));
+                return;
+            }
+            endRequest(kSubtitleDownloadFlow, requestKey, QString(), flow);
+            emit subtitleDownloaded(requestKey, parsed.subtitle.toVariantMap());
+        });
+}
+
+void PlaybackService::readDownloadedSubtitleStream(const QString &requestKey,
+                                                   const SubtitleSearchTarget &target,
+                                                   const Bloom::DownloadedSubtitle &downloaded,
+                                                   int attempt)
+{
+    const quint64 flow = m_requestGenerations.value(
+        kSubtitleDownloadFlow + QChar(0x1f) + QString() + QChar(0x1f) + requestKey, 0);
+    if (flow == 0 || !isCurrentRequest(kSubtitleDownloadFlow, requestKey, QString(), flow)) {
+        return;
+    }
+    const IPlaybackProvider *provider = m_authService->playbackProvider();
+    const PlaybackProviderContext context = providerContext();
+    const PlaybackInfoRequest infoRequest =
+        provider->createPlaybackInfoRequest(context, target.media, {});
+    if (!infoRequest.isValid()) {
+        failSubtitleSearch(requestKey, tr("The downloaded subtitle could not be found."));
+        return;
+    }
+    SubtitleSearchRequest request;
+    request.endpoint = infoRequest.endpoint;
+    request.method = infoRequest.method;
+    request.body = infoRequest.body;
+    request.replaySafe = true;
+    sendSubtitleSearchRequest(
+        requestKey, request,
+        [this, requestKey, provider, context, target, downloaded, attempt, flow](const QByteArray &body) {
+            if (!isCurrentRequest(kSubtitleDownloadFlow, requestKey, QString(), flow)) {
+                return;
+            }
+            const PlaybackInfoParseResult parsed = provider->parsePlaybackInfoResponse(
+                context, target.media, QJsonDocument::fromJson(body).object());
+            // The new subtitle is an external stream of the playing media
+            // source that the player does not list yet; with several, the
+            // one in the downloaded language, newest (highest index) first.
+            Bloom::DownloadedSubtitle found = downloaded;
+            found.sourceIndex = -1;
+            if (parsed.valid) {
+                const QString language =
+                    Bloom::PlaybackPolicy::normalizeLanguageCode(downloaded.language);
+                const QVariantList sources = parsed.response.getMediaSourcesVariant();
+                for (const QVariant &sourceValue : sources) {
+                    const QVariantMap source = sourceValue.toMap();
+                    if (!target.mediaVersionId.isEmpty()
+                        && source.value(QStringLiteral("id")).toString() != target.mediaVersionId) {
+                        continue;
+                    }
+                    const Bloom::PlaybackDescriptor descriptor = provider->createDescriptor(
+                        context, target.media, source, -1, -1, 0, target.playbackSessionId);
+                    bool foundLanguageMatch = false;
+                    for (const Bloom::PlaybackTrack &track : descriptor.subtitleTracks) {
+                        if (!track.isExternal || track.externalUrl.isEmpty() || track.sourceIndex < 0
+                            || target.knownSubtitleIndexes.contains(track.sourceIndex)) {
+                            continue;
+                        }
+                        const bool languageMatch = !language.isEmpty()
+                            && Bloom::PlaybackPolicy::normalizeLanguageCode(track.language) == language;
+                        if ((languageMatch && !foundLanguageMatch)
+                            || (languageMatch == foundLanguageMatch
+                                && track.sourceIndex > found.sourceIndex)) {
+                            found.sourceIndex = track.sourceIndex;
+                            found.url = track.externalUrl;
+                            if (!track.displayTitle.trimmed().isEmpty()) {
+                                found.title = track.displayTitle;
+                            }
+                            if (!track.language.isEmpty()) {
+                                found.language = track.language;
+                            }
+                            foundLanguageMatch = languageMatch;
+                        }
+                    }
+                    break;
+                }
+            }
+            if (found.sourceIndex >= 0 && found.isValid()) {
+                endRequest(kSubtitleDownloadFlow, requestKey, QString(), flow);
+                emit subtitleDownloaded(requestKey, found.toVariantMap());
+                return;
+            }
+            if (attempt >= kDownloadedSubtitleReadAttempts) {
+                failSubtitleSearch(
+                    requestKey,
+                    tr("The subtitle was downloaded and will be listed the next time this plays."));
+                return;
+            }
+            QTimer::singleShot(kDownloadedSubtitleReadIntervalMs, this,
+                               [this, requestKey, target, downloaded, attempt, flow]() {
+                if (isCurrentRequest(kSubtitleDownloadFlow, requestKey, QString(), flow)) {
+                    readDownloadedSubtitleStream(requestKey, target, downloaded, attempt + 1);
+                }
+            });
+        });
+}
+
+void PlaybackService::cancelSubtitleSearch(const QString &requestKey)
+{
+    if (const QPointer<HttpRequestHandle> handle = m_subtitleSearchRequests.take(requestKey)) {
+        handle->cancel();
+    }
+    for (const QString &operation : {kSubtitleSearchRequest, kSubtitleDownloadFlow}) {
+        const QString key = operation + QChar(0x1f) + QString() + QChar(0x1f) + requestKey;
+        m_requestGenerations.remove(key);
+        m_requestIdentities.remove(key);
+    }
+}
+
+void PlaybackService::failSubtitleSearch(const QString &requestKey, const QString &error)
+{
+    cancelSubtitleSearch(requestKey);
+    emit subtitleSearchFailed(requestKey, error);
+}
+
+QString PlaybackService::subtitleSearchErrorMessage(const NetworkError &error) const
+{
+    switch (error.httpStatus) {
+    case 401:
+    case 403:
+        return tr("This account is not allowed to search for or download subtitles.");
+    case 404:
+        return tr("The server could not find this file.");
+    case 408:
+    case 504:
+        return tr("The subtitle provider did not answer in time. Try again.");
+    case 429:
+        return tr("The subtitle provider is busy. Try again in a moment.");
+    case 501:
+    case 503:
+        return tr("Subtitle search is not available on this server right now.");
+    default:
+        break;
+    }
+    return error.userMessage.isEmpty() ? tr("Subtitle search failed.") : error.userMessage;
+}
+
+void PlaybackService::sendSubtitleSearchRequest(const QString &requestKey,
+                                                const SubtitleSearchRequest &request,
+                                                std::function<void(const QByteArray &)> onSuccess)
+{
+    if (const QPointer<HttpRequestHandle> previous = m_subtitleSearchRequests.take(requestKey)) {
+        previous->cancel();
+    }
+    if (!m_transport || !m_authService) {
+        failSubtitleSearch(requestKey, tr("Network transport is unavailable."));
+        return;
+    }
+    const quint64 generation = beginRequest(kSubtitleSearchRequest, requestKey, QString());
+    HttpRequestOptions options;
+    options.retryPolicy = m_retryPolicy;
+    options.retrySafety = request.replaySafe ? RetrySafety::Idempotent : RetrySafety::Never;
+    options.unauthorizedPolicy = UnauthorizedPolicy::DeferSessionExpiry;
+    HttpRequestHandle *handle = m_transport->sendWithRetry(
+        this,
+        request.endpoint,
+        [this, request, requestKey, generation]() -> QNetworkReply * {
+            if (!isCurrentRequest(kSubtitleSearchRequest, requestKey, QString(), generation)) {
+                return nullptr;
+            }
+            return sendProviderRequest(request.endpoint, request.method, request.body);
+        },
+        [this, requestKey, generation, onSuccess = std::move(onSuccess)](QNetworkReply *reply) {
+            if (!isCurrentRequest(kSubtitleSearchRequest, requestKey, QString(), generation)) {
+                return;
+            }
+            endRequest(kSubtitleSearchRequest, requestKey, QString(), generation);
+            m_subtitleSearchRequests.remove(requestKey);
+            onSuccess(reply->readAll());
+        },
+        [this, requestKey, generation](const NetworkError &error) {
+            if (!isCurrentRequest(kSubtitleSearchRequest, requestKey, QString(), generation)) {
+                return;
+            }
+            qCWarning(lcPlayback) << "Subtitle search request failed:" << error.endpoint
+                                  << "status" << error.httpStatus;
+            failSubtitleSearch(requestKey, subtitleSearchErrorMessage(error));
+        },
+        options);
+    if (handle) {
+        m_subtitleSearchRequests.insert(requestKey, handle);
+    }
 }

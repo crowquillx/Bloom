@@ -938,6 +938,47 @@ target_link_libraries(PlayerControllerAutoplayContextTest
 
 add_test(NAME PlayerControllerAutoplayContextTest COMMAND PlayerControllerAutoplayContextTest)
 
+add_executable(SubtitleSearchTest
+    SubtitleSearchTest.cpp
+    TestConfigIsolation.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/SubtitleSearchViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/TrackPreferencesManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(SubtitleSearchTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_compile_definitions(SubtitleSearchTest PRIVATE BLOOM_TESTING=1)
+
+target_link_libraries(SubtitleSearchTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME SubtitleSearchTest COMMAND SubtitleSearchTest)
+
 add_executable(MediaSegmentProviderServiceTest
     MediaSegmentProviderServiceTest.cpp
     ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
@@ -1266,6 +1307,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     PlayerProcessManagerTest
     DisplayManagerTest
     PlayerControllerAutoplayContextTest
+    SubtitleSearchTest
     MediaSegmentProviderServiceTest
     NextEpisodeResolverTest
     EpisodeSelectionScriptTest
@@ -1384,6 +1426,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/viewmodels/UpNextRecommendationsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/HomeSectionsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/LibrarySectionsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/SubtitleSearchViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
     # Test mode sources
     ${CMAKE_SOURCE_DIR}/src/test/TestModeController.cpp
