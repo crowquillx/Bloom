@@ -151,6 +151,8 @@ FocusScope {
     signal signOutRequested()
     // The History page, from About & Account; Main pushes it.
     signal historyRequested()
+    // The taste seeding picker, from About & Account; Main pushes it.
+    signal tasteSeedRequested()
     property bool activeSessionsVisible: false
 
     function openActiveSessions() {
@@ -442,6 +444,7 @@ FocusScope {
                     onSignOutRequested: root.signOutRequested()
                     onSessionsRequested: root.openActiveSessions()
                     onHistoryRequested: root.historyRequested()
+                    onTasteSeedRequested: root.tasteSeedRequested()
                 }
             }
         }

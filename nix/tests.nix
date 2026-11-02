@@ -109,6 +109,7 @@ stdenv.mkDerivation {
       WatchHistoryViewModelTest \
       CollectionViewModelsTest \
       UpcomingViewModelTest \
+      TasteSeedViewModelTest \
       LibrarySectionsViewModelTest \
       ContinueWatchingViewModelTest \
       MediaRequestServiceTest \

@@ -38,6 +38,9 @@ class LibraryService;
  *   first when the setting is on and the server has picks for the profile.
  *   It may arrive after the other rows (canonicalHomeSectionsUpdated) and
  *   is then inserted above them.
+ * - A taste seed recorded for the live connection
+ *   (LibraryService::tasteSeedSubmitted) reads the rows again with their
+ *   recommendations and Watch Tonight.
  *
  * Merged spaces show no curated rows: Home calls `clear()` instead.
  */
@@ -87,6 +90,7 @@ private slots:
     void onSectionsUpdated(const QString &connectionId, const QVariantList &sections);
     void onWatchlistStatusChanged(const QString &itemId, bool inWatchlist);
     void onFavoriteStatusChanged(const QString &itemId, bool isFavorite);
+    void onTasteSeedSubmitted(const QString &connectionId);
 
 private:
     void connectService();
@@ -95,7 +99,7 @@ private:
     /// so the other rows keep their delegates).
     void removeRowsWithPrefix(const QString &prefix);
     /// Refreshes rows loaded or loading for the live connection.
-    void refreshLoadedRows();
+    void refreshLoadedRows(bool reloadRecommendations = false);
     static QString sectionIdOf(const QVariant &row);
 
     LibraryService *m_libraryService = nullptr;

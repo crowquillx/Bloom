@@ -149,6 +149,9 @@ Window {
         function onNavigateToSeries(seriesId, libraryId, libraryName) {
             window.handleHomeNavigateToSeries(seriesId, libraryId, libraryName)
         }
+        function onTasteSeedRequested() {
+            window.pushTasteSeedScreen(false)
+        }
     }
 
     function navigateToAuthenticatedHome(userId, accessToken, username) {
@@ -1711,6 +1714,11 @@ Window {
                     window.pushHistoryScreen()
                 })
             }
+            if (settingsScreen && settingsScreen["tasteSeedRequested"]) {
+                settingsScreen["tasteSeedRequested"].connect(function() {
+                    window.pushTasteSeedScreen(true)
+                })
+            }
             if (settingsScreen && options.focusUpdatesOnActivate && typeof settingsScreen["requestUpdateSectionFocus"] === "function") {
                 settingsScreen["requestUpdateSectionFocus"]()
             }
@@ -1781,6 +1789,24 @@ Window {
             connectDetailNavigation(historyScreen)
             historyScreen.navigateToEpisode.connect(function(episode) {
                 window.handleHomeNavigateToEpisode(episode, episode.seriesId || "", "", "", true)
+            })
+        }
+        updateNavigationSelection()
+    }
+
+    // The taste seeding picker, from Home's Personalize Home prompt or
+    // Settings > About & Account. It closes itself when the picks are saved
+    // or skipped; the toast outlives the page.
+    function pushTasteSeedScreen(fromSettings) {
+        playPointerSelectSound()
+        var tasteSeedScreen = stackView.push("TasteSeedScreen.qml", { fromSettings: !!fromSettings })
+        if (tasteSeedScreen) {
+            tasteSeedScreen.finished.connect(function(message) {
+                if (stackView.currentItem === tasteSeedScreen)
+                    stackView.pop()
+                if (message)
+                    toast.show(message)
+                updateNavigationSelection()
             })
         }
         updateNavigationSelection()

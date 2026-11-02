@@ -4014,6 +4014,82 @@ bool LibraryService::supportsWatchTonight() const
         && m_authService->supportsCapability(ProviderCapability::WatchTonight);
 }
 
+bool LibraryService::supportsTasteSeed() const
+{
+    if (!m_authService || !m_authService->isAuthenticated()) {
+        return false;
+    }
+    const ICatalogProvider *provider = m_authService->catalogProvider();
+    return provider
+        && provider->createRequest(ProviderCatalogOperation::TasteSeedItems, {}).supported;
+}
+
+QString LibraryService::tasteSeedScope() const
+{
+    if (!supportsTasteSeed()) {
+        return {};
+    }
+    return activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
+}
+
+void LibraryService::getTasteProfileState(const QString &requestKey)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    sendCatalogRequest(
+        QStringLiteral("getTasteProfile"),
+        ProviderCatalogOperation::TasteProfile,
+        baseCatalogQuery(),
+        [this, connectionId, requestKey](const ProviderCatalogResponse &response) {
+            emit tasteProfileStateLoaded(
+                connectionId, requestKey,
+                response.capabilityMetadata.value(QStringLiteral("isCold")).toBool());
+        },
+        [this, connectionId, requestKey](const NetworkError &error) {
+            emit tasteProfileStateFailed(connectionId, requestKey, error.userMessage);
+        });
+}
+
+void LibraryService::getTasteSeedItems(const QString &cursor, int limit,
+                                       const QString &requestKey)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.cursor = cursor;
+    query.limit = qMax(1, limit);
+    sendCatalogRequest(
+        QStringLiteral("listTasteSeedItems"),
+        ProviderCatalogOperation::TasteSeedItems,
+        query,
+        [this, connectionId, requestKey](const ProviderCatalogResponse &response) {
+            emit canonicalTasteSeedItemsLoaded(
+                connectionId, requestKey,
+                m_authService->mapMediaItems(response.rawItems, connectionId),
+                response.hasMore, response.nextCursor);
+        },
+        [this, connectionId, requestKey](const NetworkError &error) {
+            emit canonicalTasteSeedItemsFailed(connectionId, requestKey, error.userMessage,
+                                               error.httpStatus);
+        });
+}
+
+void LibraryService::submitTasteSeed(const QStringList &itemIds, const QString &requestKey)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemIds = itemIds;
+    sendHomeCardWrite(
+        requestKey,
+        QStringLiteral("createTasteSeed"),
+        ProviderCatalogOperation::SubmitTasteSeed,
+        query,
+        [this, connectionId = activeConnectionId(m_authService), itemIds]() {
+            for (const QString &itemId : itemIds) {
+                emit favoriteStatusChanged(itemId, true);
+            }
+            emit tasteSeedSubmitted(connectionId, itemIds);
+        },
+        {});
+}
+
 bool LibraryService::supportsCollections() const
 {
     return m_authService && m_authService->isAuthenticated()

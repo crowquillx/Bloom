@@ -453,6 +453,29 @@ public:
     // Whether Home can show the Watch Tonight row for the live provider
     // (ProviderCapability::WatchTonight, Silo), whatever the setting.
     Q_INVOKABLE virtual bool supportsWatchTonight() const;
+    // Taste seeding, the cold-start picker (Silo), on the live connection.
+    // Whether the live provider offers it: its catalog provider builds the
+    // candidate read (no ProviderCapability bit; Jellyfin and Silo's
+    // compatibility listener answer unsupported).
+    Q_INVOKABLE virtual bool supportsTasteSeed() const;
+    // The scope a taste seed belongs to, "<connection>\n<profile>", or
+    // empty when the live connection has no taste seeding.
+    Q_INVOKABLE virtual QString tasteSeedScope() const;
+    // Whether the acting profile's taste summary is still cold (no signal
+    // has fed it): tasteProfileStateLoaded or tasteProfileStateFailed.
+    virtual void getTasteProfileState(const QString &requestKey);
+    // One page of candidate titles, most recognizable first, from the
+    // previous page's nextCursor: canonicalTasteSeedItemsLoaded or
+    // canonicalTasteSeedItemsFailed. A page may be short or empty while
+    // hasMore holds.
+    virtual void getTasteSeedItems(const QString &cursor, int limit, const QString &requestKey);
+    // Records itemIds as the profile's favorites and queues a taste
+    // refresh; never replayed. Answers once with
+    // homeCardWriteFinished(requestKey), like the Home card writes, also
+    // when the session changes first (after homeCardWriteUnconfirmed). A
+    // success emits favoriteStatusChanged for each pick, then
+    // tasteSeedSubmitted.
+    virtual void submitTasteSeed(const QStringList &itemIds, const QString &requestKey);
     // Collections, a browse view over movies and series
     // (ProviderCapability::Collections; models/MediaCollections.h).
     // getLibraryCollections reads one page of a library's collections,
@@ -738,6 +761,21 @@ signals:
     // A removal from the history succeeded; watched state and resume
     // points under itemId changed with it.
     void watchHistoryItemRemoved(const QString &connectionId, const QString &itemId);
+    void tasteProfileStateLoaded(const QString &connectionId, const QString &requestKey,
+                                 bool cold);
+    void tasteProfileStateFailed(const QString &connectionId, const QString &requestKey,
+                                 const QString &error);
+    void canonicalTasteSeedItemsLoaded(const QString &connectionId,
+                                       const QString &requestKey,
+                                       const QVariantList &items,
+                                       bool hasMore,
+                                       const QString &nextCursor);
+    void canonicalTasteSeedItemsFailed(const QString &connectionId,
+                                       const QString &requestKey,
+                                       const QString &error,
+                                       int httpStatus);
+    // A taste seed was recorded; Home reads its recommendation rows again.
+    void tasteSeedSubmitted(const QString &connectionId, const QStringList &itemIds);
     // serverWide: the collections are the server's, not only this
     // library's (see getLibraryCollections).
     void canonicalLibraryCollectionsLoaded(const QString &connectionId,

@@ -25,6 +25,10 @@ public:
     // Days after the first one that an upcoming airings read covers; Silo
     // accepts at most 31.
     static constexpr int kAiringWindowDays = 30;
+    // listTasteSeedItems answers at most 60 cards a page; createTasteSeed
+    // takes 1 to 200 picks.
+    static constexpr int kTasteSeedPageMax = 60;
+    static constexpr int kTasteSeedPicksMax = 200;
 
     using ICatalogProvider::parseResponse;
     ProviderCatalogRequest createRequest(
@@ -645,6 +649,22 @@ private:
             // Profile scoped when a profile is selected (the request factory
             // adds it).
             return get(QStringLiteral("/api/v2/images/capabilities"));
+        case ProviderCatalogOperation::TasteProfile:
+            return get(QStringLiteral("/api/v2/recommendations/taste-profile"));
+        case ProviderCatalogOperation::TasteSeedItems: {
+            if (query.limit < 0 || query.startIndex != 0) {
+                return unsupported(QStringLiteral("Silo's taste seed picks page by cursor"));
+            }
+            QUrlQuery parameters;
+            appendLimit(parameters, query.limit > 0 ? qMin(query.limit, kTasteSeedPageMax) : 0);
+            if (!query.cursor.isEmpty()) {
+                parameters.addQueryItem(QStringLiteral("cursor"), query.cursor);
+            }
+            return get(endpointWithQuery(
+                QStringLiteral("/api/v2/recommendations/taste-seed/items"), parameters));
+        }
+        case ProviderCatalogOperation::SubmitTasteSeed:
+            return submitTasteSeedRequest(query);
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -928,6 +948,31 @@ public:
             }
             return response;
         }
+        if (operation == ProviderCatalogOperation::TasteProfile) {
+            return tasteProfileResponse(body);
+        }
+        if (operation == ProviderCatalogOperation::TasteSeedItems) {
+            // A catalog page; only movie and series cards are titles here.
+            ProviderCatalogResponse response =
+                SiloModelMapper::catalogResponse(operation, body, responseHeaders);
+            if (response.valid) {
+                response.rawItems = titleCards(response.rawItems);
+                response.total = static_cast<int>(response.rawItems.size());
+            }
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::SubmitTasteSeed) {
+            ProviderCatalogResponse response;
+            const QJsonValue added = QJsonDocument::fromJson(body).object()
+                .value(QStringLiteral("added"));
+            if (!added.isDouble() || added.toDouble() < 0) {
+                response.error = QStringLiteral("Invalid Silo taste seed response");
+                return response;
+            }
+            response.capabilityMetadata.insert(QStringLiteral("added"), added.toInt());
+            response.valid = true;
+            return response;
+        }
         if (operation == ProviderCatalogOperation::WatchTonight) {
             ProviderCatalogResponse response;
             const QJsonObject page = QJsonDocument::fromJson(body).object();
@@ -1061,6 +1106,7 @@ private:
         case ProviderCatalogOperation::AdvanceShuffle:
         case ProviderCatalogOperation::SkipShuffleItem:
         case ProviderCatalogOperation::CollectionItems:
+        case ProviderCatalogOperation::TasteSeedItems:
             return true;
         default:
             return false;
@@ -1100,6 +1146,60 @@ private:
             return Scope::capabilityKey(Scope::kCollection, Scope::kUserCollection);
         }
         return {};
+    }
+
+    // createTasteSeed is non_retryable: favorites converge and a replay
+    // reports 0 added, but the server may lose the taste refresh it queues
+    // after a crash, so Bloom never replays it. Blank and repeated picks are
+    // dropped first; the server refuses a blank identifier.
+    static ProviderCatalogRequest submitTasteSeedRequest(const ProviderCatalogQuery &query)
+    {
+        QJsonArray picks;
+        QSet<QString> seen;
+        for (const QString &value : query.itemIds) {
+            const QString itemId = value.trimmed();
+            if (itemId.isEmpty() || seen.contains(itemId)) {
+                continue;
+            }
+            seen.insert(itemId);
+            picks.append(itemId);
+        }
+        if (picks.isEmpty() || picks.size() > kTasteSeedPicksMax) {
+            return unsupported(QStringLiteral("A Silo taste seed takes 1 to 200 picks"));
+        }
+        ProviderCatalogRequest request;
+        request.method = ProviderHttpMethod::Post;
+        request.retrySafety = ProviderCatalogRetrySafety::Never;
+        request.relativeEndpoint = QStringLiteral("/api/v2/recommendations/taste-seed");
+        request.body = QJsonDocument(QJsonObject{{QStringLiteral("item_ids"), picks}})
+                           .toJson(QJsonDocument::Compact);
+        request.extraHeaders.insert(QByteArrayLiteral("Content-Type"),
+                                    QByteArrayLiteral("application/json"));
+        request.supported = true;
+        return request;
+    }
+
+    // The taste summary is empty, not an error, until the engine computed
+    // one; a profile no signal (rating, favorite, watch...) has fed yet is
+    // cold.
+    static ProviderCatalogResponse tasteProfileResponse(const QByteArray &body)
+    {
+        ProviderCatalogResponse response;
+        const QJsonObject object = QJsonDocument::fromJson(body).object();
+        const QJsonValue counts = object.value(QStringLiteral("signal_counts"));
+        if (!counts.isObject()) {
+            response.error = QStringLiteral("Invalid Silo taste profile response");
+            return response;
+        }
+        qint64 signalCount = 0;
+        const QJsonObject countsObject = counts.toObject();
+        for (auto it = countsObject.constBegin(); it != countsObject.constEnd(); ++it) {
+            signalCount += qMax<qint64>(0, static_cast<qint64>(it.value().toDouble()));
+        }
+        response.capabilityMetadata.insert(QStringLiteral("isCold"), signalCount == 0);
+        response.capabilityMetadata.insert(QStringLiteral("signalCount"), signalCount);
+        response.valid = true;
+        return response;
     }
 
     // createShuffle is non_retryable: a replay after a lost response would

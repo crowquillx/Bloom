@@ -42,6 +42,8 @@ void HomeSectionsViewModel::connectService()
     // interested once the server rebuilds them.
     connect(m_libraryService, &LibraryService::notInterestedStatusChanged,
             this, &HomeSectionsViewModel::onWatchlistStatusChanged);
+    connect(m_libraryService, &LibraryService::tasteSeedSubmitted,
+            this, &HomeSectionsViewModel::onTasteSeedSubmitted);
 }
 
 int HomeSectionsViewModel::rowCount(const QModelIndex &parent) const
@@ -231,7 +233,15 @@ void HomeSectionsViewModel::onFavoriteStatusChanged(const QString &itemId, bool 
     }
 }
 
-void HomeSectionsViewModel::refreshLoadedRows()
+void HomeSectionsViewModel::onTasteSeedSubmitted(const QString &connectionId)
+{
+    // The picks feed the profile's taste: read the taste-driven rows again.
+    if (m_libraryService && connectionId == m_libraryService->getActiveConnectionId()) {
+        refreshLoadedRows(true);
+    }
+}
+
+void HomeSectionsViewModel::refreshLoadedRows(bool reloadRecommendations)
 {
     // Only rows loaded or loading for the live connection are refreshed;
     // Home loads fresh rows itself otherwise. A read in flight may predate
@@ -245,7 +255,7 @@ void HomeSectionsViewModel::refreshLoadedRows()
     }
     if (m_connectionId == activeConnectionId
         || (m_requestPending && m_pendingConnectionId == activeConnectionId)) {
-        refresh();
+        refresh(reloadRecommendations);
     }
 }
 

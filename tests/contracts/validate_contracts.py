@@ -46,6 +46,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.settings.subtitle-appearance",
     "native.history",
     "native.home.watch-tonight",
+    "native.recommendations.taste-seed",
     "native.artwork.refetch",
     "native.playback.capability",
     "native.playback.start-v3",
