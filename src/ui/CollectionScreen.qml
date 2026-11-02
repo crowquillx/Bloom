@@ -9,15 +9,17 @@ import BloomUI
  * Browse archetype (docs/style-guide.md): an ambient stage with the
  * collection's backdrop, then the focused title's; no hero. Below the
  * navigation bar: a PageHeader with the collection's name and count, a Sort
- * menu (collection order, release date, title), the description, and a
+ * menu (collection order, release date, title), a secondary Shuffle where
+ * the provider can shuffle this kind of collection, the description, and a
  * poster grid of its titles from the live connection.
  *
  * Collections are a browse view over a library's titles, opened from a
  * library's Collections view or a detail page's "Part of" shelf, both on
  * the connection that owns them.
  *
- * Keys: Sort is the top-most control; Up from it reaches the navigation
- * bar, Down enters the grid, Up from the grid's first row returns to it.
+ * Keys: Sort and Shuffle are the top-most row (Left/Right between them);
+ * Up from it reaches the navigation bar, Down enters the grid, Up from the
+ * grid's first row returns to Sort.
  * Enter opens a title on its details page; Back returns here with focus on
  * that title. The grid reads further pages as focus or scrolling nears its
  * end.
@@ -48,12 +50,18 @@ FocusScope {
     readonly property int loadMoreRows: 2
 
     /// The header collapses (and the navigation bar recedes) once the grid
-    /// scrolls past its first row; it returns at the top or on Sort.
-    readonly property bool headerExpanded: sortButton.activeFocus || sortMenu.visible
+    /// scrolls past its first row; it returns at the top or on Sort or Shuffle.
+    readonly property bool headerExpanded: sortButton.activeFocus || shuffleButton.activeFocus
+                                           || sortMenu.visible
                                            || !titleGrid.activeFocus || titleGrid.count === 0
                                            || (InputModeManager.pointerActive ? titleGrid.atYBeginning
                                                                               : titleGrid.currentIndex < titleGrid.columns)
     readonly property bool navigationRecessed: !headerExpanded
+
+    /// Shuffle plays the collection's movies and episodes
+    /// (LibraryService.supportsShuffle for its kind, read again when the
+    /// server's shuffle capability arrives). Hidden, not disabled, otherwise.
+    property bool shuffleSupported: false
 
     readonly property var sortOptions: [
         { value: "", label: qsTr("Collection order") },
@@ -77,6 +85,13 @@ FocusScope {
     Component.onCompleted: {
         viewModel.load(root.collectionData)
         root.stageSource = root.collectionBackdrop()
+        LibraryService.loadShuffleCapability()
+        refreshShuffleSupport()
+    }
+
+    Connections {
+        target: LibraryService
+        function onShuffleSupportChanged() { root.refreshShuffleSupport() }
     }
 
     StackView.onStatusChanged: {
@@ -95,6 +110,10 @@ FocusScope {
 
     SourceRouter {
         id: sourceRouter
+        onFailed: function(message) {
+            toast.show(qsTr("Couldn't switch to that title's server. %1")
+                       .arg(message || qsTr("The server isn't reachable.")))
+        }
     }
 
     // ========================================
@@ -163,6 +182,30 @@ FocusScope {
     }
 
     // ========================================
+    // Shuffle
+    // ========================================
+
+    function refreshShuffleSupport() {
+        var data = root.collectionData || {}
+        shuffleSupported = !!data.collectionId && !!data.collectionKind
+                && LibraryService.supportsShuffle("collection", data.collectionKind)
+    }
+
+    // Runs on the connection that owns the collection, as its titles do.
+    function startShuffle() {
+        if (!shuffleSupported || PlayerController.shuffleStarting)
+            return
+        var data = root.collectionData || {}
+        sourceRouter.run(data.connectionId || "", function() {
+            if (!PlayerController.startShuffle({ kind: "collection", id: data.collectionId,
+                                                 collectionKind: data.collectionKind,
+                                                 title: root.collection.name || data.name || "",
+                                                 connectionId: data.connectionId || "" }))
+                toast.show(qsTr("Shuffle isn't available for this collection."))
+        })
+    }
+
+    // ========================================
     // Opening titles
     // ========================================
 
@@ -227,12 +270,16 @@ FocusScope {
             sortButton.forceActiveFocus()
             return
         }
+        if (target === shuffleButton && shuffleButton.visible && shuffleButton.enabled) {
+            shuffleButton.forceActiveFocus()
+            return
+        }
         root.forceActiveFocus()
         focusContent()
     }
 
     function saveFocusForNavigation() {
-        // lastFocusTarget already tracks Sort and the grid.
+        // lastFocusTarget already tracks Sort, Shuffle and the grid.
     }
 
     function restoreFocusFromNavigation() {
@@ -310,8 +357,38 @@ FocusScope {
                                 root.focusContent()
                             event.accepted = true
                         }
-                        // Top-most control: Up goes on to the navigation bar.
+                        // Top-most row: Up goes on to the navigation bar.
                         Keys.onLeftPressed: (event) => { event.accepted = true }
+                        Keys.onRightPressed: (event) => {
+                            if (shuffleButton.visible && shuffleButton.enabled)
+                                shuffleButton.forceActiveFocus()
+                            event.accepted = true
+                        }
+                    }
+
+                    // Plays the collection's movies and episodes in random order.
+                    ActionButton {
+                        id: shuffleButton
+                        variant: "secondary"
+                        visible: root.shuffleSupported
+                        enabled: !PlayerController.shuffleStarting
+                        iconGlyph: Icons.shuffle
+                        text: qsTr("Shuffle")
+                        Layout.alignment: Qt.AlignBottom
+                        Layout.preferredHeight: Theme.buttonHeightMedium
+                        accessibleLabel: qsTr("Shuffle %1").arg(root.collection.name || "")
+                        onActiveFocusChanged: if (activeFocus) root.lastFocusTarget = shuffleButton
+                        // Leaves the row disabled while a shuffle starts.
+                        onEnabledChanged: if (!enabled && activeFocus) sortButton.forceActiveFocus()
+                        onClicked: root.startShuffle()
+                        Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        Keys.onDownPressed: (event) => {
+                            if (titleGrid.count > 0 || errorState.visible)
+                                root.focusContent()
+                            event.accepted = true
+                        }
+                        Keys.onLeftPressed: (event) => { sortButton.forceActiveFocus(); event.accepted = true }
                         Keys.onRightPressed: (event) => { event.accepted = true }
                     }
                 }
@@ -503,5 +580,10 @@ FocusScope {
             visible: viewModel.loadingMore
             running: visible
         }
+    }
+
+    ToastNotification {
+        id: toast
+        z: 300
     }
 }

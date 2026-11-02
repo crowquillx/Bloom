@@ -262,6 +262,7 @@ private slots:
     void libraryLettersReadTheCapabilityOnce();
     void searchCapabilitiesServePeopleAndLettersOnce();
     void jellyfinHasNoLibraryRowsAndIndexesItsOwnList();
+    void collectionShuffleFollowsTheProviderScopeKinds();
 };
 
 void SiloCatalogServiceTest::theIntroDbV4Requests_data()
@@ -4763,6 +4764,96 @@ void SiloCatalogServiceTest::homeShowsWatchTonightFirstUnlessColdOrOff()
     QTRY_COMPARE_WITH_TIMEOUT(loads, before + 1, 1000);
     QCOMPARE(cardsReads(first), 0);
     QCOMPARE(shownFirst(), QStringLiteral("for-you"));
+}
+
+
+// A collection page's Shuffle shows only for the collection kinds the
+// provider can shuffle, and sends the collection as the scope: Silo's
+// createShuffle names library_collection or user_collection, Jellyfin reads
+// random pages under the box set.
+void SiloCatalogServiceTest::collectionShuffleFollowsTheProviderScopeKinds()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    {
+        ControlledNetworkAccessManager manager;
+        HttpTransport transport(&manager);
+        SiloProviderAdapter adapter;
+        ExposedAuthenticationService auth(&transport, &adapter);
+        QVERIFY(signInToSilo(manager, auth, config));
+        LibraryService service(&auth);
+        QSignalSpy support(&service, &LibraryService::shuffleSupportChanged);
+        // Hidden until the profile's capability document arrives.
+        QVERIFY(!service.supportsShuffle(QStringLiteral("collection"), QStringLiteral("library")));
+
+        manager.responses = {
+            { 200, QByteArrayLiteral(R"({"state":"available","allowed":true,"revision":"r1",)"
+                                     R"("scope_kinds":["library","series","season","library_collection"]})"),
+              false }
+        };
+        qsizetype firstRequest = manager.requests.size();
+        service.loadShuffleCapability();
+        QTRY_COMPARE_WITH_TIMEOUT(support.count(), 1, 1000);
+        QCOMPARE(manager.requests.at(firstRequest).request.url().path(),
+                 QStringLiteral("/api/v2/shuffles/capabilities"));
+        QVERIFY(service.supportsShuffle(QStringLiteral("collection"), QStringLiteral("library")));
+        // Not in this server's scope_kinds; box sets are Jellyfin's.
+        QVERIFY(!service.supportsShuffle(QStringLiteral("collection"), QStringLiteral("user")));
+        QVERIFY(!service.supportsShuffle(QStringLiteral("collection"), QStringLiteral("boxSet")));
+
+        const QList<std::pair<QString, QString>> kinds{
+            {QStringLiteral("library"), QStringLiteral("library_collection")},
+            {QStringLiteral("user"), QStringLiteral("user_collection")}};
+        for (const auto &[collectionKind, wireKind] : kinds) {
+            manager.responses = { { 404, QByteArray(), false } };
+            firstRequest = manager.requests.size();
+            service.createShuffle(QVariantMap{{QStringLiteral("kind"), QStringLiteral("collection")},
+                                              {QStringLiteral("id"), QStringLiteral("collection-7")},
+                                              {QStringLiteral("collectionKind"), collectionKind}},
+                                  QStringLiteral("collection-shuffle"));
+            QTRY_VERIFY_WITH_TIMEOUT(manager.requests.size() > firstRequest, 1000);
+            const RecordedRequest create = manager.requests.at(firstRequest);
+            QCOMPARE(create.operation, QNetworkAccessManager::PostOperation);
+            QCOMPARE(create.request.url().path(), QStringLiteral("/api/v2/shuffles"));
+            QCOMPARE(QJsonDocument::fromJson(create.body).object(),
+                     (QJsonObject{{QStringLiteral("scope"),
+                                   QJsonObject{{QStringLiteral("kind"), wireKind},
+                                               {QStringLiteral("id"), QStringLiteral("collection-7")}}}}));
+        }
+    }
+    {
+        ControlledNetworkAccessManager manager;
+        HttpTransport transport(&manager);
+        JellyfinProviderAdapter adapter;
+        ExposedAuthenticationService auth(&transport, &adapter);
+        auth.seedJellyfin();
+        QVERIFY(auth.isAuthenticated());
+        LibraryService service(&auth);
+        QVERIFY(service.supportsShuffle(QStringLiteral("collection"), QStringLiteral("boxSet")));
+        QVERIFY(!service.supportsShuffle(QStringLiteral("collection"), QStringLiteral("library")));
+        QVERIFY(!service.supportsShuffle(QStringLiteral("collection"), QStringLiteral("user")));
+
+        manager.responses = {
+            { 200, QByteArrayLiteral(R"({"Items":[],"TotalRecordCount":0})"), false }
+        };
+        QSignalSpy loaded(&service, &LibraryService::shuffleLoaded);
+        service.getShuffleItems(QVariantMap{{QStringLiteral("kind"), QStringLiteral("collection")},
+                                            {QStringLiteral("id"), QStringLiteral("boxset-3")},
+                                            {QStringLiteral("collectionKind"), QStringLiteral("boxSet")}},
+                                50, QStringLiteral("collection-shuffle"));
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        QCOMPARE(manager.requests.size(), 1);
+        const QUrlQuery parameters(manager.requests.first().request.url());
+        QCOMPARE(parameters.queryItemValue(QStringLiteral("ParentId")), QStringLiteral("boxset-3"));
+        QCOMPARE(parameters.queryItemValue(QStringLiteral("IncludeItemTypes")),
+                 QStringLiteral("Movie,Episode"));
+        QCOMPARE(parameters.queryItemValue(QStringLiteral("SortBy")), QStringLiteral("Random"));
+        // A box set of series shuffles their episodes, never missing ones.
+        QCOMPARE(parameters.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
+        QCOMPARE(parameters.queryItemValue(QStringLiteral("IsMissing")), QStringLiteral("false"));
+    }
 }
 
 QTEST_MAIN(SiloCatalogServiceTest)

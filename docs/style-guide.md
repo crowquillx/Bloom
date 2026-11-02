@@ -255,7 +255,11 @@ disabled, when the provider cannot shuffle. Left/Right reach it in row
 order. A movie or series library page puts a secondary "Shuffle" button last
 in its toolbar, after Filters (after Shelves while the shelves show), with
 Down to the grid or shelves like the other toolbar controls; combined
-"All …" pages have none. The buttons are disabled while a shuffle starts.
+"All …" pages have none. A collection page puts a secondary "Shuffle"
+`ActionButton` after Sort in its header row, shown only for the collection
+kinds the provider can shuffle (Silo's capability `scope_kinds`, Jellyfin box
+sets); Left/Right move between Sort and Shuffle and Down enters the grid.
+The buttons are disabled while a shuffle starts.
 The shuffle's Up Next uses the same hero: "Up Next · Shuffle" eyebrow, the
 pick's logo or title, Play, a secondary "Shuffle Again", and the icon-only
 Close, with no shelf (see "Shuffle play" in [playback](playback.md)).
@@ -330,18 +334,20 @@ reached from inside a movie or series library and from detail pages.
   ambient stage with the collection's backdrop and then the focused title's,
   and below `pageMarginTop` a `PageHeader` (eyebrow "Collection", the name,
   the title count) with a **Sort** button whose `BloomMenu` offers
-  Collection order (the server's), Release date (oldest first) and Title.
-  The description follows, two lines at most, then a poster grid of the
-  titles with the usual year or run subtitle. Sort is the top-most control:
-  Up from it reaches the navigation bar, Down enters the grid, and Up from
-  the grid's first row comes back. The header collapses and the bar recedes
-  once the grid scrolls past its first row. Enter opens a title through
-  Main's details navigation; Back returns to the same card, and Back from
-  the page to the card that opened it. Focus starts on the first title; when
-  the titles arrive after the page opens, Sort holds focus only until they
-  do, unless focus has moved on. The grid reads the next page as focus or
-  wheel scrolling nears its end; new titles are added without moving the
-  focused card.
+  Collection order (the server's), Release date (oldest first) and Title,
+  then a secondary **Shuffle** where the provider can shuffle the
+  collection (see "Shuffle" under Detail pages). The description follows,
+  two lines at most, then a poster grid of the titles with the usual year
+  or run subtitle. Sort and Shuffle are the top-most row (Left/Right
+  between them): Up reaches the navigation bar, Down enters the grid, and
+  Up from the grid's first row comes back to Sort. The header collapses
+  and the bar recedes once the grid scrolls past its first row. Enter
+  opens a title through Main's details navigation; Back returns to the
+  same card, and Back from the page to the card that opened it. Focus
+  starts on the first title; when the titles arrive after the page opens,
+  Sort holds focus only until they do, unless focus has moved on. The grid
+  reads the next page as focus or wheel scrolling nears its end; new titles
+  are added without moving the focused card.
 - **"Part of" shelf.** Movie and series pages show the collections that hold
   the title as a poster shelf (`CollectionsShelf.qml`) after Cast & Crew:
   "Part of Alien Collection" for one, "Collections" with a count for more.
