@@ -247,6 +247,18 @@ public:
     {
         requestedSeriesDetailsIds.append(seriesId);
     }
+
+    using LibraryService::getItem;
+    void getItem(const QString &itemId, const QString &requestContext) override
+    {
+        if (!recordItemRequests) {
+            LibraryService::getItem(itemId, requestContext);
+            return;
+        }
+        requestedItemIds.append(itemId);
+        requestedItemContexts.append(requestContext);
+    }
+    void clearItemCacheValidation(const QString &itemId) override { Q_UNUSED(itemId) }
     
     void resolveLibraryForItem(const QString &itemId) override
     {
@@ -331,6 +343,9 @@ public:
     }
 
     bool serverShuffle = true;
+    bool recordItemRequests = false;
+    QStringList requestedItemIds;
+    QStringList requestedItemContexts;
     QVariantList createdShuffleScopes;
     QStringList shuffleKeys;
     QStringList readShuffleIds;
@@ -676,6 +691,7 @@ private slots:
     void autoplayCarriesOnlyExplicitPicksIntoUnpickedSeasons();
     void inPlayerPickHoldsAcrossFilesAndResume();
     void seasonCarryMatchesTracksAndIsSavedOncePlaying();
+    void episodeWithoutSeasonIdResolvesItsSeasonForTrackPicks();
     void refusedAndUngrantedPicksRestoreWhatPlays();
     void autoplayDescriptorWaitIsBoundedAndFallbackIsOneShot();
     void nextEpisodeNavigationUsesPendingTrackContext();
@@ -2938,7 +2954,11 @@ void PlayerControllerAutoplayContextTest::autoplayCarriesOnlyExplicitPicksIntoUn
     controller.setExplicitSeasonSubtitlePreference(season1, 6);
     controller.stashPendingAutoplayContext();
     QVERIFY(controller.pendingAutoplayCarrySeasonId(season1).isEmpty());
-    QVERIFY(controller.pendingAutoplayCarrySeasonId(QString()).isEmpty());
+    // An episode naming no season finds it when it plays: the carry is
+    // offered and applies only if that season is another one.
+    QCOMPARE(controller.pendingAutoplayCarrySeasonId(QString()), season1);
+    QCOMPARE(controller.seasonTrackPreferencesWithCarry(season1, season1),
+             trackPrefs.getSeasonPreferences(season1));
     // A next season without picks of its own follows it, by the saved pick
     // (what the track is), not by an index into another file.
     QCOMPARE(controller.pendingAutoplayCarrySeasonId(season2), season1);
@@ -3155,6 +3175,131 @@ void PlayerControllerAutoplayContextTest::seasonCarryMatchesTracksAndIsSavedOnce
         buildPlaybackInfo({season2File}).getMediaSourcesVariant().first().toMap(), season2, false);
     QCOMPARE(next.value(QStringLiteral("audioIndex")).toInt(), 0);
     QCOMPARE(next.value(QStringLiteral("audioSource")).toString(), QStringLiteral("explicit"));
+}
+
+void PlayerControllerAutoplayContextTest::episodeWithoutSeasonIdResolvesItsSeasonForTrackPicks()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    playbackService.deferDescriptorRequests = true;
+    FakeLibraryService libraryService(&authService);
+    libraryService.activeConnectionIdValue = QStringLiteral("silo-1");
+    libraryService.recordItemRequests = true;
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+    authService.restoreSession(QStringLiteral("https://example.invalid"),
+                               QStringLiteral("user-1"), QStringLiteral("token-1"));
+    const QString seriesId = QStringLiteral("cw-series-1");
+    const QString season1 = QStringLiteral("cw-season-1");
+    const QString season2 = QStringLiteral("cw-season-2");
+    trackPrefs.clearSeasonPreferences(seriesId);
+    trackPrefs.clearSeasonPreferences(season1);
+    trackPrefs.clearSeasonPreferences(season2);
+
+    // Japanese picked on season 2's page; the server prefers English.
+    const QList<QVariantMap> streams{trackStream(QStringLiteral("Audio"), 0, QStringLiteral("jpn")),
+                                     trackStream(QStringLiteral("Audio"), 1, QStringLiteral("eng"))};
+    controller.chooseSeasonAudioTrack(season2, seriesId,
+                                      mediaSourceMap(QStringLiteral("file-s2"), streams), 0);
+    MediaSourceInfo file = buildMediaSourceInfo(
+        QStringLiteral("file-s2"), QString(), QStringLiteral("/show/s2e3.mkv"), streams);
+    file.serverTrackPreferences.audioStreamIndex = 1;
+    const auto deliver = [&](const QString &itemId) {
+        const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
+        emit playbackService.playbackInfoLoadedForRequest(itemId, buildPlaybackInfo({file}),
+                                                          requestId);
+        emit playbackService.additionalPartsLoadedForRequest(itemId, QVariantList{}, requestId);
+    };
+    const auto pending = [&controller]() {
+        return *controller.m_pendingPlaybackRequests.constBegin();
+    };
+
+    // A Silo Home card: no season ID, its parentId fell back to the series.
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("s2e3")},
+        {QStringLiteral("seriesId"), seriesId},
+        {QStringLiteral("seasonId"), seriesId},
+        {QStringLiteral("seasonNumber"), 2},
+        {QStringLiteral("libraryId"), QStringLiteral("library-1")}});
+    QVERIFY(pending().seasonId.isEmpty());
+    QVERIFY(pending().awaitingSeasonResolution);
+    QCOMPARE(libraryService.itemQueries.size(), 1);
+    const LibraryItemQuery seasonsQuery = libraryService.itemQueries.last();
+    QCOMPARE(seasonsQuery.parentId, seriesId);
+    QCOMPARE(seasonsQuery.includeItemTypes, QStringList{QStringLiteral("Season")});
+
+    // Playback waits for the season, never starting under the series.
+    const int descriptorsBefore = playbackService.requestedDescriptorAudioIndexes.size();
+    deliver(QStringLiteral("s2e3"));
+    QCOMPARE(playbackService.requestedDescriptorAudioIndexes.size(), descriptorsBefore);
+    emit libraryService.canonicalItemsLoadedForConnection(
+        QStringLiteral("silo-1"), seriesId, seasonsQuery.requestKey,
+        QVariantList{QVariantMap{{QStringLiteral("itemId"), season1},
+                                 {QStringLiteral("indexNumber"), 1}},
+                     QVariantMap{{QStringLiteral("itemId"), season2},
+                                 {QStringLiteral("indexNumber"), 2}}},
+        2);
+    QCOMPARE(pending().seasonId, season2);
+    QCOMPARE(playbackService.requestedDescriptorAudioIndexes.size(), descriptorsBefore + 1);
+    // Season 2's pick beats the server's English.
+    QCOMPARE(playbackService.requestedDescriptorAudioIndexes.last(), 0);
+
+    // The season list is read once per series.
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("s2e4")},
+        {QStringLiteral("seriesId"), seriesId},
+        {QStringLiteral("seasonNumber"), 2},
+        {QStringLiteral("libraryId"), QStringLiteral("library-1")}});
+    QCOMPARE(pending().seasonId, season2);
+    QVERIFY(!pending().awaitingSeasonResolution);
+    QCOMPARE(libraryService.itemQueries.size(), 1);
+
+    // Without a season number the episode's details give it.
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("s1e2")},
+        {QStringLiteral("seriesId"), seriesId},
+        {QStringLiteral("libraryId"), QStringLiteral("library-1")}});
+    QVERIFY(pending().awaitingSeasonResolution);
+    QCOMPARE(libraryService.requestedItemIds, QStringList{QStringLiteral("s1e2")});
+    emit libraryService.canonicalItemLoaded(
+        QStringLiteral("s1e2"),
+        QVariantMap{{QStringLiteral("itemId"), QStringLiteral("s1e2")},
+                    {QStringLiteral("seriesId"), seriesId},
+                    {QStringLiteral("parentId"), seriesId},
+                    {QStringLiteral("parentIndexNumber"), 1}},
+        libraryService.requestedItemContexts.last());
+    QCOMPARE(pending().seasonId, season1);
+    QVERIFY(!pending().awaitingSeasonResolution);
+
+    // A failed lookup plays without a season scope, never the series'.
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("s9e1")},
+        {QStringLiteral("seriesId"), seriesId},
+        {QStringLiteral("libraryId"), QStringLiteral("library-1")}});
+    emit libraryService.itemFailed(QStringLiteral("s9e1"), QStringLiteral("offline"),
+                                   libraryService.requestedItemContexts.last());
+    QVERIFY(!pending().awaitingSeasonResolution);
+    QVERIFY(pending().seasonId.isEmpty());
+    const int descriptorsBeforeFailure = playbackService.requestedDescriptorAudioIndexes.size();
+    deliver(QStringLiteral("s9e1"));
+    QCOMPARE(playbackService.requestedDescriptorAudioIndexes.size(), descriptorsBeforeFailure + 1);
+    QCOMPARE(trackPrefs.getSeasonPreferences(seriesId).audio.mode, TrackPreferenceMode::Unset);
+
+    // A Jellyfin card names its season: no lookup.
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("jf-ep")},
+        {QStringLiteral("seriesId"), seriesId},
+        {QStringLiteral("seasonId"), season1},
+        {QStringLiteral("seasonNumber"), 1},
+        {QStringLiteral("libraryId"), QStringLiteral("library-1")}});
+    QCOMPARE(pending().seasonId, season1);
+    QVERIFY(!pending().awaitingSeasonResolution);
+    QCOMPARE(libraryService.itemQueries.size(), 1);
+    QCOMPARE(libraryService.requestedItemIds.size(), 2);
 }
 
 void PlayerControllerAutoplayContextTest::refusedAndUngrantedPicksRestoreWhatPlays()

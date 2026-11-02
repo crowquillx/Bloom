@@ -1563,7 +1563,10 @@ FocusScope {
         if (mediaType === "Series") return
         const itemId = item.itemId || ""
         const seriesId = item.seriesId || ""
-        const seasonId = item.parentId || ""
+        // A Silo card has no season ID and its parentId falls back to the
+        // series; PlayerController then finds the season by its number.
+        const parentId = item.parentId || ""
+        const seasonId = item.seasonId || (parentId !== seriesId ? parentId : "")
         const startPositionMs = Math.round(item.positionMs || 0)
         var overlayLogoUrl = root.artworkUrlFromRef(item.logoArtwork, 600)
         if (!overlayLogoUrl && seriesId) {
@@ -1575,6 +1578,7 @@ FocusScope {
             startPositionMs: startPositionMs,
             seriesId: seriesId,
             seasonId: seasonId,
+            seasonNumber: item.parentIndexNumber !== undefined ? item.parentIndexNumber : -1,
             overlayTitle: item.seriesName || item.name || qsTr("Now Playing"),
             overlaySubtitle: mediaType === "Episode" ? (item.name || "") : "",
             overlayBackdropUrl: heroBanner.currentBackdropUrl,

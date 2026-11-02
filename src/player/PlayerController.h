@@ -670,6 +670,19 @@ private slots:
                                       const QString &queryKey,
                                       const QVariantList &items,
                                       int totalRecordCount);
+    void onSeasonLookupItemsLoaded(const QString &connectionId,
+                                   const QString &parentId,
+                                   const QString &queryKey,
+                                   const QVariantList &items,
+                                   int totalRecordCount);
+    void onSeasonLookupItemsFailed(const QString &connectionId,
+                                   const QString &parentId,
+                                   const QString &requestKey,
+                                   const QString &error);
+    void onSeasonLookupEpisodeLoaded(const QString &itemId, const QVariantMap &item,
+                                     const QString &requestContext);
+    void onSeasonLookupEpisodeFailed(const QString &itemId, const QString &error,
+                                     const QString &requestContext);
     void onRecoveryTick();
     void resumeFromRecoveryContext();
     
@@ -1034,6 +1047,10 @@ private:
     double videoFramerateForMediaSource(const QVariantMap &mediaSource) const;
     bool mediaSourceIsHdr(const QVariantMap &mediaSource) const;
     void maybeResolvePendingRequestLibraryId(PendingPlaybackRequest &pending);
+    void maybeResolvePendingRequestSeasonId(PendingPlaybackRequest &pending);
+    bool requestSeasonIdLookup(PendingPlaybackRequest &pending);
+    void finishPendingSeasonResolution(const QString &requestId, const QString &seasonId,
+                                       const QString &reason);
     void maybeFinalizePendingPlaybackRequest(const QString &requestId);
     void launchResolvedPlaybackRequest(const QString &requestId);
     void failPendingPlaybackRequest(const QString &requestId, const QString &message);
@@ -1167,6 +1184,11 @@ private:
         bool allowVersionPrompt = true;
         bool useAffinityFallback = false;
         bool awaitingLibraryResolution = false;
+        // The episode's season number ("seasonNumber"), used to find its
+        // season when the request names none (Silo cards carry no season ID).
+        int seasonNumber = -1;
+        QString seasonLookupConnectionId;
+        bool awaitingSeasonResolution = false;
         QObject *restoreFocusTarget = nullptr;
         bool additionalPartsLoaded = false;
         bool versionSelectionRequested = false;
@@ -1499,6 +1521,10 @@ private:
     QHash<QString, PendingPlaybackRequest> m_pendingPlaybackRequests;
     QHash<QString, QString> m_seriesLibraryIdCache;
     QSet<QString> m_seriesLibraryResolutionInFlight;
+    // connectionId \n seriesId \n season number -> season ID, and the series
+    // whose season list is being read (connectionId \n seriesId).
+    QHash<QString, QString> m_seasonIdCache;
+    QSet<QString> m_seasonLookupsInFlight;
     QList<QVariantMap> m_playbackSegments;
     QVariantList m_nextPlaybackSegments;
     QStringList m_nextPlaylistAppendUrls;
