@@ -2692,9 +2692,12 @@ void PlayerControllerAutoplayContextTest::seasonCarryMatchesTracksAndIsSavedOnce
                                       Q_ARG(PlaybackInfoResponse, buildPlaybackInfo({season2File}))));
     QCOMPARE(playbackService.requestedDescriptorAudioIndexes.last(), 0);
 
-    // Up Next's play: the request names the season to carry from.
+    // Up Next's play: the request names the season to carry from. A
+    // countdown start also counts toward "Still watching?".
     controller.m_pendingAutoplayDescriptorContext.clear();
-    controller.playNextEpisode(episode, QStringLiteral("series-1"));
+    const int chainCount = controller.autoplayChainCount();
+    controller.playNextEpisode(episode, QStringLiteral("series-1"), true);
+    QCOMPARE(controller.autoplayChainCount(), chainCount + 1);
     QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
     const PlayerController::PendingPlaybackRequest &request =
         *controller.m_pendingPlaybackRequests.constBegin();
@@ -6775,7 +6778,7 @@ int PlayerControllerAutoplayContextTest::resolveUpNextAutoplay(PlayerController 
     if (navigationSpy.count() != 1) {
         return -1;
     }
-    return navigationSpy.first().at(4).toBool() ? 1 : 0;
+    return navigationSpy.first().at(3).toBool() ? 1 : 0;
 }
 
 namespace {
