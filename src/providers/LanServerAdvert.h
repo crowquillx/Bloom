@@ -37,3 +37,23 @@ struct ProviderServerIdentity {
     QString serverId;
     QString serverName;
 };
+
+namespace LanAddress {
+
+/**
+ * True when @p address can be a discovered server's address: not null,
+ * loopback, unspecified (0.0.0.0, ::) or IPv6 link-local (a URL cannot carry
+ * its scope). IPv4-mapped IPv6 addresses are judged as IPv4. An advert is the
+ * sender's claim, so a loopback address would point Bloom's unauthenticated
+ * identity read at a service on this machine.
+ */
+bool isUsableAddress(const QHostAddress &address);
+
+/**
+ * True when the host of an advertised URL can be a discovered server: an
+ * address literal passes isUsableAddress, and a name is anything except
+ * `localhost` and `*.localhost` (any case, trailing dot ignored).
+ */
+bool isUsableHost(const QString &host);
+
+} // namespace LanAddress

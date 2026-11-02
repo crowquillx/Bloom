@@ -13,7 +13,9 @@ constexpr int MaxCandidateUrls = 4;
 
 // An advertised address as a base URL: a full http(s) URL keeps its scheme,
 // host, port and base path (Jellyfin's configurable BaseUrl); a bare
-// "host[:port]" is plain HTTP on that port or 8096.
+// "host[:port]" is plain HTTP on that port or 8096. A loopback, unspecified
+// or localhost host is refused: the reply is only a claim, and Bloom would
+// otherwise send its identity read to a service on this machine.
 std::optional<QUrl> advertisedUrl(const QString &address)
 {
     const QString trimmed = address.trimmed();
@@ -24,7 +26,7 @@ std::optional<QUrl> advertisedUrl(const QString &address)
                                                              : QStringLiteral("http://") + trimmed,
                     QUrl::StrictMode);
     const QString scheme = url.scheme().toLower();
-    if (!url.isValid() || url.host().isEmpty()
+    if (!url.isValid() || !LanAddress::isUsableHost(url.host())
         || (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))
         || !url.userInfo().isEmpty()) {
         return std::nullopt;
@@ -88,7 +90,7 @@ std::optional<LanServerAdvert> advert(const QByteArray &reply, const QHostAddres
     bool isIPv4 = false;
     const quint32 senderIPv4 = sender.toIPv4Address(&isIPv4);
     const QHostAddress source = isIPv4 ? QHostAddress(senderIPv4) : sender;
-    if (!source.isNull() && !source.isLoopback()
+    if (LanAddress::isUsableAddress(source)
         && source.protocol() == QAbstractSocket::IPv4Protocol) {
         QUrl url;
         url.setScheme(QStringLiteral("http"));

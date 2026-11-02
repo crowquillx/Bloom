@@ -651,6 +651,13 @@ private slots:
         QVERIFY(!SiloLanDiscovery::advert(QStringLiteral("Den"), {{"v", "1"}}, 8080, addresses));
         QVERIFY(!SiloLanDiscovery::advert(QStringLiteral("Den"), {{"v", "1"}, {"id", "x"}}, 8080,
                                           {QHostAddress(QStringLiteral("fe80::1"))}));
+        // Loopback and unspecified addresses never become URLs; Silo URLs are
+        // built only from resolved addresses, never from the SRV host name.
+        QVERIFY(!SiloLanDiscovery::advert(
+            QStringLiteral("Den"), {{"v", "1"}, {"id", "x"}}, 8080,
+            {QHostAddress(QStringLiteral("127.0.0.1")), QHostAddress(QStringLiteral("::1")),
+             QHostAddress(QStringLiteral("::ffff:127.0.0.1")), QHostAddress(QHostAddress::AnyIPv4),
+             QHostAddress(QHostAddress::AnyIPv6)}));
     }
 
     void mdnsBrowserEmitsEachSiloServerOnce()
@@ -763,6 +770,48 @@ private slots:
         QVERIFY(!JellyfinLanDiscovery::advert("{\"Id\":\"a\",\"Address\":\"ftp://x\"}",
                                               QHostAddress(QStringLiteral("127.0.0.1"))));
         QCOMPARE(JellyfinLanDiscovery::probe(), QByteArray("Who is JellyfinServer?"));
+    }
+
+    void lanAddressRulesRefuseThisMachine()
+    {
+        for (const char *host : {"localhost", "LocalHost", "localhost.", "media.localhost",
+                                 "A.B.LOCALHOST", "127.0.0.1", "127.1.2.3", "::1", "[::1]",
+                                 "::ffff:127.0.0.1", "0.0.0.0", "::", "[::]", "fe80::1", ""}) {
+            QVERIFY2(!LanAddress::isUsableHost(QString::fromLatin1(host)), host);
+        }
+        for (const char *host : {"192.168.1.5", "10.0.0.2", "169.254.3.4", "2001:db8::20",
+                                 "[2001:db8::20]", "media.example.com", "silo.local",
+                                 "localhost-nas", "mylocalhost.lan"}) {
+            QVERIFY2(LanAddress::isUsableHost(QString::fromLatin1(host)), host);
+        }
+        QVERIFY(!LanAddress::isUsableAddress(QHostAddress()));
+        QVERIFY(!LanAddress::isUsableAddress(QHostAddress(QHostAddress::Any)));
+        QVERIFY(!LanAddress::isUsableAddress(QHostAddress(QHostAddress::AnyIPv6)));
+        QVERIFY(!LanAddress::isUsableAddress(QHostAddress(QStringLiteral("::ffff:0.0.0.0"))));
+        QVERIFY(LanAddress::isUsableAddress(QHostAddress(QStringLiteral("::ffff:192.168.1.5"))));
+    }
+
+    void jellyfinReplyRefusesLoopbackAndUnspecifiedHosts()
+    {
+        const QHostAddress sender(QStringLiteral("192.168.1.5"));
+        const QList<QUrl> senderOnly{QUrl(QStringLiteral("http://192.168.1.5:8096"))};
+        for (const char *address :
+             {"localhost", "http://LOCALHOST:8096", "http://admin.localhost:9000",
+              "http://127.0.0.1:8096", "127.0.0.1:2375", "http://[::1]:8096",
+              "http://[::ffff:127.0.0.1]:8096", "http://0.0.0.0:8096", "0.0.0.0", "http://[::]:8096"}) {
+            const QByteArray reply = QByteArray("{\"Id\":\"abc\",\"Address\":\"") + address
+                + "\",\"EndpointAddress\":\"" + address + "\"}";
+            const auto found = JellyfinLanDiscovery::advert(reply, sender);
+            QVERIFY2(found, address);
+            QVERIFY2(found->urls == senderOnly, address);
+        }
+        // With a loopback or unspecified sender too, nothing is left.
+        QVERIFY(!JellyfinLanDiscovery::advert(
+            "{\"Id\":\"abc\",\"Address\":\"http://localhost:8096\"}",
+            QHostAddress(QStringLiteral("127.0.0.1"))));
+        QVERIFY(!JellyfinLanDiscovery::advert(
+            "{\"Id\":\"abc\",\"Address\":\"http://localhost:8096\"}",
+            QHostAddress(QHostAddress::AnyIPv4)));
     }
 
     void jellyfinBrowserEmitsEachReplyOnce()

@@ -34,9 +34,9 @@ std::optional<LanServerAdvert> advert(const QString &instanceLabel,
         if (result.urls.size() == MaxCandidateUrls) {
             break;
         }
-        const bool linkLocalIPv6 = address.protocol() == QAbstractSocket::IPv6Protocol
-            && address.isLinkLocal();
-        if (address.isNull() || address.isLoopback() || linkLocalIPv6) {
+        // Only resolved A/AAAA addresses become URLs, never the SRV host
+        // name, so a "localhost" target cannot reach this machine by name.
+        if (!LanAddress::isUsableAddress(address)) {
             continue;
         }
         QUrl url;

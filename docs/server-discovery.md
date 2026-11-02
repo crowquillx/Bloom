@@ -61,7 +61,20 @@ records Silo adds to its answer. An instance whose TXT `v` is not `1` or that
 carries no `id` is skipped; unknown TXT keys are ignored. Candidates are
 `http://<address>:<port>` for each address, IPv4 first, IPv6 in brackets.
 Link-local IPv6 never becomes a URL: Qt's networking cannot carry the zone
-reliably in a base URL, and Silo never advertises one.
+reliably in a base URL, and Silo never advertises one. Only the resolved A and
+AAAA addresses become URLs, never the SRV host name.
+
+### Addresses that point at this machine
+
+An advert is the sender's claim, and the identity read carries no credentials
+but is still a request Bloom makes. So no candidate may point at Bloom's own
+machine: `LanAddress::isUsableAddress` / `isUsableHost`
+(`src/providers/LanServerAdvert.h`), shared by the DNS-SD resolver, the Silo
+advert and the Jellyfin reply, refuse loopback (127.0.0.0/8, `::1`, also
+IPv4-mapped), unspecified (`0.0.0.0`, `::`) and IPv6 link-local addresses,
+and the host names `localhost` and `*.localhost` (any case, trailing dot
+ignored). A Jellyfin reply whose `Address` or `EndpointAddress` names such a
+host keeps only its sender candidate.
 
 ### Why a querier of our own, sharing UDP 5353
 
@@ -166,6 +179,14 @@ to offer only that. Down returns to the address field, and the form's bottom
 wraps to the row. The row is a QML `ListModel` that the screen appends to, so
 the focused card keeps its place while servers arrive; if the row empties
 under focus, focus returns to the address field with `Qt.callLater`.
+
+The row keeps one height (96 design units) whether it is searching, empty or
+listing servers, so results never move the form. Below the brand the form sits
+in a `Flickable`: when it is taller than the window (a short window, or a
+layout scale above 1), focus moving to a control outside the view scrolls it
+in the way `SettingsScrollView.ensureFocusVisible()` does, and a status line
+appearing below the buttons scrolls in as far as the focused control allows.
+Every action stays reachable with the keyboard or a gamepad.
 
 ## Not covered
 

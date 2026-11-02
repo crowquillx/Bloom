@@ -1,25 +1,12 @@
 #include "network/discovery/DnsSdResolver.h"
 
+#include "providers/LanServerAdvert.h"
+
 #include <QSet>
 
 #include <iterator>
 
 namespace Bloom::Dns {
-
-namespace {
-
-bool usableAddress(const QHostAddress &address)
-{
-    if (address.isNull() || address.isLoopback()) {
-        return false;
-    }
-    if (address.protocol() == QAbstractSocket::IPv4Protocol) {
-        return address != QHostAddress(QHostAddress::AnyIPv4);
-    }
-    return address != QHostAddress(QHostAddress::AnyIPv6) && !address.isLinkLocal();
-}
-
-} // namespace
 
 DnsSdResolver::DnsSdResolver(Name serviceType)
     : m_serviceType(std::move(serviceType))
@@ -121,7 +108,7 @@ void DnsSdResolver::absorb(const Message &message)
         }
         if (record->ttl == 0) {
             addresses.removeAll(record->address);
-        } else if (usableAddress(record->address) && !addresses.contains(record->address)
+        } else if (LanAddress::isUsableAddress(record->address) && !addresses.contains(record->address)
                    && addresses.size() < MaxAddressesPerHost) {
             addresses.append(record->address);
         }

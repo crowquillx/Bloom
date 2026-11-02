@@ -262,6 +262,7 @@ if(WIN32)
 endif()
 
 add_library(BloomProviders STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/providers/LanServerAdvert.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinAuthenticator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinLanDiscovery.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinModelMapper.cpp
