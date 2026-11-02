@@ -621,6 +621,10 @@ private:
             parameters.addQueryItem(QStringLiteral("contains_item"), itemId);
             return get(endpointWithQuery(QStringLiteral("/api/v2/collections"), parameters));
         }
+        case ProviderCatalogOperation::ImageCapabilities:
+            // Profile scoped when a profile is selected (the request factory
+            // adds it).
+            return get(QStringLiteral("/api/v2/images/capabilities"));
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -862,6 +866,23 @@ public:
                 object.value(QStringLiteral("state")).toString() == QStringLiteral("available")
                     && object.value(QStringLiteral("allowed")).toBool()
                     && object.value(QStringLiteral("letter_index")).toBool());
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::ImageCapabilities) {
+            ProviderCatalogResponse response;
+            const QJsonObject object = QJsonDocument::fromJson(body).object();
+            if (!object.value(QStringLiteral("state")).isString()
+                || !object.value(QStringLiteral("allowed")).isBool()) {
+                response.error = QStringLiteral("Invalid Silo image capabilities response");
+                return response;
+            }
+            // The flag says what details carry, not whether image_size is
+            // honoured, so `state` and `allowed` do not gate it. Servers
+            // before the feature leave it out.
+            response.capabilityMetadata.insert(
+                QStringLiteral("extendedItemArtwork"),
+                object.value(QStringLiteral("extended_item_artwork")).toBool(false));
             response.valid = true;
             return response;
         }

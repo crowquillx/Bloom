@@ -9,7 +9,7 @@ Overview
 
 Responsibilities
 - Persist provider-neutral connection metadata. Access, refresh, and profile tokens remain exclusively in the platform secret store.
-- Persist app-specific settings: `playbackCompletionThreshold`, `autoplayNextEpisode`, `backdropRotationInterval`, `screensaver*`, mpv extra flags.
+- Persist app-specific settings: `playbackCompletionThreshold`, `autoplayNextEpisode`, `backdropRotationInterval` (Home, library and detail-page backdrop changes), `screensaver*`, mpv extra flags.
 - Emit change signals to allow QML to react to setting updates.
 
 Persistence lifecycle

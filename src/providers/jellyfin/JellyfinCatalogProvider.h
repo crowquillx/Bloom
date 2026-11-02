@@ -159,6 +159,9 @@ public:
             return collectionItemsRequest(query);
         case ProviderCatalogOperation::ItemCollections:
             return itemCollectionsRequest(query);
+        case ProviderCatalogOperation::ImageCapabilities:
+            return unsupported(QStringLiteral(
+                "Jellyfin item details list every image without a capability read"));
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -1618,6 +1621,7 @@ private:
         case ProviderCatalogOperation::LibraryCollections: return QStringLiteral("library collections");
         case ProviderCatalogOperation::CollectionItems: return QStringLiteral("collection items");
         case ProviderCatalogOperation::ItemCollections: return QStringLiteral("item collections");
+        case ProviderCatalogOperation::ImageCapabilities: return QStringLiteral("image capabilities");
         }
         return QStringLiteral("catalog");
     }

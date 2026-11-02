@@ -30,6 +30,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.catalog.letters",
     "native.catalog.detail",
     "native.catalog.people",
+    "native.catalog.extended-artwork",
     "native.catalog.hierarchy",
     "native.state.watched",
     "native.state.favorite",

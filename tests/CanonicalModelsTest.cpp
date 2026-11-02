@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 
+#include "models/HeroBackdrops.h"
 #include "models/MediaModels.h"
 #include "providers/jellyfin/JellyfinModelMapper.h"
 #include "providers/jellyfin/JellyfinPlaybackProvider.h"
@@ -11,6 +12,7 @@
 #include <QJsonObject>
 #include <QUrlQuery>
 #include <limits>
+#include <tuple>
 
 class CanonicalModelsTest : public QObject
 {
@@ -25,6 +27,7 @@ private slots:
     void jellyfinRemoteSessionsMapAtProviderBoundary();
     void jellyfinItemMapsToCanonicalCamelCase();
     void jellyfinParentBackdropUsesImageItemId();
+    void jellyfinDetailMapsEveryBackdropAndExtendedImages();
     void jellyfinSeriesFieldsAndChaptersMapCanonically();
     void artworkCacheKeyIsTokenFreeAndRoundTrips();
     void jellyfinArtworkEndpointContainsNoCredential();
@@ -572,6 +575,55 @@ void CanonicalModelsTest::artworkCacheKeyIsTokenFreeAndRoundTrips()
     QCOMPARE(decoded.index, ref.index);
     QCOMPARE(decoded.tag, ref.tag);
     QCOMPARE(decoded.requestedWidth, ref.requestedWidth);
+}
+
+void CanonicalModelsTest::jellyfinDetailMapsEveryBackdropAndExtendedImages()
+{
+    const QJsonObject wire{
+        {QStringLiteral("Id"), QStringLiteral("movie-1")},
+        {QStringLiteral("Name"), QStringLiteral("Example")},
+        {QStringLiteral("Type"), QStringLiteral("Movie")},
+        {QStringLiteral("ImageTags"), QJsonObject{
+             {QStringLiteral("Primary"), QStringLiteral("primary-tag")},
+             {QStringLiteral("Thumb"), QStringLiteral("thumb-tag")},
+             {QStringLiteral("Banner"), QStringLiteral("banner-tag")},
+             {QStringLiteral("Art"), QStringLiteral("art-tag")},
+             {QStringLiteral("Disc"), QStringLiteral("disc-tag")}}},
+        {QStringLiteral("BackdropImageTags"),
+         QJsonArray{QStringLiteral("b0"), QStringLiteral("b1"), QStringLiteral("b2")}}};
+    const QVariantMap item = JellyfinModelMapper::mediaItem(wire, QStringLiteral("connection-1"));
+
+    // The hero cycles through every backdrop, first one first.
+    QStringList tags;
+    QList<int> indexes;
+    for (const QVariant &value : Bloom::HeroBackdrops::refs(item)) {
+        tags.append(value.toMap().value(QStringLiteral("tag")).toString());
+        indexes.append(value.toMap().value(QStringLiteral("index")).toInt());
+    }
+    QCOMPARE(tags, (QStringList{QStringLiteral("b0"), QStringLiteral("b1"), QStringLiteral("b2")}));
+    QCOMPARE(indexes, (QList<int>{0, 1, 2}));
+
+    for (const auto &[key, kind, tag, imageType] : {
+             std::tuple{QStringLiteral("thumbArtwork"), QStringLiteral("thumb"),
+                        QStringLiteral("thumb-tag"), QStringLiteral("Thumb")},
+             std::tuple{QStringLiteral("bannerArtwork"), QStringLiteral("banner"),
+                        QStringLiteral("banner-tag"), QStringLiteral("Banner")},
+             std::tuple{QStringLiteral("clearArtArtwork"), QStringLiteral("clearArt"),
+                        QStringLiteral("art-tag"), QStringLiteral("Art")},
+             std::tuple{QStringLiteral("discArtwork"), QStringLiteral("disc"),
+                        QStringLiteral("disc-tag"), QStringLiteral("Disc")}}) {
+        const QVariantMap ref = item.value(key).toMap();
+        QCOMPARE(ref.value(QStringLiteral("kind")).toString(), kind);
+        QCOMPARE(ref.value(QStringLiteral("tag")).toString(), tag);
+        const QString endpoint =
+            JellyfinModelMapper::artworkEndpoint(Bloom::ArtworkRef::fromVariantMap(ref));
+        QVERIFY2(endpoint.startsWith(QStringLiteral("/Items/movie-1/Images/%1?").arg(imageType)),
+                 qPrintable(endpoint));
+    }
+    Bloom::ArtworkRef third = Bloom::ArtworkRef::fromVariantMap(
+        Bloom::HeroBackdrops::refs(item).at(2).toMap());
+    QVERIFY(JellyfinModelMapper::artworkEndpoint(third)
+                .startsWith(QStringLiteral("/Items/movie-1/Images/Backdrop/2?")));
 }
 
 void CanonicalModelsTest::jellyfinArtworkEndpointContainsNoCredential()

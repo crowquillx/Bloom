@@ -848,6 +848,8 @@ void ProviderCatalogTest::jellyfinPersonRequestsAndMapping()
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::PersonSearch, query).supported);
     // People search needs no capability read on Jellyfin.
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::CatalogSearchCapabilities, query).supported);
+    // Item details list every image without an image capability read.
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::ImageCapabilities, query).supported);
 
     // GetItem answers the person itself.
     const ProviderCatalogResponse detail = catalog->parseResponse(

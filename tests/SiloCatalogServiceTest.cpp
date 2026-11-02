@@ -20,12 +20,14 @@
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <tuple>
 
 #include "network/AuthenticationService.h"
 #include "network/HttpTransport.h"
 #include "network/LibraryService.h"
 #include "network/MediaSegmentProviderService.h"
 #include "network/PlaybackService.h"
+#include "models/HeroBackdrops.h"
 #include "providers/ICatalogProvider.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include "providers/silo/SiloArtworkProvider.h"
@@ -212,6 +214,9 @@ private slots:
     void nativeResponseShapesPreserveHomeLibrarySearchAndDetailData();
     void sparseNativeMappingsPreserveFallbacksAndState();
     void episodeCardsMapParentArtwork();
+    void extendedItemArtworkMapsOnlyWithTheCapability();
+    void imageCapabilitiesGateDetailArtworkOncePerProfile();
+    void extendedBackdropRefreshFindsItsPosition();
     void seasonPosterRefreshReadsItsOwnField();
     void immediateCatalogRequestSurvivesAuthenticationCompletion();
     void requestHeadersAndGenerationSuppressStaleReplies();
@@ -5006,7 +5011,6 @@ void SiloCatalogServiceTest::homeShowsWatchTonightFirstUnlessColdOrOff()
     QCOMPARE(shownFirst(), QStringLiteral("for-you"));
 }
 
-
 // A collection page's Shuffle shows only for the collection kinds the
 // provider can shuffle, and sends the collection as the scope: Silo's
 // createShuffle names library_collection or user_collection, Jellyfin reads
@@ -5094,6 +5098,298 @@ void SiloCatalogServiceTest::collectionShuffleFollowsTheProviderScopeKinds()
         QCOMPARE(parameters.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
         QCOMPARE(parameters.queryItemValue(QStringLiteral("IsMissing")), QStringLiteral("false"));
     }
+}
+
+namespace {
+
+// A movie detail with Silo's extended item artwork.
+QJsonObject extendedMovieDetail(const QString &signature)
+{
+    const auto url = [&signature](const QString &name) {
+        return QStringLiteral("https://silo.example.test/api/v2/artwork/%1.webp?sig=%2")
+            .arg(name, signature);
+    };
+    return QJsonObject{
+        {QStringLiteral("content_id"), QStringLiteral("movie-1")},
+        {QStringLiteral("type"), QStringLiteral("movie")},
+        {QStringLiteral("title"), QStringLiteral("Heat")},
+        {QStringLiteral("poster_url"), url(QStringLiteral("poster"))},
+        {QStringLiteral("backdrop_url"), url(QStringLiteral("backdrop-0"))},
+        {QStringLiteral("backdrop_thumbhash"), QStringLiteral("backdrop-hash")},
+        {QStringLiteral("backdrop_urls"), QJsonArray{url(QStringLiteral("backdrop-0")),
+                                                     url(QStringLiteral("backdrop-1")),
+                                                     url(QStringLiteral("backdrop-2"))}},
+        {QStringLiteral("thumb_url"), url(QStringLiteral("thumb"))},
+        {QStringLiteral("thumb_thumbhash"), QStringLiteral("thumb-hash")},
+        {QStringLiteral("banner_url"), url(QStringLiteral("banner"))},
+        {QStringLiteral("banner_thumbhash"), QStringLiteral("banner-hash")},
+        {QStringLiteral("clearart_url"), url(QStringLiteral("clearart"))},
+        {QStringLiteral("disc_url"), url(QStringLiteral("disc"))}};
+}
+
+QStringList backdropUrlsOf(const QVariantMap &item)
+{
+    QStringList urls;
+    for (const QVariant &value : Bloom::HeroBackdrops::refs(item)) {
+        urls.append(Bloom::ArtworkRef::transientSourceUrlForCacheKey(
+            value.toMap().value(QStringLiteral("cacheKey")).toString()));
+    }
+    return urls;
+}
+
+QByteArray imageCapabilities(bool extendedItemArtwork)
+{
+    QJsonObject document{
+        {QStringLiteral("revision"), QStringLiteral("r1")},
+        {QStringLiteral("state"), QStringLiteral("available")},
+        {QStringLiteral("allowed"), true},
+        {QStringLiteral("episode_still_provenance"), true},
+        {QStringLiteral("episode_parent_artwork"), true},
+        {QStringLiteral("extended_item_artwork"), extendedItemArtwork},
+        {QStringLiteral("param"), QStringLiteral("image_size")}};
+    return QJsonDocument(document).toJson(QJsonDocument::Compact);
+}
+
+} // namespace
+
+void SiloCatalogServiceTest::extendedItemArtworkMapsOnlyWithTheCapability()
+{
+    const QString connectionId = QStringLiteral("silo");
+    const QJsonObject wire = extendedMovieDetail(QStringLiteral("a"));
+    const auto artworkUrl = [](const QString &name) {
+        return QStringLiteral("https://silo.example.test/api/v2/artwork/%1.webp?sig=a").arg(name);
+    };
+
+    // Without the capability the detail maps as before: one backdrop and no
+    // extended kinds.
+    QVariantMap mapped = SiloModelMapper::mediaDetail(wire, connectionId);
+    QCOMPARE(backdropUrlsOf(mapped), QStringList{artworkUrl(QStringLiteral("backdrop-0"))});
+    for (const QString &key : {QStringLiteral("thumbArtwork"), QStringLiteral("bannerArtwork"),
+                               QStringLiteral("clearArtArtwork"), QStringLiteral("discArtwork")}) {
+        QVERIFY2(!mapped.contains(key), qPrintable(key));
+    }
+    QVERIFY(!mapped.value(QStringLiteral("artworkThumbhashes")).toMap()
+                 .contains(QStringLiteral("thumb")));
+
+    // With it every backdrop is listed at its position, backdrop_url first
+    // and once.
+    mapped = SiloModelMapper::mediaDetail(wire, connectionId, true);
+    QCOMPARE(backdropUrlsOf(mapped),
+             (QStringList{artworkUrl(QStringLiteral("backdrop-0")),
+                          artworkUrl(QStringLiteral("backdrop-1")),
+                          artworkUrl(QStringLiteral("backdrop-2"))}));
+    QList<int> indexes;
+    for (const QVariant &value : mapped.value(QStringLiteral("artwork")).toList()) {
+        const QVariantMap ref = value.toMap();
+        if (ref.value(QStringLiteral("kind")).toString() == QStringLiteral("backdrop")) {
+            indexes.append(ref.value(QStringLiteral("index")).toInt());
+            QCOMPARE(ref.value(QStringLiteral("itemId")).toString(),
+                     QStringLiteral("movie-1"));
+        }
+    }
+    QCOMPARE(indexes, (QList<int>{0, 1, 2}));
+    QCOMPARE(mapped.value(QStringLiteral("backdropArtworkUrl")).toString(),
+             artworkUrl(QStringLiteral("backdrop-0")));
+    for (const auto &[key, kind, name] : {
+             std::tuple{QStringLiteral("thumbArtwork"), QStringLiteral("thumb"),
+                        QStringLiteral("thumb")},
+             std::tuple{QStringLiteral("bannerArtwork"), QStringLiteral("banner"),
+                        QStringLiteral("banner")},
+             std::tuple{QStringLiteral("clearArtArtwork"), QStringLiteral("clearArt"),
+                        QStringLiteral("clearart")},
+             std::tuple{QStringLiteral("discArtwork"), QStringLiteral("disc"),
+                        QStringLiteral("disc")}}) {
+        const QVariantMap ref = mapped.value(key).toMap();
+        QCOMPARE(ref.value(QStringLiteral("kind")).toString(), kind);
+        QCOMPARE(ref.value(QStringLiteral("tag")).toString(),
+                 SiloModelMapper::artworkTag(artworkUrl(name)));
+        QCOMPARE(mapped.value(key + QStringLiteral("Url")).toString(), artworkUrl(name));
+        // The canonical kind name round-trips through a cache key.
+        QCOMPARE(Bloom::ArtworkRef::fromVariantMap(ref).toVariantMap()
+                     .value(QStringLiteral("kind")).toString(), kind);
+    }
+    const QVariantMap thumbhashes = mapped.value(QStringLiteral("artworkThumbhashes")).toMap();
+    QCOMPARE(thumbhashes.value(QStringLiteral("thumb")).toString(), QStringLiteral("thumb-hash"));
+    QCOMPARE(thumbhashes.value(QStringLiteral("banner")).toString(), QStringLiteral("banner-hash"));
+    QCOMPARE(thumbhashes.value(QStringLiteral("backdrop")).toString(),
+             QStringLiteral("backdrop-hash"));
+
+    // A server that sends no backdrop_urls keeps the one backdrop.
+    QJsonObject single = wire;
+    single.remove(QStringLiteral("backdrop_urls"));
+    QCOMPARE(backdropUrlsOf(SiloModelMapper::mediaDetail(single, connectionId, true)),
+             QStringList{artworkUrl(QStringLiteral("backdrop-0"))});
+
+    // Seasons and episodes carry none of it; stray fields are ignored.
+    QJsonObject episode = wire;
+    episode.insert(QStringLiteral("type"), QStringLiteral("episode"));
+    mapped = SiloModelMapper::mediaDetail(episode, connectionId, true);
+    QCOMPARE(backdropUrlsOf(mapped), QStringList{artworkUrl(QStringLiteral("backdrop-0"))});
+    QVERIFY(!mapped.contains(QStringLiteral("thumbArtwork")));
+
+    // The adapter maps a detail page's read with the capability; the plain
+    // item mapping stays without it.
+    SiloProviderAdapter adapter;
+    QCOMPARE(backdropUrlsOf(adapter.mapMediaDetail(wire, connectionId, {.extendedArtwork = true}))
+                 .size(),
+             qsizetype(3));
+    QCOMPARE(backdropUrlsOf(adapter.mapMediaDetail(wire, connectionId, {})).size(), qsizetype(1));
+    QCOMPARE(backdropUrlsOf(adapter.mapMediaItem(wire, connectionId)).size(), qsizetype(1));
+
+    // The capability document: the flag alone decides, and older servers
+    // leave it out.
+    SiloCatalogProvider provider;
+    const ProviderCatalogRequest request =
+        provider.createRequest(ProviderCatalogOperation::ImageCapabilities, {});
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/images/capabilities"));
+    ProviderCatalogResponse capabilities =
+        provider.parseResponse(ProviderCatalogOperation::ImageCapabilities, imageCapabilities(true));
+    QVERIFY(capabilities.valid);
+    QVERIFY(capabilities.capabilityMetadata.value(QStringLiteral("extendedItemArtwork")).toBool());
+    capabilities = provider.parseResponse(
+        ProviderCatalogOperation::ImageCapabilities,
+        QByteArrayLiteral(R"({"revision":"r1","state":"disabled","allowed":false})"));
+    QVERIFY(capabilities.valid);
+    QVERIFY(!capabilities.capabilityMetadata.value(QStringLiteral("extendedItemArtwork")).toBool());
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::ImageCapabilities,
+                                    QByteArrayLiteral(R"({"sizes":[]})")).valid);
+}
+
+// Detail pages read the image capability document once per connection and
+// profile, beside the first detail read, and map the extended artwork only
+// when it says so.
+void SiloCatalogServiceTest::imageCapabilitiesGateDetailArtworkOncePerProfile()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+    const QString capabilitiesPath = QStringLiteral("/api/v2/images/capabilities");
+    const QString itemPath = QStringLiteral("/api/v2/catalog/items/movie-1");
+    manager.responsesByPath.insert(
+        itemPath,
+        {200, QJsonDocument(extendedMovieDetail(QStringLiteral("a"))).toJson(), false, {}});
+    const auto capabilityReads = [&manager, &capabilitiesPath](qsizetype from) {
+        return static_cast<int>(requestPaths(manager, from).count(capabilitiesPath));
+    };
+
+    {
+        LibraryService service(&auth);
+        QSignalSpy items(&service, qOverload<const QString &, const QVariantMap &>(
+                                       &LibraryService::canonicalItemLoaded));
+        QSignalSpy series(&service, &LibraryService::canonicalSeriesDetailsLoaded);
+        manager.responsesByPath.insert(capabilitiesPath, {200, imageCapabilities(true), false, {}});
+        const qsizetype first = manager.requests.size();
+        service.getItem(QStringLiteral("movie-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(items.count(), 1, 1000);
+        QCOMPARE(backdropUrlsOf(items.first().at(1).toMap()).size(), qsizetype(3));
+        QVERIFY(items.first().at(1).toMap().contains(QStringLiteral("thumbArtwork")));
+        // Both reads went out together.
+        QCOMPARE(capabilityReads(first), 1);
+        QCOMPARE(requestPaths(manager, first).count(itemPath), qsizetype(1));
+
+        // A later detail page uses the answer it already has.
+        service.getSeriesDetails(QStringLiteral("movie-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(series.count(), 1, 1000);
+        QCOMPARE(backdropUrlsOf(series.first().at(2).toMap()).size(), qsizetype(3));
+        QCOMPARE(capabilityReads(first), 1);
+    }
+
+    // A server that does not announce it, or has no such document, maps
+    // the one backdrop.
+    for (const ResponsePlan &plan :
+         {ResponsePlan{200, imageCapabilities(false), false, {}},
+          ResponsePlan{404, QByteArrayLiteral(R"({"type":"about:blank","status":404})"), false, {}}}) {
+        LibraryService service(&auth);
+        QSignalSpy items(&service, qOverload<const QString &, const QVariantMap &>(
+                                       &LibraryService::canonicalItemLoaded));
+        manager.responsesByPath.insert(capabilitiesPath, plan);
+        const qsizetype first = manager.requests.size();
+        service.getItem(QStringLiteral("movie-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(items.count(), 1, 1000);
+        QCOMPARE(backdropUrlsOf(items.first().at(1).toMap()).size(), qsizetype(1));
+        QVERIFY(!items.first().at(1).toMap().contains(QStringLiteral("thumbArtwork")));
+        QCOMPARE(capabilityReads(first), 1);
+        service.getItem(QStringLiteral("movie-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(items.count(), 2, 1000);
+        QCOMPARE(capabilityReads(first), 1);
+    }
+}
+
+void SiloCatalogServiceTest::extendedBackdropRefreshFindsItsPosition()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+    const QString connectionId = config.getActiveConnection().value_or(ServerConnection{}).connectionId;
+    QVERIFY(!connectionId.isEmpty());
+
+    const QVariantList refs = Bloom::HeroBackdrops::refs(
+        SiloModelMapper::mediaDetail(extendedMovieDetail(QStringLiteral("old")), connectionId, true));
+    QCOMPARE(refs.size(), qsizetype(3));
+    const QVariantMap thumb = SiloModelMapper::mediaDetail(
+        extendedMovieDetail(QStringLiteral("old")), connectionId, true)
+        .value(QStringLiteral("thumbArtwork")).toMap();
+
+    const auto refresh = [&](const QVariantMap &ref, const QJsonObject &detail) {
+        manager.responses = {{200, QJsonDocument(detail).toJson(), false}};
+        const qsizetype first = manager.requests.size();
+        SiloArtworkProvider provider(&auth);
+        std::optional<QNetworkRequest> refreshed;
+        bool finished = false;
+        provider.refreshArtwork(Bloom::ArtworkRef::fromVariantMap(ref),
+                                [&](std::optional<QNetworkRequest> request) {
+                                    refreshed = std::move(request);
+                                    finished = true;
+                                });
+        if (!QTest::qWaitFor([&finished] { return finished; }, 1000)
+            || manager.requests.size() != first + 1
+            || manager.requests.at(first).request.url().path()
+                != QStringLiteral("/api/v2/catalog/items/movie-1")) {
+            return QStringLiteral("unexpected refresh read");
+        }
+        return refreshed.has_value() ? refreshed->url().toString() : QString();
+    };
+    const QString renewed = QStringLiteral(
+        "https://silo.example.test/api/v2/artwork/%1.webp?sig=new");
+
+    // Each backdrop renews to the same image under its new signature.
+    QCOMPARE(refresh(refs.at(0).toMap(), extendedMovieDetail(QStringLiteral("new"))),
+             renewed.arg(QStringLiteral("backdrop-0")));
+    QCOMPARE(refresh(refs.at(2).toMap(), extendedMovieDetail(QStringLiteral("new"))),
+             renewed.arg(QStringLiteral("backdrop-2")));
+    QCOMPARE(refresh(thumb, extendedMovieDetail(QStringLiteral("new"))),
+             renewed.arg(QStringLiteral("thumb")));
+
+    // Reordered on the server: the path still finds it.
+    QJsonObject reordered = extendedMovieDetail(QStringLiteral("new"));
+    reordered.insert(QStringLiteral("backdrop_urls"),
+                     QJsonArray{renewed.arg(QStringLiteral("backdrop-0")),
+                                renewed.arg(QStringLiteral("backdrop-2")),
+                                renewed.arg(QStringLiteral("backdrop-1"))});
+    QCOMPARE(refresh(refs.at(2).toMap(), reordered), renewed.arg(QStringLiteral("backdrop-2")));
+
+    // Replaced artwork falls back to the same position; a position that is
+    // gone resolves nothing.
+    QJsonObject replaced = extendedMovieDetail(QStringLiteral("new"));
+    replaced.insert(QStringLiteral("backdrop_urls"),
+                    QJsonArray{renewed.arg(QStringLiteral("backdrop-0")),
+                               renewed.arg(QStringLiteral("fresh-1"))});
+    QCOMPARE(refresh(refs.at(1).toMap(), replaced), renewed.arg(QStringLiteral("fresh-1")));
+    QCOMPARE(refresh(refs.at(2).toMap(), replaced), QString());
 }
 
 QTEST_MAIN(SiloCatalogServiceTest)

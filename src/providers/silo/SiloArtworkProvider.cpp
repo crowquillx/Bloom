@@ -209,10 +209,35 @@ QString sourceForKind(const QJsonObject &object, Bloom::ArtworkKind kind)
         return object.value(QStringLiteral("thumbnail_url")).toString();
     case Bloom::ArtworkKind::Person:
         return object.value(QStringLiteral("photo_url")).toString();
+    case Bloom::ArtworkKind::Banner:
+        return object.value(QStringLiteral("banner_url")).toString();
+    case Bloom::ArtworkKind::ClearArt:
+        return object.value(QStringLiteral("clearart_url")).toString();
+    case Bloom::ArtworkKind::Disc:
+        return object.value(QStringLiteral("disc_url")).toString();
     case Bloom::ArtworkKind::Unknown:
         return {};
     }
     return {};
+}
+
+// A backdrop past the first comes from backdrop_urls (extended item
+// artwork): the one whose path still matches wins, else the one at the same
+// position.
+QString backdropSource(const QJsonObject &item, const Bloom::ArtworkRef &artwork)
+{
+    const QJsonArray backdrops = item.value(QStringLiteral("backdrop_urls")).toArray();
+    for (const QJsonValue &value : backdrops) {
+        const QString url = value.toString();
+        if (!url.isEmpty() && SiloModelMapper::artworkTag(url) == artwork.tag) {
+            return url;
+        }
+    }
+    if (artwork.index > 0) {
+        return artwork.index < backdrops.size() ? backdrops.at(artwork.index).toString()
+                                                : QString();
+    }
+    return sourceForKind(item, Bloom::ArtworkKind::Backdrop);
 }
 
 QString chapterSource(const QJsonArray &chapters, int requestedIndex)
@@ -342,6 +367,9 @@ QString refreshedSource(const QByteArray &payload,
             && SiloModelMapper::artworkTag(seasonPoster) == artwork.tag) {
             return seasonPoster;
         }
+        if (artwork.kind == Bloom::ArtworkKind::Backdrop) {
+            return backdropSource(item, artwork);
+        }
         return sourceForKind(item, artwork.kind);
     }
     }
@@ -382,6 +410,9 @@ QString refreshEndpoint(const Bloom::ArtworkRef &artwork)
         case Bloom::ArtworkKind::Thumb:
         case Bloom::ArtworkKind::Backdrop:
         case Bloom::ArtworkKind::Logo:
+        case Bloom::ArtworkKind::Banner:
+        case Bloom::ArtworkKind::ClearArt:
+        case Bloom::ArtworkKind::Disc:
             return SiloArtworkSizes::withWidths(
                 QStringLiteral("/api/v2/catalog/items/%1").arg(encodedIdentity(artwork.itemId)));
         case Bloom::ArtworkKind::Chapter:

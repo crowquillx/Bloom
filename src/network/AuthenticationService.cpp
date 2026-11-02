@@ -318,6 +318,15 @@ QVariantMap AuthenticationService::mapMediaItem(const QJsonObject &wireItem,
         : QVariantMap{};
 }
 
+QVariantMap AuthenticationService::mapMediaDetail(const QJsonObject &wireItem,
+                                                   const QString &connectionId,
+                                                   const ProviderDetailMapping &mapping) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapMediaDetail(wireItem, connectionId, mapping)
+        : QVariantMap{};
+}
+
 QVariantList AuthenticationService::mapMediaItems(const QJsonArray &wireItems,
                                                    const QString &connectionId) const
 {

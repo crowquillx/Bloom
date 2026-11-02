@@ -623,6 +623,15 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
     appendArtwork(artwork, item, QStringLiteral("logoArtwork"), connectionId, itemId,
                   Bloom::ArtworkKind::Logo,
                   imageTags.value(QStringLiteral("Logo")).toString());
+    appendArtwork(artwork, item, QStringLiteral("bannerArtwork"), connectionId, itemId,
+                  Bloom::ArtworkKind::Banner,
+                  imageTags.value(QStringLiteral("Banner")).toString());
+    appendArtwork(artwork, item, QStringLiteral("clearArtArtwork"), connectionId, itemId,
+                  Bloom::ArtworkKind::ClearArt,
+                  imageTags.value(QStringLiteral("Art")).toString());
+    appendArtwork(artwork, item, QStringLiteral("discArtwork"), connectionId, itemId,
+                  Bloom::ArtworkKind::Disc,
+                  imageTags.value(QStringLiteral("Disc")).toString());
     QString parentPrimaryItemId =
         wireItem.value(QStringLiteral("ParentPrimaryImageItemId")).toString();
     if (parentPrimaryItemId.isEmpty()) {
@@ -983,6 +992,15 @@ QString JellyfinModelMapper::artworkEndpoint(const Bloom::ArtworkRef &artwork)
         break;
     case Bloom::ArtworkKind::Chapter:
         imageType = QStringLiteral("Chapter");
+        break;
+    case Bloom::ArtworkKind::Banner:
+        imageType = QStringLiteral("Banner");
+        break;
+    case Bloom::ArtworkKind::ClearArt:
+        imageType = QStringLiteral("Art");
+        break;
+    case Bloom::ArtworkKind::Disc:
+        imageType = QStringLiteral("Disc");
         break;
     case Bloom::ArtworkKind::Unknown:
         return {};

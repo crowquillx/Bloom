@@ -211,6 +211,13 @@ enum class ProviderCatalogOperation {
     LibraryCollections,
     CollectionItems,
     ItemCollections,
+    // The image capability document (Silo getImageCapabilities), read once
+    // per connection and profile by LibraryService. capabilityMetadata
+    // carries `extendedItemArtwork`: movie and series details may carry
+    // every backdrop and thumb, banner, clear art and disc images
+    // (IProviderAdapter::mapMediaDetail). Providers whose details need no
+    // capability for them (Jellyfin) report this unsupported.
+    ImageCapabilities,
 };
 
 enum class ProviderHttpMethod {

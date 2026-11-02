@@ -161,6 +161,9 @@ public:
     QStringList mapNamedItems(const QJsonObject &wireItems) const;
     QVariantMap mapMediaItem(const QJsonObject &wireItem,
                              const QString &connectionId) const;
+    QVariantMap mapMediaDetail(const QJsonObject &wireItem,
+                               const QString &connectionId,
+                               const ProviderDetailMapping &mapping) const;
     QVariantList mapMediaItems(const QJsonArray &wireItems,
                                const QString &connectionId) const;
     QVariantMap mapPerson(const QJsonObject &wirePerson,

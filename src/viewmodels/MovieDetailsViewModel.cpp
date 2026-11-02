@@ -1,6 +1,7 @@
 #include "MovieDetailsViewModel.h"
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
+#include "../models/HeroBackdrops.h"
 #include "../models/MediaModels.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/DetailViewCache.h"
@@ -480,6 +481,7 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
         m_logoUrl.clear();
         m_posterUrl.clear();
         m_backdropUrl.clear();
+        m_backdropUrls.clear();
     }
     m_productionYear = 0;
     m_isWatched = false;
@@ -881,6 +883,13 @@ void MovieDetailsViewModel::updateMovieMetadata(const QVariantMap &data)
     m_backdropUrl = cachedArtworkUrl(data.value(QStringLiteral("backdropArtwork")).toMap(), 1920);
     if (m_backdropUrl.isEmpty()) {
         m_backdropUrl = m_posterUrl;
+    }
+    m_backdropUrls.clear();
+    for (const QVariant &ref : Bloom::HeroBackdrops::refs(data)) {
+        const QString url = cachedArtworkUrl(ref.toMap(), 1920);
+        if (!url.isEmpty() && !m_backdropUrls.contains(url)) {
+            m_backdropUrls.append(url);
+        }
     }
 
     emit titleChanged();

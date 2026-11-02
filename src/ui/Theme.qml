@@ -688,6 +688,9 @@ QtObject {
     property int durationMedium: durationNormal
     property int durationLong: uiAnimationsEnabled ? 300 : 0
     property int durationFade: uiAnimationsEnabled ? 500 : 0
+    // A detail hero's slow cross-fade from one backdrop of the title to the
+    // next (BackdropCycle).
+    property int durationBackdropCycle: uiAnimationsEnabled ? 2400 : 0
     property int easingStandard: Easing.OutCubic
     property int easingEmphasized: Easing.OutQuint
 

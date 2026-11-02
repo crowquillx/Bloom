@@ -241,6 +241,7 @@ qt_add_qml_module(Bloom
         ui/Icons.qml
         ui/NavigationBar.qml
         ui/StageBackdrop.qml
+        ui/BackdropCycle.qml
         ui/MediaCard.qml
         ui/ShelfList.qml
         ui/PageHeader.qml

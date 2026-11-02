@@ -1,6 +1,7 @@
 #include "SeriesDetailsViewModel.h"
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
+#include "../models/HeroBackdrops.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/DetailViewCache.h"
 #include "../utils/ExternalRatingsHelper.h"
@@ -1296,6 +1297,7 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
         m_logoUrl.clear();
         m_posterUrl.clear();
         m_backdropUrl.clear();
+        m_backdropUrls.clear();
     }
     m_productionYear = 0;
     m_isWatched = false;
@@ -2109,6 +2111,13 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QVariantMap &data)
     m_backdropUrl = buildArtworkUrl(data.value(QStringLiteral("backdropArtwork")).toMap(), 1920);
     if (m_backdropUrl.isEmpty()) {
         m_backdropUrl = m_posterUrl;
+    }
+    m_backdropUrls.clear();
+    for (const QVariant &ref : Bloom::HeroBackdrops::refs(data)) {
+        const QString url = buildArtworkUrl(ref.toMap(), 1920);
+        if (!url.isEmpty() && !m_backdropUrls.contains(url)) {
+            m_backdropUrls.append(url);
+        }
     }
 
     m_people = canonicalPeople(data.value(QStringLiteral("people")));
