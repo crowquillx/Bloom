@@ -427,6 +427,8 @@ void SubtitleSearchTest::siloRequestsAndParsing()
     QVERIFY(downloaded.valid);
     QVERIFY(!downloaded.needsPlaybackInfo);
     QCOMPARE(downloaded.subtitle.sourceIndex, -1);
+    // The sync routes name it as the inventory does.
+    QCOMPARE(downloaded.subtitle.syncKey, QStringLiteral("stored-7"));
     QCOMPARE(downloaded.subtitle.title, QStringLiteral("Movie.2020.1080p"));
     QCOMPARE(downloaded.subtitle.url.path(), QStringLiteral("/api/v2/stream/session-1/subtitles/0.vtt"));
     QCOMPARE(downloaded.subtitle.url.host(), QStringLiteral("silo.example.test"));

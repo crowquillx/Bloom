@@ -1166,13 +1166,24 @@ void SiloPlaybackProviderTest::buildsSubtitleSyncRequests()
     QCOMPARE(status.endpoint, QStringLiteral("/api/v2/subtitles/sync/status"));
     QCOMPARE(status.method, QStringLiteral("GET"));
     QVERIFY(status.replaySafe);
-    QVERIFY(provider.parseSubtitleSyncStatus(
-        R"({"auto_sync":false,"external":true,"revision":"r1","state":"available","allowed":true})"));
+    Bloom::SubtitleSyncCapability capability = provider.parseSubtitleSyncStatus(
+        R"({"auto_sync":false,"external":true,"revision":"r1","state":"available","allowed":true})");
+    QVERIFY(capability.available);
+    QVERIFY(!capability.autoSync);
+    QVERIFY(capability.external);
+    capability = provider.parseSubtitleSyncStatus(
+        R"({"auto_sync":true,"external":false,"revision":"r1","state":"available","allowed":true})");
+    QVERIFY(capability.available);
+    QVERIFY(capability.autoSync);
+    QVERIFY(!capability.external);
+    capability = provider.parseSubtitleSyncStatus(
+        R"({"auto_sync":true,"external":true,"revision":"r1","state":"available","allowed":false})");
+    QVERIFY(!capability.available);
+    QVERIFY(!capability.autoSync);
+    QVERIFY(!capability.external);
     QVERIFY(!provider.parseSubtitleSyncStatus(
-        R"({"auto_sync":false,"external":true,"revision":"r1","state":"available","allowed":false})"));
-    QVERIFY(!provider.parseSubtitleSyncStatus(
-        R"({"auto_sync":false,"external":true,"revision":"r1","state":"not_configured","allowed":true})"));
-    QVERIFY(!provider.parseSubtitleSyncStatus("not json"));
+        R"({"auto_sync":false,"external":true,"revision":"r1","state":"not_configured","allowed":true})").available);
+    QVERIFY(!provider.parseSubtitleSyncStatus("not json").available);
 
     const SubtitleSyncRequest read = provider.createSubtitleSyncReadRequest(
         QStringLiteral("opaque/file-42"), QStringLiteral("stored-17"));

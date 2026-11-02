@@ -35,7 +35,7 @@ public:
 
     bool supportsSubtitleSync() const override { return true; }
     SubtitleSyncRequest createSubtitleSyncStatusRequest() const override;
-    bool parseSubtitleSyncStatus(const QByteArray &body) const override;
+    Bloom::SubtitleSyncCapability parseSubtitleSyncStatus(const QByteArray &body) const override;
     SubtitleSyncRequest createSubtitleSyncReadRequest(
         const QString &mediaFileId, const QString &syncKey) const override;
     SubtitleSyncRequest createSubtitleSyncStartRequest(

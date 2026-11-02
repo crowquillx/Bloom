@@ -365,11 +365,11 @@ public:
     virtual bool supportsSubtitleSync() const { return false; }
     /// The capability document that gates the sync.
     virtual SubtitleSyncRequest createSubtitleSyncStatusRequest() const { return {}; }
-    /// True when the document says the sync can be used now.
-    virtual bool parseSubtitleSyncStatus(const QByteArray &body) const
+    /// What the document says the sync offers; unavailable when unreadable.
+    virtual Bloom::SubtitleSyncCapability parseSubtitleSyncStatus(const QByteArray &body) const
     {
         Q_UNUSED(body)
-        return false;
+        return {};
     }
     /// Reads one subtitle's timing and latest job; the reply's ETag is the
     /// validator createSubtitleTimingResetRequest needs.

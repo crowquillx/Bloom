@@ -22,6 +22,21 @@ struct SubtitleTiming {
     QVariantMap toVariantMap() const;
 };
 
+/**
+ * @brief What the server's subtitle sync offers on the live connection and
+ * profile.
+ *
+ * `available`: jobs can be started now. `autoSync`: the server starts one by
+ * itself when a player is first served a subtitle it has not synced.
+ * `external`: subtitle files beside the media (`external-…` keys) can be
+ * synced too, not only downloaded ones.
+ */
+struct SubtitleSyncCapability {
+    bool available = false;
+    bool autoSync = false;
+    bool external = false;
+};
+
 enum class SubtitleSyncStatus {
     None,          // no job has run
     Pending,       // queued on the server
@@ -75,3 +90,4 @@ struct SubtitleSyncState {
 } // namespace Bloom
 
 Q_DECLARE_METATYPE(Bloom::SubtitleSyncState)
+Q_DECLARE_METATYPE(Bloom::SubtitleSyncCapability)

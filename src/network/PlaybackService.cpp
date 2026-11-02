@@ -146,6 +146,9 @@ PlaybackService::PlaybackService(AuthenticationService *authService,
         m_trackPreferenceWritesInFlight.clear();
         m_queuedTrackPreferenceWrites.clear();
     });
+    // The same change drops subtitle sync answers without a callback.
+    connect(this, &PlaybackService::trackPreferenceIdentityChanged,
+            this, &PlaybackService::subtitleSyncIdentityChanged);
 }
 
 PlaybackService::~PlaybackService() = default;
@@ -1729,21 +1732,25 @@ bool PlaybackService::supportsSubtitleSync() const
         && provider->supportsSubtitleSync();
 }
 
-QString PlaybackService::subtitleSyncConnectionId() const
+QString PlaybackService::subtitleSyncIdentity() const
 {
-    return activeConnectionId(m_authService, m_configManager);
+    if (!m_authService) {
+        return {};
+    }
+    return playbackRequestIdentity(m_authService, m_configManager, providerContext(),
+                                   m_authService->playbackProvider());
 }
 
 void PlaybackService::loadSubtitleSyncStatus(const QString &requestKey)
 {
     if (!supportsSubtitleSync()) {
-        emit subtitleSyncStatusLoaded(requestKey, false);
+        emit subtitleSyncStatusLoaded(requestKey, {});
         return;
     }
     const IPlaybackProvider *provider = m_authService->playbackProvider();
     const SubtitleSyncRequest request = provider->createSubtitleSyncStatusRequest();
     if (!request.isValid()) {
-        emit subtitleSyncStatusLoaded(requestKey, false);
+        emit subtitleSyncStatusLoaded(requestKey, {});
         return;
     }
     sendSubtitleSyncRequest(requestKey, request, [this, requestKey, provider](QNetworkReply *reply) {

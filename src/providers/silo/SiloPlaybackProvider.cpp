@@ -937,11 +937,19 @@ SubtitleSyncRequest SiloPlaybackProvider::createSubtitleSyncStatusRequest() cons
     return request;
 }
 
-bool SiloPlaybackProvider::parseSubtitleSyncStatus(const QByteArray &body) const
+Bloom::SubtitleSyncCapability SiloPlaybackProvider::parseSubtitleSyncStatus(
+    const QByteArray &body) const
 {
+    // SubtitleSyncStatus: the capability, auto_sync, and external (sidecars
+    // beside the media can be synced too).
     const QJsonObject status = QJsonDocument::fromJson(body).object();
-    return status.value(QStringLiteral("state")).toString() == QStringLiteral("available")
+    Bloom::SubtitleSyncCapability capability;
+    capability.available =
+        status.value(QStringLiteral("state")).toString() == QStringLiteral("available")
         && status.value(QStringLiteral("allowed")).toBool();
+    capability.autoSync = capability.available && status.value(QStringLiteral("auto_sync")).toBool();
+    capability.external = capability.available && status.value(QStringLiteral("external")).toBool();
+    return capability;
 }
 
 SubtitleSyncRequest SiloPlaybackProvider::createSubtitleSyncReadRequest(
@@ -1321,6 +1329,8 @@ SubtitleDownloadParseResult SiloPlaybackProvider::parseSubtitleDownloadResponse(
     parsed.subtitle.language = stored.value(QStringLiteral("language")).toString(result.language);
     parsed.subtitle.title = stored.value(QStringLiteral("release_name")).toString(result.title);
     parsed.subtitle.storedId = storedId;
+    // The sync routes name a stored subtitle as the inventory does.
+    parsed.subtitle.syncKey = subtitleSyncKey(QJsonValue(QStringLiteral("stored-") + storedId));
     parsed.subtitle.isHearingImpaired =
         stored.value(QStringLiteral("hearing_impaired")).toBool(result.hearingImpaired);
     // The session's sidecar route serves a stored subtitle of its file when

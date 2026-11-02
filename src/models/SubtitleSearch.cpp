@@ -70,6 +70,7 @@ QVariantMap DownloadedSubtitle::toVariantMap() const
         {QStringLiteral("format"), format},
         {QStringLiteral("sourceIndex"), sourceIndex},
         {QStringLiteral("storedId"), storedId},
+        {QStringLiteral("syncKey"), syncKey},
         {QStringLiteral("streamTitle"), streamTitle},
         {QStringLiteral("codec"), codec},
         {QStringLiteral("isForced"), isForced},
@@ -86,6 +87,7 @@ DownloadedSubtitle DownloadedSubtitle::fromVariantMap(const QVariantMap &map)
     subtitle.format = map.value(QStringLiteral("format")).toString();
     subtitle.sourceIndex = map.value(QStringLiteral("sourceIndex"), -1).toInt();
     subtitle.storedId = map.value(QStringLiteral("storedId")).toString();
+    subtitle.syncKey = map.value(QStringLiteral("syncKey")).toString();
     subtitle.streamTitle = map.value(QStringLiteral("streamTitle")).toString();
     subtitle.codec = map.value(QStringLiteral("codec")).toString();
     subtitle.isForced = map.value(QStringLiteral("isForced")).toBool();

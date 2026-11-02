@@ -11,6 +11,7 @@
 #include <QTimer>
 #include <cstring>
 
+#include "models/SubtitleSearch.h"
 #include "models/SubtitleSync.h"
 #include "network/AuthenticationService.h"
 #include "network/HttpTransport.h"
@@ -189,7 +190,7 @@ public:
     };
 
     bool supportsSubtitleSync() const override { return true; }
-    QString subtitleSyncConnectionId() const override { return connectionId; }
+    QString subtitleSyncIdentity() const override { return connectionId; }
     void loadSubtitleSyncStatus(const QString &requestKey) override
     {
         calls.append({QStringLiteral("status"), requestKey, {}, {}, {}});
@@ -303,6 +304,11 @@ Bloom::SubtitleSyncState state(const QString &status, qint64 offsetMs = 0, doubl
     return result;
 }
 
+Bloom::SubtitleSyncCapability capability(bool autoSync = false, bool external = true)
+{
+    return {true, autoSync, external};
+}
+
 QVariantMap externalOption(int index, const QString &syncKey, const QString &language)
 {
     QVariantMap option{{"index", index}, {"isExternal", true},
@@ -325,7 +331,17 @@ class SubtitleSyncTest : public QObject
 private slots:
     void serviceSendsSiloRequests();
     void serviceDropsCancelledAnswers();
-    void syncPollsReloadsAndResetsTheDelay();
+    void syncPollsReloadsAndOverridesTheDelay();
+    void reloadWaitsForTheNewCopy();
+    void failedReloadKeepsTheOldCopy();
+    void bufferingDefersTheReload();
+    void reanchorLoadsTheNewTimingFresh();
+    void hlsOffsetIsAppliedOnceAfterTheReload();
+    void pollLimitAndALaterSync();
+    void autoSyncIsReadAfterTheSubtitleLoads();
+    void externalFlagAndUnknownSubtitlesHideTheRow();
+    void identityChangesSettleRequests();
+    void downloadedSubtitlesSyncAndReloadInPlace();
     void failedSyncLeavesTheSubtitleAlone();
     void noMatchKeepsTheTimingAndTheDelay();
     void stopCancelsPolling();
@@ -358,7 +374,9 @@ void SubtitleSyncTest::serviceSendsSiloRequests()
         R"({"auto_sync":false,"external":true,"revision":"r","state":"available","allowed":true})")}};
     service.loadSubtitleSyncStatus(QStringLiteral("status-1"));
     QTRY_COMPARE_WITH_TIMEOUT(status.count(), 1, 2000);
-    QCOMPARE(status.first().at(1).toBool(), true);
+    QVERIFY(status.first().at(1).value<Bloom::SubtitleSyncCapability>().available);
+    QVERIFY(status.first().at(1).value<Bloom::SubtitleSyncCapability>().external);
+    QVERIFY(!status.first().at(1).value<Bloom::SubtitleSyncCapability>().autoSync);
     QCOMPARE(manager.requests.last().request.url().path(), QStringLiteral("/api/v2/subtitles/sync/status"));
     QCOMPARE(manager.requests.last().request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
 
@@ -471,11 +489,12 @@ struct SubtitleSyncTest::PlayerFixture
     }
 
     // Answers the capability read and the first read of the selected subtitle.
-    void becomeAvailable(SubtitleSyncViewModel &model, const Bloom::SubtitleSyncState &initial)
+    void becomeAvailable(SubtitleSyncViewModel &model, const Bloom::SubtitleSyncState &initial,
+                         const Bloom::SubtitleSyncCapability &offered = capability())
     {
         const FakePlaybackService::Call status = playbackService.last(QStringLiteral("status"));
         QVERIFY(!status.key.isEmpty());
-        emit playbackService.subtitleSyncStatusLoaded(status.key, true);
+        emit playbackService.subtitleSyncStatusLoaded(status.key, offered);
         QVERIFY(model.available());
         const FakePlaybackService::Call read = playbackService.last(QStringLiteral("read"));
         QCOMPARE(read.mediaFileId, kFileId);
@@ -484,7 +503,7 @@ struct SubtitleSyncTest::PlayerFixture
     }
 };
 
-void SubtitleSyncTest::syncPollsReloadsAndResetsTheDelay()
+void SubtitleSyncTest::syncPollsReloadsAndOverridesTheDelay()
 {
     PlayerFixture fixture;
     FakePlaybackService &service = fixture.playbackService;
@@ -492,13 +511,16 @@ void SubtitleSyncTest::syncPollsReloadsAndResetsTheDelay()
     QSignalSpy notices(&model, &SubtitleSyncViewModel::notice);
     QSignalSpy availableChanged(&model, &SubtitleSyncViewModel::availableChanged);
 
+    fixture.controller.m_currentSeasonId = QStringLiteral("season-1");
     fixture.play();
     QVERIFY(!model.available());
     fixture.becomeAvailable(model, state(QString()));
     QCOMPARE(availableChanged.count(), 1);
     QVERIFY(!model.busy());
     QVERIFY(!model.canReset());
-    fixture.controller.m_subtitleDelayMs = 2300;
+    // The season's delay, through the real path.
+    fixture.controller.setSubtitleDelayMs(2300);
+    QCOMPARE(fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1")).subtitleDelayMs, 2300);
 
     model.startSync();
     QVERIFY(model.busy());
@@ -529,32 +551,441 @@ void SubtitleSyncTest::syncPollsReloadsAndResetsTheDelay()
     emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("read")).key,
                                          state(QStringLiteral("synced"), 2300), {});
 
-    // The same URL is loaded again, selected, before the old copy goes.
-    QCOMPARE(fixture.backend.variantCommands.size() >= 2, true);
+    // The same URL is loaded again, selected; the old copy stays until mpv
+    // reports the new one, and the outcome waits for it too.
+    QCOMPARE(fixture.backend.variantCommands.size(), 1);
     const QVariantList add = fixture.backend.variantCommands.at(0);
     QCOMPARE(add.value(0).toString(), QStringLiteral("sub-add"));
     QCOMPARE(add.value(1).toString(),
              QStringLiteral("https://silo.example.test/api/v2/stream/s/subtitles/1000.srt"));
     QCOMPARE(add.value(2).toString(), QStringLiteral("select"));
-    QCOMPARE(fixture.backend.variantCommands.at(1),
-             (QVariantList{QStringLiteral("sub-remove"), 3}));
-    // The correction now comes from the server: the local delay is reset.
-    QCOMPARE(fixture.controller.subtitleDelayMs(), 0);
-    QVERIFY(!model.busy());
-    QCOMPARE(notices.count(), 1);
-    QCOMPARE(notices.first().at(0).toString(),
-             QStringLiteral("Synced to the audio (+2.3 s). Subtitle delay reset."));
-    QVERIFY(model.canReset());
+    QVERIFY(model.busy());
+    QCOMPARE(model.statusText(), QStringLiteral("Loading the new timing…"));
+    QCOMPARE(notices.count(), 0);
+    QCOMPARE(fixture.controller.subtitleDelayMs(), 2300);
 
-    // mpv's sid report maps the new copy to the same menu entry.
+    // mpv's sid report maps the new copy to the same menu entry; only then
+    // does the old copy go.
     fixture.backend.emitSubtitleTrackId(7);
     QCOMPARE(fixture.controller.selectedSubtitleTrack(), -1000);
     QCOMPARE(fixture.controller.m_externalSubtitleTrackMap.value(-1000), 7);
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-remove")),
+             (QList<QVariantList>{{QStringLiteral("sub-remove"), 3}}));
+
+    // The correction now comes from the server: this subtitle plays with no
+    // delay, and the season keeps its own.
+    QCOMPARE(fixture.controller.subtitleDelayMs(), 0);
+    QCOMPARE(fixture.controller.m_subtitleDelayMs, 2300);
+    QVERIFY(!model.busy());
+    QCOMPARE(notices.count(), 1);
+    QCOMPARE(notices.first().at(0).toString(),
+             QStringLiteral("Synced to the audio (+2.3 s). This subtitle now plays with no delay."));
+    QVERIFY(model.canReset());
+    ScopedTrackPreferences saved = fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1"));
+    QCOMPARE(saved.subtitleDelayMs, 2300);
+    QCOMPARE(saved.subtitleDelayOverrides.size(), 1);
+    QCOMPARE(saved.subtitleDelayOverrides.first().syncKey, kSyncKey);
+    QCOMPARE(saved.subtitleDelayOverrides.first().delayMs, 0);
+
+    // Nudging the delay now edits this subtitle's override.
+    fixture.controller.adjustSubtitleDelayMs(100);
+    QCOMPARE(fixture.controller.subtitleDelayMs(), 100);
+    saved = fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1"));
+    QCOMPARE(saved.subtitleDelayMs, 2300);
+    QCOMPARE(saved.subtitleDelayOverrides.first().delayMs, 100);
+
+    // Another subtitle keeps the season's delay.
+    fixture.controller.setSelectedSubtitleTrack(-1001);
+    QCOMPARE(fixture.controller.subtitleDelayMs(), 2300);
+    fixture.controller.setSelectedSubtitleTrack(-1000);
+    QCOMPARE(fixture.controller.subtitleDelayMs(), 100);
 
     // No more polling once the job ended.
     const qsizetype finalReads = service.count(QStringLiteral("read"));
     QTest::qWait(SubtitleSyncViewModel::kPollIntervalMs + 300);
     QCOMPARE(service.count(QStringLiteral("read")), finalReads);
+}
+
+void SubtitleSyncTest::reloadWaitsForTheNewCopy()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSyncViewModel model(&service, &fixture.controller);
+    QSignalSpy notices(&model, &SubtitleSyncViewModel::notice);
+    fixture.play();
+    fixture.becomeAvailable(model, state(QString()));
+
+    model.startSync();
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("start")).key,
+                                         state(QStringLiteral("synced"), 1500), {});
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-add")).size(), 1);
+
+    // mpv passes through "no", and reports the old copy: neither ends the
+    // selection or the sync.
+    fixture.backend.emitSubtitleTrackId(-1);
+    fixture.backend.emitSubtitleTrackId(3);
+    QCOMPARE(fixture.controller.selectedSubtitleTrack(), -1000);
+    QVERIFY(model.available());
+    QVERIFY(model.busy());
+    QVERIFY(fixture.backend.commandsNamed(QStringLiteral("sub-remove")).isEmpty());
+    QCOMPARE(fixture.controller.m_externalSubtitleTrackMap.value(-1000), 3);
+
+    fixture.backend.emitSubtitleTrackId(8);
+    QCOMPARE(fixture.controller.m_externalSubtitleTrackMap.value(-1000), 8);
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-remove")),
+             (QList<QVariantList>{{QStringLiteral("sub-remove"), 3}}));
+    QCOMPARE(notices.count(), 1);
+    QVERIFY(notices.first().at(0).toString().startsWith(QStringLiteral("Synced to the audio (+1.5 s).")));
+}
+
+void SubtitleSyncTest::failedReloadKeepsTheOldCopy()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSyncViewModel model(&service, &fixture.controller);
+    QSignalSpy notices(&model, &SubtitleSyncViewModel::notice);
+    fixture.controller.m_subtitleReloadTimeoutMs = 50;
+    fixture.play();
+    fixture.becomeAvailable(model, state(QString()));
+    fixture.controller.setSubtitleDelayMs(400);
+
+    // The sub-add fails in mpv (the fetch fails): no sid is ever reported.
+    model.startSync();
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("start")).key,
+                                         state(QStringLiteral("synced"), 1500), {});
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-add")).size(), 1);
+    fixture.backend.variantCommands.clear();
+    QTRY_VERIFY_WITH_TIMEOUT(!model.busy(), 2000);
+
+    // The old copy stays loaded and selected, and the delay is unchanged.
+    QVERIFY(fixture.backend.commandsNamed(QStringLiteral("sub-remove")).isEmpty());
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("set_property")).value(0),
+             (QVariantList{QStringLiteral("set_property"), QStringLiteral("sid"), 3}));
+    QCOMPARE(fixture.controller.m_externalSubtitleTrackMap.value(-1000), 3);
+    QCOMPARE(fixture.controller.selectedSubtitleTrack(), -1000);
+    QCOMPARE(fixture.controller.subtitleDelayMs(), 400);
+    QVERIFY(!fixture.controller.hasSubtitleDelayOverride(kSyncKey));
+    QCOMPARE(notices.count(), 1);
+    QCOMPARE(notices.first().at(0).toString(),
+             QStringLiteral("Synced to the audio (+1.5 s). The new timing applies the next time "
+                            "this subtitle loads."));
+
+    // A copy that arrives after all is removed; the old one stays selected.
+    fixture.backend.variantCommands.clear();
+    fixture.backend.emitSubtitleTrackId(9);
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-remove")),
+             (QList<QVariantList>{{QStringLiteral("sub-remove"), 9}}));
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("set_property")).value(0),
+             (QVariantList{QStringLiteral("set_property"), QStringLiteral("sid"), 3}));
+    QCOMPARE(fixture.controller.m_externalSubtitleTrackMap.value(-1000), 3);
+    QCOMPARE(fixture.controller.selectedSubtitleTrack(), -1000);
+
+    // The next read of the subtitle tries the reload again.
+    fixture.controller.setSelectedSubtitleTrack(-1001);
+    fixture.controller.setSelectedSubtitleTrack(-1000);
+    fixture.backend.variantCommands.clear();
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("read")).key,
+                                         state(QStringLiteral("synced"), 1500), {});
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-add")).size(), 1);
+}
+
+void SubtitleSyncTest::bufferingDefersTheReload()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSyncViewModel model(&service, &fixture.controller);
+    QSignalSpy notices(&model, &SubtitleSyncViewModel::notice);
+    fixture.play();
+    fixture.becomeAvailable(model, state(QString()));
+
+    model.startSync();
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("start")).key,
+                                         state(QStringLiteral("running")), {});
+    fixture.controller.m_playbackState = PlayerController::Buffering;
+    emit fixture.controller.playbackStateChanged();
+    QTRY_VERIFY_WITH_TIMEOUT(service.count(QStringLiteral("read")) >= 2,
+                             SubtitleSyncViewModel::kPollIntervalMs + 2000);
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("read")).key,
+                                         state(QStringLiteral("synced"), -800), {});
+    // Playback cannot take the reload now; the correction is kept for later.
+    QVERIFY(fixture.backend.commandsNamed(QStringLiteral("sub-add")).isEmpty());
+    QVERIFY(model.busy());
+    QCOMPARE(notices.count(), 0);
+
+    fixture.controller.m_playbackState = PlayerController::Playing;
+    emit fixture.controller.playbackStateChanged();
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-add")).size(), 1);
+    fixture.backend.emitSubtitleTrackId(7);
+    QVERIFY(!model.busy());
+    QCOMPARE(notices.count(), 1);
+    QCOMPARE(notices.first().at(0).toString(), QStringLiteral("Synced to the audio (-0.8 s)."));
+    QVERIFY(fixture.controller.hasSubtitleDelayOverride(kSyncKey));
+}
+
+void SubtitleSyncTest::reanchorLoadsTheNewTimingFresh()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSyncViewModel model(&service, &fixture.controller);
+    QSignalSpy notices(&model, &SubtitleSyncViewModel::notice);
+    fixture.play();
+    fixture.becomeAvailable(model, state(QString()));
+    fixture.controller.setSubtitleDelayMs(600);
+
+    // A seek re-anchor replaces the stream: mpv drops the sidecars, which
+    // are added again from their URLs once it loads. A timing change found
+    // meanwhile needs no reload.
+    model.startSync();
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("start")).key,
+                                         state(QStringLiteral("running")), {});
+    fixture.controller.clearExternalSubtitleTracks(true);
+    fixture.controller.m_playbackState = PlayerController::Buffering;
+    emit fixture.controller.playbackStateChanged();
+    QTRY_VERIFY_WITH_TIMEOUT(service.count(QStringLiteral("read")) >= 2,
+                             SubtitleSyncViewModel::kPollIntervalMs + 2000);
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("read")).key,
+                                         state(QStringLiteral("synced"), 1200), {});
+    QVERIFY(fixture.backend.commandsNamed(QStringLiteral("sub-add")).isEmpty());
+    QVERIFY(!model.busy());
+    QCOMPARE(notices.count(), 1);
+    QCOMPARE(notices.first().at(0).toString(),
+             QStringLiteral("Synced to the audio (+1.2 s). This subtitle now plays with no delay."));
+    QCOMPARE(fixture.controller.subtitleDelayMs(), 0);
+
+    // A re-anchor while a reload is loading: the stream's new copy is
+    // fetched fresh, so the reload counts as loaded.
+    fixture.controller.m_playbackState = PlayerController::Playing;
+    fixture.controller.m_externalSubtitleTrackMap = {{-1000, 4}, {-1001, -1}, {-1002, -1}};
+    model.resetTiming();
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("read")).key,
+                                         state(QStringLiteral("synced"), 1200),
+                                         QByteArrayLiteral("\"v2\""));
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("reset")).key,
+                                         state(QStringLiteral("synced"), 0), {});
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-add")).size(), 1);
+    QVERIFY(model.busy());
+    fixture.controller.clearExternalSubtitleTracks(true);
+    QVERIFY(!model.busy());
+    QCOMPARE(notices.last().at(0).toString(), QStringLiteral("Original timing restored."));
+    // Reset Timing brings the season's delay back.
+    QVERIFY(!fixture.controller.hasSubtitleDelayOverride(kSyncKey));
+    QCOMPARE(fixture.controller.subtitleDelayMs(), 600);
+}
+
+void SubtitleSyncTest::hlsOffsetIsAppliedOnceAfterTheReload()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSyncViewModel model(&service, &fixture.controller);
+    fixture.play();
+    // A server stream whose clock starts 10 s into the source.
+    fixture.controller.m_streamTimelineOffsetSeconds = 10.0;
+    fixture.becomeAvailable(model, state(QString()));
+    fixture.controller.setSubtitleDelayMs(500);
+    const auto lastSubDelay = [&fixture]() {
+        double value = 0.0;
+        for (const QVariantList &command : fixture.backend.commandsNamed(QStringLiteral("set_property"))) {
+            if (command.value(1).toString() == QStringLiteral("sub-delay")) {
+                value = command.value(2).toDouble();
+            }
+        }
+        return value;
+    };
+    QCOMPARE(lastSubDelay(), 0.5 - 10.0);
+
+    model.startSync();
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("start")).key,
+                                         state(QStringLiteral("synced"), 2000), {});
+    fixture.backend.emitSubtitleTrackId(7);
+    // The override replaces the season's delay; the offset stays, once.
+    QCOMPARE(lastSubDelay(), 0.0 - 10.0);
+    fixture.controller.adjustSubtitleDelayMs(100);
+    QCOMPARE(lastSubDelay(), 0.1 - 10.0);
+    // Off: no sidecar, so no offset and the season's delay.
+    fixture.controller.setSelectedSubtitleTrack(-1);
+    QCOMPARE(fixture.controller.subtitleDelayMs(), 500);
+    QCOMPARE(lastSubDelay(), 0.5);
+}
+
+void SubtitleSyncTest::pollLimitAndALaterSync()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSyncViewModel model(&service, &fixture.controller);
+    QSignalSpy notices(&model, &SubtitleSyncViewModel::notice);
+    model.setPollLimitMs(0);
+    fixture.play();
+    fixture.becomeAvailable(model, state(QString()));
+
+    model.startSync();
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("start")).key,
+                                         state(QStringLiteral("running")), {});
+    QTRY_VERIFY_WITH_TIMEOUT(service.count(QStringLiteral("read")) >= 2,
+                             SubtitleSyncViewModel::kPollIntervalMs + 2000);
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("read")).key,
+                                         state(QStringLiteral("running"), 0, 0.5), {});
+    QVERIFY(!model.busy());
+    QCOMPARE(notices.count(), 1);
+    QCOMPARE(notices.last().at(0).toString(),
+             QStringLiteral("Still syncing on the server. Select Sync to Audio later to check on it."));
+    const qsizetype reads = service.count(QStringLiteral("read"));
+    QTest::qWait(SubtitleSyncViewModel::kPollIntervalMs + 300);
+    QCOMPARE(service.count(QStringLiteral("read")), reads);
+
+    // The job finished meanwhile; another one reaches the same timing. The
+    // timing mpv had is what tells the outcome, not the job's status.
+    model.startSync();
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("start")).key,
+                                         state(QStringLiteral("synced"), 900), {});
+    fixture.backend.emitSubtitleTrackId(7);
+    QCOMPARE(notices.last().at(0).toString(), QStringLiteral("Synced to the audio (+0.9 s)."));
+
+    // Once loaded, a sync that changes nothing says so.
+    model.startSync();
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("start")).key,
+                                         state(QStringLiteral("synced"), 900), {});
+    QCOMPARE(notices.last().at(0).toString(), QStringLiteral("Already in sync with the audio."));
+}
+
+void SubtitleSyncTest::autoSyncIsReadAfterTheSubtitleLoads()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSyncViewModel model(&service, &fixture.controller);
+    QSignalSpy notices(&model, &SubtitleSyncViewModel::notice);
+    model.setAutoSyncRecheckMs(50);
+    fixture.play();
+    fixture.controller.setSubtitleDelayMs(700);
+    // The first read is before the server started its automatic sync.
+    fixture.becomeAvailable(model, state(QString()), capability(true));
+    QCOMPARE(service.count(QStringLiteral("read")), 1);
+
+    // mpv has the subtitle loaded, so it is read again shortly.
+    QTRY_COMPARE_WITH_TIMEOUT(service.count(QStringLiteral("read")), 2, 2000);
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("read")).key,
+                                         state(QStringLiteral("running"), 0, 0.1), {});
+    QVERIFY(model.busy());
+    QTRY_COMPARE_WITH_TIMEOUT(service.count(QStringLiteral("read")), 3,
+                              SubtitleSyncViewModel::kPollIntervalMs + 2000);
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("read")).key,
+                                         state(QStringLiteral("synced"), 1100), {});
+    fixture.backend.emitSubtitleTrackId(7);
+    QVERIFY(!model.busy());
+    // Not started here: not announced, but the row shows it and the delay
+    // follows the sync.
+    QCOMPARE(notices.count(), 0);
+    QVERIFY(model.statusText().startsWith(QStringLiteral("Synced to the audio (+1.1 s).")));
+    QCOMPARE(fixture.controller.subtitleDelayMs(), 0);
+
+    // A subtitle mpv has not loaded yet is read again once it has. Each is
+    // looked at once per playback.
+    fixture.controller.setSelectedSubtitleTrack(-1001);
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("read")).key,
+                                         state(QString(), 0, 0.0, kOtherSyncKey), {});
+    const qsizetype reads = service.count(QStringLiteral("read"));
+    QTest::qWait(200);
+    QCOMPARE(service.count(QStringLiteral("read")), reads);
+    fixture.backend.emitSubtitleTrackId(9);
+    QTRY_COMPARE_WITH_TIMEOUT(service.count(QStringLiteral("read")), reads + 1, 2000);
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("read")).key,
+                                         state(QString(), 0, 0.0, kOtherSyncKey), {});
+    QTest::qWait(200);
+    QCOMPARE(service.count(QStringLiteral("read")), reads + 1);
+
+    // Without automatic sync nothing is read again.
+    PlayerFixture manual;
+    SubtitleSyncViewModel manualModel(&manual.playbackService, &manual.controller);
+    manualModel.setAutoSyncRecheckMs(50);
+    manual.play();
+    manual.becomeAvailable(manualModel, state(QString()));
+    QTest::qWait(200);
+    QCOMPARE(manual.playbackService.count(QStringLiteral("read")), 1);
+}
+
+void SubtitleSyncTest::externalFlagAndUnknownSubtitlesHideTheRow()
+{
+    const QString externalKey = QStringLiteral("external-") + QString(64, QLatin1Char('b'));
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSyncViewModel model(&service, &fixture.controller);
+    fixture.play();
+    fixture.controller.m_availableSubtitleTracks.append(
+        externalOption(-1003, externalKey, QStringLiteral("spa")));
+    fixture.controller.m_externalSubtitleTrackMap.insert(-1003, -1);
+    emit fixture.controller.availableTracksChanged();
+    fixture.becomeAvailable(model, state(QString()), capability(false, false));
+    QVERIFY(model.available());
+
+    // The server syncs downloads only: a file beside the media is not offered.
+    fixture.controller.m_selectedSubtitleTrack = -1003;
+    emit fixture.controller.selectedSubtitleTrackChanged();
+    QVERIFY(!model.available());
+
+    // A subtitle the server answers 404 for is hidden.
+    fixture.controller.m_selectedSubtitleTrack = -1001;
+    emit fixture.controller.selectedSubtitleTrackChanged();
+    QVERIFY(model.available());
+    emit service.subtitleSyncFailed(service.last(QStringLiteral("read")).key, 404, QStringLiteral("x"));
+    QVERIFY(!model.available());
+    fixture.controller.m_selectedSubtitleTrack = -1000;
+    emit fixture.controller.selectedSubtitleTrackChanged();
+    QVERIFY(model.available());
+}
+
+void SubtitleSyncTest::identityChangesSettleRequests()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSyncViewModel model(&service, &fixture.controller);
+    QSignalSpy notices(&model, &SubtitleSyncViewModel::notice);
+    fixture.play();
+
+    // A session change drops the capability read without an answer; it is
+    // sent again instead of waiting forever.
+    const FakePlaybackService::Call firstStatus = service.last(QStringLiteral("status"));
+    emit service.subtitleSyncIdentityChanged();
+    QVERIFY(service.cancelled.contains(firstStatus.key));
+    QCOMPARE(service.count(QStringLiteral("status")), 2);
+    emit service.subtitleSyncStatusLoaded(firstStatus.key, capability());
+    QVERIFY(!model.available());
+    fixture.becomeAvailable(model, state(QString()));
+
+    // The same account and profile: the start is sent again (it coalesces).
+    model.startSync();
+    const FakePlaybackService::Call start = service.last(QStringLiteral("start"));
+    emit service.subtitleSyncIdentityChanged();
+    QCOMPARE(service.count(QStringLiteral("start")), 2);
+    QVERIFY(service.cancelled.contains(start.key));
+    QVERIFY(model.busy());
+    QVERIFY(model.available());
+    emit service.subtitleSyncStatusLoaded(service.last(QStringLiteral("status")).key, capability());
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("start")).key,
+                                         state(QStringLiteral("running")), {});
+    QCOMPARE(model.phase(), SubtitleSyncViewModel::Phase::Syncing);
+
+    // Another profile: the job is no longer followed, and the capability
+    // is read for the new one.
+    const qsizetype statusReads = service.count(QStringLiteral("status"));
+    service.connectionId = QStringLiteral("connection-1/profile-2");
+    emit service.subtitleSyncIdentityChanged();
+    QVERIFY(!model.busy());
+    QVERIFY(!model.available());
+    QCOMPARE(notices.count(), 1);
+    QCOMPARE(notices.last().at(0).toString(),
+             QStringLiteral("Lost track of the sync. Select Sync to Audio to check on it."));
+    QCOMPARE(service.count(QStringLiteral("status")), statusReads + 1);
+    const qsizetype reads = service.count(QStringLiteral("read"));
+    QTest::qWait(SubtitleSyncViewModel::kPollIntervalMs + 300);
+    QCOMPARE(service.count(QStringLiteral("read")), reads);
+    emit service.subtitleSyncStatusLoaded(service.last(QStringLiteral("status")).key, capability());
+    QVERIFY(model.available());
+    QCOMPARE(service.count(QStringLiteral("read")), reads + 1);
+
+    // An answer for another subtitle never leaves the row waiting.
+    model.startSync();
+    emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("start")).key,
+                                         state(QStringLiteral("running"), 0, 0.0, kOtherSyncKey), {});
+    QVERIFY(!model.busy());
 }
 
 void SubtitleSyncTest::failedSyncLeavesTheSubtitleAlone()
@@ -672,11 +1103,15 @@ void SubtitleSyncTest::otherSubtitleCancelsAndRereads()
     emit fixture.controller.selectedSubtitleTrackChanged();
     QVERIFY(!model.available());
 
-    // A new session of the same file starts over, with one capability read
-    // per connection.
+    // Another subtitle of the same playback uses the capability read.
+    QCOMPARE(service.count(QStringLiteral("status")), 1);
+
+    // A new session of the same file starts over and reads the capability
+    // again, so a server that turned the sync on is picked up.
     fixture.controller.m_selectedSubtitleTrack = -1000;
     fixture.play(QStringLiteral("session-2"));
-    QCOMPARE(service.count(QStringLiteral("status")), 1);
+    QCOMPARE(service.count(QStringLiteral("status")), 2);
+    emit service.subtitleSyncStatusLoaded(service.last(QStringLiteral("status")).key, capability());
     QCOMPARE(service.last(QStringLiteral("read")).syncKey, kSyncKey);
 }
 
@@ -704,8 +1139,10 @@ void SubtitleSyncTest::resetRestoresTheOriginalTiming()
     QCOMPARE(reset.syncKey, kSyncKey);
     emit service.subtitleSyncStateLoaded(reset.key, state(QStringLiteral("synced"), 0),
                                          QByteArrayLiteral("\"v3\""));
-    QVERIFY(!model.busy());
     QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-add")).size(), 1);
+    QVERIFY(model.busy());
+    fixture.backend.emitSubtitleTrackId(7);
+    QVERIFY(!model.busy());
     QCOMPARE(notices.count(), 1);
     QCOMPARE(notices.first().at(0).toString(), QStringLiteral("Original timing restored."));
     QVERIFY(!model.canReset());
@@ -734,9 +1171,10 @@ void SubtitleSyncTest::resetSettlesARefusedReplay()
     QCOMPARE(service.count(QStringLiteral("read")), reads + 1);
     emit service.subtitleSyncStateLoaded(service.last(QStringLiteral("read")).key,
                                          state(QStringLiteral("synced"), 0), {});
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-add")).size(), 1);
+    fixture.backend.emitSubtitleTrackId(7);
     QVERIFY(!model.busy());
     QCOMPARE(notices.last().at(0).toString(), QStringLiteral("Original timing restored."));
-    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-add")).size(), 1);
 }
 
 void SubtitleSyncTest::onlySyncableExternalSubtitlesAreOffered()
@@ -746,7 +1184,7 @@ void SubtitleSyncTest::onlySyncableExternalSubtitlesAreOffered()
     SubtitleSyncViewModel model(&service, &fixture.controller);
     fixture.play();
     // The server cannot sync: nothing is offered and nothing is read.
-    emit service.subtitleSyncStatusLoaded(service.last(QStringLiteral("status")).key, false);
+    emit service.subtitleSyncStatusLoaded(service.last(QStringLiteral("status")).key, {});
     QVERIFY(!model.available());
     QCOMPARE(service.count(QStringLiteral("read")), 0);
     model.startSync();
@@ -759,9 +1197,56 @@ void SubtitleSyncTest::onlySyncableExternalSubtitlesAreOffered()
     embedded.controller.m_selectedSubtitleTrack = 2;
     emit embedded.controller.selectedSubtitleTrackChanged();
     emit embedded.playbackService.subtitleSyncStatusLoaded(
-        embedded.playbackService.last(QStringLiteral("status")).key, true);
+        embedded.playbackService.last(QStringLiteral("status")).key, capability());
     QVERIFY(!embeddedModel.available());
-    QVERIFY(!embedded.controller.reloadSelectedExternalSubtitle());
+    QCOMPARE(embedded.controller.reloadSelectedExternalSubtitle(),
+             PlayerController::SubtitleReload::Unavailable);
+}
+
+void SubtitleSyncTest::downloadedSubtitlesSyncAndReloadInPlace()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSyncViewModel model(&service, &fixture.controller);
+    fixture.play();
+    fixture.becomeAvailable(model, state(QString()));
+
+    // A subtitle the server just downloaded (subtitle search) carries its
+    // sync key, so it offers Sync to Audio once selected.
+    Bloom::DownloadedSubtitle download;
+    download.url = QUrl(QStringLiteral(
+        "https://silo.example.test/api/v2/stream/s/subtitles/0.srt?downloaded_subtitle_id=21"));
+    download.title = QStringLiteral("Release");
+    download.language = QStringLiteral("en");
+    download.storedId = QStringLiteral("21");
+    download.syncKey = QStringLiteral("stored-21");
+    const int index = fixture.controller.addDownloadedSubtitleTrack(download.toVariantMap(), true);
+    QVERIFY(index != PlayerController::kNoSubtitleTrackIndex);
+    QCOMPARE(fixture.controller.selectedSubtitleTrack(), index);
+    fixture.backend.emitSubtitleTrackId(11);
+    QVERIFY(model.available());
+    QCOMPARE(service.last(QStringLiteral("read")).syncKey, QStringLiteral("stored-21"));
+
+    // A download saved over a stream mpv has selected reloads in place: the
+    // old copy goes only once mpv reports the new one.
+    Bloom::DownloadedSubtitle stream;
+    stream.url = QUrl(QStringLiteral("https://silo.example.test/Videos/item-1/Subtitles/5/Stream.srt"));
+    stream.language = QStringLiteral("en");
+    stream.sourceIndex = 5;
+    QCOMPARE(fixture.controller.addDownloadedSubtitleTrack(stream.toVariantMap(), true), 5);
+    fixture.backend.emitSubtitleTrackId(12);
+    QCOMPARE(fixture.controller.m_externalSubtitleTrackMap.value(5), 12);
+    fixture.backend.variantCommands.clear();
+    QCOMPARE(fixture.controller.addDownloadedSubtitleTrack(stream.toVariantMap(), true), 5);
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-add")).size(), 1);
+    QVERIFY(fixture.backend.commandsNamed(QStringLiteral("sub-remove")).isEmpty());
+    fixture.backend.emitSubtitleTrackId(-1);
+    QCOMPARE(fixture.controller.selectedSubtitleTrack(), 5);
+    fixture.backend.emitSubtitleTrackId(13);
+    QCOMPARE(fixture.controller.m_externalSubtitleTrackMap.value(5), 13);
+    QCOMPARE(fixture.backend.commandsNamed(QStringLiteral("sub-remove")),
+             (QList<QVariantList>{{QStringLiteral("sub-remove"), 12}}));
+    QCOMPARE(fixture.controller.selectedSubtitleTrack(), 5);
 }
 
 QTEST_MAIN(SubtitleSyncTest)

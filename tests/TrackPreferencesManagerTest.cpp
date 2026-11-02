@@ -76,6 +76,7 @@ private slots:
     void invalidJsonIsDeleted();
     void v3SchemaRoundTripsExplicitOffAndDelayPreferences();
     void pickedTrackIdentityRoundTrips();
+    void subtitleDelayOverridesRoundTripAndAreBounded();
     void saveWritesVersionedPreferencesFile();
     void identicalRemoteIdsAreIsolatedByConnection();
     void preActivationPreferencesAreAdopted();
@@ -205,6 +206,53 @@ void TrackPreferencesManagerTest::v3SchemaRoundTripsExplicitOffAndDelayPreferenc
     QCOMPARE(moviePrefs.subtitle.mode, TrackPreferenceMode::ExplicitStream);
     QCOMPARE(moviePrefs.subtitle.streamIndex, 7);
     QCOMPARE(moviePrefs.subtitleDelayMs, 250);
+}
+
+void TrackPreferencesManagerTest::subtitleDelayOverridesRoundTripAndAreBounded()
+{
+    requireLinuxConfigIsolation();
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigHome configHome(tempDir.path());
+
+    {
+        TrackPreferencesManager manager;
+        ScopedTrackPreferences seasonPrefs;
+        seasonPrefs.subtitleDelayMs = 400;
+        seasonPrefs.setSubtitleDelayOverride(QStringLiteral("stored-17"), 0);
+        seasonPrefs.setSubtitleDelayOverride(QStringLiteral("stored-18"), -90);
+        manager.setSeasonPreferences(QStringLiteral("season-42"), seasonPrefs);
+
+        // An override alone keeps the scope.
+        ScopedTrackPreferences moviePrefs;
+        moviePrefs.setSubtitleDelayOverride(QStringLiteral("stored-5"), 0);
+        QVERIFY(!moviePrefs.isEmpty());
+        manager.setMoviePreferences(QStringLiteral("movie-7"), moviePrefs);
+        manager.save();
+    }
+
+    TrackPreferencesManager reloaded;
+    ScopedTrackPreferences seasonPrefs = reloaded.getSeasonPreferences(QStringLiteral("season-42"));
+    QCOMPARE(seasonPrefs.subtitleDelayMs, 400);
+    QCOMPARE(seasonPrefs.subtitleDelayOverrides.size(), 2);
+    QCOMPARE(seasonPrefs.subtitleDelayOverrides.at(0).syncKey, QStringLiteral("stored-17"));
+    QCOMPARE(seasonPrefs.subtitleDelayOverrides.at(0).delayMs, 0);
+    QCOMPARE(seasonPrefs.subtitleDelayOverrides.at(1).delayMs, -90);
+    QCOMPARE(reloaded.getMoviePreferences(QStringLiteral("movie-7")).subtitleDelayOverrides.size(), 1);
+
+    // Setting again moves the entry last; clearing removes it.
+    seasonPrefs.setSubtitleDelayOverride(QStringLiteral("stored-17"), 30);
+    QCOMPARE(seasonPrefs.subtitleDelayOverrides.last().syncKey, QStringLiteral("stored-17"));
+    seasonPrefs.setSubtitleDelayOverride(QStringLiteral("stored-18"), std::nullopt);
+    QCOMPARE(seasonPrefs.subtitleDelayOverrides.size(), 1);
+
+    // The list is bounded; the oldest goes first.
+    for (int i = 0; i < ScopedTrackPreferences::kMaxSubtitleDelayOverrides + 5; ++i) {
+        seasonPrefs.setSubtitleDelayOverride(QStringLiteral("stored-%1").arg(100 + i), 0);
+    }
+    QCOMPARE(seasonPrefs.subtitleDelayOverrides.size(),
+             ScopedTrackPreferences::kMaxSubtitleDelayOverrides);
+    QCOMPARE(seasonPrefs.subtitleDelayOverrides.first().syncKey, QStringLiteral("stored-105"));
 }
 
 void TrackPreferencesManagerTest::pickedTrackIdentityRoundTrips()

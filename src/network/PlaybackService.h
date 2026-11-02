@@ -136,9 +136,12 @@ public:
     // call names the caller's requestKey and answers once with it:
     // subtitleSyncStatusLoaded, subtitleSyncStateLoaded or subtitleSyncFailed.
     // A new call with the same key replaces the one in flight; answers from
-    // before a session change or a cancel are dropped.
+    // before a session change or a cancel are dropped without a signal, and
+    // subtitleSyncIdentityChanged tells callers when that may have happened.
     virtual bool supportsSubtitleSync() const;
-    virtual QString subtitleSyncConnectionId() const;
+    // The connection, account and profile the requests go to; the capability
+    // belongs to it.
+    virtual QString subtitleSyncIdentity() const;
     virtual void loadSubtitleSyncStatus(const QString &requestKey);
     virtual void readSubtitleSync(const QString &requestKey, const QString &mediaFileId,
                                   const QString &syncKey);
@@ -197,13 +200,17 @@ public:
     static constexpr int kDownloadedSubtitleReadIntervalMs = 2000;
 
 signals:
-    void subtitleSyncStatusLoaded(const QString &requestKey, bool available);
+    void subtitleSyncStatusLoaded(const QString &requestKey,
+                                  const Bloom::SubtitleSyncCapability &capability);
     // etag is the reply's validator (empty when it sent none).
     void subtitleSyncStateLoaded(const QString &requestKey,
                                  const Bloom::SubtitleSyncState &state,
                                  const QByteArray &etag);
     // httpStatus is 0 when no HTTP answer arrived.
     void subtitleSyncFailed(const QString &requestKey, int httpStatus, const QString &error);
+    // The account, profile or server changed: requests in flight may never
+    // answer.
+    void subtitleSyncIdentityChanged();
     // The account, profile or server track preference writes go to may have
     // changed; writes picked under another one must be dropped.
     void trackPreferenceIdentityChanged();
