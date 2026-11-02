@@ -1246,8 +1246,13 @@ void LibraryViewModel::setSortBy(const QString &sortBy)
         QStringLiteral("runtime"),
         QStringLiteral("recentlyUpdated"),
     };
-    // Sorts by a recent date read newest first unless an order was chosen.
+    // Date and rating sorts read newest or highest first unless an order
+    // was chosen; title and runtime read ascending.
     static const QStringList newestFirst = {
+        QStringLiteral("releaseDate"),
+        QStringLiteral("dateAdded"),
+        QStringLiteral("rating"),
+        QStringLiteral("year"),
         QStringLiteral("datePlayed"),
         QStringLiteral("recentlyUpdated"),
     };
@@ -1263,7 +1268,7 @@ void LibraryViewModel::setSortBy(const QString &sortBy)
         setSortOrder(QStringLiteral("descending"));
         m_sortOrderAutomatic = true;
     } else if (m_sortOrderAutomatic && !newestFirst.contains(normalized)) {
-        // The order came with the date sort, not from the viewer.
+        // The order came with the date or rating sort, not from the viewer.
         setSortOrder(QString());
     }
 }
@@ -1527,9 +1532,10 @@ LibraryItemQuery LibraryViewModel::buildCurrentQuery(int startIndex, int limit, 
     query.seriesStatus = m_seriesStatusFilter == "any" ? QString() : m_seriesStatusFilter;
     query.resolution = m_resolutionFilter == "any" ? QString() : m_resolutionFilter;
     query.sortBy = m_sortBy;
-    // The order combo shows Ascending until one is chosen; servers differ
-    // on a sort's default (Silo's runtime and dates run descending), so a
-    // chosen sort always carries the order shown.
+    // The order combo shows Ascending until one is chosen (date and rating
+    // sorts choose Descending themselves); servers differ on a sort's
+    // default (Silo's runtime runs descending), so a chosen sort always
+    // carries the order shown.
     query.sortOrder = m_sortOrder.isEmpty() && !m_sortBy.isEmpty()
             && m_sortBy != QStringLiteral("random")
         ? QStringLiteral("ascending")

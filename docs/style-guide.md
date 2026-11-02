@@ -424,9 +424,11 @@ A library grid's toolbar holds search, **Sort**, the order, and **Filters**,
 whose label counts the active filters ("Filters 2"). Sort offers Library
 order, Title, Release date, Date added, Rating, Year, Last watched (not in
 Silo series libraries), Runtime, New episodes (series libraries) and Random.
-Last watched and New episodes switch an unset order to Descending, so they
-open newest first; moving to another sort before touching the order puts it
-back to unset. An unset order shows and sends Ascending. Filters
+The date and rating sorts (Release date, Date added, Rating, Year, Last
+watched, New episodes) switch an unset order to Descending, so they open
+newest or highest first; moving to Title, Runtime or Library order before
+touching the order puts it back to unset. An unset order shows and sends
+Ascending, and an order the viewer picked stays. Filters
 opens one short panel: a row of Favorite, Added since, then Series status
 (Continuing or Ended, series libraries) or Resolution (4K, or HD and up,
 movie libraries), the minimum rating slider and Clear, and below it the

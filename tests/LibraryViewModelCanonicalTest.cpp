@@ -509,10 +509,28 @@ void LibraryViewModelCanonicalTest::sortOrderFollowsTheChosenSort()
     LibraryViewModel viewModel;
     viewModel.loadLibrary(QStringLiteral("movies-1"), QStringLiteral("movies"), 0, 20);
 
-    // Newest first came with Last watched, so it leaves with it.
-    viewModel.setSortBy(QStringLiteral("datePlayed"));
+    // Date and rating sorts open newest or highest first; the order came
+    // with the sort, so it leaves with it.
+    for (const QString &sort : {QStringLiteral("releaseDate"), QStringLiteral("dateAdded"),
+                                QStringLiteral("rating"), QStringLiteral("year"),
+                                QStringLiteral("datePlayed")}) {
+        viewModel.setSortBy(sort);
+        QCOMPARE(viewModel.sortBy(), sort);
+        QCOMPARE(viewModel.sortOrder(), QStringLiteral("descending"));
+        viewModel.reloadWithCurrentQuery();
+        QCOMPARE(m_libraryService->itemRequests.last().sortOrder,
+                 QStringLiteral("descending"));
+        viewModel.setSortBy(QStringLiteral("title"));
+        QVERIFY(viewModel.sortOrder().isEmpty());
+    }
+    viewModel.reloadWithCurrentQuery();
+    QCOMPARE(m_libraryService->itemRequests.last().sortOrder, QStringLiteral("ascending"));
+
+    // Moving between them keeps the automatic order, and it still leaves.
+    viewModel.setSortBy(QStringLiteral("dateAdded"));
+    viewModel.setSortBy(QStringLiteral("rating"));
     QCOMPARE(viewModel.sortOrder(), QStringLiteral("descending"));
-    viewModel.setSortBy(QStringLiteral("title"));
+    viewModel.setSortBy(QStringLiteral("runtime"));
     QVERIFY(viewModel.sortOrder().isEmpty());
 
     // A chosen sort always sends the order the combo shows (Ascending
@@ -535,9 +553,14 @@ void LibraryViewModelCanonicalTest::sortOrderFollowsTheChosenSort()
     // An order the viewer picked stays, even the one the sort chose.
     viewModel.setSortBy(QStringLiteral("datePlayed"));
     viewModel.setSortOrder(QStringLiteral("descending"));
-    viewModel.setSortBy(QStringLiteral("year"));
+    viewModel.setSortBy(QStringLiteral("title"));
     QCOMPARE(viewModel.sortOrder(), QStringLiteral("descending"));
+    // And a chosen Ascending survives a date sort.
+    viewModel.setSortOrder(QStringLiteral("ascending"));
+    viewModel.setSortBy(QStringLiteral("dateAdded"));
+    QCOMPARE(viewModel.sortOrder(), QStringLiteral("ascending"));
     viewModel.setSortOrder(QString());
+    viewModel.setSortBy(QStringLiteral("title"));
 
     // Silo cannot order shows by last watch: a series library drops the
     // sort, and the order that came with it.

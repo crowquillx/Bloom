@@ -1355,7 +1355,7 @@ FocusScope {
                         Component.onCompleted: syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
                         Connections {
                             target: LibraryViewModel
-                            // Last watched and New episodes start newest first.
+                            // Date and rating sorts start newest or highest first.
                             function onSortOrderChanged() { syncComboIndex(orderCombo, LibraryViewModel.sortOrder) }
                         }
                         onValueAccepted: function(value) {

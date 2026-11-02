@@ -284,8 +284,9 @@ not branch the core catalog/playback contract by server version. In particular:
   with OR, and HD (width 1200 and up) leaves 4K out. Both make the server
   include owned items, so a movie can be listed beside its 4K alternate
   version (a different item id). A chosen sort always sends an explicit
-  `SortOrder` (Ascending until one is picked), because servers differ on a
-  sort's default. Every value is
+  `SortOrder`, because servers differ on a sort's default: Descending for
+  the date and rating sorts until another order is picked, Ascending for
+  the others. Every value is
   non-obsolete in the pinned OpenAPI (`ItemSortBy`, `SeriesStatus`, and the
   `seriesStatus`, `is4K` and `isHd` parameters), which `validate_contracts.py`
   checks. Jellyfin does not serve `Unreleased` series status through Bloom,
