@@ -418,6 +418,26 @@ combined pages ("All Movies"), Jellyfin libraries of more than 5,000 matching
 titles and servers without an index keep a rail of the letters already
 loaded. The highlighted letter follows the focused card.
 
+### Library sort and filters
+
+A library grid's toolbar holds search, **Sort**, the order, and **Filters**,
+whose label counts the active filters ("Filters 2"). Sort offers Library
+order, Title, Release date, Date added, Rating, Year, Last watched, Runtime,
+New episodes (series libraries) and Random. Last watched and New episodes
+switch an unset order to Descending, so they open newest first. Filters
+opens one short panel: a row of Favorite, Added since, then Series status
+(Continuing or Ended, series libraries) or Resolution (4K, or HD and up,
+movie libraries), the minimum rating slider and Clear, and below it the
+Genres/Tags/Studios tabs. A movie or series library shows only one of the two
+kind filters, so the row stays the same length. Left/Right walk the row
+through the visible controls only. Up returns to Filters and Down reaches the
+tabs. Clear and the empty grid's Clear Filters reset every filter but keep
+the sort. A control the connection or the page cannot serve is hidden, never
+shown and then refused: Silo has no tags, Random or series status, and
+combined pages ("All Movies") have no New episodes, because their pages merge
+on a key that every card carries. Sort and filters are not remembered:
+opening a library starts from Library order with no filters.
+
 ### Library shelves
 
 A library whose server curates rows for it (Silo) offers a **Shelves** toggle

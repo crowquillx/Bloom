@@ -38,15 +38,32 @@ public:
         return request;
     }
 
-    // Silo's catalog rules have no tag or keyword field, and the query
-    // source sorts only by the query sort vocabulary, which has no random
-    // order.
+    // Silo's catalog rules have no tag or keyword field and no series
+    // lifecycle field (its status rule is the metadata match state), and
+    // the query source sorts only by the query sort vocabulary, which has
+    // no random order.
     ProviderLibraryQueryCapabilities libraryQueryCapabilities() const override
     {
         ProviderLibraryQueryCapabilities capabilities;
         capabilities.sorts.removeAll(QStringLiteral("random"));
         capabilities.filters.removeAll(QStringLiteral("tags"));
+        capabilities.filters.removeAll(QStringLiteral("seriesStatus"));
         return capabilities;
+    }
+
+    // The resolution classes a canonical resolution filter matches. Silo's
+    // resolution rule compares a file's class exactly; "hd" is 720p and
+    // up, like Jellyfin's HD, which includes 4K.
+    static QStringList resolutionClasses(const QString &canonicalResolution)
+    {
+        if (canonicalResolution == QStringLiteral("4k")) {
+            return {QStringLiteral("2160p"), QStringLiteral("4320p")};
+        }
+        if (canonicalResolution == QStringLiteral("hd")) {
+            return {QStringLiteral("720p"), QStringLiteral("1080p"),
+                    QStringLiteral("2160p"), QStringLiteral("4320p")};
+        }
+        return {};
     }
 
     // Silo's added_at rule is a timestamptz range. "Added since" is the
@@ -1613,6 +1630,15 @@ private:
         if (sort == QStringLiteral("rating")) {
             return QStringLiteral("rating_imdb");
         }
+        if (sort == QStringLiteral("datePlayed")) {
+            return QStringLiteral("date_viewed");
+        }
+        if (sort == QStringLiteral("runtime")) {
+            return QStringLiteral("runtime");
+        }
+        if (sort == QStringLiteral("recentlyUpdated")) {
+            return QStringLiteral("latest_episode_added");
+        }
         return std::nullopt;
     }
 
@@ -1626,6 +1652,12 @@ private:
         }
         if (!query.tags.isEmpty()) {
             return QStringLiteral("Silo catalog does not support tag or keyword filtering");
+        }
+        if (!query.seriesStatus.isEmpty()) {
+            return QStringLiteral("Silo catalog does not support series status filtering");
+        }
+        if (!query.resolution.isEmpty() && resolutionClasses(query.resolution).isEmpty()) {
+            return QStringLiteral("Silo catalog resolution filter must be 4k or hd");
         }
         if (!query.itemIds.isEmpty() || !query.parentIds.isEmpty()
             || !query.seriesIds.isEmpty() || !query.excludeItemId.trimmed().isEmpty()) {
@@ -1755,6 +1787,19 @@ private:
                                 {QStringLiteral("value"), studio.trimmed()}});
             }
             rules.append(QJsonObject{{QStringLiteral("field"), QStringLiteral("__studio_any")},
+                                     {QStringLiteral("op"), QStringLiteral("__group")},
+                                     {QStringLiteral("value"), alternatives}});
+        }
+        const QStringList resolutions = resolutionClasses(query.resolution);
+        if (!resolutions.isEmpty()) {
+            QJsonArray alternatives;
+            for (const QString &resolution : resolutions) {
+                alternatives.append(
+                    QJsonObject{{QStringLiteral("field"), QStringLiteral("resolution")},
+                                {QStringLiteral("op"), QStringLiteral("is")},
+                                {QStringLiteral("value"), resolution}});
+            }
+            rules.append(QJsonObject{{QStringLiteral("field"), QStringLiteral("__resolution_any")},
                                      {QStringLiteral("op"), QStringLiteral("__group")},
                                      {QStringLiteral("value"), alternatives}});
         }
@@ -1924,6 +1969,7 @@ private:
             || query.minDateLastSaved.isValid() || query.minCommunityRating > 0.0
             || !query.years.isEmpty() || !query.sortBy.trimmed().isEmpty()
             || !query.sortOrder.trimmed().isEmpty() || query.recursive
+            || !query.seriesStatus.isEmpty() || !query.resolution.isEmpty()
             || !query.includeItemTypes.isEmpty()
             || !query.seriesId.trimmed().isEmpty()
             || !query.excludeItemId.trimmed().isEmpty()
@@ -1943,6 +1989,7 @@ private:
             || query.minDateLastSaved.isValid() || query.minCommunityRating > 0.0
             || !query.years.isEmpty() || !query.sortBy.trimmed().isEmpty()
             || !query.sortOrder.trimmed().isEmpty() || query.recursive
+            || !query.seriesStatus.isEmpty() || !query.resolution.isEmpty()
             || query.watched != ProviderCatalogTriState::Any
             || query.favorite != ProviderCatalogTriState::Any || query.unwatchedOnly;
     }

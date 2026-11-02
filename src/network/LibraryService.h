@@ -69,6 +69,10 @@ struct LibraryItemQuery {
     TriState favorite = TriState::Any;
     double minCommunityRating = 0.0;
     QList<int> years;
+    // Canonical "continuing"/"ended" and "4k"/"hd"; empty matches any
+    // (ProviderCatalogQuery).
+    QString seriesStatus;
+    QString resolution;
     QString sortBy;
     QString sortOrder;
     QStringList includeItemTypes;

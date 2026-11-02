@@ -210,6 +210,7 @@ private slots:
     void cachePayloadRejectsProviderWireShape();
     void sortStateUsesCanonicalKeys();
     void unsupportedSavedQueryFallsBack();
+    void libraryKindGatesSortsAndFilters();
     void swrIdentityUsesCanonicalItemId();
     void swrMetadataRefreshUpdatesRowsWithoutReset();
     void failedLoadMoreRecovers();
@@ -409,6 +410,97 @@ void LibraryViewModelCanonicalTest::unsupportedSavedQueryFallsBack()
     QCOMPARE(viewModel.sortBy(), QStringLiteral("title"));
     viewModel.setSortBy(QStringLiteral("random"));
     QCOMPARE(viewModel.sortBy(), QStringLiteral("random"));
+}
+
+void LibraryViewModelCanonicalTest::libraryKindGatesSortsAndFilters()
+{
+    LibraryViewModel viewModel;
+    // A movie library: resolution, but no series lifecycle or new-episode
+    // order.
+    viewModel.loadLibrary(QStringLiteral("movies-1"), QStringLiteral("movies"), 0, 20);
+    QVERIFY(viewModel.supportedFilters().contains(QStringLiteral("resolution")));
+    QVERIFY(!viewModel.supportedFilters().contains(QStringLiteral("seriesStatus")));
+    QVERIFY(viewModel.supportedSorts().contains(QStringLiteral("datePlayed")));
+    QVERIFY(viewModel.supportedSorts().contains(QStringLiteral("runtime")));
+    QVERIFY(!viewModel.supportedSorts().contains(QStringLiteral("recentlyUpdated")));
+
+    viewModel.setSeriesStatusFilter(QStringLiteral("ended"));
+    QCOMPARE(viewModel.seriesStatusFilter(), QStringLiteral("any"));
+    viewModel.setSortBy(QStringLiteral("recentlyUpdated"));
+    QVERIFY(viewModel.sortBy().isEmpty());
+    viewModel.setResolutionFilter(QStringLiteral("8k"));
+    QCOMPARE(viewModel.resolutionFilter(), QStringLiteral("any"));
+
+    QSignalSpy countSpy(&viewModel, &LibraryViewModel::activeFilterCountChanged);
+    viewModel.setResolutionFilter(QStringLiteral("4k"));
+    QCOMPARE(viewModel.resolutionFilter(), QStringLiteral("4k"));
+    QCOMPARE(viewModel.activeFilterCount(), 1);
+    QCOMPARE(countSpy.count(), 1);
+
+    // Last watched reads newest first unless an order was chosen.
+    QVERIFY(viewModel.sortOrder().isEmpty());
+    viewModel.setSortBy(QStringLiteral("datePlayed"));
+    QCOMPARE(viewModel.sortOrder(), QStringLiteral("descending"));
+    viewModel.setSortOrder(QStringLiteral("ascending"));
+    viewModel.setSortBy(QStringLiteral("runtime"));
+    QCOMPARE(viewModel.sortBy(), QStringLiteral("runtime"));
+    QCOMPARE(viewModel.sortOrder(), QStringLiteral("ascending"));
+
+    viewModel.reloadWithCurrentQuery();
+    LibraryItemQuery request = m_libraryService->itemRequests.last();
+    QCOMPARE(request.resolution, QStringLiteral("4k"));
+    QVERIFY(request.seriesStatus.isEmpty());
+    QCOMPARE(request.sortBy, QStringLiteral("runtime"));
+    QVERIFY(request.recursive);
+    LibraryItemQuery unfiltered = request;
+    unfiltered.resolution.clear();
+    QVERIFY(unfiltered.datasetKey() != request.datasetKey());
+
+    // A series library drops the resolution and offers the series ones.
+    QSignalSpy resolutionSpy(&viewModel, &LibraryViewModel::resolutionFilterChanged);
+    viewModel.loadLibrary(QStringLiteral("series-1"), QStringLiteral("tvshows"), 0, 20);
+    QCOMPARE(resolutionSpy.count(), 1);
+    QCOMPARE(viewModel.resolutionFilter(), QStringLiteral("any"));
+    QCOMPARE(viewModel.activeFilterCount(), 0);
+    QVERIFY(m_libraryService->itemRequests.last().resolution.isEmpty());
+    QVERIFY(!viewModel.supportedFilters().contains(QStringLiteral("resolution")));
+    QVERIFY(viewModel.supportedFilters().contains(QStringLiteral("seriesStatus")));
+    QVERIFY(viewModel.supportedSorts().contains(QStringLiteral("recentlyUpdated")));
+
+    viewModel.setSeriesStatusFilter(QStringLiteral("continuing"));
+    viewModel.setSortBy(QStringLiteral("recentlyUpdated"));
+    QCOMPARE(viewModel.activeFilterCount(), 1);
+    viewModel.reloadWithCurrentQuery();
+    request = m_libraryService->itemRequests.last();
+    QCOMPARE(request.seriesStatus, QStringLiteral("continuing"));
+    QCOMPARE(request.sortBy, QStringLiteral("recentlyUpdated"));
+
+    // Clearing the filters resets the lifecycle and keeps the sort.
+    viewModel.clearFilters();
+    QCOMPARE(viewModel.seriesStatusFilter(), QStringLiteral("any"));
+    QCOMPARE(viewModel.activeFilterCount(), 0);
+    QCOMPARE(viewModel.sortBy(), QStringLiteral("recentlyUpdated"));
+    viewModel.setSeriesStatusFilter(QStringLiteral("ended"));
+
+    // A combined page cannot merge by new-episode date: the order falls
+    // back to library order and is not offered there.
+    viewModel.loadCombinedLibraries({QStringLiteral("series-1"), QStringLiteral("series-2")},
+                                    QStringLiteral("tvshows"), 20);
+    QVERIFY(!viewModel.supportedSorts().contains(QStringLiteral("recentlyUpdated")));
+    QVERIFY(viewModel.supportedSorts().contains(QStringLiteral("runtime")));
+    QVERIFY(viewModel.sortBy().isEmpty());
+    QCOMPARE(viewModel.seriesStatusFilter(), QStringLiteral("ended"));
+    QCOMPARE(m_libraryService->itemRequests.last().seriesStatus, QStringLiteral("ended"));
+
+    // A connection without a series lifecycle filter (Silo) drops it.
+    ProviderLibraryQueryCapabilities silo;
+    silo.filters.removeAll(QStringLiteral("seriesStatus"));
+    m_libraryService->queryCapabilities = silo;
+    viewModel.loadLibrary(QStringLiteral("series-1"), QStringLiteral("tvshows"), 0, 20);
+    QVERIFY(!viewModel.supportedFilters().contains(QStringLiteral("seriesStatus")));
+    QVERIFY(viewModel.supportedSorts().contains(QStringLiteral("recentlyUpdated")));
+    QCOMPARE(viewModel.seriesStatusFilter(), QStringLiteral("any"));
+    QVERIFY(m_libraryService->itemRequests.last().seriesStatus.isEmpty());
 }
 
 void LibraryViewModelCanonicalTest::swrIdentityUsesCanonicalItemId()

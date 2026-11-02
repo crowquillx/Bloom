@@ -227,6 +227,8 @@ QString LibraryItemQuery::datasetKey() const
         }
     }
     parts << "years=" + sortedList(yearParts).join("|");
+    parts << "seriesStatus=" + seriesStatus;
+    parts << "resolution=" + resolution;
     parts << "sort=" + normalizedSortBy();
     parts << "order=" + sortOrder;
     parts << "types=" + sortedList(includeItemTypes).join("|");
@@ -710,6 +712,8 @@ ProviderCatalogQuery LibraryService::providerItemsQuery(const LibraryItemQuery &
     providerQuery.favorite = providerTriState(query.favorite);
     providerQuery.minCommunityRating = query.minCommunityRating;
     providerQuery.years = query.years;
+    providerQuery.seriesStatus = query.seriesStatus;
+    providerQuery.resolution = query.resolution;
     providerQuery.sortBy = query.sortBy;
     providerQuery.sortOrder = query.sortOrder;
     providerQuery.includeItemTypes = query.includeItemTypes;

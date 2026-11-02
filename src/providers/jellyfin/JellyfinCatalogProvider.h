@@ -463,6 +463,28 @@ private:
             // Never-played titles share an empty date; the name orders them.
             return QStringLiteral("DatePlayed,SortName");
         }
+        if (canonicalSort == QStringLiteral("runtime")) {
+            return QStringLiteral("Runtime");
+        }
+        if (canonicalSort == QStringLiteral("recentlyUpdated")) {
+            // When the series last gained an episode (DateLastMediaAdded).
+            return QStringLiteral("DateLastContentAdded");
+        }
+        return std::nullopt;
+    }
+
+    // SeriesStatus values, from the canonical lifecycle.
+    static std::optional<QString> nativeSeriesStatus(const QString &canonicalStatus)
+    {
+        if (canonicalStatus.isEmpty()) {
+            return QString();
+        }
+        if (canonicalStatus == QStringLiteral("continuing")) {
+            return QStringLiteral("Continuing");
+        }
+        if (canonicalStatus == QStringLiteral("ended")) {
+            return QStringLiteral("Ended");
+        }
         return std::nullopt;
     }
 
@@ -571,6 +593,14 @@ private:
         if (!sort || !sortOrder) {
             return unsupported(QStringLiteral("Unsupported Jellyfin catalog sort"));
         }
+        const std::optional<QString> seriesStatus = nativeSeriesStatus(query.seriesStatus);
+        if (!seriesStatus) {
+            return unsupported(QStringLiteral("Unsupported Jellyfin series status filter"));
+        }
+        if (!query.resolution.isEmpty() && query.resolution != QStringLiteral("4k")
+            && query.resolution != QStringLiteral("hd")) {
+            return unsupported(QStringLiteral("Unsupported Jellyfin resolution filter"));
+        }
 
         QUrl url(QStringLiteral("/Items"));
         QUrlQuery urlQuery;
@@ -637,6 +667,15 @@ private:
             }
         }
         addJoined(urlQuery, QStringLiteral("Years"), years);
+        if (!seriesStatus->isEmpty()) {
+            urlQuery.addQueryItem(QStringLiteral("SeriesStatus"), *seriesStatus);
+        }
+        // Jellyfin's HD covers every width from 1200 up, 4K included.
+        if (query.resolution == QStringLiteral("4k")) {
+            urlQuery.addQueryItem(QStringLiteral("Is4K"), QStringLiteral("true"));
+        } else if (query.resolution == QStringLiteral("hd")) {
+            urlQuery.addQueryItem(QStringLiteral("IsHd"), QStringLiteral("true"));
+        }
         addJoined(
             urlQuery,
             QStringLiteral("IncludeItemTypes"),

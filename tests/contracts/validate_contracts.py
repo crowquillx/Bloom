@@ -130,7 +130,8 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
                             "sortBy", "sortOrder", "startIndex", "limit", "parentId",
                             "recursive", "enableImages", "enableUserData",
                             "enableTotalRecordCount", "isPlayed", "isFavorite",
-                            "isMissing", "enableImageTypes", "collapseBoxSetItems"},
+                            "isMissing", "enableImageTypes", "collapseBoxSetItems",
+                            "seriesStatus", "is4K", "isHd"},
         ("GET", "/System/Info/Public"): set(),
         ("GET", "/Items/{itemId}"): {"itemId", "userId"},
         ("GET", "/Persons"): {"userId", "searchTerm", "limit", "enableImages",
@@ -214,6 +215,15 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
     _require(
         "DatePlayed" in schemas.get("ItemSortBy", {}).get("enum", []),
         "Jellyfin ItemSortBy must include DatePlayed (watch history and the Favorites row)",
+    )
+    item_sort_by = set(schemas.get("ItemSortBy", {}).get("enum", []))
+    _require(
+        {"Runtime", "DateLastContentAdded"} <= item_sort_by,
+        "Jellyfin ItemSortBy must include Runtime and DateLastContentAdded (library sorts)",
+    )
+    _require(
+        {"Continuing", "Ended"} <= set(schemas.get("SeriesStatus", {}).get("enum", [])),
+        "Jellyfin SeriesStatus must include Continuing and Ended (library filter)",
     )
     item_fields = schemas.get("ItemFields", {}).get("enum", [])
     _require(

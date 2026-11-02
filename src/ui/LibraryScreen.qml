@@ -111,6 +111,10 @@ FocusScope {
         return LibraryViewModel.supportedFilters.indexOf(category) >= 0
     })
     readonly property bool addedSinceSupported: LibraryViewModel.supportedFilters.indexOf("addedSince") >= 0
+    // Series libraries filter by lifecycle, movie libraries by resolution;
+    // the view model offers each only where it applies.
+    readonly property bool seriesStatusSupported: LibraryViewModel.supportedFilters.indexOf("seriesStatus") >= 0
+    readonly property bool resolutionSupported: LibraryViewModel.supportedFilters.indexOf("resolution") >= 0
     onFacetCategoriesChanged: normalizeActiveFilterCategory()
     property string librarySearchText: ""
     property bool queryToolbarPinned: true
@@ -913,6 +917,16 @@ FocusScope {
         
     FocusScope {
         property alias grid: grid
+        // Filter-row neighbours that depend on which filters show: the
+        // control left of the series status or resolution combo, the one
+        // right of the added-date combo, and the one left of the rating.
+        readonly property Item filterBeforeKind: addedSinceSupported ? addedSinceCombo : favoriteFilterCombo
+        readonly property Item filterAfterAdded: seriesStatusSupported ? seriesStatusFilterCombo
+                                                 : resolutionSupported ? resolutionFilterCombo
+                                                 : ratingSlider
+        readonly property Item filterBeforeRating: seriesStatusSupported ? seriesStatusFilterCombo
+                                                   : resolutionSupported ? resolutionFilterCombo
+                                                   : filterBeforeKind
 
 	        function toggleFilterDrawer() {
 	            showFilterPanel = !showFilterPanel
@@ -931,6 +945,8 @@ FocusScope {
             syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
             syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
             syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
+            syncComboIndex(seriesStatusFilterCombo, LibraryViewModel.seriesStatusFilter)
+            syncComboIndex(resolutionFilterCombo, LibraryViewModel.resolutionFilter)
             ratingSlider.value = LibraryViewModel.minCommunityRating
         }
 
@@ -941,6 +957,8 @@ FocusScope {
             if (filterDrawerButton.activeFocus) return "filterDrawerButton"
             if (favoriteFilterCombo.activeFocus || favoriteFilterCombo.popup.visible) return "favoriteFilterCombo"
             if (addedSinceCombo.activeFocus || addedSinceCombo.popup.visible) return "addedSinceCombo"
+            if (seriesStatusFilterCombo.activeFocus || seriesStatusFilterCombo.popup.visible) return "seriesStatusFilterCombo"
+            if (resolutionFilterCombo.activeFocus || resolutionFilterCombo.popup.visible) return "resolutionFilterCombo"
             if (ratingSlider.activeFocus) return "ratingSlider"
             if (clearFiltersButton.activeFocus) return "clearFiltersButton"
             if (facetTabs.activeFocus) return "facetTabs"
@@ -955,6 +973,8 @@ FocusScope {
             if (target === "filterDrawerButton") return filterDrawerButton
             if (target === "favoriteFilterCombo") return favoriteFilterCombo
             if (target === "addedSinceCombo") return addedSinceSupported ? addedSinceCombo : favoriteFilterCombo
+            if (target === "seriesStatusFilterCombo") return seriesStatusSupported ? seriesStatusFilterCombo : favoriteFilterCombo
+            if (target === "resolutionFilterCombo") return resolutionSupported ? resolutionFilterCombo : favoriteFilterCombo
             if (target === "ratingSlider") return ratingSlider
             if (target === "clearFiltersButton") return clearFiltersButton
             if (target === "facetTabs") return facetTabs
@@ -1002,6 +1022,10 @@ FocusScope {
                 clearFiltersButton.forceActiveFocus()
             } else if (ratingSlider.activeFocus) {
                 ratingSlider.forceActiveFocus()
+            } else if (seriesStatusFilterCombo.activeFocus) {
+                seriesStatusFilterCombo.forceActiveFocus()
+            } else if (resolutionFilterCombo.activeFocus) {
+                resolutionFilterCombo.forceActiveFocus()
             } else if (addedSinceCombo.activeFocus) {
                 addedSinceCombo.forceActiveFocus()
             } else if (favoriteFilterCombo.activeFocus) {
@@ -1292,6 +1316,9 @@ FocusScope {
                             { value: "dateAdded", label: "Date added" },
                             { value: "rating", label: "Rating" },
                             { value: "year", label: "Year" },
+                            { value: "datePlayed", label: "Last watched" },
+                            { value: "runtime", label: "Runtime" },
+                            { value: "recentlyUpdated", label: "New episodes" },
                             { value: "random", label: "Random" }
                         ].filter(function(option) {
                             return option.value === "" || LibraryViewModel.supportedSorts.indexOf(option.value) >= 0
@@ -1326,6 +1353,11 @@ FocusScope {
                         rightTarget: filterDrawerButton
                         downTarget: grid
                         Component.onCompleted: syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
+                        Connections {
+                            target: LibraryViewModel
+                            // Last watched and New episodes start newest first.
+                            function onSortOrderChanged() { syncComboIndex(orderCombo, LibraryViewModel.sortOrder) }
+                        }
                         onValueAccepted: function(value) {
                             LibraryViewModel.setSortOrder(value)
                             applyFilters("orderCombo")
@@ -1480,7 +1512,7 @@ FocusScope {
                             model: ["Any favorite", "Favorites", "Not favorite"]
 	                            values: ["any", "favorite", "notFavorite"]
 		                            Component.onCompleted: syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
-	                                rightTarget: addedSinceSupported ? addedSinceCombo : ratingSlider
+	                                rightTarget: addedSinceSupported ? addedSinceCombo : filterAfterAdded
 	                                upTarget: filterDrawerButton
 	                                downTarget: facetTabs
 	                            onValueAccepted: function(value) {
@@ -1497,12 +1529,48 @@ FocusScope {
 	                            values: ["any", "7d", "30d", "90d", "1y"]
 		                            Component.onCompleted: syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
 	                                leftTarget: favoriteFilterCombo
-	                                rightTarget: ratingSlider
+	                                rightTarget: filterAfterAdded
 	                                upTarget: filterDrawerButton
 	                                downTarget: facetTabs
 	                            onValueAccepted: function(value) {
 	                                LibraryViewModel.setAddedSinceFilter(value)
 	                                applyFilters("addedSinceCombo")
+                            }
+                        }
+
+                        LibraryComboBox {
+                            id: seriesStatusFilterCombo
+                            visible: seriesStatusSupported
+                            Layout.preferredHeight: Theme.buttonHeightMedium
+                            model: ["Any status", "Continuing", "Ended"]
+                            values: ["any", "continuing", "ended"]
+                            Accessible.name: "Series status"
+                            Component.onCompleted: syncComboIndex(seriesStatusFilterCombo, LibraryViewModel.seriesStatusFilter)
+                            leftTarget: filterBeforeKind
+                            rightTarget: ratingSlider
+                            upTarget: filterDrawerButton
+                            downTarget: facetTabs
+                            onValueAccepted: function(value) {
+                                LibraryViewModel.setSeriesStatusFilter(value)
+                                applyFilters("seriesStatusFilterCombo")
+                            }
+                        }
+
+                        LibraryComboBox {
+                            id: resolutionFilterCombo
+                            visible: resolutionSupported
+                            Layout.preferredHeight: Theme.buttonHeightMedium
+                            model: ["Any resolution", "4K", "HD and up"]
+                            values: ["any", "4k", "hd"]
+                            Accessible.name: "Resolution"
+                            Component.onCompleted: syncComboIndex(resolutionFilterCombo, LibraryViewModel.resolutionFilter)
+                            leftTarget: filterBeforeKind
+                            rightTarget: ratingSlider
+                            upTarget: filterDrawerButton
+                            downTarget: facetTabs
+                            onValueAccepted: function(value) {
+                                LibraryViewModel.setResolutionFilter(value)
+                                applyFilters("resolutionFilterCombo")
                             }
                         }
 
@@ -1515,7 +1583,7 @@ FocusScope {
                             stepSize: 0.5
 	                            value: LibraryViewModel.minCommunityRating
                             Accessible.name: "Minimum rating"
-	                            KeyNavigation.left: addedSinceSupported ? addedSinceCombo : favoriteFilterCombo
+	                            KeyNavigation.left: filterBeforeRating
                             KeyNavigation.right: clearFiltersButton
                             KeyNavigation.down: facetTabs
                             Keys.priority: Keys.BeforeItem
@@ -1538,10 +1606,8 @@ FocusScope {
 	                                } else if (event.key === Qt.Key_Left) {
 	                                    if (ratingSliderEditing) {
 	                                        adjustRating(-stepSize)
-	                                    } else if (addedSinceSupported) {
-	                                        addedSinceCombo.forceActiveFocus()
 	                                    } else {
-	                                        favoriteFilterCombo.forceActiveFocus()
+	                                        filterBeforeRating.forceActiveFocus()
 	                                    }
                                     event.accepted = true
                                 } else if (event.key === Qt.Key_Right) {

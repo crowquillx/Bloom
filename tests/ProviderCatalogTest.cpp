@@ -38,6 +38,7 @@ class ProviderCatalogTest : public QObject
 private slots:
     void jellyfinItemsRequestRetainsNativeContract();
     void jellyfinCanonicalSortKeysMapAtProviderBoundary();
+    void jellyfinLibraryFiltersMapToNativeParameters();
     void jellyfinReservedIdentifiersAndLimitsRemainOpaque();
     void jellyfinMutationsAndPaginationRemainCompatible();
     void jellyfinClearResumePositionZeroesOnlyThePosition();
@@ -86,6 +87,8 @@ void ProviderCatalogTest::jellyfinCanonicalSortKeysMapAtProviderBoundary()
         {QStringLiteral("year"), QStringLiteral("ProductionYear")},
         {QStringLiteral("random"), QStringLiteral("Random")},
         {QStringLiteral("datePlayed"), QStringLiteral("DatePlayed,SortName")},
+        {QStringLiteral("runtime"), QStringLiteral("Runtime")},
+        {QStringLiteral("recentlyUpdated"), QStringLiteral("DateLastContentAdded")},
     };
     for (const auto &[canonical, native] : sortCases) {
         ProviderCatalogQuery query;
@@ -111,6 +114,68 @@ void ProviderCatalogTest::jellyfinCanonicalSortKeysMapAtProviderBoundary()
         ProviderCatalogOperation::Items, invalid);
     QVERIFY(!rejected.supported);
     QVERIFY(!rejected.unsupportedReason.isEmpty());
+}
+
+void ProviderCatalogTest::jellyfinLibraryFiltersMapToNativeParameters()
+{
+    JellyfinProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    const auto parametersFor = [catalog](const QString &seriesStatus,
+                                         const QString &resolution) {
+        ProviderCatalogQuery query;
+        query.userId = QStringLiteral("user-1");
+        query.parentId = QStringLiteral("library-1");
+        query.recursive = true;
+        query.seriesStatus = seriesStatus;
+        query.resolution = resolution;
+        const ProviderCatalogRequest request = catalog->createRequest(
+            ProviderCatalogOperation::Items, query);
+        return std::make_pair(request, QUrlQuery{QUrl(request.relativeEndpoint)});
+    };
+
+    // No filter sends none of the parameters.
+    auto [plain, plainParameters] = parametersFor(QString(), QString());
+    QVERIFY2(plain.supported, qPrintable(plain.unsupportedReason));
+    QVERIFY(!plainParameters.hasQueryItem(QStringLiteral("SeriesStatus")));
+    QVERIFY(!plainParameters.hasQueryItem(QStringLiteral("Is4K")));
+    QVERIFY(!plainParameters.hasQueryItem(QStringLiteral("IsHd")));
+
+    const QList<QPair<QString, QString>> statusCases = {
+        {QStringLiteral("continuing"), QStringLiteral("Continuing")},
+        {QStringLiteral("ended"), QStringLiteral("Ended")},
+    };
+    for (const auto &[canonical, native] : statusCases) {
+        auto [request, parameters] = parametersFor(canonical, QString());
+        QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+        QCOMPARE(parameters.queryItemValue(QStringLiteral("SeriesStatus")), native);
+    }
+
+    auto [uhd, uhdParameters] = parametersFor(QString(), QStringLiteral("4k"));
+    QVERIFY2(uhd.supported, qPrintable(uhd.unsupportedReason));
+    QCOMPARE(uhdParameters.queryItemValue(QStringLiteral("Is4K")), QStringLiteral("true"));
+    QVERIFY(!uhdParameters.hasQueryItem(QStringLiteral("IsHd")));
+
+    auto [hd, hdParameters] = parametersFor(QString(), QStringLiteral("hd"));
+    QVERIFY2(hd.supported, qPrintable(hd.unsupportedReason));
+    QCOMPARE(hdParameters.queryItemValue(QStringLiteral("IsHd")), QStringLiteral("true"));
+    QVERIFY(!hdParameters.hasQueryItem(QStringLiteral("Is4K")));
+
+    // Values outside the canonical vocabulary are refused, not dropped.
+    QVERIFY(!parametersFor(QStringLiteral("Continuing"), QString()).first.supported);
+    QVERIFY(!parametersFor(QStringLiteral("unreleased"), QString()).first.supported);
+    QVERIFY(!parametersFor(QString(), QStringLiteral("sd")).first.supported);
+    QVERIFY(!parametersFor(QString(), QStringLiteral("4K")).first.supported);
+
+    // The default capabilities offer every new sort and filter.
+    const ProviderLibraryQueryCapabilities capabilities = catalog->libraryQueryCapabilities();
+    for (const QString &sort : {QStringLiteral("datePlayed"), QStringLiteral("runtime"),
+                                QStringLiteral("recentlyUpdated")}) {
+        QVERIFY2(capabilities.sorts.contains(sort), qPrintable(sort));
+    }
+    QVERIFY(capabilities.filters.contains(QStringLiteral("seriesStatus")));
+    QVERIFY(capabilities.filters.contains(QStringLiteral("resolution")));
 }
 
 void ProviderCatalogTest::jellyfinItemsRequestRetainsNativeContract()

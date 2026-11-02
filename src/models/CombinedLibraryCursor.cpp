@@ -55,6 +55,11 @@ int compareKey(const QVariantMap &a, const QVariantMap &b, const QString &sortBy
         const int right = b.value(QStringLiteral("productionYear")).toInt();
         return left < right ? -1 : (left > right ? 1 : 0);
     }
+    if (sortBy == QStringLiteral("runtime")) {
+        const qint64 left = a.value(QStringLiteral("durationMs")).toLongLong();
+        const qint64 right = b.value(QStringLiteral("durationMs")).toLongLong();
+        return left < right ? -1 : (left > right ? 1 : 0);
+    }
     return 0;
 }
 
@@ -122,6 +127,22 @@ void CombinedLibraryCursor::pageFailed(const QString &libraryId)
     // Only what arrived can ever be shown, so the total shrinks to it and the
     // combined list stops offering more.
     source.total = source.nextOffset;
+}
+
+bool CombinedLibraryCursor::canMerge(const QString &sortBy)
+{
+    static const QStringList mergeable = {
+        QString(),
+        QStringLiteral("title"),
+        QStringLiteral("releaseDate"),
+        QStringLiteral("dateAdded"),
+        QStringLiteral("rating"),
+        QStringLiteral("year"),
+        QStringLiteral("random"),
+        QStringLiteral("datePlayed"),
+        QStringLiteral("runtime"),
+    };
+    return mergeable.contains(sortBy);
 }
 
 bool CombinedLibraryCursor::lessThan(const QVariantMap &a, const QVariantMap &b,

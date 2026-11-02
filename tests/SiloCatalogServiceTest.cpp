@@ -208,6 +208,7 @@ private slots:
     void addedSinceUsesFixedRange();
     void libraryTitleQueriesAcceptRecursiveScope();
     void libraryQueryCapabilitiesFollowProvider();
+    void librarySortsAndFiltersMapToQueryVocabulary();
     void responsePreservesSnapshotAndPaginationTruth();
     void nativeResponseShapesPreserveHomeLibrarySearchAndDetailData();
     void sparseNativeMappingsPreserveFallbacksAndState();
@@ -822,7 +823,12 @@ void SiloCatalogServiceTest::libraryQueryCapabilitiesFollowProvider()
         silo.catalogProvider()->libraryQueryCapabilities();
     QVERIFY(!siloCapabilities.sorts.contains(QStringLiteral("random")));
     QVERIFY(!siloCapabilities.filters.contains(QStringLiteral("tags")));
+    QVERIFY(!siloCapabilities.filters.contains(QStringLiteral("seriesStatus")));
     QVERIFY(siloCapabilities.filters.contains(QStringLiteral("addedSince")));
+    QVERIFY(siloCapabilities.filters.contains(QStringLiteral("resolution")));
+    QVERIFY(siloCapabilities.sorts.contains(QStringLiteral("datePlayed")));
+    QVERIFY(siloCapabilities.sorts.contains(QStringLiteral("runtime")));
+    QVERIFY(siloCapabilities.sorts.contains(QStringLiteral("recentlyUpdated")));
 
     // Every sort and filter Silo reports is one its catalog request accepts.
     SiloCatalogProvider provider;
@@ -849,6 +855,100 @@ void SiloCatalogServiceTest::libraryQueryCapabilitiesFollowProvider()
     QVERIFY(service.libraryQueryCapabilities() == siloCapabilities);
     LibraryService detached(nullptr);
     QVERIFY(detached.libraryQueryCapabilities() == ProviderLibraryQueryCapabilities{});
+}
+
+void SiloCatalogServiceTest::librarySortsAndFiltersMapToQueryVocabulary()
+{
+    SiloCatalogProvider provider;
+
+    // The sorts go to the query sort allowlist: by GET without rules, and in
+    // the POST body once a rule (here the library's item type) is sent.
+    const QList<QPair<QString, QString>> sortCases = {
+        {QStringLiteral("datePlayed"), QStringLiteral("date_viewed")},
+        {QStringLiteral("runtime"), QStringLiteral("runtime")},
+        {QStringLiteral("recentlyUpdated"), QStringLiteral("latest_episode_added")},
+    };
+    for (const auto &[canonical, native] : sortCases) {
+        ProviderCatalogQuery query;
+        query.parentId = QStringLiteral("17");
+        query.sortBy = canonical;
+        query.sortOrder = QStringLiteral("descending");
+        const ProviderCatalogRequest getRequest = provider.createRequest(
+            ProviderCatalogOperation::Items, query);
+        QVERIFY2(getRequest.supported, qPrintable(getRequest.unsupportedReason));
+        QCOMPARE(getRequest.method, ProviderHttpMethod::Get);
+        const QUrlQuery parameters{QUrl(getRequest.relativeEndpoint)};
+        QCOMPARE(parameters.queryItemValue(QStringLiteral("sort")),
+                 QStringLiteral("-") + native);
+
+        query.includeItemTypes = {QStringLiteral("Series")};
+        query.recursive = true;
+        const ProviderCatalogRequest post = provider.createRequest(
+            ProviderCatalogOperation::Items, query);
+        QVERIFY2(post.supported, qPrintable(post.unsupportedReason));
+        QCOMPARE(post.method, ProviderHttpMethod::Post);
+        const QJsonObject body = QJsonDocument::fromJson(post.body).object();
+        QCOMPARE(body.value(QStringLiteral("sort")).toString(), native);
+        QCOMPARE(body.value(QStringLiteral("order")).toString(), QStringLiteral("desc"));
+    }
+
+    // A resolution is one group of exact resolution classes, any of which
+    // matches; HD reaches up through 4K like Jellyfin's.
+    const auto resolutionRules = [&provider](const QString &resolution) {
+        ProviderCatalogQuery query;
+        query.parentId = QStringLiteral("17");
+        query.includeItemTypes = {QStringLiteral("Movie")};
+        query.recursive = true;
+        query.resolution = resolution;
+        const ProviderCatalogRequest request = provider.createRequest(
+            ProviderCatalogOperation::Items, query);
+        QStringList values;
+        if (!request.supported) {
+            return values;
+        }
+        const QJsonArray groups =
+            QJsonDocument::fromJson(request.body).object().value(QStringLiteral("groups")).toArray();
+        for (const QJsonValue &group : groups) {
+            if (group.toObject().value(QStringLiteral("match")).toString() != QStringLiteral("any")) {
+                continue;
+            }
+            for (const QJsonValue &rule : group.toObject().value(QStringLiteral("rules")).toArray()) {
+                const QJsonObject object = rule.toObject();
+                if (object.value(QStringLiteral("field")).toString() == QStringLiteral("resolution")
+                    && object.value(QStringLiteral("op")).toString() == QStringLiteral("is")) {
+                    values.append(object.value(QStringLiteral("value")).toString());
+                }
+            }
+        }
+        return values;
+    };
+    QCOMPARE(resolutionRules(QStringLiteral("4k")),
+             (QStringList{QStringLiteral("2160p"), QStringLiteral("4320p")}));
+    QCOMPARE(resolutionRules(QStringLiteral("hd")),
+             (QStringList{QStringLiteral("720p"), QStringLiteral("1080p"),
+                          QStringLiteral("2160p"), QStringLiteral("4320p")}));
+    QVERIFY(resolutionRules(QString()).isEmpty());
+
+    // Silo has no series lifecycle rule (its status rule is the metadata
+    // match state), and a resolution outside the vocabulary is refused.
+    ProviderCatalogQuery status;
+    status.parentId = QStringLiteral("17");
+    status.seriesStatus = QStringLiteral("ended");
+    const ProviderCatalogRequest statusRequest = provider.createRequest(
+        ProviderCatalogOperation::Items, status);
+    QVERIFY(!statusRequest.supported);
+    QVERIFY(!statusRequest.unsupportedReason.isEmpty());
+    ProviderCatalogQuery unknown;
+    unknown.parentId = QStringLiteral("17");
+    unknown.resolution = QStringLiteral("sd");
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::Items, unknown).supported);
+
+    // A hierarchy read never drops a filter it cannot apply.
+    ProviderCatalogQuery seasons;
+    seasons.parentId = QStringLiteral("series-1");
+    seasons.includeItemTypes = {QStringLiteral("Season")};
+    seasons.resolution = QStringLiteral("4k");
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::Items, seasons).supported);
 }
 
 void SiloCatalogServiceTest::sparseNativeMappingsPreserveFallbacksAndState()

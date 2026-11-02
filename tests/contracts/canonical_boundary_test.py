@@ -234,6 +234,9 @@ class CanonicalBoundaryContractTest(unittest.TestCase):
             "CommunityRating",
             "ProductionYear",
             "Random",
+            "DatePlayed",
+            "Runtime",
+            "DateLastContentAdded",
             "Ascending",
             "Descending",
         }
