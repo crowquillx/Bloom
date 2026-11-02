@@ -1,5 +1,6 @@
 #pragma once
 
+#include "models/ShuffleScope.h"
 #include "providers/ICatalogProvider.h"
 #include "providers/silo/SiloArtworkSizes.h"
 #include "providers/silo/SiloMediaRequestMapper.h"
@@ -560,6 +561,30 @@ private:
             return get(endpointWithQuery(
                 QStringLiteral("/api/v2/recommendations/watch-tonight/cards"), parameters));
         }
+        case ProviderCatalogOperation::ShuffleCapability:
+            return get(QStringLiteral("/api/v2/shuffles/capabilities"));
+        case ProviderCatalogOperation::CreateShuffle:
+            return createShuffleRequest(query);
+        case ProviderCatalogOperation::GetShuffle:
+            return getWithContentId(QStringLiteral("/api/v2/shuffles/%1"), query.shuffleId);
+        case ProviderCatalogOperation::AdvanceShuffle:
+            return moveShuffleRequest(query, QStringLiteral("advance"),
+                                      QStringLiteral("from_content_id"));
+        case ProviderCatalogOperation::SkipShuffleItem:
+            return moveShuffleRequest(query, QStringLiteral("skip"),
+                                      QStringLiteral("next_content_id"));
+        case ProviderCatalogOperation::DeleteShuffle: {
+            ProviderCatalogRequest request = mutationWithContentId(
+                ProviderHttpMethod::Delete, QStringLiteral("/api/v2/shuffles/%1"), query.shuffleId);
+            // deleteShuffle is natural_idempotent: stopping a shuffle that
+            // is already gone succeeds.
+            if (request.supported) {
+                request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
+            }
+            return request;
+        }
+        case ProviderCatalogOperation::ShuffleItems:
+            return unsupported(QStringLiteral("Silo keeps shuffles on the server"));
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -617,11 +642,21 @@ public:
             response.valid = true;
             return response;
         }
+        if (operation == ProviderCatalogOperation::ShuffleCapability) {
+            return shuffleCapabilityResponse(body);
+        }
+        if (operation == ProviderCatalogOperation::CreateShuffle
+            || operation == ProviderCatalogOperation::GetShuffle
+            || operation == ProviderCatalogOperation::AdvanceShuffle
+            || operation == ProviderCatalogOperation::SkipShuffleItem) {
+            return shuffleResponse(body);
+        }
         if (operation == ProviderCatalogOperation::SetWatchlist
             || operation == ProviderCatalogOperation::SetNotInterested
             || operation == ProviderCatalogOperation::SetHomeDismissal
             || operation == ProviderCatalogOperation::SetUserRating
-            || operation == ProviderCatalogOperation::RemoveFromWatchHistory) {
+            || operation == ProviderCatalogOperation::RemoveFromWatchHistory
+            || operation == ProviderCatalogOperation::DeleteShuffle) {
             // 204 No Content on success.
             ProviderCatalogResponse response;
             response.valid = true;
@@ -885,10 +920,145 @@ private:
         case ProviderCatalogOperation::PersonItems:
         case ProviderCatalogOperation::LibrarySections:
         case ProviderCatalogOperation::LibrarySectionItems:
+        case ProviderCatalogOperation::CreateShuffle:
+        case ProviderCatalogOperation::GetShuffle:
+        case ProviderCatalogOperation::AdvanceShuffle:
+        case ProviderCatalogOperation::SkipShuffleItem:
             return true;
         default:
             return false;
         }
+    }
+
+    // Canonical shuffle scope kinds (Bloom::ShuffleScope) and Silo's.
+    // Jellyfin box sets have no Silo counterpart.
+    static QString wireShuffleScopeKind(const QString &kind, const QString &collectionKind)
+    {
+        namespace Scope = Bloom::ShuffleScope;
+        if (kind == Scope::kLibrary || kind == Scope::kSeries || kind == Scope::kSeason) {
+            return kind;
+        }
+        if (kind == Scope::kCollection) {
+            if (collectionKind == Scope::kLibraryCollection) {
+                return QStringLiteral("library_collection");
+            }
+            if (collectionKind == Scope::kUserCollection) {
+                return QStringLiteral("user_collection");
+            }
+        }
+        return {};
+    }
+
+    static QString canonicalShuffleScopeKey(const QString &wireKind)
+    {
+        namespace Scope = Bloom::ShuffleScope;
+        if (wireKind == Scope::kLibrary || wireKind == Scope::kSeries
+            || wireKind == Scope::kSeason) {
+            return wireKind;
+        }
+        if (wireKind == QStringLiteral("library_collection")) {
+            return Scope::capabilityKey(Scope::kCollection, Scope::kLibraryCollection);
+        }
+        if (wireKind == QStringLiteral("user_collection")) {
+            return Scope::capabilityKey(Scope::kCollection, Scope::kUserCollection);
+        }
+        return {};
+    }
+
+    // createShuffle is non_retryable: a replay after a lost response would
+    // start a second shuffle.
+    static ProviderCatalogRequest createShuffleRequest(const ProviderCatalogQuery &query)
+    {
+        const QString kind = wireShuffleScopeKind(query.shuffleScopeKind,
+                                                  query.shuffleCollectionKind);
+        const QString scopeId = query.parentId.trimmed();
+        if (kind.isEmpty() || scopeId.isEmpty()) {
+            return unsupported(QStringLiteral(
+                "A Silo shuffle needs a library, series, season, or collection"));
+        }
+        ProviderCatalogRequest request;
+        request.method = ProviderHttpMethod::Post;
+        request.retrySafety = ProviderCatalogRetrySafety::Never;
+        request.relativeEndpoint = QStringLiteral("/api/v2/shuffles");
+        request.body = QJsonDocument(QJsonObject{
+                           {QStringLiteral("scope"),
+                            QJsonObject{{QStringLiteral("kind"), kind},
+                                        {QStringLiteral("id"), scopeId}}}})
+                           .toJson(QJsonDocument::Compact);
+        request.supported = true;
+        return request;
+    }
+
+    // advanceShuffle and skipShuffleItem are natural_idempotent: each is
+    // anchored on a card (the item that finished, the next item to skip)
+    // and changes nothing once the shuffle has moved past it.
+    static ProviderCatalogRequest moveShuffleRequest(const ProviderCatalogQuery &query,
+                                                     const QString &action,
+                                                     const QString &anchorField)
+    {
+        const QString contentId = query.shuffleContentId.trimmed();
+        if (contentId.isEmpty()) {
+            return unsupported(QStringLiteral("Moving a Silo shuffle needs its anchor card"));
+        }
+        ProviderCatalogRequest request = mutationWithContentId(
+            ProviderHttpMethod::Post, QStringLiteral("/api/v2/shuffles/%1/") + action,
+            query.shuffleId);
+        if (!request.supported) {
+            return request;
+        }
+        request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
+        request.body = QJsonDocument(QJsonObject{{anchorField, contentId}})
+                           .toJson(QJsonDocument::Compact);
+        return request;
+    }
+
+    static ProviderCatalogResponse shuffleCapabilityResponse(const QByteArray &body)
+    {
+        ProviderCatalogResponse response;
+        const QJsonObject object = QJsonDocument::fromJson(body).object();
+        if (!object.value(QStringLiteral("state")).isString()
+            || !object.value(QStringLiteral("allowed")).isBool()
+            || !object.value(QStringLiteral("scope_kinds")).isArray()) {
+            response.error = QStringLiteral("Invalid Silo shuffle capability response");
+            return response;
+        }
+        QStringList scopeKinds;
+        for (const QJsonValue &value : object.value(QStringLiteral("scope_kinds")).toArray()) {
+            const QString key = canonicalShuffleScopeKey(value.toString());
+            if (!key.isEmpty() && !scopeKinds.contains(key)) {
+                scopeKinds.append(key);
+            }
+        }
+        response.capabilityMetadata.insert(
+            QStringLiteral("allowed"),
+            object.value(QStringLiteral("state")).toString() == QStringLiteral("available")
+                && object.value(QStringLiteral("allowed")).toBool());
+        response.capabilityMetadata.insert(QStringLiteral("scopeKinds"), scopeKinds);
+        response.valid = true;
+        return response;
+    }
+
+    // A shuffle names what plays now (current) and after it (next); both
+    // are movie or episode cards.
+    static ProviderCatalogResponse shuffleResponse(const QByteArray &body)
+    {
+        ProviderCatalogResponse response;
+        const QJsonObject object = QJsonDocument::fromJson(body).object();
+        const auto playableCard = [](const QJsonValue &value) {
+            const QJsonObject card = value.toObject();
+            const QString type = card.value(QStringLiteral("type")).toString();
+            return !card.value(QStringLiteral("content_id")).toString().isEmpty()
+                && (type == QStringLiteral("movie") || type == QStringLiteral("episode"));
+        };
+        if (object.value(QStringLiteral("id")).toString().isEmpty()
+            || !playableCard(object.value(QStringLiteral("current")))
+            || !playableCard(object.value(QStringLiteral("next")))) {
+            response.error = QStringLiteral("Invalid Silo shuffle response");
+            return response;
+        }
+        response.rawItem = object;
+        response.valid = true;
+        return response;
     }
 
     struct Rule

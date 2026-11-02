@@ -209,6 +209,36 @@ public:
     // session changed before the answer fails.
     Q_INVOKABLE virtual QString userRatingScale() const;
     Q_INVOKABLE virtual void setUserRating(const QString &itemId, int value);
+
+    // Shuffle play (docs/playback.md "Shuffle play") over a canonical scope
+    // (Bloom::ShuffleScope, `{kind, id, collectionKind}`) on the active
+    // connection. Jellyfin (ProviderCapability::LocalShuffle) shuffles
+    // libraries, series, seasons and box sets from random item reads
+    // (getShuffleItems). Silo (ProviderCapability::ServerShuffle) keeps the
+    // shuffle on the server; loadShuffleCapability reads the profile's
+    // capability document once per connection and profile, announces it
+    // with shuffleSupportChanged, and supportsShuffle is false until then
+    // and for scope kinds the document does not list.
+    Q_INVOKABLE virtual bool supportsShuffle(const QString &scopeKind,
+                                             const QString &collectionKind = QString()) const;
+    Q_INVOKABLE virtual void loadShuffleCapability();
+    // True when the active provider keeps shuffles on the server.
+    virtual bool hasServerShuffle() const;
+    // Server shuffle operations. Each answers shuffleLoaded with
+    // `{shuffleId, scopeTitle, current, next}` (canonical items) or
+    // shuffleFailed, under requestKey; deleteShuffle answers nothing. A
+    // request whose connection, profile or provider changed before the
+    // answer fails with httpStatus 0.
+    virtual void createShuffle(const QVariantMap &scope, const QString &requestKey);
+    virtual void getShuffle(const QString &shuffleId, const QString &requestKey);
+    virtual void advanceShuffle(const QString &shuffleId, const QString &fromContentId,
+                                const QString &requestKey);
+    virtual void skipShuffleItem(const QString &shuffleId, const QString &nextContentId,
+                                 const QString &requestKey);
+    virtual void deleteShuffle(const QString &shuffleId);
+    // A random page of the scope's movies and episodes for a shuffle Bloom
+    // keeps itself: shuffleLoaded with `{items, total}` or shuffleFailed.
+    virtual void getShuffleItems(const QVariantMap &scope, int limit, const QString &requestKey);
     // True when the provider has an airing calendar
     // (ProviderCapability::AiringCalendar, Silo), so getNextAiring can
     // answer something other than an empty map.
@@ -536,6 +566,11 @@ signals:
     void watchlistStatusChanged(const QString &itemId, bool inWatchlist);
     void watchlistStatusFailed(const QString &itemId, bool inWatchlist, const QString &error);
     void notInterestedSupportChanged();
+    void shuffleSupportChanged();
+    void shuffleLoaded(const QString &connectionId, const QString &requestKey,
+                       const QVariantMap &result);
+    void shuffleFailed(const QString &connectionId, const QString &requestKey,
+                       int httpStatus, const QString &message);
     void notInterestedStatusChanged(const QString &itemId, bool notInterested);
     void notInterestedStatusFailed(const QString &itemId, bool notInterested, const QString &error);
     void userRatingSupportChanged();
@@ -685,6 +720,15 @@ private:
     QHash<quint64, PendingUserRatingWrite> m_userRatingWrites;
     quint64 m_userRatingWriteSequence = 0;
     void failStaleUserRatingWrites();
+    // Shuffle requests in flight; one whose session is gone is answered
+    // with shuffleFailed, so a shuffle never waits on it.
+    struct PendingShuffleRequest {
+        CatalogRequestIdentity identity;
+        QString requestKey;
+    };
+    QHash<quint64, PendingShuffleRequest> m_shuffleRequests;
+    quint64 m_shuffleRequestSequence = 0;
+    void failStaleShuffleRequests();
     void sendCatalogRequest(
         const QString &operationName,
         ProviderCatalogOperation operation,
@@ -827,6 +871,13 @@ private:
     // unsupported, hidden until the back-off runs out.
     QHash<QString, QDeadlineTimer> m_userRatingUnavailable;
     QString userRatingKey() const;
+
+    // Shuffle scope kinds (ShuffleScope::capabilityKey) the server allows
+    // per connection and profile, and the reads in flight, as above.
+    QHash<QString, QStringList> m_shuffleScopeKinds;
+    QHash<QString, quint64> m_shuffleCapabilityReads;
+    void sendShuffleRequest(const QString &operationName, ProviderCatalogOperation operation,
+                            const ProviderCatalogQuery &query, const QString &requestKey);
     // Home card writes in flight, by request key. A write whose session is
     // gone is answered with a failure (failStaleHomeCardWrites).
     QHash<QString, CatalogRequestIdentity> m_homeCardWrites;

@@ -163,6 +163,23 @@ FocusScope {
     property string selectedEpisodeName: selectedEpisodeData ? (selectedEpisodeData.name || "") : ""
     property int selectedEpisodeNumber: selectedEpisodeData ? (selectedEpisodeData.indexNumber || 0) : 0
     property int selectedSeasonNumber: selectedEpisodeData ? (selectedEpisodeData.parentIndexNumber || 0) : 0
+    // Shuffle this season (LibraryService.supportsShuffle, read again when
+    // the server's shuffle capability arrives).
+    property bool shuffleSupported: false
+
+    function refreshShuffleSupport() {
+        shuffleSupported = LibraryService.supportsShuffle("season", "")
+    }
+
+    function startSeasonShuffle() {
+        const seasonId = SeriesDetailsViewModel.selectedSeasonId || ""
+        if (seasonId === "" || PlayerController.shuffleStarting)
+            return
+        const seasonName = SeriesDetailsViewModel.selectedSeasonName || ""
+        if (!PlayerController.startShuffle({ kind: "season", id: seasonId,
+                                             title: seasonName || (seriesName || "") }))
+            shuffleToast.show(qsTr("Shuffle isn't available for this season."))
+    }
     property string selectedEpisodeOverview: selectedEpisodeData ? (selectedEpisodeData.overview || "") : ""
     property real selectedEpisodeDurationMs: selectedEpisodeData ? (selectedEpisodeData.durationMs || 0) : 0
     property real selectedEpisodeCommunityRating: selectedEpisodeData ? (selectedEpisodeData.communityRating || 0) : 0
@@ -395,6 +412,8 @@ FocusScope {
     
     // Load series details and initial season
     Component.onCompleted: {
+        LibraryService.loadShuffleCapability()
+        refreshShuffleSupport()
         resetInitialSelectionState()
         if (seriesId !== "" && SeriesDetailsViewModel.seriesId !== seriesId) {
             console.log("[SeriesSeasonEpisodeView] Loading series details needed:", seriesId)
@@ -658,6 +677,9 @@ FocusScope {
     // Update selected episode data when played status changes
     Connections {
         target: LibraryService
+        function onShuffleSupportChanged() {
+            root.refreshShuffleSupport()
+        }
         function onItemPlayedStatusChanged(itemId, isPlayed) {
             if (itemId === selectedEpisodeId) {
                 // Refresh the episodes model to get updated UserData
@@ -1320,7 +1342,7 @@ FocusScope {
                         sidePadding: Math.round(36 * Theme.layoutScale)
 
                         KeyNavigation.left: playResumeButton
-                        KeyNavigation.right: playFromBeginningButton
+                        KeyNavigation.right: shuffleSeasonButton.visible ? shuffleSeasonButton : playFromBeginningButton
 
                         onActiveFocusChanged: if (activeFocus) root.scrollTo(0)
                         Keys.onUpPressed: (event) => root.heroUp(event)
@@ -1343,6 +1365,44 @@ FocusScope {
                         onClicked: root.seriesDetailsRequested(selectedEpisodeId)
                     }
 
+                    // Plays this season's episodes in random order.
+                    SecondaryActionButton {
+                        id: shuffleSeasonButton
+                        visible: root.shuffleSupported
+                        text: qsTr("Shuffle")
+                        iconGlyph: Icons.shuffle
+                        accessibleLabel: qsTr("Shuffle this season")
+                        enabled: (SeriesDetailsViewModel.selectedSeasonId || "") !== ""
+                                 && !PlayerController.shuffleStarting
+                        implicitHeight: Theme.buttonHeightHero
+                        labelPixelSize: Theme.fontSizeMedium
+                        iconPixelSize: Theme.iconSizeLarge
+                        sidePadding: Math.round(36 * Theme.layoutScale)
+
+                        KeyNavigation.left: goToSeriesButton
+                        KeyNavigation.right: playFromBeginningButton
+
+                        onActiveFocusChanged: if (activeFocus) root.scrollTo(0)
+                        Keys.onUpPressed: (event) => root.heroUp(event)
+                        Keys.onDownPressed: (event) => root.heroDown(event)
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat && enabled) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: root.startSeasonShuffle()
+                    }
+
                     SecondaryActionButton {
                         id: playFromBeginningButton
                         text: qsTr("From Start")
@@ -1353,7 +1413,7 @@ FocusScope {
                         implicitHeight: Theme.buttonHeightHero
                         iconPixelSize: Theme.iconSizeLarge
 
-                        KeyNavigation.left: goToSeriesButton
+                        KeyNavigation.left: shuffleSeasonButton.visible ? shuffleSeasonButton : goToSeriesButton
                         KeyNavigation.right: watchedToggleButton
 
                         onActiveFocusChanged: if (activeFocus) root.scrollTo(0)
@@ -1973,5 +2033,10 @@ FocusScope {
                 }
             }
         }
+    }
+
+    ToastNotification {
+        id: shuffleToast
+        z: 300
     }
 }

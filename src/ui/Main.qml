@@ -662,15 +662,38 @@ Window {
     property var upNextStartScreen: null
 
     // `startedByAutoplay` is true only when the Up Next countdown ran out;
-    // it feeds the "Still watching?" episode count.
-    function beginUpNextStart(screen, episode, seriesId, startedByAutoplay) {
+    // it feeds the "Still watching?" episode count. A shuffle's Up Next
+    // plays the shuffle's next pick instead (`shuffle`).
+    function beginUpNextStart(screen, episode, seriesId, startedByAutoplay, shuffle) {
         if (upNextStartScreen) {
             return
         }
         upNextStartScreen = screen
         screen.beginStarting(episode)
         upNextStartTimeout.restart()
-        PlayerController.playNextEpisode(episode, seriesId, startedByAutoplay === true)
+        if (shuffle === true) {
+            PlayerController.playShuffleNext(startedByAutoplay === true)
+        } else {
+            PlayerController.playNextEpisode(episode, seriesId, startedByAutoplay === true)
+        }
+    }
+
+    // The shuffle's Up Next sits on the page the shuffle started from, so
+    // leaving it (Close, Stop, Back, or the shuffle ending) returns there.
+    property var shuffleUpNextScreen: null
+
+    function leaveShuffleUpNext() {
+        const screen = shuffleUpNextScreen
+        shuffleUpNextScreen = null
+        if (upNextStartScreen === screen) {
+            upNextStartScreen = null
+            upNextStartTimeout.stop()
+        }
+        PlayerController.releaseDeferredPostPlaybackDisplayRestore()
+        PlayerController.clearPendingAutoplayContext()
+        if (screen && stackView.currentItem === screen) {
+            stackView.pop(null, StackView.Immediate)
+        }
     }
 
     function finishUpNextStart() {
@@ -680,6 +703,9 @@ Window {
         }
         upNextStartScreen = null
         upNextStartTimeout.stop()
+        if (shuffleUpNextScreen === screen) {
+            shuffleUpNextScreen = null
+        }
         if (stackView.currentItem === screen) {
             stackView.pop(null, StackView.Immediate)
         }
@@ -746,6 +772,7 @@ Window {
             } else if (event.key === Qt.Key_Escape
                        || event.key === Qt.Key_Back) {
                 event.accepted = true
+                PlayerController.stopShuffle()
                 PlayerController.releaseDeferredPostPlaybackDisplayRestore()
                 PlayerController.clearPendingAutoplayContext()
                 while (stackView.depth > 1) {
@@ -1869,6 +1896,77 @@ Window {
         ignoreUnknownSignals: true
     }
     
+    // A shuffle pick finished: Up Next offers the shuffle's next pick.
+    Connections {
+        target: PlayerController
+
+        function onShuffleUpNextRequested(item, autoplay) {
+            const stillWatching = PlayerController.stillWatchingPromptActive
+            // A previous shuffle Up Next is done now.
+            window.finishUpNextStart()
+            const staleScreen = window.shuffleUpNextScreen
+            window.shuffleUpNextScreen = null
+            if (staleScreen && stackView.currentItem === staleScreen) {
+                stackView.pop(null, StackView.Immediate)
+            }
+            console.log("[Main] Shuffle Up Next for:", item ? item.itemId : "",
+                        "Autoplay:", autoplay, "Still watching:", stillWatching)
+            const screen = stackView.push("UpNextScreen.qml", {
+                episodeData: item,
+                seriesId: item ? (item.seriesId || "") : "",
+                autoplay: autoplay,
+                shuffle: true,
+                stillWatching: stillWatching
+            }, StackView.Immediate)
+            if (!screen) {
+                PlayerController.stopShuffle()
+                PlayerController.releaseDeferredPostPlaybackDisplayRestore()
+                return
+            }
+            window.shuffleUpNextScreen = screen
+            Qt.callLater(function() {
+                if (screen && screen.focusPrimaryAction) {
+                    screen.focusPrimaryAction()
+                }
+            })
+            screen.playRequested.connect(function(startedByAutoplay) {
+                window.beginUpNextStart(screen, screen.episodeData, screen.seriesId,
+                                        startedByAutoplay, true)
+            })
+            screen.shuffleAgainRequested.connect(function() {
+                PlayerController.skipShuffleNext()
+            })
+            // Close, Stop and Back end the shuffle where it started.
+            screen.moreEpisodesRequested.connect(function() {
+                console.log("[Main] Shuffle Up Next: stopping the shuffle")
+                PlayerController.stopShuffle()
+                window.leaveShuffleUpNext()
+            })
+            screen.backToHomeRequested.connect(function() {
+                PlayerController.stopShuffle()
+                window.leaveShuffleUpNext()
+            })
+        }
+
+        function onShuffleNextItemChanged(item) {
+            const screen = window.shuffleUpNextScreen
+            if (screen && item && item.itemId && !screen.starting) {
+                screen.episodeData = item
+                screen.seriesId = item.seriesId || ""
+            }
+        }
+
+        function onShuffleEnded(message) {
+            console.warn("[Main] Shuffle ended:", message)
+            if (window.shuffleUpNextScreen) {
+                window.leaveShuffleUpNext()
+            }
+            if (message) {
+                toast.show(message)
+            }
+        }
+    }
+
     // Connection to handle post-playback navigation to next episode
     Connections {
         target: PlayerController

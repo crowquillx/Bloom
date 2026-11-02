@@ -233,6 +233,7 @@ private:
         capabilities |= ProviderCapability::StarRatings;
         capabilities |= ProviderCapability::WatchHistoryRemoval;
         capabilities |= ProviderCapability::WatchTonight;
+        capabilities |= ProviderCapability::ServerShuffle;
         return capabilities;
     }
 

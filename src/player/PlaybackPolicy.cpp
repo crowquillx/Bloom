@@ -1145,6 +1145,9 @@ PostPlaybackScreen postPlaybackScreen(const PostPlaybackInput &input)
     if (!completed) {
         return PostPlaybackScreen::None;
     }
+    if (input.shuffle) {
+        return PostPlaybackScreen::ShuffleUpNext;
+    }
     if (!input.seriesId.isEmpty()) {
         return PostPlaybackScreen::UpNext;
     }
@@ -1351,6 +1354,65 @@ int sleepTimerChoiceForNewPlayback(int currentChoice, int defaultChoice, SleepTi
         return normalizeSleepTimerChoice(currentChoice);
     }
     return normalizeSleepTimerChoice(defaultChoice);
+}
+
+qint64 shuffleReportPositionMs(qint64 positionMs, qint64 resumeFloorMs)
+{
+    return qMax(positionMs, resumeFloorMs);
+}
+
+bool isShufflePlayableItem(const QVariantMap &item)
+{
+    const QString type = item.value(QStringLiteral("mediaType")).toString();
+    return !item.value(QStringLiteral("itemId")).toString().isEmpty()
+        && (type == QStringLiteral("Movie") || type == QStringLiteral("Episode"));
+}
+
+LocalShuffleRefill planLocalShuffleRefill(const QVariantList &page,
+                                          const QStringList &handedOut,
+                                          const QString &currentItemId,
+                                          int total,
+                                          int staleReads)
+{
+    LocalShuffleRefill plan;
+    QVariantList playable;
+    QStringList playableIds;
+    for (const QVariant &value : page) {
+        const QVariantMap item = value.toMap();
+        const QString itemId = item.value(QStringLiteral("itemId")).toString();
+        if (!isShufflePlayableItem(item) || playableIds.contains(itemId)) {
+            continue;
+        }
+        playable.append(item);
+        playableIds.append(itemId);
+    }
+    if (playable.isEmpty()) {
+        plan.empty = true;
+        return plan;
+    }
+    for (const QVariant &value : std::as_const(playable)) {
+        if (!handedOut.contains(value.toMap().value(QStringLiteral("itemId")).toString())) {
+            plan.accepted.append(value);
+        }
+    }
+    if (!plan.accepted.isEmpty()) {
+        return plan;
+    }
+    // Everything in the page has played this cycle.
+    if (total > handedOut.size() && staleReads + 1 < kLocalShuffleMaxStaleReads) {
+        plan.readAgain = true;
+        return plan;
+    }
+    plan.newCycle = true;
+    for (const QVariant &value : std::as_const(playable)) {
+        if (value.toMap().value(QStringLiteral("itemId")).toString() != currentItemId) {
+            plan.accepted.append(value);
+        }
+    }
+    if (plan.accepted.isEmpty()) {
+        plan.accepted = playable;
+    }
+    return plan;
 }
 
 } // namespace Bloom::PlaybackPolicy

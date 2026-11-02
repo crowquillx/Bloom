@@ -31,6 +31,8 @@ qt_add_executable(Bloom
     resources/images.qrc
     resources/mpv-shaders.qrc
     player/PlayerController.cpp
+    player/ShuffleSession.h
+    player/ShuffleSession.cpp
     player/MpvVideoItem.h
     player/MpvVideoItem.cpp
     player/ThemeSongManager.cpp

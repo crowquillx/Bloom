@@ -104,6 +104,10 @@ private slots:
     void normalizesStillWatchingThresholds();
     void normalizesSleepTimerChoices();
     void sleepTimerSurvivesOnlyDurationsThroughUpNext();
+    void completedShufflePickLeadsIntoShuffleUpNext();
+    void shuffleReportsKeepTheResumePoint();
+    void shufflePicksOnlyMoviesAndEpisodes();
+    void localShuffleRefillAvoidsRepeatsUntilTheCycleEnds();
     void resolvesAdjacentEpisodesWithinSeason();
     void resolvesAdjacentSeasonsSkippingSpecials();
     void buildsPlaybackVersionOptions();
@@ -1472,6 +1476,117 @@ void PlaybackPolicyTest::sleepTimerSurvivesOnlyDurationsThroughUpNext()
     QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 60, Start::New), 60);
     QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, endOfItem, Start::New), endOfItem);
     QCOMPARE(PlayerPolicy::sleepTimerChoiceForNewPlayback(0, 22, Start::New), 0);
+}
+
+void PlaybackPolicyTest::completedShufflePickLeadsIntoShuffleUpNext()
+{
+    using PlayerPolicy::PostPlaybackScreen;
+    // A completed pick, movie or episode, leads into the shuffle's Up Next,
+    // never the after-movie screen or the series' Up Next. The completion
+    // rule needs no series for a movie pick.
+    PlayerPolicy::PostPlaybackInput movie;
+    movie.itemId = QStringLiteral("movie-1");
+    movie.isMovie = true;
+    movie.shuffle = true;
+    movie.positionSeconds = 95.0;
+    movie.durationSeconds = 100.0;
+    movie.thresholdPercent = 90;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(movie), PostPlaybackScreen::ShuffleUpNext);
+    PlayerPolicy::PostPlaybackInput episode = movie;
+    episode.isMovie = false;
+    episode.seriesId = QStringLiteral("series-1");
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(episode), PostPlaybackScreen::ShuffleUpNext);
+
+    // Short of the threshold, an error, or the sleep timer: the shuffle ends.
+    PlayerPolicy::PostPlaybackInput early = episode;
+    early.positionSeconds = 50.0;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(early), PostPlaybackScreen::None);
+    PlayerPolicy::PostPlaybackInput failed = movie;
+    failed.endedWithError = true;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(failed), PostPlaybackScreen::None);
+    PlayerPolicy::PostPlaybackInput slept = movie;
+    slept.endedBySleepTimer = true;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(slept), PostPlaybackScreen::None);
+    PlayerPolicy::PostPlaybackInput unknownDuration = movie;
+    unknownDuration.durationSeconds = 0.0;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(unknownDuration), PostPlaybackScreen::None);
+}
+
+void PlaybackPolicyTest::shuffleReportsKeepTheResumePoint()
+{
+    // Short of the old resume point, reports carry it; past it, playback.
+    QCOMPARE(PlayerPolicy::shuffleReportPositionMs(60000, 900000), qint64(900000));
+    QCOMPARE(PlayerPolicy::shuffleReportPositionMs(900000, 900000), qint64(900000));
+    QCOMPARE(PlayerPolicy::shuffleReportPositionMs(1000000, 900000), qint64(1000000));
+    // A pick without a resume point reports where it is.
+    QCOMPARE(PlayerPolicy::shuffleReportPositionMs(60000, 0), qint64(60000));
+}
+
+void PlaybackPolicyTest::shufflePicksOnlyMoviesAndEpisodes()
+{
+    QVERIFY(PlayerPolicy::isShufflePlayableItem(
+        {{QStringLiteral("itemId"), QStringLiteral("m1")}, {QStringLiteral("mediaType"), QStringLiteral("Movie")}}));
+    QVERIFY(PlayerPolicy::isShufflePlayableItem(
+        {{QStringLiteral("itemId"), QStringLiteral("e1")}, {QStringLiteral("mediaType"), QStringLiteral("Episode")}}));
+    QVERIFY(!PlayerPolicy::isShufflePlayableItem(
+        {{QStringLiteral("itemId"), QStringLiteral("s1")}, {QStringLiteral("mediaType"), QStringLiteral("Series")}}));
+    QVERIFY(!PlayerPolicy::isShufflePlayableItem(
+        {{QStringLiteral("itemId"), QStringLiteral("t1")}, {QStringLiteral("mediaType"), QStringLiteral("Trailer")}}));
+    QVERIFY(!PlayerPolicy::isShufflePlayableItem({{QStringLiteral("mediaType"), QStringLiteral("Movie")}}));
+}
+
+void PlaybackPolicyTest::localShuffleRefillAvoidsRepeatsUntilTheCycleEnds()
+{
+    const auto item = [](const QString &id, const QString &type = QStringLiteral("Episode")) {
+        return QVariant(QVariantMap{{QStringLiteral("itemId"), id}, {QStringLiteral("mediaType"), type}});
+    };
+    const auto ids = [](const QVariantList &items) {
+        QStringList result;
+        for (const QVariant &value : items) {
+            result.append(value.toMap().value(QStringLiteral("itemId")).toString());
+        }
+        return result;
+    };
+
+    // New items are accepted once each; series and repeats are dropped.
+    PlayerPolicy::LocalShuffleRefill plan = PlayerPolicy::planLocalShuffleRefill(
+        {item(QStringLiteral("e1")), item(QStringLiteral("s1"), QStringLiteral("Series")),
+         item(QStringLiteral("e2")), item(QStringLiteral("e1")), item(QStringLiteral("m1"), QStringLiteral("Movie"))},
+        {QStringLiteral("e2")}, QStringLiteral("e2"), 10, 0);
+    QCOMPARE(ids(plan.accepted), (QStringList{QStringLiteral("e1"), QStringLiteral("m1")}));
+    QVERIFY(!plan.readAgain);
+    QVERIFY(!plan.newCycle);
+    QVERIFY(!plan.empty);
+
+    // Everything in the page has played but the scope holds more: read
+    // again, a bounded number of times.
+    const QVariantList played{item(QStringLiteral("e1")), item(QStringLiteral("e2"))};
+    const QStringList handedOut{QStringLiteral("e1"), QStringLiteral("e2")};
+    plan = PlayerPolicy::planLocalShuffleRefill(played, handedOut, QStringLiteral("e2"), 30, 0);
+    QVERIFY(plan.readAgain);
+    QVERIFY(plan.accepted.isEmpty());
+    plan = PlayerPolicy::planLocalShuffleRefill(played, handedOut, QStringLiteral("e2"), 30,
+                                                PlayerPolicy::kLocalShuffleMaxStaleReads - 1);
+    QVERIFY(!plan.readAgain);
+    QVERIFY(plan.newCycle);
+
+    // The whole scope has played: a new cycle that does not open with the
+    // item playing now.
+    plan = PlayerPolicy::planLocalShuffleRefill(played, handedOut, QStringLiteral("e2"), 2, 0);
+    QVERIFY(plan.newCycle);
+    QCOMPARE(ids(plan.accepted), (QStringList{QStringLiteral("e1")}));
+
+    // A scope of one item repeats it.
+    plan = PlayerPolicy::planLocalShuffleRefill({item(QStringLiteral("e1"))}, {QStringLiteral("e1")},
+                                                QStringLiteral("e1"), 1, 0);
+    QVERIFY(plan.newCycle);
+    QCOMPARE(ids(plan.accepted), (QStringList{QStringLiteral("e1")}));
+
+    // Nothing playable at all.
+    plan = PlayerPolicy::planLocalShuffleRefill({item(QStringLiteral("s1"), QStringLiteral("Series"))}, {},
+                                                QString(), 1, 0);
+    QVERIFY(plan.empty);
+    QVERIFY(plan.accepted.isEmpty());
 }
 
 QTEST_APPLESS_MAIN(PlaybackPolicyTest)

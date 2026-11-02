@@ -79,6 +79,7 @@
     "catalog.search",
     "catalog.filters",
     "catalog.letters",
+    "catalog.shuffle",
     "artwork.standard",
     "artwork.chapter",
     "playback.info",
@@ -337,6 +338,32 @@
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "GetItems without Limit answers every match; Fields=SortName, EnableImages and EnableUserData are current parameters in the pinned OpenAPI."},
         "silo-8044eb8-compat": {"outcome": "partial", "evidence": "The compatibility item query defaults Limit to 24 (internal/jellycompat/query.go), so its answer is shorter than TotalRecordCount and Bloom keeps the loaded-rows rail; its item DTO carries SortName."}
+      }
+    },
+    {
+      "id": "catalog.shuffle",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getShuffleItems and ShuffleSession",
+      "method": "GET",
+      "path": "/Items",
+      "requestSemantics": [
+        "UserId, ParentId (the library, series, season or box set), IncludeItemTypes=Episode for a series or season and Movie,Episode for a library or box set, Recursive=true, IsMissing=false, SortBy=Random, Limit=50 (at most 100), Fields=Overview,ParentId,PrimaryImageAspectRatio, EnableImageTypes and EnableTotalRecordCount=true",
+        "Bloom keeps the shuffle itself: another random page is read when two or fewer items are queued after the next one"
+      ],
+      "requiredSemantics": [
+        "Items are movies and episodes under the scope in random order; TotalRecordCount is the scope's size",
+        "Nothing repeats until the whole scope has played: items already handed out this cycle are dropped from a page, a page with nothing new is read again at most three times while the scope holds more, and then a new cycle starts that does not open with the item playing now",
+        "Extras are not children of their item, so they never appear"
+      ],
+      "expectations": {
+        "jellyfin-supported": {
+          "outcome": "supported",
+          "evidence": "GetItems with ParentId, IncludeItemTypes, Recursive, IsMissing, SortBy=Random, Limit, Fields, EnableImageTypes and EnableTotalRecordCount, all current parameters in the pinned OpenAPI. A box set's recursive children through its series is how Jellyfin lists folder children; not live-validated."
+        },
+        "silo-8044eb8-compat": {
+          "outcome": "partial",
+          "evidence": "At a103c2c8 the compatibility item query maps SortBy=Random to random order and routes ParentId by library, collection, season or item (internal/jellycompat/query.go); IsMissing only marks the request as filtered, since Silo has no virtual items. Not checked at the pinned 8044eb8, and native Silo uses server shuffles instead."
+        }
       }
     },
     {
@@ -941,7 +968,8 @@
       "native.theme-songs",
       "native.poster-badges",
       "native.requests",
-      "native.subtitles.search"
+      "native.subtitles.search",
+      "native.playback.shuffle"
     ],
     "requirements": [
       {
@@ -2596,6 +2624,66 @@
           "src/providers/silo/SiloPlaybackProvider.cpp",
           "src/network/PlaybackService.cpp",
           "src/viewmodels/SubtitleSearchViewModel.cpp"
+        ]
+      },
+      {
+        "id": "native.playback.shuffle",
+        "method": "GET/POST/DELETE",
+        "path": "/api/v2/shuffles/capabilities and /api/v2/shuffles and /api/v2/shuffles/{shuffle_id} and /api/v2/shuffles/{shuffle_id}/advance and /api/v2/shuffles/{shuffle_id}/skip",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/shuffles/capabilities"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/shuffles"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/shuffles/{shuffle_id}"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/shuffles/{shuffle_id}/advance"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/shuffles/{shuffle_id}/skip"
+          },
+          {
+            "method": "DELETE",
+            "path": "/api/v2/shuffles/{shuffle_id}"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "conditional",
+          "discovery": "getShuffleCapability for the selected profile: Bloom offers Shuffle only when state is available, allowed holds and scope_kinds lists the page's scope kind, read once per connection and profile. Exposed as ProviderCapability::ServerShuffle on native Silo only."
+        },
+        "requestSemantics": [
+          "Profile-scoped. createShuffle sends {scope: {kind, id}} with kind library (library ID), series or season (content ID), library_collection or user_collection (collection ID); it is non_retryable, so a lost response is never replayed.",
+          "advanceShuffle sends from_content_id, the current item that finished or that Next skipped; skipShuffleItem sends next_content_id, the announced next item Up Next's Shuffle Again replaces. Both are natural_idempotent: an anchor the shuffle has moved past changes nothing.",
+          "getShuffle re-reads the shuffle when Up Next opens; deleteShuffle (natural_idempotent) stops it when playback stops or Up Next is left, only while its connection is still the active one.",
+          "createShuffle, getShuffle, advanceShuffle and skipShuffleItem carry the declared poster, backdrop, logo and still widths."
+        ],
+        "requiredSemantics": [
+          "A Shuffle names current, the item to play now, and next, the item after it (equal only for a one-item scope); both are movie or episode cards, and a scope holds no extras.",
+          "Picks never repeat until the whole scope has played, then a new cycle starts; a skipped item returns to the pool. Every pick and read re-applies the viewer's access, and getShuffle replaces a next item that can no longer play.",
+          "404 means the shuffle is gone (stopped elsewhere, or untouched for 7 days); 409 means the scope holds nothing playable. Bloom ends the shuffle on either.",
+          "Episode cards carry series_id and season_number but no season ID, so Bloom reads the series' seasons once to give each episode its own season's track picks."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/shuffle/shuffle.go",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/shuffle/pool.go",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/apiv2/shuffles.go"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/network/LibraryService.cpp",
+          "src/player/ShuffleSession.cpp",
+          "src/player/PlayerController.cpp"
         ]
       }
     ],

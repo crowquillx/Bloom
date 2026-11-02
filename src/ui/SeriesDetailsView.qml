@@ -41,6 +41,9 @@ FocusScope {
     readonly property bool extrasLoading: SeriesDetailsViewModel.extrasLoading
     readonly property var trailer: SeriesDetailsViewModel.trailer || ({})
     readonly property bool hasTrailer: !!(trailer && trailer.itemId)
+    // Shuffle the whole series (LibraryService.supportsShuffle, read again
+    // when the server's shuffle capability arrives).
+    property bool shuffleSupported: false
     readonly property int extraCardImageWidth: Math.round(Theme.landscapeCardWidth * Math.max(2, Screen.devicePixelRatio))
     // The card or button that started an extra gets focus back afterwards.
     property Item extraReturnFocusTarget: null
@@ -229,6 +232,18 @@ FocusScope {
         })
     }
 
+    function refreshShuffleSupport() {
+        shuffleSupported = seriesId !== "" && LibraryService.supportsShuffle("series", "")
+    }
+
+    function startShuffle() {
+        if (!root.sharedModelCurrent || PlayerController.shuffleStarting)
+            return
+        root.resetExtraReturnFocus()
+        if (!PlayerController.startShuffle({ kind: "series", id: seriesId, title: seriesName }))
+            watchlistToast.show(qsTr("Shuffle isn't available for this series."))
+    }
+
     function resetExtraReturnFocus() {
         extraReturnFocusPending = false
         extraReturnFocusActivated = false
@@ -354,6 +369,7 @@ FocusScope {
         }
         if (itemIsDescendant(activeItem, playButton)
                 || itemIsDescendant(activeItem, trailerButton)
+                || itemIsDescendant(activeItem, shuffleButton)
                 || itemIsDescendant(activeItem, favoriteButton)
                 || itemIsDescendant(activeItem, watchlistButton)
                 || itemIsDescendant(activeItem, contextMenuButton)) {
@@ -386,6 +402,7 @@ FocusScope {
             if (itemIsDescendant(activeItem, contextMenuButton)) return 2
             if (itemIsDescendant(activeItem, watchlistButton)) return 3
             if (itemIsDescendant(activeItem, trailerButton)) return 4
+            if (itemIsDescendant(activeItem, shuffleButton)) return 5
             return 0
         }
         if (area === "seasons") return Math.max(0, seasonsList.currentIndex)
@@ -420,6 +437,8 @@ FocusScope {
                 watchlistButton.forceActiveFocus()
             } else if (targetIndex === 4 && trailerButton.visible) {
                 trailerButton.forceActiveFocus()
+            } else if (targetIndex === 5 && shuffleButton.visible) {
+                shuffleButton.forceActiveFocus()
             } else {
                 playButton.forceActiveFocus()
             }
@@ -615,6 +634,8 @@ FocusScope {
             requestLoadedTmdbId = ""
         }
 
+        LibraryService.loadShuffleCapability()
+        refreshShuffleSupport()
         if (seriesId !== "") {
             SeriesDetailsViewModel.loadSeriesDetails(seriesId)
         } else {
@@ -751,7 +772,8 @@ FocusScope {
                         iconPixelSize: Theme.iconSizeLarge
                         sidePadding: Math.round(40 * Theme.layoutScale)
 
-                        KeyNavigation.right: trailerButton.visible ? trailerButton : favoriteButton
+                        KeyNavigation.right: trailerButton.visible ? trailerButton
+                                             : shuffleButton.visible ? shuffleButton : favoriteButton
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
@@ -815,7 +837,7 @@ FocusScope {
                         sidePadding: Math.round(36 * Theme.layoutScale)
 
                         KeyNavigation.left: playButton
-                        KeyNavigation.right: favoriteButton
+                        KeyNavigation.right: shuffleButton.visible ? shuffleButton : favoriteButton
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
@@ -847,6 +869,52 @@ FocusScope {
                         onClicked: root.playExtra(root.trailer, trailerButton)
                     }
 
+                    // Plays the series' episodes in random order.
+                    SecondaryActionButton {
+                        id: shuffleButton
+                        visible: root.shuffleSupported
+                        enabled: !PlayerController.shuffleStarting
+                        text: qsTr("Shuffle")
+                        iconGlyph: Icons.shuffle
+                        accessibleLabel: qsTr("Shuffle %1").arg(seriesName)
+                        implicitHeight: Theme.buttonHeightHero
+                        labelPixelSize: Theme.fontSizeMedium
+                        iconPixelSize: Theme.iconSizeLarge
+                        sidePadding: Math.round(36 * Theme.layoutScale)
+
+                        KeyNavigation.left: trailerButton.visible ? trailerButton : playButton
+                        KeyNavigation.right: favoriteButton
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root.ensureTopVisible()
+                            }
+                        }
+
+                        Keys.onUpPressed: (event) => root.heroUp(event)
+
+                        Keys.onDownPressed: (event) => {
+                            root.focusFirstLowerSection()
+                            event.accepted = true
+                        }
+
+                        Keys.onReturnPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onEnterPressed: (event) => {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                                event.accepted = true
+                            }
+                        }
+
+                        onClicked: root.startShuffle()
+                    }
+
                     SecondaryActionButton {
                         id: favoriteButton
                         text: isFavorite ? qsTr("Favorited") : qsTr("Favorite")
@@ -857,7 +925,8 @@ FocusScope {
                         iconPixelSize: Theme.iconSizeLarge
                         sidePadding: Math.round(36 * Theme.layoutScale)
 
-                        KeyNavigation.left: trailerButton.visible ? trailerButton : playButton
+                        KeyNavigation.left: shuffleButton.visible ? shuffleButton
+                                            : trailerButton.visible ? trailerButton : playButton
                         KeyNavigation.right: watchlistButton.visible ? watchlistButton : contextMenuButton
 
                         onActiveFocusChanged: {
@@ -1449,7 +1518,17 @@ FocusScope {
         }
     }
 
+    Connections {
+        target: LibraryService
+
+        function onShuffleSupportChanged() {
+            root.refreshShuffleSupport()
+        }
+    }
+
     Component.onCompleted: {
+        LibraryService.loadShuffleCapability()
+        refreshShuffleSupport()
         if (SeriesDetailsViewModel.seriesId !== "" && SeriesDetailsViewModel.title !== "") {
             if (!hasPendingReturnStateForCurrentSeries() && !suppressHeroAutofocus) {
                 focusTimer.start()

@@ -1,4 +1,5 @@
 #include "PlayerController.h"
+#include "ShuffleSession.h"
 #include "PlaybackPolicy.h"
 #include "AudioPolicy.h"
 #include "audio/AudioOutputService.h"
@@ -223,6 +224,18 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             this, &PlayerController::onChaptersFailed);
     connect(m_libraryService, &LibraryService::canonicalItemsLoadedForConnection,
             this, &PlayerController::onAdjacentEpisodeItemsLoaded);
+    m_shuffle = new ShuffleSession(m_libraryService, this);
+    connect(m_shuffle, &ShuffleSession::currentReady,
+            this, &PlayerController::onShuffleCurrentReady);
+    connect(m_shuffle, &ShuffleSession::nextChanged,
+            this, &PlayerController::onShuffleNextChanged);
+    connect(m_shuffle, &ShuffleSession::failed,
+            this, &PlayerController::onShuffleFailed);
+    connect(m_shuffle, &ShuffleSession::stateChanged,
+            this, &PlayerController::shuffleStateChanged);
+    // Next in the playback overlay follows the shuffle while one plays.
+    connect(this, &PlayerController::shuffleStateChanged,
+            this, &PlayerController::adjacentEpisodesChanged);
     // Version and episode navigation state is scoped to the item it was built for.
     connect(this, &PlayerController::currentItemIdChanged,
             this, &PlayerController::playbackVersionsChanged);
@@ -807,6 +820,10 @@ void PlayerController::enterIdleStateImmediate()
     m_currentIsMovie = false;
     m_currentSeasonId.clear();
     m_currentLibraryId.clear();
+    if (m_currentIsShuffle) {
+        m_currentIsShuffle = false;
+        emit shuffleStateChanged();
+    }
     m_pendingUrl.clear();
     m_recoveryContext = RecoveryContext{};
     m_lastErrorWasNetworkRecoverable = false;
@@ -1118,7 +1135,7 @@ void PlayerController::onEnterPausedState()
         : segment.value(QStringLiteral("itemId")).toString();
     if (!reportItemId.isEmpty()) {
         m_playbackService->reportPlaybackPaused(reportItemId,
-                                                currentReportingPositionMs(),
+                                                serverReportPositionMs(),
                                                 segment.isEmpty() ? m_mediaSourceId : segment.value(QStringLiteral("mediaSourceId")).toString(),
                                                 segment.isEmpty() ? m_selectedAudioTrack : segment.value(QStringLiteral("audioIndex")).toInt(),
                                                 segment.isEmpty() ? m_selectedSubtitleTrack : segment.value(QStringLiteral("subtitleIndex")).toInt(),
@@ -1278,6 +1295,12 @@ void PlayerController::onPositionChanged(double seconds)
     const double offsetSeconds = static_cast<double>(m_activePlaybackSegmentOffsetMs) / 1000.0;
     const double aggregatePosition = offsetSeconds + seconds;
     m_currentPosition = aggregatePosition;
+    if (m_shuffleResumeFloorMs > 0 && m_currentIsShuffle
+        && m_currentItemId == m_shuffleResumeFloorItemId
+        && currentReportingPositionMs() >= m_shuffleResumeFloorMs) {
+        // Past the pick's old resume point: reports follow playback again.
+        m_shuffleResumeFloorMs = 0;
+    }
     if (m_reportProgressOnNextPositionUpdate
         && (m_playbackState == Playing || m_playbackState == Paused)) {
         reportPlaybackProgressNow();
@@ -1404,7 +1427,7 @@ void PlayerController::onPauseChanged(bool paused)
         processEvent(Event::Pause);
     } else if (!paused && m_playbackState == Paused) {
         // Report resume to server
-        m_playbackService->reportPlaybackResumed(reportItemId, currentReportingPositionMs(),
+        m_playbackService->reportPlaybackResumed(reportItemId, serverReportPositionMs(),
                                                  segment.isEmpty() ? m_mediaSourceId : segment.value(QStringLiteral("mediaSourceId")).toString(),
                                                  segment.isEmpty() ? m_selectedAudioTrack : segment.value(QStringLiteral("audioIndex")).toInt(),
                                                  segment.isEmpty() ? m_selectedSubtitleTrack : segment.value(QStringLiteral("subtitleIndex")).toInt(),
@@ -1553,6 +1576,7 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
     reportPlaybackStop();
 
     const bool sleepTimerEndedPlayback = applySleepTimerAtTerminal(reason);
+    const bool shufflePlayback = isShufflePlayback();
 
     m_pendingAfterMovie.clear();
     PlayerPolicy::PostPlaybackInput postPlayback;
@@ -1562,12 +1586,28 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
     postPlayback.alreadyEvaluated = m_hasEvaluatedCompletionForAttempt;
     postPlayback.itemId = m_currentItemId;
     postPlayback.isMovie = m_currentIsMovie;
+    postPlayback.shuffle = shufflePlayback;
     postPlayback.seriesId = m_currentSeriesId;
     postPlayback.positionSeconds = m_currentPosition;
     postPlayback.durationSeconds = m_duration;
     postPlayback.thresholdPercent = m_config->getPlaybackCompletionThreshold();
     const PlayerPolicy::PostPlaybackScreen screen = PlayerPolicy::postPlaybackScreen(postPlayback);
-    if (reason != TerminalReason::Error) {
+    if (reason != TerminalReason::Error && shufflePlayback) {
+        // A shuffle pick never leads into the series' next episode or the
+        // after-movie screen: Up Next offers the shuffle's next item, or the
+        // shuffle ends.
+        m_hasEvaluatedCompletionForAttempt = true;
+        clearPendingAutoplayContext();
+        clearNextEpisodePrefetchState();
+        m_shouldAutoplay = false;
+        if (screen == PlayerPolicy::PostPlaybackScreen::ShuffleUpNext) {
+            m_shuffleUpNextPending = true;
+            setAwaitingNextEpisodeResolution(true);
+        } else {
+            clearSleepTimer();
+            endShuffle();
+        }
+    } else if (reason != TerminalReason::Error) {
         const bool thresholdMet = checkCompletionThresholdAndAutoplay();
         if (screen == PlayerPolicy::PostPlaybackScreen::AfterMovie) {
             m_pendingAfterMovie = {
@@ -1600,7 +1640,11 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
         clearPendingAutoplayContext();
         clearNextEpisodePrefetchState();
         m_shouldAutoplay = false;
-        stashRecoveryContextForCurrentPlayback();
+        // A failed pick keeps the shuffle only while recovery retries it.
+        const bool recoveryPending = stashRecoveryContextForCurrentPlayback();
+        if (shufflePlayback && !recoveryPending) {
+            endShuffle();
+        }
     }
 
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
@@ -1696,6 +1740,11 @@ void PlayerController::finalizeTerminalTransition()
         return;
     }
 
+    if (std::exchange(m_shuffleUpNextPending, false) && reason != TerminalReason::Error) {
+        openShuffleUpNext();
+        return;
+    }
+
     if (!afterMovie.isEmpty() && reason != TerminalReason::Error) {
         emit navigateToAfterMovie(afterMovie);
         return;
@@ -1750,7 +1799,11 @@ void PlayerController::updatePendingTerminalReason(TerminalReason reason)
         clearNextEpisodePrefetchState();
         m_shouldAutoplay = false;
         m_terminalPrefetchedReady = false;
+        const bool shuffleUpNextWasPending = std::exchange(m_shuffleUpNextPending, false);
         const bool stashed = stashRecoveryContextForCurrentPlayback();
+        if ((shuffleUpNextWasPending || isShufflePlayback()) && !stashed) {
+            endShuffle();
+        }
         qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                 << "] terminal-transition upgraded to recoverable error"
                                 << "recoveryContextStashed=" << stashed;
@@ -1807,6 +1860,7 @@ bool PlayerController::stashRecoveryContextForCurrentPlayback()
     m_recoveryContext.libraryId = m_currentLibraryId;
     m_recoveryContext.contentKind = m_currentContentKind;
     m_recoveryContext.isMovie = m_currentIsMovie;
+    m_recoveryContext.shuffle = m_currentIsShuffle;
     m_recoveryContext.mediaSourceId = m_mediaSourceId;
     m_recoveryContext.playSessionId = QString(); // avoid stale session
     m_recoveryContext.mediaSource = m_activeMediaSource;
@@ -2821,6 +2875,10 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     // sleep timer. Up Next and the episode controls ("continuesWatching":
     // "upNext" or "episodeSkip") keep a running timer.
     if (!request.value(QStringLiteral("continuesSession")).toBool()) {
+        // Any other playback ends a running shuffle.
+        if (!request.value(QStringLiteral("shuffle")).toBool()) {
+            endShuffle();
+        }
         m_autoplayChainCount = PlayerPolicy::autoplayChainCountAfterStart(
             m_autoplayChainCount, request.value(QStringLiteral("startedByAutoplay")).toBool());
         setStillWatchingPromptActive(false);
@@ -2864,6 +2922,7 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     // own: no series context, no resume, no Up Next.
     pending.contentKind = PlayerPolicy::playbackContentKindFromName(
         request.value(QStringLiteral("contentKind")).toString());
+    pending.shuffle = request.value(QStringLiteral("shuffle")).toBool();
     const PlayerPolicy::PlaybackContentRules contentRules =
         PlayerPolicy::playbackContentRules(pending.contentKind);
     if (!contentRules.keepsSeriesContext) {
@@ -3340,6 +3399,7 @@ void PlayerController::maybeFinalizePlaybackDescriptors(const QString &requestId
     m_nextPinnedSubtitleTrack = firstSegment.value(QStringLiteral("pinnedSubtitleTrack"), -1).toInt();
     m_nextPlaybackSegments = segments;
     m_nextContentKind = request.contentKind;
+    m_nextIsShuffle = request.shuffle;
     m_nextCarryTrackPreferencesFromSeasonId = request.carryTrackPreferencesFromSeasonId;
     m_nextIsMovie = request.isMovie;
     m_nextPlaylistAppendUrls.clear();
@@ -3849,6 +3909,16 @@ qint64 PlayerController::currentReportingPositionMs() const
     return qRound64(m_currentPosition * 1000.0);
 }
 
+qint64 PlayerController::serverReportPositionMs() const
+{
+    const qint64 positionMs = currentReportingPositionMs();
+    if (m_activePlaybackSegmentIndex >= 0 || !m_currentIsShuffle
+        || m_currentItemId != m_shuffleResumeFloorItemId) {
+        return positionMs;
+    }
+    return PlayerPolicy::shuffleReportPositionMs(positionMs, m_shuffleResumeFloorMs);
+}
+
 void PlayerController::reportPlaybackStartForSegment(const QVariantMap &segment)
 {
     if (segment.isEmpty() || !m_playbackService) {
@@ -4270,6 +4340,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     const QStringList requestedPlaylistAppendUrls = m_nextPlaylistAppendUrls;
     const PlayerPolicy::PlaybackContentKind requestedContentKind = m_nextContentKind;
     m_nextContentKind = PlayerPolicy::PlaybackContentKind::Feature;
+    const bool requestedShuffle = std::exchange(m_nextIsShuffle, false);
     const QString requestedCarrySeasonId =
         std::exchange(m_nextCarryTrackPreferencesFromSeasonId, QString());
     const bool requestedIsMovie = std::exchange(m_nextIsMovie, false);
@@ -4288,7 +4359,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
                                  requestedPinnedSubtitleTrack, requestedPlaybackAttemptId,
                                  requestedPlaybackSegments, requestedPlaylistAppendUrls,
                                  requestedContentKind, requestedCarrySeasonId,
-                                 requestedIsMovie]() {
+                                 requestedIsMovie, requestedShuffle]() {
         // Store pending playback info after the previous item has fully stopped.
         if (m_currentItemId != itemId) {
             m_currentItemId = itemId;
@@ -4298,6 +4369,10 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_currentSeasonId = seasonId;
         m_currentLibraryId = libraryId;
         m_currentContentKind = requestedContentKind;
+        if (m_currentIsShuffle != requestedShuffle) {
+            m_currentIsShuffle = requestedShuffle;
+            emit shuffleStateChanged();
+        }
         m_carryTrackPreferencesFromSeasonId = requestedCarrySeasonId;
         m_currentIsMovie = requestedIsMovie;
         emit sleepTimerChanged(); // sleepTimerEndOfItemLabel
@@ -4557,6 +4632,7 @@ void PlayerController::retry()
                 {QStringLiteral("useAffinityFallback"), true},
                 {QStringLiteral("contentKind"),
                  PlayerPolicy::playbackContentKindName(m_currentContentKind)},
+                {QStringLiteral("shuffle"), m_currentIsShuffle},
                 {QStringLiteral("continuesSession"), true}
             });
             return;
@@ -4573,6 +4649,9 @@ void PlayerController::clearError()
     qCDebug(lcPlayback) << "PlayerController: clearError requested";
     
     if (m_playbackState == Error) {
+        // Leaving a failed shuffle pick (recovery stops with it) ends the
+        // shuffle.
+        endShuffle();
         processEvent(Event::Recover);
     }
 }
@@ -4696,6 +4775,7 @@ void PlayerController::resumeFromRecoveryContext()
         {QStringLiteral("allowVersionPrompt"), false},
         {QStringLiteral("useAffinityFallback"), true},
         {QStringLiteral("contentKind"), PlayerPolicy::playbackContentKindName(context.contentKind)},
+        {QStringLiteral("shuffle"), context.shuffle},
         {QStringLiteral("continuesSession"), true}
     });
 }
@@ -5464,23 +5544,34 @@ void PlayerController::switchPlaybackVersion(const QString &mediaSourceId)
         {QStringLiteral("allowVersionPrompt"), false},
         {QStringLiteral("mediaSourceId"), mediaSourceId},
         {QStringLiteral("contentKind"), PlayerPolicy::playbackContentKindName(m_currentContentKind)},
+        {QStringLiteral("shuffle"), m_currentIsShuffle},
         {QStringLiteral("continuesSession"), true}
     });
 }
 
 bool PlayerController::hasEpisodeNavigation() const
 {
+    // A shuffle pick (movie or episode) moves on with Next only.
+    if (isShufflePlayback()) {
+        return true;
+    }
     return !m_currentSeriesId.isEmpty() && !m_currentSeasonId.isEmpty()
         && m_adjacentEpisodesItemId == m_currentItemId && !m_currentItemId.isEmpty();
 }
 
 bool PlayerController::hasPreviousEpisode() const
 {
+    if (isShufflePlayback()) {
+        return false;
+    }
     return hasEpisodeNavigation() && !m_previousEpisode.isEmpty();
 }
 
 bool PlayerController::hasNextEpisode() const
 {
+    if (isShufflePlayback()) {
+        return m_shuffle->state() == ShuffleSession::State::Ready;
+    }
     return hasEpisodeNavigation() && !m_nextEpisode.isEmpty();
 }
 
@@ -5503,7 +5594,8 @@ void PlayerController::refreshAdjacentEpisodes()
     m_adjacentEpisodesItemId.clear();
     m_adjacentEpisodesConnectionId.clear();
 
-    if (m_libraryService && !m_currentItemId.isEmpty()
+    // A shuffle pick's neighbours are the shuffle's, not the season's.
+    if (m_libraryService && !m_currentItemId.isEmpty() && !m_currentIsShuffle
         && !m_currentSeriesId.isEmpty() && !m_currentSeasonId.isEmpty()) {
         m_adjacentEpisodesItemId = m_currentItemId;
         m_adjacentEpisodesConnectionId = m_libraryService->getActiveConnectionId();
@@ -5602,13 +5694,24 @@ void PlayerController::resolveAdjacentEpisodes()
 
 void PlayerController::skipToPreviousEpisode()
 {
-    if (hasPreviousEpisode()) {
+    if (!isShufflePlayback() && hasPreviousEpisode()) {
         requestAdjacentEpisodePlayback(m_previousEpisode);
     }
 }
 
 void PlayerController::skipToNextEpisode()
 {
+    if (isShufflePlayback()) {
+        // Next skips the playing pick: the shuffle moves on and its next
+        // item replaces this one, like the episode controls.
+        if (m_shuffle->state() == ShuffleSession::State::Ready) {
+            qCInfo(lcPlayback) << "Shuffle: skipping" << "itemId=" << m_currentItemId;
+            m_shuffleStart = ShuffleStart{true, QStringLiteral("episodeSkip"), false, false};
+            m_shuffle->advance();
+            emit adjacentEpisodesChanged();
+        }
+        return;
+    }
     if (hasNextEpisode()) {
         requestAdjacentEpisodePlayback(m_nextEpisode);
     }
@@ -7097,7 +7200,7 @@ void PlayerController::reportPlaybackProgress()
         : segment.value(QStringLiteral("itemId")).toString();
     if (!reportItemId.isEmpty() && m_playbackService && m_playbackState == Playing) {
         m_playbackService->reportPlaybackProgress(reportItemId,
-                                                  currentReportingPositionMs(),
+                                                  serverReportPositionMs(),
                                                   segment.isEmpty() ? m_mediaSourceId : segment.value(QStringLiteral("mediaSourceId")).toString(),
                                                   segment.isEmpty() ? m_selectedAudioTrack : segment.value(QStringLiteral("audioIndex")).toInt(),
                                                   segment.isEmpty() ? m_selectedSubtitleTrack : segment.value(QStringLiteral("subtitleIndex")).toInt(),
@@ -7116,7 +7219,7 @@ void PlayerController::reportPlaybackProgressNow()
     if (!reportItemId.isEmpty() && m_playbackService
         && (m_playbackState == Playing || m_playbackState == Paused)) {
         m_playbackService->reportPlaybackProgress(reportItemId,
-                                                  currentReportingPositionMs(),
+                                                  serverReportPositionMs(),
                                                   segment.isEmpty() ? m_mediaSourceId : segment.value(QStringLiteral("mediaSourceId")).toString(),
                                                   segment.isEmpty() ? m_selectedAudioTrack : segment.value(QStringLiteral("audioIndex")).toInt(),
                                                   segment.isEmpty() ? m_selectedSubtitleTrack : segment.value(QStringLiteral("subtitleIndex")).toInt(),
@@ -7147,7 +7250,7 @@ PlayerController::PlaybackStopReportSnapshot PlayerController::capturePlaybackSt
     snapshot.playSessionId = segment.isEmpty()
         ? m_playSessionId
         : segment.value(QStringLiteral("playSessionId")).toString();
-    snapshot.positionMs = currentReportingPositionMs();
+    snapshot.positionMs = serverReportPositionMs();
     snapshot.canSeek = m_duration > 0.0;
     snapshot.isPaused = m_playbackState == Paused;
     snapshot.isMuted = m_muted;
@@ -7262,7 +7365,8 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
  */
 void PlayerController::maybeTriggerNextEpisodePrefetch()
 {
-    if (!PlayerPolicy::playbackContentRules(m_currentContentKind).allowsNextEpisode) {
+    if (!PlayerPolicy::playbackContentRules(m_currentContentKind).allowsNextEpisode
+        || isShufflePlayback()) {
         return;
     }
     if (!PlayerPolicy::shouldPrefetchNextEpisode({
@@ -8348,6 +8452,10 @@ void PlayerController::onScriptMessage(const QString &messageName, const QString
             qCDebug(lcPlayback) << "PlayerController: No intro segment found to skip";
         }
         
+    } else if (messageName == "bloom-next-item") {
+        // The overlay's Next: the next episode, or the shuffle's next item.
+        skipToNextEpisode();
+
     } else if (messageName == "bloom-skip-outro") {
         if (!seekToSegmentEnd(MediaSegmentType::Outro)) {
             qCDebug(lcPlayback) << "PlayerController: No outro segment found to skip";
@@ -9217,4 +9325,221 @@ void PlayerController::showExternalMpvOsd(const QString &text, int durationMs)
         return;
     }
     m_playerBackend->sendVariantCommand({QStringLiteral("show-text"), text, durationMs});
+}
+
+// === SHUFFLE PLAY ===
+
+bool PlayerController::shuffleActive() const
+{
+    return m_shuffle && m_shuffle->isActive();
+}
+
+bool PlayerController::shuffleStarting() const
+{
+    return m_shuffle && m_shuffle->state() == ShuffleSession::State::Starting;
+}
+
+bool PlayerController::shufflePlaying() const
+{
+    return isShufflePlayback();
+}
+
+bool PlayerController::isShufflePlayback() const
+{
+    return m_currentIsShuffle && m_shuffle && m_shuffle->isActive();
+}
+
+bool PlayerController::startShuffle(const QVariantMap &scope)
+{
+    if (!m_shuffle) {
+        return false;
+    }
+    // A page's Shuffle is a manual start; its version prompt may show.
+    m_shuffleStart = ShuffleStart{true, QString(), false, true};
+    m_shuffleUpNextPending = false;
+    m_shuffleUpNextAwaitingNext = false;
+    if (!m_shuffle->start(scope)) {
+        m_shuffleStart = ShuffleStart{};
+        return false;
+    }
+    return true;
+}
+
+void PlayerController::playShuffleNext(bool startedByAutoplay)
+{
+    if (!m_shuffle || !m_shuffle->isActive()) {
+        emit shuffleEnded(tr("This shuffle has ended."));
+        return;
+    }
+    m_shuffleStart = ShuffleStart{true, QStringLiteral("upNext"), startedByAutoplay, false};
+    m_shuffle->advance();
+}
+
+void PlayerController::skipShuffleNext()
+{
+    if (m_shuffle && !isPlaybackActive()) {
+        m_shuffle->skipNext();
+    }
+}
+
+void PlayerController::stopShuffle()
+{
+    endShuffle();
+}
+
+void PlayerController::endShuffle(const QString &message)
+{
+    m_shuffleUpNextPending = false;
+    m_shuffleUpNextAwaitingNext = false;
+    m_shuffleStart = ShuffleStart{};
+    if (m_shuffle && m_shuffle->isActive()) {
+        m_shuffle->stop();
+    }
+    if (!message.isEmpty()) {
+        emit shuffleEnded(message);
+    }
+}
+
+void PlayerController::onShuffleCurrentReady(const QVariantMap &item)
+{
+    if (!m_shuffleStart.pending) {
+        return;
+    }
+    const ShuffleStart start = std::exchange(m_shuffleStart, ShuffleStart{});
+    const QString itemId = item.value(QStringLiteral("itemId")).toString();
+    const bool episode =
+        item.value(QStringLiteral("mediaType")).toString() == QStringLiteral("Episode");
+    const QString seriesId = episode ? item.value(QStringLiteral("seriesId")).toString() : QString();
+    // Only the episode's own season: picks never carry across a shuffle.
+    const QString seasonId = episode ? item.value(QStringLiteral("seasonId")).toString() : QString();
+    const QString name = item.value(QStringLiteral("name")).toString();
+    QString overlayTitle = episode ? item.value(QStringLiteral("seriesName")).toString() : name;
+    if (overlayTitle.isEmpty()) {
+        overlayTitle = name.isEmpty() ? QStringLiteral("Now Playing") : name;
+    }
+    const int year = item.value(QStringLiteral("productionYear")).toInt();
+    const QString overlaySubtitle = episode ? episodeOverlaySubtitle(item)
+                                            : (year > 0 ? QString::number(year) : QString());
+    const QString artworkOwnerId = seriesId.isEmpty() ? itemId : seriesId;
+    QString overlayLogoUrl;
+    QString overlayBackdropUrl;
+    if (m_libraryService) {
+        const QVariantMap logo = item.value(QStringLiteral("logoArtwork")).toMap();
+        overlayLogoUrl = logo.isEmpty()
+            ? m_libraryService->getCachedImageUrlWithWidth(artworkOwnerId, QStringLiteral("Logo"), 600)
+            : m_libraryService->getCachedArtworkUrlFromRef(logo, 600);
+        const QVariantMap backdrop = item.value(QStringLiteral("backdropArtwork")).toMap();
+        overlayBackdropUrl = backdrop.isEmpty()
+            ? m_libraryService->getCachedImageUrlWithWidth(artworkOwnerId, QStringLiteral("Backdrop"), 1920)
+            : m_libraryService->getCachedArtworkUrlFromRef(backdrop, 1920);
+    }
+    const Bloom::ShuffleScope::Scope scope = m_shuffle->scope();
+    // The pick plays from its beginning but keeps the resume point it had.
+    m_shuffleResumeFloorItemId = itemId;
+    m_shuffleResumeFloorMs = qMax<qint64>(0, item.value(QStringLiteral("positionMs")).toLongLong());
+    // The pick replaces Up Next: Up Next's Play, or Next pressed just before
+    // the playing pick ended on its own (its Up Next then never opens).
+    const bool handoff = m_awaitingNextEpisodeResolution;
+    m_shuffleUpNextPending = false;
+    m_shuffleUpNextAwaitingNext = false;
+    if (start.continuesWatching == QStringLiteral("upNext") || handoff) {
+        cancelPendingDisplayRestore();
+    }
+
+    qCInfo(lcPlayback) << "Shuffle: requesting playback" << "itemId=" << itemId
+                       << "continuesWatching=" << start.continuesWatching
+                       << "startedByAutoplay=" << start.startedByAutoplay;
+    QVariantMap request{
+        {QStringLiteral("itemId"), itemId},
+        {QStringLiteral("seriesId"), seriesId},
+        {QStringLiteral("seasonId"), seasonId},
+        {QStringLiteral("libraryId"),
+         scope.kind == Bloom::ShuffleScope::kLibrary ? scope.id : QString()},
+        // A shuffle plays each pick from its beginning, whatever its resume
+        // point.
+        {QStringLiteral("startPositionMs"), 0},
+        {QStringLiteral("overlayTitle"), overlayTitle},
+        {QStringLiteral("overlaySubtitle"), overlaySubtitle},
+        {QStringLiteral("overlayBackdropUrl"), overlayBackdropUrl},
+        {QStringLiteral("overlayLogoUrl"), overlayLogoUrl},
+        {QStringLiteral("isMovie"), !episode},
+        {QStringLiteral("preferredAudioIndex"), -2},
+        {QStringLiteral("preferredSubtitleIndex"), -2},
+        {QStringLiteral("allowVersionPrompt"), start.allowVersionPrompt},
+        {QStringLiteral("useAffinityFallback"), !start.allowVersionPrompt},
+        {QStringLiteral("startedByAutoplay"), start.startedByAutoplay},
+        {QStringLiteral("shuffle"), true}};
+    if (!start.continuesWatching.isEmpty()) {
+        request.insert(QStringLiteral("continuesWatching"), start.continuesWatching);
+    }
+    requestPlayback(request);
+    if (handoff) {
+        setAwaitingNextEpisodeResolution(false);
+    }
+}
+
+void PlayerController::onShuffleNextChanged(const QVariantMap &item)
+{
+    if (m_shuffleUpNextAwaitingNext) {
+        if (!item.isEmpty()) {
+            m_shuffleUpNextAwaitingNext = false;
+            openShuffleUpNext();
+        }
+        return;
+    }
+    emit shuffleNextItemChanged(item);
+}
+
+void PlayerController::onShuffleFailed(const QString &message)
+{
+    // The session has already ended.
+    const bool upNextWaiting = std::exchange(m_shuffleUpNextAwaitingNext, false)
+        || std::exchange(m_shuffleUpNextPending, false);
+    m_shuffleStart = ShuffleStart{};
+    if (upNextWaiting && !isPlaybackActive()) {
+        setAwaitingNextEpisodeResolution(false);
+        releaseDeferredPostPlaybackDisplayRestore();
+    }
+    emit shuffleEnded(message);
+}
+
+void PlayerController::openShuffleUpNext()
+{
+    if (!m_shuffle || !m_shuffle->isActive()) {
+        setAwaitingNextEpisodeResolution(false);
+        releaseDeferredPostPlaybackDisplayRestore();
+        return;
+    }
+    // Next in the overlay already moved the shuffle on; its pick plays.
+    if (m_shuffleStart.pending) {
+        return;
+    }
+    const QVariantMap next = m_shuffle->next();
+    if (next.isEmpty()) {
+        // A local refill brings it (nextChanged), or its failure ends the
+        // shuffle (onShuffleFailed).
+        m_shuffleUpNextAwaitingNext = true;
+        m_shuffle->refresh();
+        return;
+    }
+    const bool configuredAutoplay = m_config->getAutoplayNextEpisode();
+    const bool askStillWatching = configuredAutoplay && shouldAskStillWatchingForUpNext();
+    const bool autoplay = configuredAutoplay && !askStillWatching;
+    qCInfo(lcPlayback) << "Shuffle: Up Next"
+                       << "itemId=" << next.value(QStringLiteral("itemId")).toString()
+                       << "autoplay=" << autoplay << "stillWatching=" << askStillWatching;
+    QMetaObject::invokeMethod(this,
+                              [this, next, autoplay, askStillWatching]() {
+                                  // Leaving the handoff surface stopped it meanwhile.
+                                  if (!m_shuffle->isActive() || isPlaybackActive()) {
+                                      return;
+                                  }
+                                  // Main.qml reads the prompt state when it opens Up Next.
+                                  setStillWatchingPromptActive(askStillWatching);
+                                  emit shuffleUpNextRequested(next, autoplay);
+                                  setAwaitingNextEpisodeResolution(false);
+                              },
+                              Qt::QueuedConnection);
+    // The server replaces a next item that can no longer play.
+    m_shuffle->refresh();
 }

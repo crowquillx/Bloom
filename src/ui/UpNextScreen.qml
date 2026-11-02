@@ -25,6 +25,11 @@ import BloomUI
  * PlayerController.stillWatchingPromptActive) the screen asks "Still
  * watching?" instead: no countdown, Continue plays the queued episode and
  * Stop (or Back) returns to the series.
+ *
+ * In shuffle mode (`shuffle`) the queued item is the shuffle's next pick, a
+ * movie or an episode: no season row, Play, "Shuffle Again" (another pick
+ * replaces it) and Close, which ends the shuffle. Main.qml swaps
+ * `episodeData` when the pick changes.
  */
 FocusScope {
     id: root
@@ -38,6 +43,8 @@ FocusScope {
     property bool autoplay: false
     // "Still watching?" prompt: replaces the countdown and the season row.
     property bool stillWatching: false
+    // The queued item is a shuffle pick (PlayerController.shuffleUpNextRequested).
+    property bool shuffle: false
     readonly property bool hasNextEpisode: episodeId !== "" && !episodeData.noNextEpisode
     readonly property bool stillWatchingPrompt: stillWatching && hasNextEpisode
 
@@ -56,6 +63,8 @@ FocusScope {
     signal moreEpisodesRequested()
     signal backToHomeRequested()
     signal recommendationSelected(var itemData)
+    // Shuffle mode: replace the queued pick with another.
+    signal shuffleAgainRequested()
 
     readonly property var viewModel: typeof UpNextRecommendationsViewModel !== "undefined"
                                      ? UpNextRecommendationsViewModel : null
@@ -71,12 +80,23 @@ FocusScope {
                                           ? upcomingEpisodes[episodesList.currentIndex] : null
     readonly property var heroEpisode: startingEpisode || previewEpisode || episodeData
     readonly property bool heroIsQueued: (heroEpisode.itemId || "") === root.episodeId
-    readonly property string seriesName: episodeData.seriesName || ""
+    // A shuffle pick may be a movie: its own title and logo stand in for
+    // the series'.
+    readonly property bool queuedIsMovie: root.shuffle && episodeData.mediaType === "Movie"
+    readonly property string seriesName: root.queuedIsMovie ? (episodeData.name || "")
+                                                            : (episodeData.seriesName || "")
+    readonly property string titleOwnerId: root.queuedIsMovie ? root.episodeId : root.seriesId
 
     // ---- Artwork ----
-    readonly property string logoUrl: (root.seriesId && typeof LibraryService !== "undefined")
-                                      ? LibraryService.getCachedImageUrlWithWidth(root.seriesId, "Logo", 800)
-                                      : ""
+    readonly property string logoUrl: {
+        if (root.shuffle && episodeData.logoArtwork && episodeData.logoArtwork.itemId) {
+            const fromRef = artworkUrlFromRef(episodeData.logoArtwork, 800)
+            if (fromRef) return fromRef
+        }
+        return (root.titleOwnerId && typeof LibraryService !== "undefined")
+                ? LibraryService.getCachedImageUrlWithWidth(root.titleOwnerId, "Logo", 800)
+                : ""
+    }
     readonly property string thumbnailUrl: artworkUrlFromRef(episodeData.thumbArtwork
                                                              || episodeData.primaryArtwork
                                                              || episodeData.seriesPrimaryArtwork,
@@ -87,8 +107,8 @@ FocusScope {
         const candidates = []
         const fromRef = artworkUrlFromRef(episodeData.backdropArtwork, 1920)
         if (fromRef) candidates.push(fromRef)
-        if (root.seriesId && typeof LibraryService !== "undefined") {
-            const seriesBackdrop = LibraryService.getCachedImageUrlWithWidth(root.seriesId, "Backdrop", 1920)
+        if (root.titleOwnerId && typeof LibraryService !== "undefined") {
+            const seriesBackdrop = LibraryService.getCachedImageUrlWithWidth(root.titleOwnerId, "Backdrop", 1920)
             if (seriesBackdrop && candidates.indexOf(seriesBackdrop) < 0) candidates.push(seriesBackdrop)
         }
         if (root.thumbnailUrl && candidates.indexOf(root.thumbnailUrl) < 0) candidates.push(root.thumbnailUrl)
@@ -129,14 +149,36 @@ FocusScope {
 
     function episodeLabel(episode) {
         if (!episode) return ""
+        if (episode.mediaType === "Movie") return ""
         const number = episode.indexNumber || 0
         if (number === 0) return qsTr("Special")
         return qsTr("S%1 E%2").arg(episode.parentIndexNumber || 0).arg(number)
     }
 
     function episodeTitle(episode) {
+        if (episode && episode.mediaType === "Movie") {
+            return episode.productionYear ? String(episode.productionYear) : ""
+        }
         const label = episodeLabel(episode)
         return episode && episode.name ? label + "  •  " + episode.name : label
+    }
+
+    // What the hero names the queued item by: "Play S2 E5", or "Play" for
+    // a movie.
+    function playLabel(episode) {
+        const label = episodeLabel(episode)
+        return label ? qsTr("Play %1").arg(label) : qsTr("Play")
+    }
+
+    function accessibleItemTitle(episode) {
+        if (episode && episode.mediaType === "Movie") return episode.name || ""
+        return episodeTitle(episode)
+    }
+
+    function shuffleAgain() {
+        if (root.starting || !root.shuffle || root.stillWatchingPrompt) return
+        cancelCountdown()
+        shuffleAgainRequested()
     }
 
     function cancelCountdown() {
@@ -191,7 +233,8 @@ FocusScope {
     property string rowsRequestKey: ""
 
     function loadRowsIfNeeded() {
-        if (!root.viewModel) return
+        // A shuffle shows no season row.
+        if (!root.viewModel || root.shuffle) return
         const seasonId = root.episodeData.seasonId || root.episodeData.parentId || ""
         const key = root.hasNextEpisode ? "episodes:" + seasonId + ":" + root.episodeId
                                         : "recommendations:" + root.seriesId
@@ -316,6 +359,7 @@ FocusScope {
                 width: parent.width
                 text: !root.hasNextEpisode ? qsTr("You're all caught up")
                       : root.stillWatchingPrompt ? qsTr("Still watching?")
+                      : root.shuffle ? qsTr("Up Next · Shuffle")
                       : (root.heroIsQueued ? qsTr("Next Episode") : qsTr("Episode"))
                 font.pixelSize: Theme.fontSizeCaption
                 font.family: Theme.fontPrimary
@@ -370,6 +414,7 @@ FocusScope {
 
             Text {
                 width: parent.width
+                visible: text !== ""
                 text: root.hasNextEpisode
                       ? root.episodeTitle(root.heroEpisode)
                       : qsTr("There isn't another unwatched episode available right now.")
@@ -385,7 +430,9 @@ FocusScope {
             Text {
                 width: parent.width
                 readonly property string overviewText: root.stillWatchingPrompt
-                                                       ? qsTr("Autoplay paused after several episodes in a row. Continue with the next episode, or stop here.")
+                                                       ? (root.shuffle
+                                                          ? qsTr("Shuffle paused after several in a row. Continue with the next pick, or stop here.")
+                                                          : qsTr("Autoplay paused after several episodes in a row. Continue with the next episode, or stop here."))
                                                        : root.hasNextEpisode
                                                          ? (root.heroEpisode.overview || "")
                                                          : qsTr("You can return to the series or head back home.")
@@ -499,9 +546,14 @@ FocusScope {
                     anchors.verticalCenter: ring.verticalCenter
                     opacity: ring.opacity
                     text: root.starting
-                          ? qsTr("Starting %1…").arg(root.episodeLabel(root.startingEpisode))
-                          : (root.countdown === 1 ? qsTr("Next episode in 1 second")
-                             : qsTr("Next episode in %1 seconds").arg(Math.max(0, root.countdown)))
+                          ? (root.episodeLabel(root.startingEpisode)
+                             ? qsTr("Starting %1…").arg(root.episodeLabel(root.startingEpisode))
+                             : qsTr("Starting…"))
+                          : root.shuffle
+                            ? (root.countdown === 1 ? qsTr("Next in 1 second")
+                               : qsTr("Next in %1 seconds").arg(Math.max(0, root.countdown)))
+                            : (root.countdown === 1 ? qsTr("Next episode in 1 second")
+                               : qsTr("Next episode in %1 seconds").arg(Math.max(0, root.countdown)))
                     font.pixelSize: Theme.fontSizeBody
                     font.family: Theme.fontPrimary
                     color: Theme.textPrimary
@@ -524,16 +576,16 @@ FocusScope {
                     sidePadding: Math.round(40 * Theme.layoutScale)
                     text: root.stillWatchingPrompt ? qsTr("Continue")
                           : root.hasNextEpisode
-                            ? qsTr("Play %1").arg(root.episodeLabel(root.episodeData))
+                            ? root.playLabel(root.episodeData)
                             : qsTr("Back to Series")
                     iconGlyph: root.hasNextEpisode ? Icons.playArrow : Icons.viewList
                     accessibleLabel: root.stillWatchingPrompt
-                                     ? qsTr("Continue with %1").arg(root.episodeTitle(root.episodeData))
+                                     ? qsTr("Continue with %1").arg(root.accessibleItemTitle(root.episodeData))
                                      : root.hasNextEpisode
-                                       ? qsTr("Play %1").arg(root.episodeTitle(root.episodeData)) : ""
+                                       ? qsTr("Play %1").arg(root.accessibleItemTitle(root.episodeData)) : ""
                     focus: true
 
-                    KeyNavigation.right: secondaryButton
+                    KeyNavigation.right: shuffleAgainButton.visible ? shuffleAgainButton : secondaryButton
                     Keys.onDownPressed: function(event) { event.accepted = cardRow.focusRow() }
                     Keys.onReturnPressed: function(event) { root.activateOnKey(event, primaryButton.activate) }
                     Keys.onEnterPressed: function(event) { root.activateOnKey(event, primaryButton.activate) }
@@ -543,6 +595,28 @@ FocusScope {
                         if (root.hasNextEpisode) root.playQueued()
                         else root.returnToSeries()
                     }
+                }
+
+                // Shuffle mode: another pick replaces the queued one.
+                ActionButton {
+                    id: shuffleAgainButton
+                    variant: "secondary"
+                    visible: root.shuffle && root.hasNextEpisode && !root.stillWatchingPrompt
+                    implicitHeight: Theme.buttonHeightHero
+                    labelPixelSize: Theme.fontSizeMedium
+                    iconPixelSize: Theme.iconSizeLarge
+                    sidePadding: Math.round(36 * Theme.layoutScale)
+                    text: qsTr("Shuffle Again")
+                    iconGlyph: Icons.shuffle
+                    accessibleLabel: qsTr("Pick another instead of %1").arg(root.accessibleItemTitle(root.episodeData))
+                    enabled: !root.starting
+
+                    KeyNavigation.left: primaryButton
+                    KeyNavigation.right: secondaryButton
+                    Keys.onDownPressed: function(event) { event.accepted = true }
+                    Keys.onReturnPressed: function(event) { root.activateOnKey(event, root.shuffleAgain) }
+                    Keys.onEnterPressed: function(event) { root.activateOnKey(event, root.shuffleAgain) }
+                    onClicked: root.shuffleAgain()
                 }
 
                 ActionButton {
@@ -556,12 +630,14 @@ FocusScope {
                           : root.hasNextEpisode ? "" : qsTr("Home")
                     iconGlyph: root.stillWatchingPrompt ? Icons.stop
                                : root.hasNextEpisode ? Icons.close : Icons.home
-                    accessibleLabel: root.stillWatchingPrompt ? qsTr("Stop and return to the series")
-                                     : root.hasNextEpisode ? qsTr("Close") : ""
-                    toolTipText: root.hasNextEpisode && !root.stillWatchingPrompt ? qsTr("Back to episodes") : ""
+                    accessibleLabel: root.stillWatchingPrompt
+                                     ? (root.shuffle ? qsTr("Stop the shuffle") : qsTr("Stop and return to the series"))
+                                     : root.hasNextEpisode ? (root.shuffle ? qsTr("Stop the shuffle") : qsTr("Close")) : ""
+                    toolTipText: root.hasNextEpisode && !root.stillWatchingPrompt
+                                 ? (root.shuffle ? qsTr("Stop shuffle") : qsTr("Back to episodes")) : ""
                     enabled: !root.starting
 
-                    KeyNavigation.left: primaryButton
+                    KeyNavigation.left: shuffleAgainButton.visible ? shuffleAgainButton : primaryButton
                     Keys.onRightPressed: function(event) { event.accepted = true }
                     Keys.onDownPressed: function(event) { event.accepted = cardRow.focusRow() }
                     Keys.onReturnPressed: function(event) { root.activateOnKey(event, secondaryButton.activate) }
@@ -580,7 +656,7 @@ FocusScope {
         ColumnLayout {
             id: cardRow
             // The still-watching prompt offers only Continue and Stop.
-            readonly property bool hasCards: root.stillWatchingPrompt ? false
+            readonly property bool hasCards: root.stillWatchingPrompt || root.shuffle ? false
                                              : root.hasNextEpisode ? root.upcomingEpisodes.length > 0
                                                                    : root.hasRecommendations
             readonly property var activeList: root.hasNextEpisode ? episodesList : recommendationsList

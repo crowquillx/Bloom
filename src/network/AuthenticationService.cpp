@@ -72,6 +72,8 @@ QJsonObject capabilitiesObject(ProviderCapabilities capabilities)
     add(ProviderCapability::MovieRecommendations, "movie_recommendations");
     add(ProviderCapability::StarRatings, "star_ratings");
     add(ProviderCapability::LikeRatings, "like_ratings");
+    add(ProviderCapability::ServerShuffle, "server_shuffle");
+    add(ProviderCapability::LocalShuffle, "local_shuffle");
     return result;
 }
 }

@@ -59,6 +59,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.poster-badges",
     "native.requests",
     "native.subtitles.search",
+    "native.playback.shuffle",
 }
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -127,7 +128,7 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
                             "sortBy", "sortOrder", "startIndex", "limit", "parentId",
                             "recursive", "enableImages", "enableUserData",
                             "enableTotalRecordCount", "isPlayed", "isFavorite",
-                            "enableImageTypes"},
+                            "isMissing", "enableImageTypes"},
         ("GET", "/System/Info/Public"): set(),
         ("GET", "/Items/{itemId}"): {"itemId", "userId"},
         ("GET", "/Persons"): {"userId", "searchTerm", "limit", "enableImages",

@@ -41,6 +41,28 @@ FocusScope {
                                              && currentSeriesId === ""
                                              && currentParentId.indexOf("combined:") !== 0
     readonly property bool showingShelves: shelvesMode && shelvesAvailable
+    /// Shuffle plays the whole library's movies or episodes. One library of
+    /// one connection only: never a combined page, a folder or a series.
+    property bool libraryShuffleSupported: false
+    readonly property bool libraryShuffleAvailable: libraryShuffleSupported
+                                                    && currentLibraryId !== ""
+                                                    && currentParentId === currentLibraryId
+                                                    && currentSeriesId === ""
+                                                    && currentParentId.indexOf("combined:") !== 0
+                                                    && !showSeriesDetails && !showSeasonView
+                                                    && !showMovieDetails
+
+    function refreshLibraryShuffleSupport() {
+        libraryShuffleSupported = LibraryService.supportsShuffle("library", "")
+    }
+
+    function startLibraryShuffle() {
+        if (!libraryShuffleAvailable || PlayerController.shuffleStarting)
+            return
+        if (!PlayerController.startShuffle({ kind: "library", id: currentLibraryId,
+                                             title: currentLibraryName }))
+            seekToast.show(qsTr("Shuffle isn't available for this library."))
+    }
     /// Shelf and card to focus when the shelves come back
     /// ({ sectionId, itemId, row, index }; the IDs win, the positions are
     /// the fallback).
@@ -1035,6 +1057,7 @@ FocusScope {
     // scrolled, so browsing uses the full height. It returns at the top of
     // the grid or whenever a header control has focus.
     readonly property bool headerControlFocused: shelvesToggle.activeFocus || searchField.activeFocus
+                                                  || libraryShuffleButton.activeFocus
                                                  || sortCombo.activeFocus || sortCombo.popup.visible
                                                  || orderCombo.activeFocus || orderCombo.popup.visible
                                                  || filterDrawerButton.activeFocus || backButton.activeFocus
@@ -1119,7 +1142,10 @@ FocusScope {
                         selected: showingShelves
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         Accessible.name: showingShelves ? qsTr("Show all titles") : qsTr("Show shelves")
-                        KeyNavigation.right: showingShelves ? (backButton.visible ? backButton : null) : searchField
+                        KeyNavigation.right: showingShelves
+                                             ? (libraryShuffleButton.visible ? libraryShuffleButton
+                                                : (backButton.visible ? backButton : null))
+                                             : searchField
                         Keys.onDownPressed: (event) => {
                             if (showingShelves)
                                 shelvesView.focusShelf()
@@ -1240,7 +1266,7 @@ FocusScope {
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         Accessible.name: text
                         KeyNavigation.left: orderCombo
-                        KeyNavigation.right: backButton
+                        KeyNavigation.right: libraryShuffleButton.visible ? libraryShuffleButton : backButton
                         KeyNavigation.down: showFilterPanel ? favoriteFilterCombo : grid
                         Keys.priority: Keys.BeforeItem
                         Keys.onReturnPressed: (event) => {
@@ -1262,7 +1288,9 @@ FocusScope {
                                 orderCombo.forceActiveFocus()
                                 event.accepted = true
                             } else if (event.key === Qt.Key_Right) {
-                                if (backButton.visible) {
+                                if (libraryShuffleButton.visible) {
+                                    libraryShuffleButton.forceActiveFocus()
+                                } else if (backButton.visible) {
                                     backButton.forceActiveFocus()
                                 }
                                 event.accepted = true
@@ -1279,6 +1307,30 @@ FocusScope {
                         }
                         onClicked: toggleFilterDrawer()
                     }
+
+                    // Plays the library's movies or episodes in random order.
+                    ActionButton {
+                        id: libraryShuffleButton
+                        variant: "secondary"
+                        visible: libraryShuffleAvailable
+                        enabled: !PlayerController.shuffleStarting
+                        text: qsTr("Shuffle")
+                        iconGlyph: Icons.shuffle
+                        Layout.preferredHeight: Theme.buttonHeightMedium
+                        Accessible.name: qsTr("Shuffle %1").arg(currentLibraryName)
+                        KeyNavigation.left: showingShelves ? shelvesToggle : filterDrawerButton
+                        KeyNavigation.right: backButton.visible ? backButton : null
+                        Keys.onDownPressed: (event) => {
+                            if (showingShelves)
+                                shelvesView.focusShelf()
+                            else
+                                grid.forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) startLibraryShuffle(); event.accepted = true }
+                        Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) startLibraryShuffle(); event.accepted = true }
+                        onClicked: startLibraryShuffle()
+                    }
                 }
                 
                 ActionButton {
@@ -1293,7 +1345,8 @@ FocusScope {
                     Layout.alignment: Qt.AlignBottom
                     Layout.preferredHeight: Theme.buttonHeightMedium
                     
-                    KeyNavigation.left: showingShelves ? shelvesToggle : filterDrawerButton
+                    KeyNavigation.left: libraryShuffleButton.visible ? libraryShuffleButton
+                                        : showingShelves ? shelvesToggle : filterDrawerButton
                     Keys.onDownPressed: (event) => {
                         if (showingShelves)
                             shelvesView.focusShelf()
@@ -3164,8 +3217,18 @@ FocusScope {
     // Signal to parent StackView that this screen manages back navigation internally
     property bool handlesOwnBackNavigation: true
 
+    Connections {
+        target: LibraryService
+
+        function onShuffleSupportChanged() {
+            root.refreshLibraryShuffleSupport()
+        }
+    }
+
     Component.onCompleted: {
         componentReady = true
+        LibraryService.loadShuffleCapability()
+        refreshLibraryShuffleSupport()
         
         // If we're starting with showSeriesDetails, showSeasonView, or showMovieDetails,
         // we came from Home screen via direct navigation.

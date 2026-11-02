@@ -96,6 +96,7 @@ stdenv.mkDerivation {
       DisplayManagerTest \
       PlayerControllerAutoplayContextTest \
       SubtitleSearchTest \
+      ShuffleSessionTest \
       MediaSegmentProviderServiceTest \
       NextEpisodeResolverTest \
       EpisodeSelectionScriptTest \

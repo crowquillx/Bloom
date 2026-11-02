@@ -1,6 +1,7 @@
 #pragma once
 
 #include "models/LetterIndex.h"
+#include "models/ShuffleScope.h"
 #include "providers/ICatalogProvider.h"
 
 #include <QJsonDocument>
@@ -138,6 +139,15 @@ public:
             return unsupported(QStringLiteral("Jellyfin keeps no watch history apart from played state"));
         case ProviderCatalogOperation::WatchTonight:
             return unsupported(QStringLiteral("Jellyfin has no Watch Tonight picks"));
+        case ProviderCatalogOperation::ShuffleItems:
+            return shuffleItemsRequest(query);
+        case ProviderCatalogOperation::ShuffleCapability:
+        case ProviderCatalogOperation::CreateShuffle:
+        case ProviderCatalogOperation::GetShuffle:
+        case ProviderCatalogOperation::AdvanceShuffle:
+        case ProviderCatalogOperation::SkipShuffleItem:
+        case ProviderCatalogOperation::DeleteShuffle:
+            return unsupported(QStringLiteral("Jellyfin has no server shuffles"));
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -900,6 +910,46 @@ private:
             endpointWithQuery(QStringLiteral("/Movies/Recommendations"), parameters));
     }
 
+    // A random page of a shuffle scope's movies and episodes: GetItems under
+    // the library, series, season or box set, recursive, in random order,
+    // without missing (virtual) episodes. Series and seasons play episodes;
+    // libraries and box sets play movies and the episodes of their series.
+    // Extras are not children of their item, so they never appear.
+    static ProviderCatalogRequest shuffleItemsRequest(const ProviderCatalogQuery &query)
+    {
+        namespace Scope = Bloom::ShuffleScope;
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, false, QStringLiteral("shuffle items"));
+        if (!validation.supported) {
+            return validation;
+        }
+        const QString kind = query.shuffleScopeKind;
+        const bool episodesOnly = kind == Scope::kSeries || kind == Scope::kSeason;
+        const bool mixed = kind == Scope::kLibrary
+            || (kind == Scope::kCollection && query.shuffleCollectionKind == Scope::kBoxSet);
+        if (query.parentId.trimmed().isEmpty() || (!episodesOnly && !mixed)) {
+            return unsupported(QStringLiteral(
+                "A Jellyfin shuffle needs a library, series, season, or box set"));
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
+        parameters.addQueryItem(QStringLiteral("ParentId"), query.parentId.trimmed());
+        parameters.addQueryItem(QStringLiteral("IncludeItemTypes"),
+                                episodesOnly ? QStringLiteral("Episode")
+                                             : QStringLiteral("Movie,Episode"));
+        parameters.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
+        parameters.addQueryItem(QStringLiteral("IsMissing"), QStringLiteral("false"));
+        parameters.addQueryItem(QStringLiteral("SortBy"), QStringLiteral("Random"));
+        parameters.addQueryItem(QStringLiteral("Limit"),
+                                QString::number(qBound(1, query.limit > 0 ? query.limit : 50, 100)));
+        parameters.addQueryItem(QStringLiteral("Fields"),
+                                QStringLiteral("Overview,ParentId,PrimaryImageAspectRatio"));
+        parameters.addQueryItem(QStringLiteral("EnableImageTypes"),
+                                QStringLiteral("Primary,Backdrop,Thumb,Logo"));
+        parameters.addQueryItem(QStringLiteral("EnableTotalRecordCount"), QStringLiteral("true"));
+        return supportedRequest(endpointWithQuery(QStringLiteral("/Items"), parameters));
+    }
+
     // Which of the item IDs the library holds: GetItems scoped to the
     // library, without images, user data or a total count.
     static ProviderCatalogRequest libraryMembershipRequest(const ProviderCatalogQuery &query)
@@ -1383,6 +1433,13 @@ private:
         case ProviderCatalogOperation::WatchHistory: return QStringLiteral("watch history");
         case ProviderCatalogOperation::RemoveFromWatchHistory: return QStringLiteral("history removal");
         case ProviderCatalogOperation::WatchTonight: return QStringLiteral("watch tonight");
+        case ProviderCatalogOperation::ShuffleItems: return QStringLiteral("shuffle items");
+        case ProviderCatalogOperation::ShuffleCapability:
+        case ProviderCatalogOperation::CreateShuffle:
+        case ProviderCatalogOperation::GetShuffle:
+        case ProviderCatalogOperation::AdvanceShuffle:
+        case ProviderCatalogOperation::SkipShuffleItem:
+        case ProviderCatalogOperation::DeleteShuffle: return QStringLiteral("shuffle");
         }
         return QStringLiteral("catalog");
     }

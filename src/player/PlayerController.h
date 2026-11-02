@@ -33,6 +33,7 @@
 
 class PlaybackService;
 class LibraryService;
+class ShuffleSession;
 class AuthenticationService;
 class QNetworkReply;
 class HttpRequestHandle;
@@ -144,6 +145,12 @@ class PlayerController : public QObject
     Q_PROPERTY(int sleepTimerGraceRemainingSeconds READ sleepTimerGraceRemainingSeconds NOTIFY sleepTimerChanged)
     // "End of this episode", "End of this movie" or "End of this video" (an extra).
     Q_PROPERTY(QString sleepTimerEndOfItemLabel READ sleepTimerEndOfItemLabel NOTIFY sleepTimerChanged)
+    // Shuffle play (docs/playback.md "Shuffle play"): a shuffle is running
+    // (it may be starting or between items), it is starting, and the
+    // playing item is one of its picks.
+    Q_PROPERTY(bool shuffleActive READ shuffleActive NOTIFY shuffleStateChanged)
+    Q_PROPERTY(bool shuffleStarting READ shuffleStarting NOTIFY shuffleStateChanged)
+    Q_PROPERTY(bool shufflePlaying READ shufflePlaying NOTIFY shuffleStateChanged)
 
 public:
     /// Playback states for the state machine
@@ -346,6 +353,9 @@ public:
     bool sleepTimerGraceActive() const { return m_sleepTimerGraceActive; }
     int sleepTimerGraceRemainingSeconds() const { return m_sleepTimerGraceRemainingSeconds; }
     QString sleepTimerEndOfItemLabel() const;
+    bool shuffleActive() const;
+    bool shuffleStarting() const;
+    bool shufflePlaying() const;
     /// User input (key, button, click, wheel, pointer movement, controller
     /// action, or a pause/resume or bloom-* script message from the external
     /// mpv window). Restarts
@@ -412,6 +422,17 @@ public:
     /// Replaces the playing episode with its previous/next episode.
     Q_INVOKABLE void skipToPreviousEpisode();
     Q_INVOKABLE void skipToNextEpisode();
+    /// Starts a shuffle over `{kind, id, collectionKind, title}`
+    /// (Bloom::ShuffleScope) on the active connection; its first item plays
+    /// from the beginning. False when the provider cannot shuffle it.
+    Q_INVOKABLE bool startShuffle(const QVariantMap &scope);
+    /// Up Next's Play for the shuffle's next item; startedByAutoplay when
+    /// the countdown ran out.
+    Q_INVOKABLE void playShuffleNext(bool startedByAutoplay = false);
+    /// Up Next's "Shuffle again": another pick replaces the next item.
+    Q_INVOKABLE void skipShuffleNext();
+    /// Ends the shuffle (leaving Up Next, or Stop on "Still watching?").
+    Q_INVOKABLE void stopShuffle();
     Q_INVOKABLE void toggleMute();
     Q_INVOKABLE void setMuted(bool muted);
     Q_INVOKABLE void setVolume(int volume);
@@ -519,6 +540,14 @@ signals:
     void playbackStopped();
     void stillWatchingPromptActiveChanged();
     void sleepTimerChanged();
+    void shuffleStateChanged();
+    /// A shuffle item finished: Up Next offers the shuffle's next item.
+    void shuffleUpNextRequested(const QVariantMap &item, bool autoplay);
+    /// The shuffle's next item changed while Up Next shows it.
+    void shuffleNextItemChanged(const QVariantMap &item);
+    /// The shuffle ended without the user stopping it (it could not start
+    /// or move on); message says why.
+    void shuffleEnded(const QString &message);
     
     /// Emitted when autoplay is about to start the next episode
     /// @param episodeName The name of the next episode
@@ -656,6 +685,24 @@ private:
     /// timer ended this playback and Up Next must not open.
     bool applySleepTimerAtTerminal(TerminalReason reason);
     void showExternalMpvOsd(const QString &text, int durationMs);
+
+    // ---- Shuffle helpers ----
+    /// The playing item is a pick of the running shuffle.
+    bool isShufflePlayback() const;
+    void onShuffleCurrentReady(const QVariantMap &item);
+    void onShuffleNextChanged(const QVariantMap &item);
+    void onShuffleFailed(const QString &message);
+    void openShuffleUpNext();
+    /// Ends the running shuffle; message, when set, goes out with
+    /// shuffleEnded.
+    void endShuffle(const QString &message = QString());
+    /// How the item a shuffle hands out next starts playback.
+    struct ShuffleStart {
+        bool pending = false;
+        QString continuesWatching;
+        bool startedByAutoplay = false;
+        bool allowVersionPrompt = false;
+    };
 
     struct PendingPlaybackRequest;
     using HdrPlaybackPolicy = Bloom::PlaybackPolicy::HdrPlaybackPolicy;
@@ -1040,6 +1087,9 @@ private:
     void applyPlaybackSegment(int index, bool reportSegmentStart);
     void clearPlaybackSegments();
     qint64 currentReportingPositionMs() const;
+    // The position progress, pause and stop reports carry (a shuffle pick
+    // keeps its old resume point until playback passes it).
+    qint64 serverReportPositionMs() const;
     void reportPlaybackStartForSegment(const QVariantMap &segment);
     void reportPlaybackStopForSegment(const QVariantMap &segment, qint64 positionMs);
     void updateVersionAffinityFromMediaSource(const QVariantMap &mediaSource);
@@ -1065,6 +1115,8 @@ private:
         bool isMovie = false;
         Bloom::PlaybackPolicy::PlaybackContentKind contentKind =
             Bloom::PlaybackPolicy::PlaybackContentKind::Feature;
+        // A pick of the running shuffle ("shuffle": true).
+        bool shuffle = false;
         bool allowVersionPrompt = true;
         bool useAffinityFallback = false;
         bool awaitingLibraryResolution = false;
@@ -1194,6 +1246,7 @@ private:
         Bloom::PlaybackPolicy::PlaybackContentKind contentKind =
             Bloom::PlaybackPolicy::PlaybackContentKind::Feature;
         bool isMovie = false;
+        bool shuffle = false;
         QString mediaSourceId;
         QString playSessionId;
         QVariantMap mediaSource;
@@ -1249,6 +1302,21 @@ private:
     // Episodes the Up Next countdown started in a row without user input.
     int m_autoplayChainCount = 0;
     bool m_stillWatchingPromptActive = false;
+    // Shuffle play: the session, whether the playing item (and the one
+    // being launched) is one of its picks, Up Next waiting to open after a
+    // pick finished, and how its next hand-out starts.
+    ShuffleSession *m_shuffle = nullptr;
+    bool m_currentIsShuffle = false;
+    // A shuffle pick plays from its beginning but keeps the resume point it
+    // had: until playback passes it, progress and stop reports carry it
+    // (serverReportPositionMs).
+    QString m_shuffleResumeFloorItemId;
+    qint64 m_shuffleResumeFloorMs = 0;
+    bool m_nextIsShuffle = false;
+    bool m_shuffleUpNextPending = false;
+    // Up Next waits for a local refill to name the next item.
+    bool m_shuffleUpNextAwaitingNext = false;
+    ShuffleStart m_shuffleStart;
     // Pointer travel from the reference point that counts as movement, in
     // logical pixels; smaller moves are sensor jitter or resent hovers.
     static constexpr qreal kPointerMovementThreshold = 8.0;

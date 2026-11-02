@@ -1130,6 +1130,124 @@
     },
     {
       "method": "DELETE",
+      "path": "/api/v2/shuffles/{shuffle_id}",
+      "operationId": "deleteShuffle",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "shuffle_id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "204": {},
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "DELETE",
       "path": "/api/v2/watched/{id}",
       "operationId": "unmarkWatched",
       "parameters": [
@@ -10808,6 +10926,379 @@
     },
     {
       "method": "GET",
+      "path": "/api/v2/shuffles/capabilities",
+      "operationId": "getShuffleCapability",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "If-Match",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShuffleCapability"
+              }
+            }
+          },
+          "headers": {
+            "Cache-Control": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "304": {
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "412": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          },
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": true,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/shuffles/{shuffle_id}",
+      "operationId": "getShuffle",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "shuffle_id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "image_size",
+          "schema": {
+            "enum": [
+              "small",
+              "medium",
+              "large",
+              "original"
+            ],
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "poster_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "backdrop_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "logo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "still_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "photo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Shuffle"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "409": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
       "path": "/api/v2/stream/{session_id}",
       "operationId": "getPlaybackMedia",
       "parameters": [
@@ -15242,6 +15733,725 @@
     },
     {
       "method": "POST",
+      "path": "/api/v2/shuffles",
+      "operationId": "createShuffle",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "image_size",
+          "schema": {
+            "enum": [
+              "small",
+              "medium",
+              "large",
+              "original"
+            ],
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "poster_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "backdrop_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "logo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "still_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "photo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      ],
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CreateShuffleRequest"
+            }
+          }
+        },
+        "required": true
+      },
+      "responses": {
+        "201": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Shuffle"
+              }
+            }
+          },
+          "headers": {
+            "Location": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "408": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "409": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "413": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "415": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/shuffles/{shuffle_id}/advance",
+      "operationId": "advanceShuffle",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "shuffle_id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "image_size",
+          "schema": {
+            "enum": [
+              "small",
+              "medium",
+              "large",
+              "original"
+            ],
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "poster_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "backdrop_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "logo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "still_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "photo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      ],
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AdvanceShuffleRequest"
+            }
+          }
+        },
+        "required": true
+      },
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Shuffle"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "408": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "409": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "413": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "415": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v2/shuffles/{shuffle_id}/skip",
+      "operationId": "skipShuffleItem",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "shuffle_id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "image_size",
+          "schema": {
+            "enum": [
+              "small",
+              "medium",
+              "large",
+              "original"
+            ],
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "poster_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "backdrop_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "logo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "still_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "photo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      ],
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SkipShuffleItemRequest"
+            }
+          }
+        },
+        "required": true
+      },
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Shuffle"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "408": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "409": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "413": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "415": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "POST",
       "path": "/api/v2/subtitles/download",
       "operationId": "downloadSubtitle",
       "parameters": [
@@ -17177,6 +18387,19 @@
         "permissions",
         "download_allowed",
         "password_change_required"
+      ],
+      "type": "object"
+    },
+    "AdvanceShuffleRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "from_content_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "from_content_id"
       ],
       "type": "object"
     },
@@ -19432,6 +20655,18 @@
       },
       "required": [
         "items"
+      ],
+      "type": "object"
+    },
+    "CreateShuffleRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "$ref": "#/components/schemas/ShuffleScopeRequest"
+        }
+      },
+      "required": [
+        "scope"
       ],
       "type": "object"
     },
@@ -23706,6 +24941,150 @@
           "type": "string"
         }
       },
+      "type": "object"
+    },
+    "Shuffle": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": "string"
+        },
+        "current": {
+          "$ref": "#/components/schemas/CatalogItem"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "next": {
+          "$ref": "#/components/schemas/CatalogItem"
+        },
+        "scope": {
+          "$ref": "#/components/schemas/ShuffleScope"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "current",
+        "next",
+        "created_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "ShuffleCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "scope_kinds": {
+          "items": {
+            "enum": [
+              "library",
+              "series",
+              "season",
+              "library_collection",
+              "user_collection"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "state": {
+          "enum": [
+            "available",
+            "disabled",
+            "not_configured",
+            "unsupported"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope_kinds",
+        "revision",
+        "state",
+        "allowed"
+      ],
+      "type": "object"
+    },
+    "ShuffleScope": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "library",
+            "series",
+            "season",
+            "library_collection",
+            "user_collection"
+          ],
+          "type": "string"
+        },
+        "parent_title": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "title"
+      ],
+      "type": "object"
+    },
+    "ShuffleScopeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "library",
+            "series",
+            "season",
+            "library_collection",
+            "user_collection"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    "SkipShuffleItemRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "next_content_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "next_content_id"
+      ],
       "type": "object"
     },
     "StartDeviceLoginInputBody": {

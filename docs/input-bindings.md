@@ -66,6 +66,8 @@ Keyboard defaults
   ```
 
   `G` and `F` are mpv's own subtitle size keys (`add sub-scale ±0.1`), so this example replaces them: mpv's size keys then go through Bloom and Settings stays in step with what mpv shows. `Alt+g` has no mpv default binding. Each step is saved as Settings › Playback › Subtitle Appearance › Size, applies at once and shows on mpv's OSD, which also says when the size is already the largest (200 %) or smallest (75 %).
+
+  `script-message bloom-next-item` is the overlay's Next: the next episode, or the next pick of a shuffle (see "Shuffle play" in [playback](playback.md)).
 - Fixed playback keys that are not actions: Esc dismisses the playback overlay or stops playback, Return/Enter triggers an active skip prompt or brings up the controls, Left/Right seek 10 seconds (or move overlay focus), Up/Down move overlay focus, and 0-9 open mpv stats pages. Each of these yields to a user binding of the same key in the playback context.
 - F11 and Alt+Enter toggle fullscreen everywhere.
 

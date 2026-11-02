@@ -62,6 +62,8 @@ private slots:
     void jellyfinLetterIndexReadsTheWholeSortNameList();
     void siloLibrarySectionsKeepTitleRowsInOrder();
     void siloLetterIndexUsesTheLibraryQuery();
+    void jellyfinShuffleItemsReadRandomPagesUnderTheScope();
+    void siloShuffleRequestsFollowTheContract();
 
 };
 
@@ -2227,6 +2229,258 @@ void ProviderCatalogTest::siloLetterIndexUsesTheLibraryQuery()
     QCOMPARE(LetterIndex::letterAt(runs, 20), QStringLiteral("B"));
     QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::LibraryLetters,
                                     QByteArrayLiteral(R"({"total":1})")).valid);
+}
+
+void ProviderCatalogTest::jellyfinShuffleItemsReadRandomPagesUnderTheScope()
+{
+    JellyfinProviderAdapter adapter;
+    QVERIFY(adapter.supportsCapability(ProviderCapability::LocalShuffle));
+    QVERIFY(!adapter.supportsCapability(ProviderCapability::ServerShuffle));
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    ProviderCatalogQuery query;
+    query.userId = QStringLiteral("user-1");
+    query.parentId = QStringLiteral("series 1");
+    query.shuffleScopeKind = QStringLiteral("series");
+    query.limit = 50;
+    ProviderCatalogRequest request = catalog->createRequest(ProviderCatalogOperation::ShuffleItems, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QUrl url(request.relativeEndpoint);
+    QCOMPARE(url.path(), QStringLiteral("/Items"));
+    QUrlQuery parameters(url);
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("ParentId"), QUrl::FullyDecoded),
+             QStringLiteral("series 1"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Episode"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("SortBy")), QStringLiteral("Random"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("IsMissing")), QStringLiteral("false"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("Limit")), QStringLiteral("50"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableTotalRecordCount")),
+             QStringLiteral("true"));
+
+    // Seasons play episodes; libraries and box sets play movies too.
+    query.shuffleScopeKind = QStringLiteral("season");
+    request = catalog->createRequest(ProviderCatalogOperation::ShuffleItems, query);
+    QCOMPARE(QUrlQuery(QUrl(request.relativeEndpoint)).queryItemValue(QStringLiteral("IncludeItemTypes")),
+             QStringLiteral("Episode"));
+    query.shuffleScopeKind = QStringLiteral("library");
+    request = catalog->createRequest(ProviderCatalogOperation::ShuffleItems, query);
+    QCOMPARE(QUrlQuery(QUrl(request.relativeEndpoint)).queryItemValue(QStringLiteral("IncludeItemTypes")),
+             QStringLiteral("Movie,Episode"));
+    query.shuffleScopeKind = QStringLiteral("collection");
+    query.shuffleCollectionKind = QStringLiteral("boxSet");
+    request = catalog->createRequest(ProviderCatalogOperation::ShuffleItems, query);
+    QVERIFY(request.supported);
+    url = QUrl(request.relativeEndpoint);
+    parameters = QUrlQuery(url);
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Movie,Episode"));
+
+    // Silo collection kinds and unknown scopes have no Jellyfin read; the
+    // page size stays bounded.
+    query.shuffleCollectionKind = QStringLiteral("user");
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::ShuffleItems, query).supported);
+    query.shuffleScopeKind = QStringLiteral("playlist");
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::ShuffleItems, query).supported);
+    query.shuffleScopeKind = QStringLiteral("series");
+    query.limit = 5000;
+    QCOMPARE(QUrlQuery(QUrl(catalog->createRequest(ProviderCatalogOperation::ShuffleItems, query)
+                                .relativeEndpoint))
+                 .queryItemValue(QStringLiteral("Limit")),
+             QStringLiteral("100"));
+    query.parentId.clear();
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::ShuffleItems, query).supported);
+    for (ProviderCatalogOperation operation : {
+             ProviderCatalogOperation::ShuffleCapability, ProviderCatalogOperation::CreateShuffle,
+             ProviderCatalogOperation::GetShuffle, ProviderCatalogOperation::AdvanceShuffle,
+             ProviderCatalogOperation::SkipShuffleItem, ProviderCatalogOperation::DeleteShuffle}) {
+        QVERIFY(!catalog->createRequest(operation, query).supported);
+    }
+
+    // Every parameter and field is a current one of GetItems.
+    QFile openApiManifest(QStringLiteral(BLOOM_JELLYFIN_OPENAPI_MANIFEST));
+    QVERIFY2(openApiManifest.open(QIODevice::ReadOnly), qPrintable(openApiManifest.errorString()));
+    const QJsonObject manifest = QJsonDocument::fromJson(openApiManifest.readAll()).object();
+    QHash<QString, bool> deprecatedByName;
+    bool operationDeprecated = true;
+    for (const QJsonValue &value : manifest.value(QStringLiteral("operations")).toArray()) {
+        const QJsonObject operation = value.toObject();
+        if (operation.value(QStringLiteral("method")).toString() != QStringLiteral("GET")
+            || operation.value(QStringLiteral("path")).toString() != QStringLiteral("/Items")) {
+            continue;
+        }
+        operationDeprecated = operation.value(QStringLiteral("deprecated")).toBool();
+        for (const QJsonValue &parameter : operation.value(QStringLiteral("parameters")).toArray()) {
+            deprecatedByName.insert(
+                parameter.toObject().value(QStringLiteral("name")).toString().toLower(),
+                parameter.toObject().value(QStringLiteral("deprecated")).toBool());
+        }
+    }
+    QVERIFY(!operationDeprecated);
+    for (const auto &[name, value] : parameters.queryItems()) {
+        Q_UNUSED(value)
+        QVERIFY2(deprecatedByName.contains(name.toLower()), qPrintable(name));
+        QVERIFY2(!deprecatedByName.value(name.toLower()), qPrintable(name));
+    }
+    QSet<QString> itemFields;
+    for (const QJsonValue &field : manifest.value(QStringLiteral("schemas")).toObject()
+                                       .value(QStringLiteral("ItemFields")).toObject()
+                                       .value(QStringLiteral("enum")).toArray()) {
+        itemFields.insert(field.toString());
+    }
+    for (const QString &field : parameters.queryItemValue(QStringLiteral("Fields"))
+                                    .split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        QVERIFY2(itemFields.contains(field), qPrintable(field));
+    }
+
+    // The page keeps its wire items and the scope's size.
+    const ProviderCatalogResponse page = catalog->parseResponse(
+        ProviderCatalogOperation::ShuffleItems,
+        QByteArrayLiteral(R"({"Items":[{"Id":"e1","Type":"Episode","SeriesId":"s1","SeasonId":"season-1"},)"
+                          R"({"Id":"m1","Type":"Movie"}],"TotalRecordCount":120,"StartIndex":0})"));
+    QVERIFY(page.valid);
+    QCOMPARE(page.rawItems.size(), 2);
+    QCOMPARE(page.total, 120);
+    const QVariantList mapped = adapter.mapMediaItems(page.rawItems, QStringLiteral("connection-1"));
+    QCOMPARE(mapped.size(), 2);
+    QCOMPARE(mapped.at(0).toMap().value(QStringLiteral("seasonId")).toString(), QStringLiteral("season-1"));
+}
+
+void ProviderCatalogTest::siloShuffleRequestsFollowTheContract()
+{
+    SiloProviderAdapter adapter;
+    QVERIFY(adapter.supportsCapability(ProviderCapability::ServerShuffle));
+    QVERIFY(!adapter.supportsCapability(ProviderCapability::LocalShuffle));
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    ProviderCatalogQuery query;
+    ProviderCatalogRequest request = catalog->createRequest(ProviderCatalogOperation::ShuffleCapability, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/shuffles/capabilities"));
+
+    // Only available and allowed documents allow it; collection kinds map
+    // to Bloom's collection keys and unknown kinds are dropped.
+    ProviderCatalogResponse capability = catalog->parseResponse(
+        ProviderCatalogOperation::ShuffleCapability,
+        QByteArrayLiteral(R"({"state":"available","allowed":true,"revision":"r1",)"
+                          R"("scope_kinds":["library","series","season","library_collection","user_collection","playlist"]})"));
+    QVERIFY(capability.valid);
+    QVERIFY(capability.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
+    QCOMPARE(capability.capabilityMetadata.value(QStringLiteral("scopeKinds")).toStringList(),
+             (QStringList{QStringLiteral("library"), QStringLiteral("series"), QStringLiteral("season"),
+                          QStringLiteral("collection:library"), QStringLiteral("collection:user")}));
+    capability = catalog->parseResponse(
+        ProviderCatalogOperation::ShuffleCapability,
+        QByteArrayLiteral(R"({"state":"not_configured","allowed":true,"revision":"r1","scope_kinds":[]})"));
+    QVERIFY(capability.valid);
+    QVERIFY(!capability.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
+    QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::ShuffleCapability,
+                                    QByteArrayLiteral(R"({"state":"available"})")).valid);
+
+    // createShuffle: non_retryable POST with the wire scope, and artwork
+    // widths the operation declares.
+    query.parentId = QStringLiteral("series-tvdb-81189");
+    query.shuffleScopeKind = QStringLiteral("series");
+    request = catalog->createRequest(ProviderCatalogOperation::CreateShuffle, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Never);
+    QCOMPARE(request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/shuffles")));
+    QCOMPARE(QJsonDocument::fromJson(request.body).object(),
+             (QJsonObject{{QStringLiteral("scope"),
+                           QJsonObject{{QStringLiteral("kind"), QStringLiteral("series")},
+                                       {QStringLiteral("id"), QStringLiteral("series-tvdb-81189")}}}}));
+    const QList<std::tuple<QString, QString, QString>> scopes{
+        {QStringLiteral("library"), QString(), QStringLiteral("library")},
+        {QStringLiteral("season"), QString(), QStringLiteral("season")},
+        {QStringLiteral("collection"), QStringLiteral("library"), QStringLiteral("library_collection")},
+        {QStringLiteral("collection"), QStringLiteral("user"), QStringLiteral("user_collection")}};
+    for (const auto &[kind, collectionKind, wireKind] : scopes) {
+        query.shuffleScopeKind = kind;
+        query.shuffleCollectionKind = collectionKind;
+        request = catalog->createRequest(ProviderCatalogOperation::CreateShuffle, query);
+        QVERIFY2(request.supported, qPrintable(kind));
+        QCOMPARE(QJsonDocument::fromJson(request.body).object().value(QStringLiteral("scope"))
+                     .toObject().value(QStringLiteral("kind")).toString(),
+                 wireKind);
+    }
+    // Jellyfin box sets and an empty scope have no Silo shuffle.
+    query.shuffleCollectionKind = QStringLiteral("boxSet");
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::CreateShuffle, query).supported);
+    query.shuffleScopeKind = QStringLiteral("series");
+    query.parentId.clear();
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::CreateShuffle, query).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::ShuffleItems, query).supported);
+
+    // Reading, advancing, skipping and stopping one shuffle.
+    query.shuffleId = QStringLiteral("2c4f/9");
+    query.shuffleContentId = QStringLiteral("episode:s1e2");
+    request = catalog->createRequest(ProviderCatalogOperation::GetShuffle, query);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/shuffles/2c4f%2F9")));
+    request = catalog->createRequest(ProviderCatalogOperation::AdvanceShuffle, query);
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    // advanceShuffle and skipShuffleItem are natural_idempotent.
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint,
+             withArtworkWidths(QStringLiteral("/api/v2/shuffles/2c4f%2F9/advance")));
+    QCOMPARE(QJsonDocument::fromJson(request.body).object(),
+             (QJsonObject{{QStringLiteral("from_content_id"), QStringLiteral("episode:s1e2")}}));
+    request = catalog->createRequest(ProviderCatalogOperation::SkipShuffleItem, query);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint,
+             withArtworkWidths(QStringLiteral("/api/v2/shuffles/2c4f%2F9/skip")));
+    QCOMPARE(QJsonDocument::fromJson(request.body).object(),
+             (QJsonObject{{QStringLiteral("next_content_id"), QStringLiteral("episode:s1e2")}}));
+    request = catalog->createRequest(ProviderCatalogOperation::DeleteShuffle, query);
+    QCOMPARE(request.method, ProviderHttpMethod::Delete);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/shuffles/2c4f%2F9"));
+    QVERIFY(catalog->parseResponse(ProviderCatalogOperation::DeleteShuffle, QByteArray()).valid);
+    ProviderCatalogQuery unanchored = query;
+    unanchored.shuffleContentId.clear();
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::AdvanceShuffle, unanchored).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::SkipShuffleItem, unanchored).supported);
+    ProviderCatalogQuery unnamed = query;
+    unnamed.shuffleId.clear();
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::GetShuffle, unnamed).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::DeleteShuffle, unnamed).supported);
+
+    // A shuffle names what plays now and next, both movie or episode cards.
+    const QByteArray shuffle = QByteArrayLiteral(
+        R"({"id":"7d1f","scope":{"kind":"series","id":"s1","title":"Dark"},)"
+        R"("current":{"content_id":"episode:s1e2","type":"episode","title":"Lies","series_id":"s1","season_number":1,"episode_number":2,"genres":[],"keywords":[],"status":"ended"},)"
+        R"("next":{"content_id":"episode:s2e5","type":"episode","title":"Truths","series_id":"s1","season_number":2,"episode_number":5,"genres":[],"keywords":[],"status":"ended"},)"
+        R"("created_at":"2026-11-01T10:00:00.000Z","updated_at":"2026-11-01T10:00:00.000Z"})");
+    for (ProviderCatalogOperation operation : {
+             ProviderCatalogOperation::CreateShuffle, ProviderCatalogOperation::GetShuffle,
+             ProviderCatalogOperation::AdvanceShuffle, ProviderCatalogOperation::SkipShuffleItem}) {
+        const ProviderCatalogResponse parsed = catalog->parseResponse(operation, shuffle);
+        QVERIFY(parsed.valid);
+        QCOMPARE(parsed.rawItem.value(QStringLiteral("id")).toString(), QStringLiteral("7d1f"));
+    }
+    const QVariantMap current = adapter.mapMediaItem(
+        catalog->parseResponse(ProviderCatalogOperation::CreateShuffle, shuffle)
+            .rawItem.value(QStringLiteral("current")).toObject(),
+        QStringLiteral("connection-1"));
+    QCOMPARE(current.value(QStringLiteral("itemId")).toString(), QStringLiteral("episode:s1e2"));
+    QCOMPARE(current.value(QStringLiteral("mediaType")).toString(), QStringLiteral("Episode"));
+    QCOMPARE(current.value(QStringLiteral("seriesId")).toString(), QStringLiteral("s1"));
+    QCOMPARE(current.value(QStringLiteral("parentIndexNumber")).toInt(), 1);
+    // Cards carry no season ID; ShuffleSession looks it up.
+    QVERIFY(current.value(QStringLiteral("seasonId")).toString().isEmpty());
+    QVERIFY(!catalog->parseResponse(
+                    ProviderCatalogOperation::GetShuffle,
+                    QByteArrayLiteral(R"({"id":"7d1f","current":{"content_id":"s1","type":"series"},)"
+                                      R"("next":{"content_id":"m1","type":"movie"}})"))
+                 .valid);
+    QVERIFY(!catalog->parseResponse(ProviderCatalogOperation::GetShuffle,
+                                    QByteArrayLiteral(R"({"current":{},"next":{}})")).valid);
 }
 
 QTEST_MAIN(ProviderCatalogTest)

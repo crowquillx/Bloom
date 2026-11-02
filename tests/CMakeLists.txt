@@ -929,6 +929,7 @@ add_executable(PlayerControllerAutoplayContextTest
     PlayerControllerAutoplayContextTest.cpp
     ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
     ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/ShuffleSession.cpp
     ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
@@ -968,6 +969,7 @@ add_executable(SubtitleSearchTest
     TestConfigIsolation.h
     ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
     ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/ShuffleSession.cpp
     ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SubtitleSearchViewModel.cpp
@@ -1003,6 +1005,27 @@ target_link_libraries(SubtitleSearchTest
 )
 
 add_test(NAME SubtitleSearchTest COMMAND SubtitleSearchTest)
+
+add_executable(ShuffleSessionTest
+    ShuffleSessionTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/ShuffleSession.cpp
+)
+
+target_include_directories(ShuffleSessionTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(ShuffleSessionTest
+    PRIVATE
+        Bloom::Network
+        Bloom::PlayerPolicy
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME ShuffleSessionTest COMMAND ShuffleSessionTest)
 
 add_executable(MediaSegmentProviderServiceTest
     MediaSegmentProviderServiceTest.cpp
@@ -1364,6 +1387,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     DisplayManagerTest
     PlayerControllerAutoplayContextTest
     SubtitleSearchTest
+    ShuffleSessionTest
     MediaSegmentProviderServiceTest
     NextEpisodeResolverTest
     EpisodeSelectionScriptTest
@@ -1458,6 +1482,7 @@ qt_add_executable(VisualRegressionTest
     ${UPDATER_SOURCES}
     # Player sources
     ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/ShuffleSession.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
     ${CMAKE_SOURCE_DIR}/src/player/MpvVideoItem.h
     ${CMAKE_SOURCE_DIR}/src/player/MpvVideoItem.cpp
