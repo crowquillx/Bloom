@@ -31,7 +31,11 @@ enum class ArtworkOwnerKind {
     Chapter,
     // A local extra's still. The parent movie or series owns it: itemId is
     // the parent and the tag identifies the still among its extras.
-    Extra
+    Extra,
+    // A collection's poster or backdrop (Silo). No single read returns a
+    // collection, so it is not refetched: the collection list is read
+    // again on every visit.
+    Collection
 };
 
 QString artworkOwnerKindName(ArtworkOwnerKind kind);

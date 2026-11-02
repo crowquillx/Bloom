@@ -74,6 +74,7 @@ QJsonObject capabilitiesObject(ProviderCapabilities capabilities)
     add(ProviderCapability::LikeRatings, "like_ratings");
     add(ProviderCapability::ServerShuffle, "server_shuffle");
     add(ProviderCapability::LocalShuffle, "local_shuffle");
+    add(ProviderCapability::Collections, "collections");
     return result;
 }
 }
@@ -331,6 +332,14 @@ QVariantMap AuthenticationService::mapPerson(const QJsonObject &wirePerson,
     return m_providerAdapter
         ? m_providerAdapter->mapPerson(wirePerson, connectionId)
         : QVariantMap{};
+}
+
+QVariantList AuthenticationService::mapCollections(const QJsonArray &wireCollections,
+                                                    const QString &connectionId) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapCollections(wireCollections, connectionId)
+        : QVariantList{};
 }
 
 QVariantList AuthenticationService::mapPeople(const QJsonArray &wirePeople,

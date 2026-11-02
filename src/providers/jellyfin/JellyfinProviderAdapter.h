@@ -22,14 +22,15 @@ public:
         // Jellyfin's Next Up takes rewatching and a last-watched cutoff, its
         // resume list is a separate read, it recommends movies per library,
         // its personal rating is a like or a dislike, its played items are
-        // read one library at a time, and Bloom shuffles from its random
-        // item reads.
+        // read one library at a time, Bloom shuffles from its random item
+        // reads, and box sets are its collections.
         return capability == ProviderCapability::NextUpOptions
             || capability == ProviderCapability::ResumeItems
             || capability == ProviderCapability::MovieRecommendations
             || capability == ProviderCapability::LikeRatings
             || capability == ProviderCapability::LibraryScopedHistory
-            || capability == ProviderCapability::LocalShuffle;
+            || capability == ProviderCapability::LocalShuffle
+            || capability == ProviderCapability::Collections;
     }
     std::optional<QString> endpointFor(
         ProviderRoute route, const ProviderRouteContext &context) const override
@@ -109,6 +110,11 @@ public:
                            const QString &connectionId) const override
     {
         return JellyfinModelMapper::personList(wirePeople, connectionId);
+    }
+    QVariantList mapCollections(const QJsonArray &wireCollections,
+                                const QString &connectionId) const override
+    {
+        return JellyfinModelMapper::collections(wireCollections, connectionId);
     }
     QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
                                      const QString &connectionId,

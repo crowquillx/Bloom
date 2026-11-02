@@ -109,6 +109,15 @@ public:
         Q_UNUSED(connectionId)
         return {};
     }
+    /// The wire collections of a LibraryCollections or ItemCollections
+    /// response as canonical collections (models/MediaCollections.h).
+    virtual QVariantList mapCollections(const QJsonArray &wireCollections,
+                                        const QString &connectionId) const
+    {
+        Q_UNUSED(wireCollections)
+        Q_UNUSED(connectionId)
+        return {};
+    }
 
     // Optional route discovery is explicit. Callers must not interpret an
     // empty URL, empty mapping, or HTTP success as feature support.
