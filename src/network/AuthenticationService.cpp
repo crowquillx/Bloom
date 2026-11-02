@@ -799,6 +799,7 @@ void AuthenticationService::handleAuthenticationResult(
         m_username = authentication.username;
     }
     setAccountIsAdministrator(authentication.isAdministrator);
+    setAccountPlaybackDefaults(authentication.playbackDefaults);
 
     ServerConnection connection;
     if (m_configManager) {
@@ -1977,6 +1978,24 @@ void AuthenticationService::setAccountIsAdministrator(std::optional<bool> isAdmi
     emit accountPrivilegesChanged();
 }
 
+void AuthenticationService::setAccountPlaybackDefaults(
+    const std::optional<Bloom::ServerTrackPreferences> &defaults)
+{
+    m_accountPlaybackDefaults = defaults;
+    m_accountPlaybackDefaultsServerUrl = defaults.has_value() ? m_serverUrl : QString();
+    m_accountPlaybackDefaultsUserId = defaults.has_value() ? m_userId : QString();
+}
+
+std::optional<Bloom::ServerTrackPreferences> AuthenticationService::accountPlaybackDefaults() const
+{
+    if (!m_accountPlaybackDefaults.has_value() || m_userId.isEmpty()
+        || m_accountPlaybackDefaultsUserId != m_userId
+        || m_accountPlaybackDefaultsServerUrl != m_serverUrl) {
+        return std::nullopt;
+    }
+    return m_accountPlaybackDefaults;
+}
+
 void AuthenticationService::logout()
 {
     // A session the server already refused has nothing left to revoke.
@@ -2162,6 +2181,7 @@ void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
     m_userId.clear();
     m_username.clear();
     setAccountIsAdministrator(std::nullopt);
+    setAccountPlaybackDefaults(std::nullopt);
     m_pendingProfileId.clear();
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
@@ -2288,6 +2308,7 @@ void AuthenticationService::validateAccessToken(std::function<void(SessionValidi
                 && identity.accountId == m_userId;
             if (valid) {
                 setAccountIsAdministrator(identity.isAdministrator);
+                setAccountPlaybackDefaults(identity.playbackDefaults);
             }
             complete(valid ? SessionValidity::Valid : SessionValidity::Invalid);
         },

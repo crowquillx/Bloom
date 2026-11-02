@@ -141,6 +141,7 @@ private slots:
     void jellyfinRequestFactorySendsEscapedDeviceName_data();
     void jellyfinRequestFactorySendsEscapedDeviceName();
     void jellyfinAuthenticatorOwnsLoginAndValidationWireContract();
+    void jellyfinAuthenticatorMapsAccountPlaybackDefaults();
     void transportRetriesTransientFailures();
     void transportRetriesRetryableHttpStatuses_data();
     void transportRetriesRetryableHttpStatuses();
@@ -262,6 +263,48 @@ void ProviderTransportTest::jellyfinRequestFactoryNormalizesUrlAndRedactsSecrets
     QVERIFY(redacted.contains(QStringLiteral("%5BREDACTED%5D"))
             || redacted.contains(QStringLiteral("[REDACTED]")));
     QVERIFY(redacted.contains(QStringLiteral("width=480")));
+}
+
+void ProviderTransportTest::jellyfinAuthenticatorMapsAccountPlaybackDefaults()
+{
+    JellyfinAuthenticator authenticator;
+    const auto defaults = [&](const QByteArray &configuration) {
+        return authenticator
+            .parseSessionValidationResponse(
+                QByteArrayLiteral(R"({"Id":"user-1","Configuration":)") + configuration + "}")
+            .playbackDefaults;
+    };
+
+    const auto smart = defaults(QByteArrayLiteral(
+        R"({"AudioLanguagePreference":"jpn","PlayDefaultAudioTrack":false,)"
+        R"("SubtitleLanguagePreference":"eng","SubtitleMode":"Smart",)"
+        R"("RememberAudioSelections":true,"EnableNextEpisodeAutoPlay":true})"));
+    QVERIFY(smart.has_value());
+    QCOMPARE(smart->audioLanguage, QStringLiteral("jpn"));
+    QVERIFY(!smart->playDefaultAudioTrack);
+    QCOMPARE(smart->subtitleMode, QStringLiteral("auto"));
+    QCOMPARE(smart->subtitleLanguage, QStringLiteral("eng"));
+    QVERIFY(!smart->showForcedSubtitles.has_value());
+    // Language-based only: Jellyfin never names a track for the account.
+    QCOMPARE(smart->audioStreamIndex, -1);
+
+    QCOMPARE(defaults(R"({"SubtitleMode":"Always"})")->subtitleMode, QStringLiteral("always"));
+    QCOMPARE(defaults(R"({"SubtitleMode":"OnlyForced"})")->subtitleMode, QStringLiteral("forced"));
+    const auto none = defaults(R"({"SubtitleMode":"None"})");
+    QCOMPARE(none->subtitleMode, QStringLiteral("off"));
+    QCOMPARE(none->showForcedSubtitles, std::optional<bool>(false));
+    // Default leaves subtitles to the file, and the server default for
+    // PlayDefaultAudioTrack is on.
+    const auto unset = defaults(R"({"SubtitleMode":"Default","AudioLanguagePreference":""})");
+    QVERIFY(unset->isEmpty());
+    QVERIFY(unset->playDefaultAudioTrack);
+
+    // The login envelope carries the same UserDto.
+    const ProviderAuthenticationResult login = authenticator.parseLoginResponse(QByteArrayLiteral(
+        R"({"AccessToken":"token-1","User":{"Id":"user-1","Configuration":{"SubtitleMode":"Always","SubtitleLanguagePreference":"fre"}}})"));
+    QCOMPARE(login.playbackDefaults->subtitleLanguage, QStringLiteral("fre"));
+    QVERIFY(!authenticator.parseSessionValidationResponse(QByteArrayLiteral(R"({"Id":"user-1"})"))
+                 .playbackDefaults.has_value());
 }
 
 void ProviderTransportTest::jellyfinAuthenticatorOwnsLoginAndValidationWireContract()

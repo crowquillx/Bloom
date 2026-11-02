@@ -704,7 +704,7 @@ FocusScope {
                 SettingsRow {
                     id: defaultAudioTrackRow
                     label: qsTr("Audio Language")
-                    description: qsTr("Fallback used when no season or movie audio preference is saved")
+                    description: qsTr("Used when no season or movie audio choice is saved and your server has no preference")
                     dimmed: !defaultAudioTrackCombo.enabled
                     highlighted: defaultAudioTrackCombo.activeFocus || defaultAudioTrackCombo.popup.visible
                     focusTarget: defaultAudioTrackCombo
@@ -791,7 +791,7 @@ FocusScope {
                 SettingsRow {
                     id: defaultSubtitleTrackRow
                     label: qsTr("Subtitle Language")
-                    description: qsTr("Fallback used when no season or movie subtitle preference is saved")
+                    description: qsTr("Used when no season or movie subtitle choice is saved and your server has no preference")
                     dimmed: !defaultSubtitleTrackCombo.enabled
                     highlighted: defaultSubtitleTrackCombo.activeFocus || defaultSubtitleTrackCombo.popup.visible
                     focusTarget: defaultSubtitleTrackCombo
@@ -856,7 +856,7 @@ FocusScope {
                         }
                         Keys.onDownPressed: function(event) {
                             if (!popup.visible) {
-                                skipPopupDurationSlider.forceActiveFocus()
+                                serverTrackPreferencesToggle.forceActiveFocus()
                                 event.accepted = true
                             }
                         }
@@ -869,6 +869,19 @@ FocusScope {
                             event.accepted = true
                         }
                     }
+                }
+
+                SettingsToggleRow {
+                    id: serverTrackPreferencesToggle
+                    label: qsTr("Use My Server's Language Preferences")
+                    description: qsTr("Follow the audio and subtitle languages set on your server account before the languages above. A track you pick in Bloom still wins for the rest of that season or movie, and on Silo your picks are saved to the server so other devices follow.")
+                    checked: ConfigManager.useServerTrackPreferences
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.up: defaultSubtitleTrackCombo
+                    KeyNavigation.down: skipPopupDurationSlider
+                    onToggled: function(value) { ConfigManager.useServerTrackPreferences = value }
                 }
 
                 SectionHeader {
@@ -891,7 +904,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
-                    KeyNavigation.up: defaultSubtitleTrackCombo
+                    KeyNavigation.up: serverTrackPreferencesToggle
                     KeyNavigation.down: autoSkipIntroToggle
 
                     onSliderValueChanged: function(newValue) {

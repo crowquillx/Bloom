@@ -27,6 +27,9 @@ constexpr auto kPreferredLanguageKey = "preferredLanguage";
 constexpr auto kForcedOnlyKey = "forcedOnly";
 constexpr auto kHearingImpairedKey = "hearingImpaired";
 constexpr auto kStrategyKey = "strategy";
+constexpr auto kTitleKey = "title";
+constexpr auto kCodecKey = "codec";
+constexpr auto kChannelsKey = "channels";
 
 QString modeToString(TrackPreferenceMode mode)
 {
@@ -72,6 +75,15 @@ QJsonObject preferenceToJson(const TrackSelectionPreference &preference)
     if (!preference.strategy.isEmpty()) {
         json[kStrategyKey] = preference.strategy;
     }
+    if (!preference.title.isEmpty()) {
+        json[kTitleKey] = preference.title;
+    }
+    if (!preference.codec.isEmpty()) {
+        json[kCodecKey] = preference.codec;
+    }
+    if (preference.channels > 0) {
+        json[kChannelsKey] = preference.channels;
+    }
     return json;
 }
 
@@ -89,6 +101,9 @@ TrackSelectionPreference preferenceFromJson(const QJsonValue &value)
     preference.forcedOnly = object.value(kForcedOnlyKey).toBool(false);
     preference.hearingImpaired = object.value(kHearingImpairedKey).toBool(false);
     preference.strategy = object.value(kStrategyKey).toString();
+    preference.title = object.value(kTitleKey).toString();
+    preference.codec = object.value(kCodecKey).toString();
+    preference.channels = qMax(0, object.value(kChannelsKey).toInt(0));
 
     if (preference.mode != TrackPreferenceMode::ExplicitStream) {
         preference.streamIndex = -1;

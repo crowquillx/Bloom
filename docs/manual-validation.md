@@ -2,6 +2,18 @@
 
 A live gate passes only when the required behavior is observed. Source inspection, a unit test, and a successful HTTP status do not establish a platform runtime pass. `UNAVAILABLE` and `NOT RUN` are not automated passes.
 
+## Server track preferences, 2026-11-01 UTC
+
+Bloom reads Silo and Jellyfin audio/subtitle preferences and writes in-player picks back; a track picked in Bloom wins over the server for the rest of that season, carries into the next season by what the track is, and is written to Silo only once it plays (see [playback](playback.md)). Rebased onto the still-watching prompt and sleep timer: Up Next's countdown start and the prompt's Continue send both the carried season and the autoplay start. This changes `Main.qml` (the `navigateToNextEpisode` handler arguments), so the Windows embedded-playback check in AGENTS.md applies. No live server, Windows runtime or controller was available.
+
+| Gate | Result | Evidence or procedure |
+| --- | --- | --- |
+| Automated checks | PASS | `./scripts/dev-build.sh --tests` passed; local CTest passed 58/58 after the rebase. Cases: `PlaybackPolicyTest` (precedence, matching picks across index shifts), `PlayerControllerAutoplayContextTest` (`inPlayerPickHoldsAcrossFilesAndResume`, `seasonCarryMatchesTracksAndIsSavedOncePlaying` including a countdown start counting toward "Still watching?", `refusedAndUngrantedPicksRestoreWhatPlays`), `TrackPreferencesManagerTest`, `SiloPlaybackProviderTest` (stored-row matching; `audioSignatureKeepsSiloTitles`: a track Silo sends with only `embedded_title` is written back with no `title`). `validate_contracts.py`, `canonical_boundary_test.py`, `provider_contracts_test.py` and the flake QML lint pass. `VisualRegressionTest` skips locally. `nix flake check` was not run. |
+| Live Silo write-back | NOT RUN / UNAVAILABLE | On a Silo series, pick a non-default audio track in the player and let it play past 1.5 s: Silo's `GET /api/v2/audio-prefs/{series}` returns that track with a `track_signature` equal to the track's own fields (no `title` when the file has only an embedded title). Another device then starts the next episode on that track. A refused or rolled-back pick is never written. |
+| Live season carry | NOT RUN / UNAVAILABLE | Pick Japanese audio and signs subtitles in season 1's last episode. Let the Up Next countdown run out, and separately press Continue on a "Still watching?" prompt: season 2's first episode plays Japanese with signs even where the indexes moved and the server prefers English; season 2's second episode keeps them. |
+| Resume after an in-player pick | NOT RUN / UNAVAILABLE | Pick a track in the player, stop, and press Resume on the season or movie page: the picked track plays, not the page's stale index. |
+| Windows `win-libmpv` | NOT RUN / UNAVAILABLE | With embedded libmpv on Windows, finish an episode into Up Next and back into playback: controls show above video, and the video does not move or clip across show/hide, resize, minimize/restore, maximize and fullscreen. |
+
 ## Still watching prompt and sleep timer, 2026-11-01 UTC
 
 After several autoplayed episodes in a row with no input, Up Next asks "Still watching?" with Continue and Stop instead of counting down. The playback settings pop-out gains a Sleep Timer page (Off, 15–90 min, end of this episode or movie); when a duration runs out, playback pauses for a 30 s countdown that any input cancels, then stops. Settings > Playback gains "Ask If I'm Still Watching" and "Default Sleep Timer" (see [playback](playback.md), [config](config.md)). This changes `Main.qml` and `EmbeddedPlaybackOverlay.qml`, so the Windows embedded-playback check in AGENTS.md applies. No live server, Windows runtime, controller or display was available.

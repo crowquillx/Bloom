@@ -44,6 +44,12 @@
 namespace {
 namespace PlayerPolicy = Bloom::PlaybackPolicy;
 
+QString episodeSeasonId(const QVariantMap &episode)
+{
+    const QString seasonId = episode.value(QStringLiteral("seasonId")).toString();
+    return seasonId.isEmpty() ? episode.value(QStringLiteral("parentId")).toString() : seasonId;
+}
+
 std::atomic<quint64> gPlaybackAttemptCounter{0};
 bool isLinuxEmbeddedLibmpvBackend(const IPlayerBackend *backend)
 {
@@ -316,6 +322,20 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     connect(m_autoplayPlaybackInfoTimeoutTimer, &QTimer::timeout,
             this, &PlayerController::onAutoplayPlaybackInfoTimeout);
 
+    m_trackPreferenceWriteTimer = new QTimer(this);
+    m_trackPreferenceWriteTimer->setSingleShot(true);
+    m_trackPreferenceWriteTimer->setInterval(kTrackPreferenceWriteDelayMs);
+    connect(m_trackPreferenceWriteTimer, &QTimer::timeout,
+            this, &PlayerController::flushTrackPreferenceWrites);
+    if (m_config) {
+        connect(m_config, &ConfigManager::useServerTrackPreferencesChanged,
+                this, &PlayerController::dropStaleTrackPreferenceWrites);
+    }
+    if (m_playbackService) {
+        connect(m_playbackService, &PlaybackService::trackPreferenceIdentityChanged,
+                this, &PlayerController::dropStaleTrackPreferenceWrites);
+    }
+
     // Recovery timer for transient server loss
     m_recoveryTimer->setSingleShot(true);
     m_recoveryTimer->setInterval(kRecoveryPingIntervalMs);
@@ -404,6 +424,14 @@ PlayerController::~PlayerController()
     m_volumePersistTimer->stop();
     m_startDelayTimer->stop();
     m_autoplayPlaybackInfoTimeoutTimer->stop();
+    m_trackPreferenceWriteTimer->stop();
+    // Shutting down: a write still waiting could not finish, so it is
+    // dropped. The pick itself is saved locally already.
+    if (!m_pendingTrackPreferenceWrites.isEmpty()) {
+        qCInfo(lcPlayback) << "Dropping" << m_pendingTrackPreferenceWrites.size()
+                           << "unsent track preference write(s) at shutdown";
+        m_pendingTrackPreferenceWrites.clear();
+    }
     m_isRecovering = false;
     m_recoveryTimer->stop();
     if (m_recoveryPing) {
@@ -775,10 +803,15 @@ void PlayerController::enterIdleStateImmediate()
     m_pinnedSubtitleTrack = -1;
     m_nextPinnedAudioTrack = -1;
     m_nextPinnedSubtitleTrack = -1;
+    m_nextCarryTrackPreferencesFromSeasonId.clear();
+    m_carryTrackPreferencesFromSeasonId.clear();
     m_pendingAudioSwitchContext.clear();
     m_pendingAudioSwitchPreviousTrack = -2;
     m_pendingSubtitleReplanPreviousTrack = -2;
     m_replanQueued = false;
+    // A pick whose stream change never answered is kept locally but not
+    // written back: the server never confirmed it could play it.
+    dropHeldTrackPreferenceWrites();
     m_awaitingInPlaceReload = false;
     m_ignoreReplacedFileEnd = false;
     loadActiveStreamLayout({});
@@ -1026,6 +1059,7 @@ void PlayerController::onEnterPlayingState()
 
     applyPendingExternalSubtitleTracks();
     requestDeferredSegmentDescriptor();
+    saveCarriedTrackPreferences();
 
 
     // Report playback start if not already done
@@ -2056,8 +2090,7 @@ void PlayerController::onNextEpisodeLoaded(const QString &connectionId,
     m_shouldAutoplay = false;
     m_waitingForNextEpisodeAtPlaybackEnd = false;
 
-    const int lastAudioIndex = m_pendingAutoplayAudioTrack;
-    const int lastSubtitleIndex = pendingAutoplaySubtitleOverrideIndex();
+    const QString carrySeasonId = pendingAutoplayCarrySeasonId(episodeSeasonId(episodeData));
     
     if (episodeData.isEmpty()) {
         qCDebug(lcPlayback) << "PlayerController: No next episode available";
@@ -2065,11 +2098,7 @@ void PlayerController::onNextEpisodeLoaded(const QString &connectionId,
         noNextEpisodeData.insert(QStringLiteral("seriesId"), seriesId);
         noNextEpisodeData.insert(QStringLiteral("seasonId"), m_pendingAutoplaySeasonId);
         noNextEpisodeData.insert(QStringLiteral("noNextEpisode"), true);
-        emitNavigateToNextEpisodeQueued(noNextEpisodeData,
-                                        seriesId,
-                                        lastAudioIndex,
-                                        lastSubtitleIndex,
-                                        false);
+        emitNavigateToNextEpisodeQueued(noNextEpisodeData, seriesId, QString(), false);
         clearNextEpisodePrefetchState();
         return;
     }
@@ -2100,10 +2129,9 @@ void PlayerController::onNextEpisodeLoaded(const QString &connectionId,
     
     qCDebug(lcPlayback) << "PlayerController: Emitting navigateToNextEpisode signal with autoplay:" 
              << autoplay << "stillWatching:" << askStillWatching
-             << "audio:" << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
+             << "carrying track picks from season:" << carrySeasonId;
 
-    emitNavigateToNextEpisodeQueued(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay,
-                                    askStillWatching);
+    emitNavigateToNextEpisodeQueued(episodeData, seriesId, carrySeasonId, autoplay, askStillWatching);
     
     // Note: Don't clear pending autoplay context here - playNextEpisode() needs it
 }
@@ -2180,12 +2208,12 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
 
     const QVariantList mediaSources = playbackInfo.getMediaSourcesVariant();
     const QVariantMap mediaSource = mediaSources.isEmpty() ? QVariantMap{} : mediaSources.first().toMap();
-    const ScopedTrackPreferences preferences = m_trackPrefs->getSeasonPreferences(targetSeasonId);
-    const int preferredSubtitleIndex = pendingAutoplaySubtitleOverrideIndex();
-    const ResolvedTrackSelection resolved = resolveTrackSelection(mediaSource,
-                                                                  preferences,
-                                                                  m_pendingAutoplayAudioTrack,
-                                                                  preferredSubtitleIndex);
+    // The finished episode's picks reach a next season that has none of its
+    // own by what the tracks are, never by their index in another file.
+    const QString carrySeasonId = pendingAutoplayCarrySeasonId(targetSeasonId);
+    const ScopedTrackPreferences preferences =
+        seasonTrackPreferencesWithCarry(targetSeasonId, carrySeasonId);
+    const ResolvedTrackSelection resolved = resolveTrackSelection(mediaSource, preferences);
 
     m_pendingAutoplayDescriptorItemId = itemId;
     m_pendingAutoplayDescriptorSource = mediaSource;
@@ -2271,6 +2299,7 @@ void PlayerController::onPlaybackReplannedForRequest(const QString &sessionId,
         m_replanQueued = false;
         m_queuedAudioTrack = kNoQueuedTrack;
         m_queuedSubtitleTrack = kNoQueuedTrack;
+        dropHeldTrackPreferenceWrites();
         return;
     }
 
@@ -2357,10 +2386,12 @@ void PlayerController::onPlaybackReplannedForRequest(const QString &sessionId,
     emit availableTracksChanged();
     emit timelineChanged();
 
+    rollBackUngrantedTrackPicks(m_inFlightAudioTrack, m_inFlightSubtitleTrack);
     if (m_replanQueued) {
         // The new stream has not reported a position yet; it starts here.
         dispatchQueuedReplan(static_cast<double>(descriptor.startPositionMs) / 1000.0);
     }
+    releaseHeldTrackPreferenceWrites();
 }
 
 void PlayerController::dispatchQueuedReplan(double fallbackSourceSeconds)
@@ -2391,7 +2422,25 @@ void PlayerController::dispatchQueuedReplan(double fallbackSourceSeconds)
         m_selectedSubtitleTrack = grantedSubtitle;
         m_pendingAudioSwitchPreviousTrack = -2;
         m_pendingSubtitleReplanPreviousTrack = -2;
+        // The queued picks are undone: the season or movie keeps what plays,
+        // and their waiting writes are dropped.
+        if (queuedAudio != kNoQueuedTrack) {
+            persistAudioPreferenceForCurrentScope(grantedAudio, TrackPick::Restore);
+        }
+        if (queuedSubtitle != kNoQueuedTrack) {
+            persistSubtitlePreferenceForCurrentScope(grantedSubtitle, TrackPick::Restore);
+        }
         return;
+    }
+    // A failed change before this one may have restored the local choice;
+    // the queued picks are the user's again, written once they play.
+    if (queuedAudio != kNoQueuedTrack) {
+        persistAudioPreferenceForCurrentScope(m_selectedAudioTrack, TrackPick::UserAwaitingReplan,
+                                              grantedAudio);
+    }
+    if (queuedSubtitle != kNoQueuedTrack && m_selectedSubtitleTrack >= -1) {
+        persistSubtitlePreferenceForCurrentScope(m_selectedSubtitleTrack,
+                                                 TrackPick::UserAwaitingReplan, grantedSubtitle);
     }
     if (m_activePlaybackSegmentIndex >= 0
         && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
@@ -2424,13 +2473,14 @@ void PlayerController::onPlaybackReplanFailedForRequest(const QString &sessionId
         m_replanQueued = false;
         m_queuedAudioTrack = kNoQueuedTrack;
         m_queuedSubtitleTrack = kNoQueuedTrack;
+        dropHeldTrackPreferenceWrites();
         return;
     }
     if (previousAudioTrack != -2 && previousAudioTrack != m_selectedAudioTrack) {
         m_selectedAudioTrack = previousAudioTrack;
         updateAudioPlan();
         if (m_playerBackend->isRunning()) applyAudioPlanOptions();
-        persistAudioPreferenceForCurrentScope(previousAudioTrack);
+        persistAudioPreferenceForCurrentScope(previousAudioTrack, TrackPick::Restore);
         if (m_activePlaybackSegmentIndex >= 0
             && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
             m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("audioIndex")] =
@@ -2440,7 +2490,7 @@ void PlayerController::onPlaybackReplanFailedForRequest(const QString &sessionId
     }
     if (previousSubtitleTrack != -2 && previousSubtitleTrack != m_selectedSubtitleTrack) {
         m_selectedSubtitleTrack = previousSubtitleTrack;
-        persistSubtitlePreferenceForCurrentScope(previousSubtitleTrack);
+        persistSubtitlePreferenceForCurrentScope(previousSubtitleTrack, TrackPick::Restore);
         if (m_activePlaybackSegmentIndex >= 0
             && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
             m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("subtitleIndex")] =
@@ -2453,6 +2503,8 @@ void PlayerController::onPlaybackReplanFailedForRequest(const QString &sessionId
     if (m_replanQueued) {
         dispatchQueuedReplan(currentReportingPositionMs() / 1000.0);
     }
+    // Picks this failure did not undo were delivered by earlier changes.
+    releaseHeldTrackPreferenceWrites();
 }
 
 void PlayerController::onBackendFileLoaded()
@@ -2729,6 +2781,8 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     pending.startPositionMs = request.value(QStringLiteral("startPositionMs")).toLongLong();
     pending.preferredAudioIndex = request.value(QStringLiteral("preferredAudioIndex"), -2).toInt();
     pending.preferredSubtitleIndex = request.value(QStringLiteral("preferredSubtitleIndex"), -2).toInt();
+    pending.carryTrackPreferencesFromSeasonId =
+        request.value(QStringLiteral("carryTrackPreferencesFromSeasonId")).toString();
     pending.isMovie = request.value(QStringLiteral("isMovie")).toBool();
     // "contentKind": "extra" plays a trailer or another local extra on its
     // own: no series context, no resume, no Up Next.
@@ -2949,6 +3003,8 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
                                                             {QStringLiteral("seasonId"), request.seasonId},
                                                             {QStringLiteral("preferredAudioIndex"), request.preferredAudioIndex},
                                                             {QStringLiteral("preferredSubtitleIndex"), request.preferredSubtitleIndex},
+                                                            {QStringLiteral("carryTrackPreferencesFromSeasonId"),
+                                                             request.carryTrackPreferencesFromSeasonId},
                                                             {QStringLiteral("startPositionMs"), request.startPositionMs},
                                                             {QStringLiteral("isMovie"), request.isMovie}
                                                         },
@@ -3205,6 +3261,7 @@ void PlayerController::maybeFinalizePlaybackDescriptors(const QString &requestId
     m_nextPinnedSubtitleTrack = firstSegment.value(QStringLiteral("pinnedSubtitleTrack"), -1).toInt();
     m_nextPlaybackSegments = segments;
     m_nextContentKind = request.contentKind;
+    m_nextCarryTrackPreferencesFromSeasonId = request.carryTrackPreferencesFromSeasonId;
     m_nextPlaylistAppendUrls.clear();
     for (int index = 1; index < segments.size(); ++index) {
         const QVariantMap segment = segments.at(index).toMap();
@@ -3283,6 +3340,7 @@ void PlayerController::onPlaybackDescriptorLoadedForRequest(
         m_nextPinnedAudioTrack = parsePinnedTrackId(descriptor.stream.pinnedAudioTrackId);
         m_nextPinnedSubtitleTrack = parsePinnedTrackId(descriptor.stream.pinnedSubtitleTrackId);
         m_nextPlaybackSegments = {autoplaySegment};
+        m_nextCarryTrackPreferencesFromSeasonId = pendingAutoplayCarrySeasonId(resolvedSeasonId);
         playUrlWithTracks(url,
                           itemId,
                           m_pendingAutoplayDescriptorStartPositionMs,
@@ -3437,7 +3495,7 @@ QVariantMap PlayerController::selectMediaSourceForRequest(const QVariantList &me
         PlayerPolicy::parseVersionPreference(m_config->getPlaybackVersionPreference()));
 }
 
-QVariantMap PlayerController::resolveSegmentPlaybackContext(const QString &scopeId, bool isMovie,
+QVariantMap PlayerController::resolveSegmentPlaybackContext(const ScopedTrackPreferences &trackPreferences,
                                                             const PlaybackInfoResponse &playbackInfo,
                                                             const QVariantList &mediaSources,
                                                             const QVariantMap &preferredMediaSource,
@@ -3453,19 +3511,18 @@ QVariantMap PlayerController::resolveSegmentPlaybackContext(const QString &scope
         return QVariantMap{};
     }
 
-    const QVariantMap resolvedTracks = resolveTrackSelectionForMediaSource(resolvedSource,
-                                                                           scopeId,
-                                                                           isMovie,
-                                                                           preferredAudioIndex,
-                                                                           preferredSubtitleIndex);
+    const ResolvedTrackSelection resolvedTracks = resolveTrackSelection(resolvedSource,
+                                                                        trackPreferences,
+                                                                        preferredAudioIndex,
+                                                                        preferredSubtitleIndex);
     const PlayerPolicy::HdrContentKind hdrKind =
         PlayerPolicy::classifyMediaSourceHdr(resolvedSource);
     return QVariantMap{
         {QStringLiteral("mediaSource"), resolvedSource},
         {QStringLiteral("mediaSourceId"), resolvedSource.value(QStringLiteral("id")).toString()},
         {QStringLiteral("playSessionId"), playbackInfo.playSessionId},
-        {QStringLiteral("audioIndex"), resolvedTracks.value(QStringLiteral("audioIndex"), -1).toInt()},
-        {QStringLiteral("subtitleIndex"), resolvedTracks.value(QStringLiteral("subtitleIndex"), -1).toInt()},
+        {QStringLiteral("audioIndex"), resolvedTracks.audioIndex},
+        {QStringLiteral("subtitleIndex"), resolvedTracks.subtitleIndex},
         {QStringLiteral("availableAudioTracks"), buildAvailableTrackOptions(resolvedSource, QStringLiteral("Audio"))},
         {QStringLiteral("availableSubtitleTracks"), buildAvailableTrackOptions(resolvedSource, QStringLiteral("Subtitle"))},
         {QStringLiteral("framerate"), videoFramerateForMediaSource(resolvedSource)},
@@ -3488,9 +3545,13 @@ QVariantList PlayerController::buildMultipartSegments(const QVariantMap &request
     const int preferredAudioIndex = request.value(QStringLiteral("preferredAudioIndex"), -2).toInt();
     const int preferredSubtitleIndex = request.value(QStringLiteral("preferredSubtitleIndex"), -2).toInt();
     const bool isMovie = request.value(QStringLiteral("isMovie")).toBool();
+    const ScopedTrackPreferences trackPreferences = isMovie
+        ? m_trackPrefs->getMoviePreferences(scopeId)
+        : seasonTrackPreferencesWithCarry(
+              scopeId,
+              request.value(QStringLiteral("carryTrackPreferencesFromSeasonId")).toString());
 
-    const QVariantMap primaryContext = resolveSegmentPlaybackContext(scopeId,
-                                                                     isMovie,
+    const QVariantMap primaryContext = resolveSegmentPlaybackContext(trackPreferences,
                                                                      primaryPlaybackInfo,
                                                                      primaryPlaybackInfo.getMediaSourcesVariant(),
                                                                      primarySource,
@@ -3535,7 +3596,7 @@ QVariantList PlayerController::buildMultipartSegments(const QVariantMap &request
             }
 
             const QVariantMap partContext = resolveSegmentPlaybackContext(
-                scopeId, isMovie, primaryPlaybackInfo, allSources, partSource,
+                trackPreferences, primaryPlaybackInfo, allSources, partSource,
                 preferredAudioIndex, preferredSubtitleIndex, false);
             if (partContext.isEmpty()) {
                 return {};
@@ -3564,8 +3625,7 @@ QVariantList PlayerController::buildMultipartSegments(const QVariantMap &request
                 continue;
             }
 
-            const QVariantMap partContext = resolveSegmentPlaybackContext(scopeId,
-                                                                          isMovie,
+            const QVariantMap partContext = resolveSegmentPlaybackContext(trackPreferences,
                                                                           partPlaybackInfo,
                                                                           partPlaybackInfo.getMediaSourcesVariant(),
                                                                           primarySource,
@@ -3840,8 +3900,8 @@ void PlayerController::playNextEpisode(const QVariantMap &episodeData, const QSt
     request[QStringLiteral("isMovie")] = false;
     request[QStringLiteral("allowVersionPrompt")] = false;
     request[QStringLiteral("useAffinityFallback")] = true;
-    request[QStringLiteral("preferredAudioIndex")] = m_pendingAutoplayAudioTrack;
-    request[QStringLiteral("preferredSubtitleIndex")] = pendingAutoplaySubtitleOverrideIndex();
+    request[QStringLiteral("carryTrackPreferencesFromSeasonId")] =
+        pendingAutoplayCarrySeasonId(targetSeasonId);
     request[QStringLiteral("startedByAutoplay")] = startedByAutoplay;
     request[QStringLiteral("continuesWatching")] = QStringLiteral("upNext");
     requestPlayback(request);
@@ -4125,6 +4185,8 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     const QStringList requestedPlaylistAppendUrls = m_nextPlaylistAppendUrls;
     const PlayerPolicy::PlaybackContentKind requestedContentKind = m_nextContentKind;
     m_nextContentKind = PlayerPolicy::PlaybackContentKind::Feature;
+    const QString requestedCarrySeasonId =
+        std::exchange(m_nextCarryTrackPreferencesFromSeasonId, QString());
     m_nextPlaybackMethod.clear();
     m_nextStreamPinsAudioTrack = false;
     m_nextStreamPinsSubtitleTrack = false;
@@ -4139,7 +4201,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
                                  requestedPinsSubtitleTrack, requestedPinnedAudioTrack,
                                  requestedPinnedSubtitleTrack, requestedPlaybackAttemptId,
                                  requestedPlaybackSegments, requestedPlaylistAppendUrls,
-                                 requestedContentKind]() {
+                                 requestedContentKind, requestedCarrySeasonId]() {
         // Store pending playback info after the previous item has fully stopped.
         if (m_currentItemId != itemId) {
             m_currentItemId = itemId;
@@ -4149,6 +4211,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_currentSeasonId = seasonId;
         m_currentLibraryId = libraryId;
         m_currentContentKind = requestedContentKind;
+        m_carryTrackPreferencesFromSeasonId = requestedCarrySeasonId;
         emit sleepTimerChanged(); // sleepTimerEndOfItemLabel
         m_pendingUrl = url;
         refreshAdjacentEpisodes();
@@ -4562,6 +4625,7 @@ void PlayerController::setSelectedAudioTrack(int index)
                         << "previousSourceIndex=" << previousAudioTrack;
 
     bool selectionRolledBackSynchronously = false;
+    bool awaitingReplan = false;
     if (m_playbackState == Playing || m_playbackState == Paused) {
         const auto applyMpvAudioTrack = [this, index]() {
             applyAudioPlanOptions();
@@ -4604,6 +4668,7 @@ void PlayerController::setSelectedAudioTrack(int index)
                 }
             } else {
                 selectionRolledBackSynchronously = m_selectedAudioTrack != index;
+                awaitingReplan = !selectionRolledBackSynchronously;
             }
         } else {
             // A local selection supersedes the audio of any in-flight replan:
@@ -4618,7 +4683,12 @@ void PlayerController::setSelectedAudioTrack(int index)
     }
 
     const int effectiveAudioTrack = m_selectedAudioTrack;
-    persistAudioPreferenceForCurrentScope(effectiveAudioTrack);
+    persistAudioPreferenceForCurrentScope(
+        effectiveAudioTrack,
+        selectionRolledBackSynchronously ? TrackPick::Restore
+            : awaitingReplan             ? TrackPick::UserAwaitingReplan
+                                         : TrackPick::User,
+        previousAudioTrack);
     if (m_activePlaybackSegmentIndex >= 0 && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
         m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("audioIndex")] =
             effectiveAudioTrack;
@@ -4692,8 +4762,11 @@ void PlayerController::setSelectedSubtitleTrack(int index)
             m_pendingSubtitleReplanPreviousTrack = previousSubtitleTrack;
         }
         if (requestStreamReplan(false, m_segmentRelativePosition)) {
-            if (index >= -1) {
-                persistSubtitlePreferenceForCurrentScope(index);
+            // Written back only once the server delivers the new stream. A
+            // refusal answered at once has already restored the previous one.
+            if (index >= -1 && m_selectedSubtitleTrack == index) {
+                persistSubtitlePreferenceForCurrentScope(index, TrackPick::UserAwaitingReplan,
+                                                         previousSubtitleTrack);
             }
             if (m_activePlaybackSegmentIndex >= 0
                 && m_activePlaybackSegmentIndex < m_playbackSegments.size() && index >= -1) {
@@ -5403,25 +5476,23 @@ void PlayerController::saveMovieSubtitleTrackPreference(const QString &movieId, 
 
 void PlayerController::setExplicitSeasonAudioPreference(const QString &seasonId, int index)
 {
-    updateSeasonPreference(seasonId, [index](ScopedTrackPreferences &preferences) {
-        preferences.audio = {};
-        if (index >= 0) {
-            preferences.audio.mode = TrackPreferenceMode::ExplicitStream;
-            preferences.audio.streamIndex = index;
-        }
-    });
+    saveSeasonTrackPreference(seasonId, TrackPreferenceWrite::Kind::Audio,
+                              PlayerPolicy::explicitTrackPreference({}, index, false));
 }
 
 void PlayerController::setExplicitSeasonSubtitlePreference(const QString &seasonId, int index)
 {
-    updateSeasonPreference(seasonId, [index](ScopedTrackPreferences &preferences) {
-        preferences.subtitle = {};
-        if (index >= 0) {
-            preferences.subtitle.mode = TrackPreferenceMode::ExplicitStream;
-            preferences.subtitle.streamIndex = index;
-        } else if (index == -1) {
-            preferences.subtitle.mode = TrackPreferenceMode::Off;
-        }
+    saveSeasonTrackPreference(seasonId, TrackPreferenceWrite::Kind::Subtitle,
+                              PlayerPolicy::explicitTrackPreference({}, index, true));
+}
+
+void PlayerController::saveSeasonTrackPreference(const QString &seasonId,
+                                                 TrackPreferenceWrite::Kind kind,
+                                                 const TrackSelectionPreference &preference)
+{
+    updateSeasonPreference(seasonId, [kind, &preference](ScopedTrackPreferences &preferences) {
+        (kind == TrackPreferenceWrite::Kind::Audio ? preferences.audio : preferences.subtitle) =
+            preference;
     });
 }
 
@@ -5441,25 +5512,23 @@ void PlayerController::clearSeasonSubtitlePreference(const QString &seasonId)
 
 void PlayerController::setExplicitMovieAudioPreference(const QString &movieId, int index)
 {
-    updateMoviePreference(movieId, [index](ScopedTrackPreferences &preferences) {
-        preferences.audio = {};
-        if (index >= 0) {
-            preferences.audio.mode = TrackPreferenceMode::ExplicitStream;
-            preferences.audio.streamIndex = index;
-        }
-    });
+    saveMovieTrackPreference(movieId, TrackPreferenceWrite::Kind::Audio,
+                             PlayerPolicy::explicitTrackPreference({}, index, false));
 }
 
 void PlayerController::setExplicitMovieSubtitlePreference(const QString &movieId, int index)
 {
-    updateMoviePreference(movieId, [index](ScopedTrackPreferences &preferences) {
-        preferences.subtitle = {};
-        if (index >= 0) {
-            preferences.subtitle.mode = TrackPreferenceMode::ExplicitStream;
-            preferences.subtitle.streamIndex = index;
-        } else if (index == -1) {
-            preferences.subtitle.mode = TrackPreferenceMode::Off;
-        }
+    saveMovieTrackPreference(movieId, TrackPreferenceWrite::Kind::Subtitle,
+                             PlayerPolicy::explicitTrackPreference({}, index, true));
+}
+
+void PlayerController::saveMovieTrackPreference(const QString &movieId,
+                                                TrackPreferenceWrite::Kind kind,
+                                                const TrackSelectionPreference &preference)
+{
+    updateMoviePreference(movieId, [kind, &preference](ScopedTrackPreferences &preferences) {
+        (kind == TrackPreferenceWrite::Kind::Audio ? preferences.audio : preferences.subtitle) =
+            preference;
     });
 }
 
@@ -5481,11 +5550,12 @@ QVariantMap PlayerController::resolveTrackSelectionForMediaSource(const QVariant
                                                                  const QString &scopeId,
                                                                  bool isMovie,
                                                                  int preferredAudioIndex,
-                                                                 int preferredSubtitleIndex) const
+                                                                 int preferredSubtitleIndex,
+                                                                 const QString &carryTrackPreferencesFromSeasonId) const
 {
     const ScopedTrackPreferences preferences = isMovie
         ? m_trackPrefs->getMoviePreferences(scopeId)
-        : m_trackPrefs->getSeasonPreferences(scopeId);
+        : seasonTrackPreferencesWithCarry(scopeId, carryTrackPreferencesFromSeasonId);
     const ResolvedTrackSelection resolved = resolveTrackSelection(mediaSource,
                                                                   preferences,
                                                                   preferredAudioIndex,
@@ -5638,7 +5708,8 @@ PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection
         m_config ? m_config->getDefaultSubtitleTrackSelection()
                  : QStringLiteral("jellyfin-default"),
         preferredAudioIndex,
-        preferredSubtitleIndex);
+        preferredSubtitleIndex,
+        !m_config || m_config->getUseServerTrackPreferences());
 }
 
 void PlayerController::syncBackendAudioTrack(int mpvTrackId)
@@ -6031,28 +6102,341 @@ int PlayerController::subtitleDelayForScope(const QString &seasonId, const QStri
     return 0;
 }
 
-void PlayerController::persistAudioPreferenceForCurrentScope(int index)
+void PlayerController::persistAudioPreferenceForCurrentScope(int index, TrackPick pick,
+                                                             int previousIndex)
+{
+    persistTrackPreferenceForCurrentScope(TrackPreferenceWrite::Kind::Audio, index, pick,
+                                          previousIndex);
+}
+
+void PlayerController::persistSubtitlePreferenceForCurrentScope(int index, TrackPick pick,
+                                                                int previousIndex)
+{
+    persistTrackPreferenceForCurrentScope(TrackPreferenceWrite::Kind::Subtitle, index, pick,
+                                          previousIndex);
+}
+
+void PlayerController::persistTrackPreferenceForCurrentScope(TrackPreferenceWrite::Kind kind,
+                                                             int index, TrackPick pick,
+                                                             int previousIndex)
 {
     if (!PlayerPolicy::playbackContentRules(m_currentContentKind).persistsTrackPreferences) {
         return;
     }
+    const bool subtitle = kind == TrackPreferenceWrite::Kind::Subtitle;
+    // Silo keeps track preferences per series for episodes and per movie.
+    QString contentId;
+    TrackSelectionPreference saved;
     if (!m_currentSeasonId.isEmpty()) {
-        setExplicitSeasonAudioPreference(m_currentSeasonId, index);
+        contentId = m_currentSeriesId;
+        const ScopedTrackPreferences scope = m_trackPrefs->getSeasonPreferences(m_currentSeasonId);
+        saved = subtitle ? scope.subtitle : scope.audio;
     } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
-        setExplicitMovieAudioPreference(m_currentItemId, index);
+        contentId = m_currentItemId;
+        const ScopedTrackPreferences scope = m_trackPrefs->getMoviePreferences(m_currentItemId);
+        saved = subtitle ? scope.subtitle : scope.audio;
+    } else {
+        return;
+    }
+    std::optional<HeldTrackPick> &held = m_heldTrackPicks[subtitle ? 1 : 0];
+    if (pick == TrackPick::Restore) {
+        restoreHeldTrackPick(kind, contentId, index);
+        return;
+    }
+    if (pick == TrackPick::User) {
+        held.reset(); // this pick plays already and supersedes a held one
+    } else if (!held || held->streamIndex != index) {
+        // Remember what the pick replaces: the saved choice, and a write of
+        // the replaced track still waiting (a held pick's included), so a
+        // refusal brings both back.
+        HeldTrackPick next;
+        next.streamIndex = index;
+        ReplacedTrackPick replaced;
+        replaced.streamIndex = previousIndex;
+        replaced.preference = saved;
+        replaced.write = takePendingTrackPreferenceWrite(kind, contentId);
+        next.replaced.append(replaced);
+        if (held) {
+            next.replaced.append(held->replaced);
+        }
+        held = next;
+    }
+    saveCurrentScopeTrackPreference(
+        kind, PlayerPolicy::explicitTrackPreference(m_activeMediaSource, index, subtitle));
+    scheduleTrackPreferenceWrite(kind, contentId, m_activeMediaSource, index,
+                                 pick == TrackPick::UserAwaitingReplan);
+}
+
+void PlayerController::saveCurrentScopeTrackPreference(TrackPreferenceWrite::Kind kind,
+                                                       const TrackSelectionPreference &preference)
+{
+    if (!m_currentSeasonId.isEmpty()) {
+        saveSeasonTrackPreference(m_currentSeasonId, kind, preference);
+    } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
+        saveMovieTrackPreference(m_currentItemId, kind, preference);
     }
 }
 
-void PlayerController::persistSubtitlePreferenceForCurrentScope(int index)
+void PlayerController::restoreHeldTrackPick(TrackPreferenceWrite::Kind kind,
+                                            const QString &contentId, int playingIndex)
 {
-    if (!PlayerPolicy::playbackContentRules(m_currentContentKind).persistsTrackPreferences) {
+    const bool subtitle = kind == TrackPreferenceWrite::Kind::Subtitle;
+    std::optional<HeldTrackPick> &slot = m_heldTrackPicks[subtitle ? 1 : 0];
+    if (!slot) {
+        return; // the undone pick was never saved, so nothing changed
+    }
+    const HeldTrackPick held = *std::exchange(slot, std::nullopt);
+    // The undone pick's own write never goes out.
+    cancelTrackPreferenceWrite(kind, contentId);
+    const auto replaced = std::find_if(
+        held.replaced.cbegin(), held.replaced.cend(),
+        [playingIndex](const ReplacedTrackPick &entry) {
+            return entry.streamIndex == playingIndex;
+        });
+    TrackSelectionPreference restored;
+    if (replaced != held.replaced.cend()) {
+        // The track that played before plays again: so does the choice that
+        // picked it, whether a pick, the server's or Bloom's defaults.
+        restored = replaced->preference;
+        if (replaced->write) {
+            queueTrackPreferenceWrite(*replaced->write);
+            saveCurrentScopeTrackPreference(kind, restored);
+            return;
+        }
+    } else if (playingIndex >= 0 || (subtitle && playingIndex == -1)) {
+        // The server delivered another track than asked for: that is what
+        // the season or movie keeps.
+        restored = PlayerPolicy::explicitTrackPreference(m_activeMediaSource, playingIndex,
+                                                         subtitle);
+    } else {
+        restored = held.replaced.isEmpty() ? TrackSelectionPreference{}
+                                           : held.replaced.first().preference;
+    }
+    saveCurrentScopeTrackPreference(kind, restored);
+    if (restored.mode == TrackPreferenceMode::Unset || !m_playbackService) {
         return;
     }
-    if (!m_currentSeasonId.isEmpty()) {
-        setExplicitSeasonSubtitlePreference(m_currentSeasonId, index);
-    } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
-        setExplicitMovieSubtitlePreference(m_currentItemId, index);
+    // A server that already holds an undone pick gets the restored track.
+    TrackPreferenceWrite key;
+    key.kind = kind;
+    key.contentId = contentId;
+    key.requestIdentity = m_playbackService->trackPreferenceWriteIdentity();
+    const auto sent = m_sentTrackPreferenceIndexes.constFind(trackPreferenceWriteKey(key));
+    if (sent != m_sentTrackPreferenceIndexes.cend() && sent.value() != playingIndex) {
+        scheduleTrackPreferenceWrite(kind, contentId, m_activeMediaSource, playingIndex);
     }
+}
+
+std::optional<TrackPreferenceWrite> PlayerController::takePendingTrackPreferenceWrite(
+    TrackPreferenceWrite::Kind kind, const QString &contentId)
+{
+    for (qsizetype position = 0; position < m_pendingTrackPreferenceWrites.size(); ++position) {
+        const TrackPreferenceWrite &write = m_pendingTrackPreferenceWrites.at(position).write;
+        if (write.kind == kind && write.contentId == contentId) {
+            TrackPreferenceWrite taken = write;
+            m_pendingTrackPreferenceWrites.removeAt(position);
+            return taken;
+        }
+    }
+    return std::nullopt;
+}
+
+void PlayerController::queueTrackPreferenceWrite(const TrackPreferenceWrite &write)
+{
+    cancelTrackPreferenceWrite(write.kind, write.contentId);
+    PendingTrackPreferenceWrite pending;
+    pending.write = write;
+    m_pendingTrackPreferenceWrites.append(pending);
+    m_trackPreferenceWriteTimer->start();
+}
+
+void PlayerController::rollBackUngrantedTrackPicks(int inFlightAudio, int inFlightSubtitle)
+{
+    // A held pick the answered change asked for, but the server delivered
+    // another track: the pick is undone like a refusal, and only what plays
+    // may reach the server.
+    const std::optional<HeldTrackPick> &audio = m_heldTrackPicks[0];
+    if (audio && audio->streamIndex == inFlightAudio && m_selectedAudioTrack != inFlightAudio) {
+        qCInfo(lcPlayback) << "Server delivered audio" << m_selectedAudioTrack
+                           << "instead of the picked" << inFlightAudio;
+        persistAudioPreferenceForCurrentScope(m_selectedAudioTrack, TrackPick::Restore);
+    }
+    const std::optional<HeldTrackPick> &subtitle = m_heldTrackPicks[1];
+    if (subtitle && subtitle->streamIndex == inFlightSubtitle
+        && m_selectedSubtitleTrack != inFlightSubtitle) {
+        qCInfo(lcPlayback) << "Server delivered subtitle" << m_selectedSubtitleTrack
+                           << "instead of the picked" << inFlightSubtitle;
+        persistSubtitlePreferenceForCurrentScope(m_selectedSubtitleTrack, TrackPick::Restore);
+    }
+}
+
+void PlayerController::chooseSeasonAudioTrack(const QString &seasonId, const QString &seriesId,
+                                              const QVariantMap &mediaSource, int index)
+{
+    if (seasonId.isEmpty()) {
+        return;
+    }
+    saveSeasonTrackPreference(seasonId, TrackPreferenceWrite::Kind::Audio,
+                              PlayerPolicy::explicitTrackPreference(mediaSource, index, false));
+    scheduleTrackPreferenceWrite(TrackPreferenceWrite::Kind::Audio, seriesId, mediaSource, index);
+}
+
+void PlayerController::chooseSeasonSubtitleTrack(const QString &seasonId, const QString &seriesId,
+                                                 const QVariantMap &mediaSource, int index)
+{
+    if (seasonId.isEmpty()) {
+        return;
+    }
+    saveSeasonTrackPreference(seasonId, TrackPreferenceWrite::Kind::Subtitle,
+                              PlayerPolicy::explicitTrackPreference(mediaSource, index, true));
+    scheduleTrackPreferenceWrite(TrackPreferenceWrite::Kind::Subtitle, seriesId, mediaSource,
+                                 index);
+}
+
+void PlayerController::chooseMovieAudioTrack(const QString &movieId,
+                                             const QVariantMap &mediaSource, int index)
+{
+    if (movieId.isEmpty()) {
+        return;
+    }
+    saveMovieTrackPreference(movieId, TrackPreferenceWrite::Kind::Audio,
+                             PlayerPolicy::explicitTrackPreference(mediaSource, index, false));
+    scheduleTrackPreferenceWrite(TrackPreferenceWrite::Kind::Audio, movieId, mediaSource, index);
+}
+
+void PlayerController::chooseMovieSubtitleTrack(const QString &movieId,
+                                                const QVariantMap &mediaSource, int index)
+{
+    if (movieId.isEmpty()) {
+        return;
+    }
+    saveMovieTrackPreference(movieId, TrackPreferenceWrite::Kind::Subtitle,
+                             PlayerPolicy::explicitTrackPreference(mediaSource, index, true));
+    scheduleTrackPreferenceWrite(TrackPreferenceWrite::Kind::Subtitle, movieId, mediaSource,
+                                 index);
+}
+
+QString PlayerController::trackPreferenceWriteKey(const TrackPreferenceWrite &write) const
+{
+    return QStringList{write.requestIdentity,
+                       write.kind == TrackPreferenceWrite::Kind::Audio ? QStringLiteral("audio")
+                                                                       : QStringLiteral("subtitle"),
+                       write.contentId}
+        .join(QChar(0x1f));
+}
+
+void PlayerController::scheduleTrackPreferenceWrite(TrackPreferenceWrite::Kind kind,
+                                                    const QString &contentId,
+                                                    const QVariantMap &mediaSource,
+                                                    int index,
+                                                    bool awaitingReplan)
+{
+    cancelTrackPreferenceWrite(kind, contentId);
+    if (!m_playbackService || contentId.isEmpty() || mediaSource.isEmpty()
+        || (kind == TrackPreferenceWrite::Kind::Audio ? index < 0 : index < -1)
+        || (m_config && !m_config->getUseServerTrackPreferences())) {
+        return;
+    }
+    PendingTrackPreferenceWrite pending;
+    pending.write.kind = kind;
+    pending.write.contentId = contentId;
+    pending.write.mediaSource = mediaSource;
+    pending.write.streamIndex = index;
+    pending.write.requestIdentity = m_playbackService->trackPreferenceWriteIdentity();
+    pending.awaitingReplan = awaitingReplan;
+    if (pending.write.requestIdentity.isEmpty()) {
+        return;
+    }
+    m_pendingTrackPreferenceWrites.append(pending);
+    if (!awaitingReplan) {
+        m_trackPreferenceWriteTimer->start();
+    }
+}
+
+void PlayerController::cancelTrackPreferenceWrite(TrackPreferenceWrite::Kind kind,
+                                                  const QString &contentId)
+{
+    m_pendingTrackPreferenceWrites.removeIf(
+        [kind, &contentId](const PendingTrackPreferenceWrite &pending) {
+            return pending.write.kind == kind && pending.write.contentId == contentId;
+        });
+    if (std::none_of(m_pendingTrackPreferenceWrites.cbegin(),
+                     m_pendingTrackPreferenceWrites.cend(),
+                     [](const PendingTrackPreferenceWrite &pending) {
+                         return !pending.awaitingReplan;
+                     })) {
+        m_trackPreferenceWriteTimer->stop();
+    }
+}
+
+void PlayerController::releaseHeldTrackPreferenceWrites()
+{
+    if (!m_pendingAudioSwitchContext.isEmpty() || m_replanQueued) {
+        return;
+    }
+    // Every change answered: the picks still held play.
+    m_heldTrackPicks = {};
+    bool released = false;
+    for (PendingTrackPreferenceWrite &pending : m_pendingTrackPreferenceWrites) {
+        released = released || pending.awaitingReplan;
+        pending.awaitingReplan = false;
+    }
+    if (released) {
+        m_trackPreferenceWriteTimer->start();
+    }
+}
+
+void PlayerController::dropHeldTrackPreferenceWrites()
+{
+    m_heldTrackPicks = {};
+    m_pendingTrackPreferenceWrites.removeIf([](const PendingTrackPreferenceWrite &pending) {
+        return pending.awaitingReplan;
+    });
+}
+
+void PlayerController::dropStaleTrackPreferenceWrites()
+{
+    const QString identity =
+        m_playbackService ? m_playbackService->trackPreferenceWriteIdentity() : QString();
+    const bool enabled = !m_config || m_config->getUseServerTrackPreferences();
+    const qsizetype dropped = m_pendingTrackPreferenceWrites.removeIf(
+        [&identity, enabled](const PendingTrackPreferenceWrite &pending) {
+            return !enabled || identity.isEmpty() || pending.write.requestIdentity != identity;
+        });
+    if (dropped > 0) {
+        qCInfo(lcPlayback) << "Dropped" << dropped
+                           << "track preference write(s) for a previous account or profile";
+    }
+    const QString prefix = identity + QChar(0x1f);
+    for (auto it = m_sentTrackPreferenceIndexes.begin();
+         it != m_sentTrackPreferenceIndexes.end();) {
+        it = identity.isEmpty() || !it.key().startsWith(prefix)
+            ? m_sentTrackPreferenceIndexes.erase(it) : std::next(it);
+    }
+    if (m_pendingTrackPreferenceWrites.isEmpty()) {
+        m_trackPreferenceWriteTimer->stop();
+    }
+}
+
+void PlayerController::flushTrackPreferenceWrites()
+{
+    m_trackPreferenceWriteTimer->stop();
+    // A write picked under another account or profile, or after the user
+    // turned server preferences off, is dropped rather than sent.
+    dropStaleTrackPreferenceWrites();
+    QList<PendingTrackPreferenceWrite> held;
+    const QList<PendingTrackPreferenceWrite> writes =
+        std::exchange(m_pendingTrackPreferenceWrites, {});
+    for (const PendingTrackPreferenceWrite &pending : writes) {
+        if (pending.awaitingReplan) {
+            held.append(pending);
+            continue;
+        }
+        m_sentTrackPreferenceIndexes.insert(trackPreferenceWriteKey(pending.write),
+                                            pending.write.streamIndex);
+        m_playbackService->writeTrackPreference(pending.write);
+    }
+    m_pendingTrackPreferenceWrites = held;
 }
 
 void PlayerController::updateSeasonPreference(const QString &seasonId,
@@ -6513,8 +6897,8 @@ void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
     const bool configuredAutoplay = m_config->getAutoplayNextEpisode();
     const bool askStillWatching = configuredAutoplay && shouldAskStillWatchingForUpNext();
     const bool autoplay = configuredAutoplay && !askStillWatching;
-    const int lastAudioIndex = m_pendingAutoplayAudioTrack;
-    const int lastSubtitleIndex = pendingAutoplaySubtitleOverrideIndex();
+    const QString carrySeasonId =
+        pendingAutoplayCarrySeasonId(episodeSeasonId(m_prefetchedNextEpisodeData));
     const QString prefetchedSeriesId = m_prefetchedNextEpisodeSeriesId;
 
     m_shouldAutoplay = false;
@@ -6526,8 +6910,7 @@ void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
 
     emitNavigateToNextEpisodeQueued(m_prefetchedNextEpisodeData,
                                     prefetchedSeriesId,
-                                    lastAudioIndex,
-                                    lastSubtitleIndex,
+                                    carrySeasonId,
                                     autoplay,
                                     askStillWatching);
     clearNextEpisodePrefetchState();
@@ -6535,20 +6918,18 @@ void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
 
 void PlayerController::emitNavigateToNextEpisodeQueued(const QVariantMap &episodeData,
                                                        const QString &seriesId,
-                                                       int lastAudioIndex,
-                                                       int lastSubtitleIndex,
+                                                       const QString &carryTrackPreferencesFromSeasonId,
                                                        bool autoplay,
                                                        bool stillWatchingPrompt)
 {
     QMetaObject::invokeMethod(this,
-                              [this, episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay,
-                               stillWatchingPrompt]() {
+                              [this, episodeData, seriesId, carryTrackPreferencesFromSeasonId,
+                               autoplay, stillWatchingPrompt]() {
                                   // Main.qml reads the prompt state when it opens Up Next.
                                   setStillWatchingPromptActive(stillWatchingPrompt);
                                   emit navigateToNextEpisode(episodeData,
                                                              seriesId,
-                                                             lastAudioIndex,
-                                                             lastSubtitleIndex,
+                                                             carryTrackPreferencesFromSeasonId,
                                                              autoplay);
                                   setAwaitingNextEpisodeResolution(false);
                               },
@@ -6587,13 +6968,6 @@ void PlayerController::stashPendingAutoplayContext()
     m_pendingAutoplayLibraryId = m_currentLibraryId;
     m_pendingAutoplayAudioTrack = m_selectedAudioTrack;
     m_pendingAutoplaySubtitleTrack = m_selectedSubtitleTrack;
-    if (!m_currentSeasonId.isEmpty()) {
-        m_pendingAutoplaySubtitleMode = m_trackPrefs->getSeasonPreferences(m_currentSeasonId).subtitle.mode;
-    } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
-        m_pendingAutoplaySubtitleMode = m_trackPrefs->getMoviePreferences(m_currentItemId).subtitle.mode;
-    } else {
-        m_pendingAutoplaySubtitleMode = TrackPreferenceMode::Unset;
-    }
     m_pendingAutoplayFramerate = m_contentFramerate;
     m_pendingAutoplayIsHDR = m_contentIsHDR;
     m_pendingAutoplayToneMapToSdr = m_contentShouldToneMapToSdr;
@@ -6621,7 +6995,6 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplayLibraryId.clear();
     m_pendingAutoplayAudioTrack = -1;
     m_pendingAutoplaySubtitleTrack = -1;
-    m_pendingAutoplaySubtitleMode = TrackPreferenceMode::Unset;
     m_pendingAutoplayFramerate = 0.0;
     m_pendingAutoplayIsHDR = false;
     m_pendingAutoplayToneMapToSdr = false;
@@ -6640,17 +7013,52 @@ void PlayerController::releaseDeferredPostPlaybackDisplayRestore()
     maybeStartDeferredPostPlaybackDisplayRestore();
 }
 
-int PlayerController::pendingAutoplaySubtitleOverrideIndex() const
+QString PlayerController::pendingAutoplayCarrySeasonId(const QString &targetSeasonId) const
 {
-    switch (m_pendingAutoplaySubtitleMode) {
-    case TrackPreferenceMode::Off:
-        return -1;
-    case TrackPreferenceMode::ExplicitStream:
-        return m_pendingAutoplaySubtitleTrack;
-    case TrackPreferenceMode::Unset:
-    default:
-        return -2;
+    const ScopedTrackPreferences carried =
+        seasonTrackPreferencesWithCarry(targetSeasonId, m_pendingAutoplaySeasonId);
+    return carried == seasonTrackPreferencesWithCarry(targetSeasonId, QString())
+        ? QString() : m_pendingAutoplaySeasonId;
+}
+
+ScopedTrackPreferences PlayerController::seasonTrackPreferencesWithCarry(
+    const QString &seasonId, const QString &carryFromSeasonId) const
+{
+    ScopedTrackPreferences preferences = m_trackPrefs->getSeasonPreferences(seasonId);
+    if (seasonId.isEmpty() || carryFromSeasonId.isEmpty() || carryFromSeasonId == seasonId) {
+        return preferences;
     }
+    // Only an explicit pick carries; Bloom's own choice saves nothing.
+    const ScopedTrackPreferences carried = m_trackPrefs->getSeasonPreferences(carryFromSeasonId);
+    if (preferences.audio.mode == TrackPreferenceMode::Unset) {
+        preferences.audio = carried.audio;
+    }
+    if (preferences.subtitle.mode == TrackPreferenceMode::Unset) {
+        preferences.subtitle = carried.subtitle;
+    }
+    return preferences;
+}
+
+void PlayerController::saveCarriedTrackPreferences()
+{
+    const QString carrySeasonId = std::exchange(m_carryTrackPreferencesFromSeasonId, QString());
+    if (carrySeasonId.isEmpty() || m_currentSeasonId.isEmpty()
+        || !PlayerPolicy::playbackContentRules(m_currentContentKind).persistsTrackPreferences) {
+        return;
+    }
+    const ScopedTrackPreferences carried =
+        seasonTrackPreferencesWithCarry(m_currentSeasonId, carrySeasonId);
+    const ScopedTrackPreferences own = m_trackPrefs->getSeasonPreferences(m_currentSeasonId);
+    if (carried == own) {
+        return;
+    }
+    // Local only: the series' server row already holds the carried pick.
+    qCInfo(lcPlayback) << "Keeping the track picks of season" << carrySeasonId
+                       << "for season" << m_currentSeasonId;
+    updateSeasonPreference(m_currentSeasonId, [&carried](ScopedTrackPreferences &preferences) {
+        preferences.audio = carried.audio;
+        preferences.subtitle = carried.subtitle;
+    });
 }
 
 qint64 PlayerController::resumePositionMs(const QVariantMap &item)

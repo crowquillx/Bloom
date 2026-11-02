@@ -4,10 +4,12 @@
 #include "player/AudioPolicy.h"
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QCryptographicHash>
 #include <QUuid>
 
 #include <QJsonValue>
+#include <QRegularExpression>
 #include <QUrlQuery>
 
 #include <algorithm>
@@ -728,6 +730,229 @@ PlaybackReplanParseResult SiloPlaybackProvider::parseReplanResponse(
         : !rejection.isEmpty()         ? rejection
                                        : QStringLiteral("Silo returned an unsupported replan");
     return result;
+}
+
+namespace {
+
+// A language Silo stores as a preference: a BCP 47 tag or ISO 639 code. Codes
+// that name no spoken language would invent a preference nobody expressed.
+QString preferenceLanguage(const QString &language)
+{
+    static const QRegularExpression tag(
+        QStringLiteral("^[A-Za-z]{2,3}(?:[-_][0-9A-Za-z]{1,8})*$"));
+    const QString trimmed = language.trimmed();
+    const QString primary = trimmed.section(QRegularExpression(QStringLiteral("[-_]")), 0, 0)
+                                .toLower();
+    if (!tag.match(trimmed).hasMatch() || primary == QStringLiteral("und")
+        || primary == QStringLiteral("mul") || primary == QStringLiteral("zxx")
+        || primary == QStringLiteral("mis")) {
+        return {};
+    }
+    return trimmed;
+}
+
+QList<QVariantMap> sourceStreams(const QVariantMap &source, const QString &type)
+{
+    QList<QVariantMap> result;
+    for (const QVariant &entry : source.value(QStringLiteral("mediaStreams")).toList()) {
+        const QVariantMap stream = entry.toMap();
+        if (stream.value(QStringLiteral("type")).toString().compare(type, Qt::CaseInsensitive)
+            == 0) {
+            result.append(stream);
+        }
+    }
+    return result;
+}
+
+void insertText(QJsonObject &object, const QString &key, const QString &value)
+{
+    if (!value.trimmed().isEmpty()) {
+        object.insert(key, value.trimmed());
+    }
+}
+
+// The same spoken language, as Silo matches a stored preference: the primary
+// subtag, any case. Tags that name no spoken language never match.
+bool sameSpokenLanguage(const QString &left, const QString &right)
+{
+    const auto primary = [](const QString &language) {
+        return language.trimmed().toLower().section(QRegularExpression(QStringLiteral("[-_]")),
+                                                    0, 0);
+    };
+    const QString base = primary(left);
+    return !preferenceLanguage(left).isEmpty() && !preferenceLanguage(right).isEmpty()
+        && base == primary(right);
+}
+
+bool sameTrackText(const QString &left, const QString &right)
+{
+    return left.trimmed().compare(right.trimmed(), Qt::CaseInsensitive) == 0;
+}
+
+// The title Silo reported for the track: the canonical title falls back to
+// the embedded title for display when Silo sends none.
+QString siloTrackTitle(const MediaStreamInfo &track)
+{
+    return track.titleFromEmbeddedTitle ? QString() : track.title;
+}
+
+QString siloTrackTitle(const QVariantMap &track)
+{
+    return track.value(QStringLiteral("titleFromEmbeddedTitle")).toBool()
+        ? QString()
+        : track.value(QStringLiteral("title")).toString();
+}
+
+// Whether a stored getAudioPreference row names `track`: its track signature
+// matches the track exactly (Silo's first rule), or its language is the
+// track's (the saved index counts only with a matching language).
+bool storedAudioRowNamesTrack(const MediaStreamInfo &track, const QString &language,
+    const QJsonObject &signature)
+{
+    if (!signature.isEmpty())
+    {
+        if (sameSpokenLanguage(signature.value(QStringLiteral("language")).toString(),
+                track.language)
+            && sameTrackText(signature.value(QStringLiteral("title")).toString(),
+                siloTrackTitle(track))
+            && sameTrackText(signature.value(QStringLiteral("embedded_title")).toString(),
+                track.embeddedTitle)
+            && sameTrackText(signature.value(QStringLiteral("codec")).toString(), track.codec)
+            && sameTrackText(signature.value(QStringLiteral("layout")).toString(),
+                track.channelLayout)
+            && signature.value(QStringLiteral("channels")).toInt() == track.channels)
+            return true;
+    }
+    return sameSpokenLanguage(language, track.language);
+}
+
+} // namespace
+
+PlaybackInfoRequest SiloPlaybackProvider::createTrackPreferenceReadRequest(
+    const PlaybackInfoResponse &response) const
+{
+    PlaybackInfoRequest request;
+    // The read matters only where the watch response's audio track was set
+    // aside as possibly no preference at all.
+    const bool undecided = std::any_of(response.mediaSources.cbegin(),
+        response.mediaSources.cend(), [](const MediaSourceInfo &source) {
+            const Bloom::ServerTrackPreferences &server = source.serverTrackPreferences;
+            return server.resolvedAudioStreamIndex >= 0
+                && server.resolvedAudioStreamIndex != server.audioStreamIndex;
+        });
+    if (!undecided || response.trackPreferenceContentId.trimmed().isEmpty())
+        return request;
+    // getAudioPreference: the stored row for the series or movie, else 404.
+    request.endpoint = QStringLiteral("/api/v2/audio-prefs/%1")
+                           .arg(QString::fromLatin1(
+                               QUrl::toPercentEncoding(response.trackPreferenceContentId)));
+    return request;
+}
+
+void SiloPlaybackProvider::applyTrackPreferenceRead(
+    PlaybackInfoResponse &response, bool stored, const QByteArray &storedBody) const
+{
+    if (!stored)
+        return;
+    const QJsonObject row = QJsonDocument::fromJson(storedBody).object();
+    const QString language = row.value(QStringLiteral("audio_language")).toString();
+    const QJsonObject signature = row.value(QStringLiteral("track_signature")).toObject();
+    // The stored row makes the resolved track the profile's own choice, even
+    // when it is the file's default track, but only when the row names it.
+    // A file without the picked track resolves past the row (the profile's
+    // language or the default), which says nothing about this pick.
+    for (MediaSourceInfo &source : response.mediaSources)
+    {
+        Bloom::ServerTrackPreferences &server = source.serverTrackPreferences;
+        if (server.resolvedAudioStreamIndex < 0)
+            continue;
+        for (const MediaStreamInfo &stream : source.mediaStreams)
+            if (stream.type == QStringLiteral("Audio")
+                && stream.index == server.resolvedAudioStreamIndex
+                && storedAudioRowNamesTrack(stream, language, signature))
+                server.audioStreamIndex = server.resolvedAudioStreamIndex;
+    }
+}
+
+TrackPreferenceWriteRequest SiloPlaybackProvider::createTrackPreferenceWriteRequest(
+    const TrackPreferenceWrite &write) const
+{
+    TrackPreferenceWriteRequest request;
+    // Silo keys the preference by content: the series for an episode, the
+    // movie itself for a movie.
+    if (write.contentId.trimmed().isEmpty())
+        return request;
+    const QString content = QString::fromLatin1(QUrl::toPercentEncoding(write.contentId));
+    if (write.kind == TrackPreferenceWrite::Kind::Audio)
+    {
+        // audio_track_index is the ordinal in the file's audio_tracks.
+        const QList<QVariantMap> audio = sourceStreams(write.mediaSource, QStringLiteral("Audio"));
+        qsizetype ordinal = -1;
+        for (qsizetype i = 0; i < audio.size(); ++i)
+            if (audio.at(i).value(QStringLiteral("index"), -1).toInt() == write.streamIndex)
+                ordinal = i;
+        if (write.streamIndex < 0 || ordinal < 0)
+            return request;
+        const QVariantMap track = audio.at(ordinal);
+        // Silo recognizes the track in other episodes by matching these
+        // catalog fields exactly, so they go back as Silo reported them; the
+        // default flag says nothing about intent.
+        QJsonObject signature;
+        insertText(signature, QStringLiteral("language"), track.value("language").toString());
+        insertText(signature, QStringLiteral("title"), siloTrackTitle(track));
+        insertText(signature, QStringLiteral("embedded_title"),
+            track.value("embeddedTitle").toString());
+        insertText(signature, QStringLiteral("codec"), track.value("codec").toString());
+        insertText(signature, QStringLiteral("layout"), track.value("channelLayout").toString());
+        if (track.value(QStringLiteral("channels")).toInt() > 0)
+            signature.insert(QStringLiteral("channels"), track.value("channels").toInt());
+        request.body.insert(QStringLiteral("audio_track_index"), static_cast<int>(ordinal));
+        insertText(request.body, QStringLiteral("audio_language"),
+            preferenceLanguage(track.value("language").toString()));
+        if (!signature.isEmpty())
+            request.body.insert(QStringLiteral("track_signature"), signature);
+        request.endpoint = QStringLiteral("/api/v2/audio-prefs/%1").arg(content);
+    }
+    else
+    {
+        if (write.streamIndex == -1)
+        {
+            // -1 is the contract's "subtitles off"; no language is stored.
+            request.body = { { "subtitle_track_index", -1 }, { "subtitle_mode", "off" } };
+        }
+        else
+        {
+            const SubtitleOrdinals ordinals = subtitleOrdinals(write.mediaSource);
+            if (write.streamIndex < 0 || !ordinals.ordinalByStreamIndex.contains(write.streamIndex))
+                return request;
+            QVariantMap track;
+            for (const QVariantMap &candidate :
+                sourceStreams(write.mediaSource, QStringLiteral("Subtitle")))
+                if (candidate.value(QStringLiteral("index"), -1).toInt() == write.streamIndex)
+                    track = candidate;
+            const QString language = track.value(QStringLiteral("language")).toString();
+            const QString title = track.value(QStringLiteral("title")).toString().trimmed();
+            QJsonObject signature {
+                { "source",
+                    track.value(QStringLiteral("isExternal")).toBool() ? "external" : "embedded" },
+                { "forced", track.value(QStringLiteral("isForced")).toBool() },
+                { "hearing_impaired", track.value(QStringLiteral("isHearingImpaired")).toBool() } };
+            insertText(signature, QStringLiteral("language"), language);
+            insertText(signature, QStringLiteral("codec"), track.value("codec").toString());
+            insertText(signature, QStringLiteral("label"), title.isEmpty() ? language : title);
+            // show_forced_subtitles is left out: Silo then keeps the series'
+            // own forced setting instead of pinning the profile's.
+            request.body = { { "subtitle_track_index",
+                                 ordinals.ordinalByStreamIndex.value(write.streamIndex) },
+                { "subtitle_mode", "always" }, { "track_signature", signature } };
+            insertText(request.body, QStringLiteral("subtitle_language"),
+                preferenceLanguage(language));
+        }
+        request.endpoint = QStringLiteral("/api/v2/subtitle-prefs/%1").arg(content);
+    }
+    // updateAudioPreference and updateSubtitlePreference are natural_idempotent.
+    request.replaySafe = true;
+    return request;
 }
 
 PlaybackReportRequest SiloPlaybackProvider::createReportRequest(const PlaybackReport &report) const

@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QHash>
+#include <QRegularExpression>
 #include <QStringList>
 #include <QtGlobal>
 
@@ -188,7 +189,75 @@ QString mediaSourceVideoDescriptor(const QVariantMap &mediaSource)
                  mediaSource.value(QStringLiteral("bitRate")).toInt()));
 }
 
+QString streamLanguage(const QVariantList &streams, int streamIndex)
+{
+    for (const QVariant &streamVariant : streams) {
+        const QVariantMap stream = streamVariant.toMap();
+        if (stream.value(QStringLiteral("index"), -1).toInt() == streamIndex) {
+            return stream.value(QStringLiteral("language")).toString();
+        }
+    }
+    return {};
+}
+
+bool sameText(const QString &left, const QString &right)
+{
+    return left.trimmed().compare(right.trimmed(), Qt::CaseInsensitive) == 0;
+}
+
+// A tag that names no spoken language: empty, und, mul, zxx, mis or private use.
+bool isUndeterminedLanguage(const QString &language)
+{
+    return languageMatchRank(language, language) < 0;
+}
+
+// A subtitle track with only part of the dialogue: flagged forced, or titled
+// as signs, songs or forced (fansub releases rarely set the flag).
+bool isPartialSubtitle(const QVariantMap &stream)
+{
+    static const QRegularExpression partial(
+        QStringLiteral("\\b(signs?|songs?|forced)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    return stream.value(QStringLiteral("isForced")).toBool()
+        || partial.match(stream.value(QStringLiteral("title")).toString()).hasMatch()
+        || partial.match(stream.value(QStringLiteral("displayTitle")).toString()).hasMatch();
+}
+
+// An audio track titled as commentary rather than the programme's sound.
+bool isCommentaryAudio(const QVariantMap &stream)
+{
+    static const QRegularExpression commentary(
+        QStringLiteral("\\bcommentary\\b"), QRegularExpression::CaseInsensitiveOption);
+    return commentary.match(stream.value(QStringLiteral("title")).toString()).hasMatch()
+        || commentary.match(stream.value(QStringLiteral("displayTitle")).toString()).hasMatch();
+}
+
 } // namespace
+
+int languageMatchRank(const QString &candidate, const QString &preferred)
+{
+    const auto split = [](const QString &tag) {
+        QString normalized = tag.trimmed().toLower();
+        normalized.replace(QLatin1Char('_'), QLatin1Char('-'));
+        const qsizetype dash = normalized.indexOf(QLatin1Char('-'));
+        const QString primary = dash < 0 ? normalized : normalized.left(dash);
+        return std::pair{primary, dash < 0 ? QString{} : normalized.mid(dash)};
+    };
+    const auto [candidatePrimary, candidateRest] = split(candidate);
+    const auto [preferredPrimary, preferredRest] = split(preferred);
+    // und/mul/zxx/mis name no spoken language; x-/i- tags are private use.
+    static const QStringList nonLanguages{
+        QStringLiteral("und"), QStringLiteral("mul"), QStringLiteral("zxx"),
+        QStringLiteral("mis")};
+    const auto isLanguage = [](const QString &primary) {
+        return primary.size() >= 2 && primary.size() <= 3 && !nonLanguages.contains(primary);
+    };
+    if (!isLanguage(candidatePrimary) || !isLanguage(preferredPrimary)
+        || normalizeLanguageCode(candidatePrimary) != normalizeLanguageCode(preferredPrimary)) {
+        return -1;
+    }
+    return candidateRest == preferredRest ? 0 : 1;
+}
 
 QString normalizeLanguageCode(const QString &language)
 {
@@ -274,8 +343,13 @@ ResolvedTrackSelection resolveTrackSelection(
     const QString &defaultAudioSelection,
     const QString &defaultSubtitleSelection,
     int preferredAudioIndex,
-    int preferredSubtitleIndex)
+    int preferredSubtitleIndex,
+    bool useServerPreferences)
 {
+    const Bloom::ServerTrackPreferences server = useServerPreferences
+        ? Bloom::ServerTrackPreferences::fromVariantMap(
+              mediaSource.value(QStringLiteral("serverTrackPreferences")).toMap())
+        : Bloom::ServerTrackPreferences{};
     const QVariantList audioStreams = mediaStreamsForType(
         mediaSource, QStringLiteral("Audio"));
     const QVariantList subtitleStreams = embeddedFirst(mediaStreamsForType(
@@ -374,10 +448,12 @@ ResolvedTrackSelection resolveTrackSelection(
     if (preferredAudioIndex >= 0
         && hasStreamIndex(audioStreams, preferredAudioIndex)) {
         audio = {preferredAudioIndex, QStringLiteral("override")};
-    } else if (preferences.audio.mode == TrackPreferenceMode::ExplicitStream
-               && hasStreamIndex(audioStreams,
-                                 preferences.audio.streamIndex)) {
-        audio = {preferences.audio.streamIndex, QStringLiteral("explicit")};
+    } else if (const int local = explicitStreamIndex(audioStreams, preferences.audio, false);
+               local >= 0) {
+        audio = {local, QStringLiteral("explicit")};
+    } else if (const ServerTrackChoice choice = serverAudioChoice(audioStreams, server);
+               !choice.source.isEmpty()) {
+        audio = {choice.index, choice.source};
     } else {
         audio = globalAudio();
     }
@@ -390,14 +466,278 @@ ResolvedTrackSelection resolveTrackSelection(
         subtitle = {preferredSubtitleIndex, QStringLiteral("override")};
     } else if (preferences.subtitle.mode == TrackPreferenceMode::Off) {
         subtitle = {-1, QStringLiteral("explicit-off")};
-    } else if (preferences.subtitle.mode == TrackPreferenceMode::ExplicitStream
-               && hasStreamIndex(subtitleStreams,
-                                 preferences.subtitle.streamIndex)) {
-        subtitle = {preferences.subtitle.streamIndex, QStringLiteral("explicit")};
+    } else if (const int local = explicitStreamIndex(subtitleStreams, preferences.subtitle, true);
+               local >= 0) {
+        subtitle = {local, QStringLiteral("explicit")};
+    } else if (const ServerTrackChoice choice = serverSubtitleChoice(
+                   subtitleStreams, server, streamLanguage(audioStreams, audio.first));
+               !choice.source.isEmpty()) {
+        subtitle = {choice.index, choice.source};
     } else {
         subtitle = globalSubtitle();
     }
     return {audio.first, subtitle.first, audio.second, subtitle.second};
+}
+
+namespace {
+
+// Which subtitle tracks a language lookup considers.
+enum class SubtitleTracks { Any, Forced, FullDialogue };
+
+// Best stream in `language`: closest language tag first, then (audio) the
+// default flag or (subtitles) full dialogue over forced over hearing
+// impaired, then stream order, so an embedded track beats an external file.
+int serverLanguageStreamIndex(const QVariantList &streams, const QString &language,
+                              bool subtitle, SubtitleTracks tracks = SubtitleTracks::Any)
+{
+    int bestIndex = -1;
+    std::tuple<int, int, int> bestKey{std::numeric_limits<int>::max(), 0, 0};
+    int ordinal = 0;
+    for (const QVariant &streamVariant : streams) {
+        const QVariantMap stream = streamVariant.toMap();
+        const int position = ordinal++;
+        const bool forced = stream.value(QStringLiteral("isForced")).toBool();
+        if ((tracks == SubtitleTracks::Forced && !forced)
+            || (tracks == SubtitleTracks::FullDialogue && isPartialSubtitle(stream))) {
+            continue;
+        }
+        const int rank = languageMatchRank(
+            stream.value(QStringLiteral("language")).toString(), language);
+        if (rank < 0) {
+            continue;
+        }
+        const int priority = subtitle
+            ? (forced ? 2 : 0) + (stream.value(QStringLiteral("isHearingImpaired")).toBool() ? 1 : 0)
+            : (stream.value(QStringLiteral("isDefault")).toBool() ? 0 : 1);
+        const std::tuple<int, int, int> key{rank, priority, position};
+        if (bestIndex < 0 || key < bestKey) {
+            bestKey = key;
+            bestIndex = stream.value(QStringLiteral("index"), -1).toInt();
+        }
+    }
+    return bestIndex;
+}
+
+bool matchesSubtitleSignature(const QVariantMap &stream,
+                              const Bloom::ServerSubtitleSignature &signature)
+{
+    const QString source = stream.value(QStringLiteral("isExternal")).toBool()
+        ? QStringLiteral("external") : QStringLiteral("embedded");
+    const QString signatureSource = sameText(signature.source, QStringLiteral("downloaded"))
+        ? QStringLiteral("external") : signature.source;
+    const QString title = stream.value(QStringLiteral("title")).toString();
+    const QString label = title.isEmpty()
+        ? stream.value(QStringLiteral("language")).toString() : title;
+    return sameText(source, signatureSource)
+        && sameText(stream.value(QStringLiteral("language")).toString(), signature.language)
+        && sameText(stream.value(QStringLiteral("codec")).toString(), signature.codec)
+        && (signature.label.trimmed().isEmpty() || sameText(label, signature.label)
+            || sameText(stream.value(QStringLiteral("displayTitle")).toString(), signature.label))
+        && stream.value(QStringLiteral("isForced")).toBool() == signature.forced
+        && stream.value(QStringLiteral("isHearingImpaired")).toBool() == signature.hearingImpaired;
+}
+
+int signatureStreamIndex(const QVariantList &streams,
+                         const Bloom::ServerSubtitleSignature &signature)
+{
+    if (signature.isEmpty()) {
+        return -1;
+    }
+    return firstMatchingStreamIndex(streams, [&signature](const QVariantMap &stream) {
+        return matchesSubtitleSignature(stream, signature);
+    });
+}
+
+} // namespace
+
+ServerTrackChoice serverAudioChoice(const QVariantList &audioStreams,
+                                    const Bloom::ServerTrackPreferences &server)
+{
+    if (server.audioStreamIndex >= 0 && hasStreamIndex(audioStreams, server.audioStreamIndex)) {
+        return {server.audioStreamIndex, QStringLiteral("server")};
+    }
+    if (server.audioLanguage.trimmed().isEmpty()) {
+        return {};
+    }
+    if (server.playDefaultAudioTrack) {
+        const int index = firstMatchingStreamIndex(audioStreams, [](const QVariantMap &stream) {
+            return stream.value(QStringLiteral("isDefault")).toBool();
+        });
+        if (index >= 0) {
+            return {index, QStringLiteral("server-default-track")};
+        }
+    }
+    const int index = serverLanguageStreamIndex(audioStreams, server.audioLanguage, false);
+    return index >= 0 ? ServerTrackChoice{index, QStringLiteral("server-language")}
+                      : ServerTrackChoice{};
+}
+
+ServerTrackChoice serverSubtitleChoice(const QVariantList &subtitleStreams,
+                                       const Bloom::ServerTrackPreferences &server,
+                                       const QString &audioLanguage)
+{
+    const QString mode = server.subtitleMode;
+    if (mode.isEmpty()) {
+        return {};
+    }
+    const bool showForced = server.showForcedSubtitles.value_or(true);
+    const auto forcedForAudio = [&]() -> ServerTrackChoice {
+        if (showForced) {
+            const int index = serverLanguageStreamIndex(subtitleStreams, audioLanguage, true,
+                                                        SubtitleTracks::Forced);
+            if (index >= 0) {
+                return {index, QStringLiteral("server-forced")};
+            }
+        }
+        return {-1, QStringLiteral("server-off")};
+    };
+    if (mode == QStringLiteral("off")) {
+        return forcedForAudio();
+    }
+    const QString language = server.subtitleLanguage.trimmed();
+    if (mode == QStringLiteral("forced")) {
+        // Jellyfin's OnlyForced: a forced track in the subtitle language or
+        // in no named language, then one for the audio, then any.
+        int index = serverLanguageStreamIndex(subtitleStreams, language, true,
+                                              SubtitleTracks::Forced);
+        if (index < 0) {
+            index = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
+                return stream.value(QStringLiteral("isForced")).toBool()
+                    && isUndeterminedLanguage(stream.value(QStringLiteral("language")).toString());
+            });
+        }
+        if (index < 0) {
+            index = serverLanguageStreamIndex(subtitleStreams, audioLanguage, true,
+                                              SubtitleTracks::Forced);
+        }
+        if (index < 0) {
+            index = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
+                return stream.value(QStringLiteral("isForced")).toBool();
+            });
+        }
+        return index >= 0 ? ServerTrackChoice{index, QStringLiteral("server-forced")}
+                          : ServerTrackChoice{-1, QStringLiteral("server-forced-off")};
+    }
+    if (mode == QStringLiteral("always")) {
+        const int signature = signatureStreamIndex(subtitleStreams, server.subtitleSignature);
+        if (signature >= 0) {
+            return {signature, QStringLiteral("server-signature")};
+        }
+    } else if (mode == QStringLiteral("auto")) {
+        // Audio already in the subtitle language needs only its forced track.
+        if (language.isEmpty() || languageMatchRank(audioLanguage, language) >= 0) {
+            return forcedForAudio();
+        }
+        const int signature = signatureStreamIndex(subtitleStreams, server.subtitleSignature);
+        if (signature >= 0
+            && languageMatchRank(streamLanguage(subtitleStreams, signature), language) >= 0) {
+            return {signature, QStringLiteral("server-signature")};
+        }
+    } else {
+        return {};
+    }
+    // Full dialogue only: a signs or songs track in the language does not
+    // translate the dialogue, so the file cannot meet the preference then.
+    const int index = language.isEmpty()
+        ? -1 : serverLanguageStreamIndex(subtitleStreams, language, true,
+                                         SubtitleTracks::FullDialogue);
+    // A preference this file cannot meet says nothing about it.
+    return index >= 0 ? ServerTrackChoice{index, QStringLiteral("server-language")}
+                      : ServerTrackChoice{};
+}
+
+TrackSelectionPreference explicitTrackPreference(const QVariantMap &mediaSource,
+                                                 int streamIndex,
+                                                 bool subtitle)
+{
+    TrackSelectionPreference result;
+    if (subtitle && streamIndex == -1) {
+        result.mode = TrackPreferenceMode::Off;
+        return result;
+    }
+    if (streamIndex < 0) {
+        return result;
+    }
+    result.mode = TrackPreferenceMode::ExplicitStream;
+    result.streamIndex = streamIndex;
+    const QVariantList streams = mediaStreamsForType(
+        mediaSource, subtitle ? QStringLiteral("Subtitle") : QStringLiteral("Audio"));
+    for (const QVariant &streamVariant : streams) {
+        const QVariantMap stream = streamVariant.toMap();
+        if (stream.value(QStringLiteral("index"), -1).toInt() != streamIndex) {
+            continue;
+        }
+        result.preferredLanguage = stream.value(QStringLiteral("language")).toString().trimmed();
+        result.title = stream.value(QStringLiteral("title")).toString().trimmed();
+        result.codec = stream.value(QStringLiteral("codec")).toString().trimmed();
+        if (subtitle) {
+            result.forcedOnly = stream.value(QStringLiteral("isForced")).toBool();
+            result.hearingImpaired = stream.value(QStringLiteral("isHearingImpaired")).toBool();
+        } else {
+            result.channels = qMax(0, stream.value(QStringLiteral("channels")).toInt());
+        }
+        break;
+    }
+    return result;
+}
+
+int explicitStreamIndex(const QVariantList &streams,
+                        const TrackSelectionPreference &preference,
+                        bool subtitle)
+{
+    if (preference.mode != TrackPreferenceMode::ExplicitStream) {
+        return -1;
+    }
+    const bool knowsTrack = !preference.preferredLanguage.isEmpty()
+        || !preference.title.isEmpty() || !preference.codec.isEmpty()
+        || preference.channels > 0 || preference.forcedOnly || preference.hearingImpaired;
+    if (!knowsTrack) {
+        return hasStreamIndex(streams, preference.streamIndex) ? preference.streamIndex : -1;
+    }
+    const bool pickedUndetermined = isUndeterminedLanguage(preference.preferredLanguage);
+    const bool pickedPartial = subtitle
+        && isPartialSubtitle(QVariantMap{{QStringLiteral("isForced"), preference.forcedOnly},
+                                         {QStringLiteral("title"), preference.title}});
+    const bool pickedCommentary = !subtitle
+        && isCommentaryAudio(QVariantMap{{QStringLiteral("title"), preference.title}});
+    int bestIndex = -1;
+    // Larger is better, compared in order.
+    using Key = std::tuple<bool, bool, bool, bool, bool, bool, int>;
+    Key bestKey{};
+    int ordinal = 0;
+    for (const QVariant &streamVariant : streams) {
+        const QVariantMap stream = streamVariant.toMap();
+        const int position = ordinal++;
+        const QString language = stream.value(QStringLiteral("language")).toString();
+        const int rank = pickedUndetermined
+            ? (isUndeterminedLanguage(language) ? 0 : -1)
+            : languageMatchRank(language, preference.preferredLanguage);
+        if (rank < 0
+            || (subtitle
+                && (stream.value(QStringLiteral("isForced")).toBool() != preference.forcedOnly
+                    || isPartialSubtitle(stream) != pickedPartial))
+            || (!subtitle && isCommentaryAudio(stream) != pickedCommentary)) {
+            continue;
+        }
+        const int index = stream.value(QStringLiteral("index"), -1).toInt();
+        const int channels = stream.value(QStringLiteral("channels")).toInt();
+        const Key key{
+            sameText(stream.value(QStringLiteral("title")).toString(), preference.title),
+            rank == 0,
+            !subtitle
+                || stream.value(QStringLiteral("isHearingImpaired")).toBool()
+                    == preference.hearingImpaired,
+            preference.codec.isEmpty()
+                || sameText(stream.value(QStringLiteral("codec")).toString(), preference.codec),
+            preference.channels <= 0 || channels == preference.channels,
+            index == preference.streamIndex,
+            -position};
+        if (bestIndex < 0 || key > bestKey) {
+            bestKey = key;
+            bestIndex = index;
+        }
+    }
+    return bestIndex;
 }
 
 HdrContentKind classifyMediaSourceHdr(const QVariantMap &mediaSource)

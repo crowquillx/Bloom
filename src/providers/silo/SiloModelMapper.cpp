@@ -230,6 +230,109 @@ double frameRate(const QString &value)
     return denominatorOk && denominator != 0.0 ? numerator / denominator : 0.0;
 }
 
+// The audio track Silo picks for a file when the profile has no preference
+// (playback.SelectAudioTrack with neither a language nor a series choice):
+// among the tracks FFmpeg can decode, the first default-flagged one, else the
+// first. A track whose probe named no codec (or "unknown") is not decodable
+// while another track names one.
+int siloUnpreferredAudioOrdinal(const QJsonArray &audio)
+{
+    const auto probedCodec = [](const QJsonValue &track) {
+        return track.toObject().value(QStringLiteral("codec")).toString().trimmed().toLower();
+    };
+    bool anyCodec = false;
+    for (const QJsonValue &track : audio) {
+        anyCodec = anyCodec || !probedCodec(track).isEmpty();
+    }
+    QList<int> candidates;
+    for (qsizetype i = 0; i < audio.size(); ++i) {
+        const QString codec = probedCodec(audio.at(i));
+        if (!anyCodec || (!codec.isEmpty() && codec != QStringLiteral("unknown"))) {
+            candidates.append(static_cast<int>(i));
+        }
+    }
+    if (candidates.isEmpty()) {
+        for (qsizetype i = 0; i < audio.size(); ++i) {
+            candidates.append(static_cast<int>(i));
+        }
+    }
+    for (const int ordinal : std::as_const(candidates)) {
+        if (audio.at(ordinal).toObject().value(QStringLiteral("default")).toBool()) {
+            return ordinal;
+        }
+    }
+    return candidates.isEmpty() ? -1 : candidates.first();
+}
+
+// The audio track Silo resolves for the file, as Bloom's audio stream index.
+// effective_audio_track_index is a zero-based ordinal into audio_tracks,
+// which is also Bloom's audio stream index for Silo.
+int siloEffectiveAudioStreamIndex(const QJsonObject &wireVersion, const QJsonArray &audio)
+{
+    const QJsonValue effective = wireVersion.value(QStringLiteral("effective_audio_track_index"));
+    if (!effective.isDouble()) {
+        return -1;
+    }
+    const int ordinal = effective.toInt(-1);
+    if (ordinal < 0 || ordinal >= audio.size() || !audio.at(ordinal).isObject()) {
+        return -1;
+    }
+    const QJsonObject track = audio.at(ordinal).toObject();
+    return track.contains(QStringLiteral("index"))
+        ? track.value(QStringLiteral("index")).toInt(ordinal)
+        : ordinal;
+}
+
+// Silo resolves every file to an audio track, falling back to the file's
+// default when the profile has no preference, and the watch response does not
+// say which. Until the series' or movie's own preference is read
+// (getAudioPreference), only a choice that differs from that fallback counts
+// as the server's (a profile-wide language); otherwise Bloom's defaults decide.
+int siloPreferredAudioStreamIndex(const QJsonObject &wireVersion, const QJsonArray &audio)
+{
+    const QJsonValue effective = wireVersion.value(QStringLiteral("effective_audio_track_index"));
+    if (!effective.isDouble() || effective.toInt(-1) == siloUnpreferredAudioOrdinal(audio)) {
+        return -1;
+    }
+    return siloEffectiveAudioStreamIndex(wireVersion, audio);
+}
+
+// Watch-level subtitle preferences. Silo sends each member only when the
+// profile stored it (a value resolving to the contract default is absent).
+// A language without a mode follows Silo's default mode, auto.
+void applySiloSubtitlePreferences(const QJsonObject &wire, Bloom::ServerTrackPreferences &target)
+{
+    const QJsonValue mode = wire.value(QStringLiteral("effective_subtitle_mode"));
+    const QJsonValue language = wire.value(QStringLiteral("effective_subtitle_language"));
+    const QJsonValue forced = wire.value(QStringLiteral("effective_show_forced_subtitles"));
+    const QJsonObject signature =
+        wire.value(QStringLiteral("effective_subtitle_track_signature")).toObject();
+    const QString normalizedMode = mode.toString().trimmed().toLower();
+    if (normalizedMode == QStringLiteral("off") || normalizedMode == QStringLiteral("always")
+        || normalizedMode == QStringLiteral("auto")) {
+        target.subtitleMode = normalizedMode;
+    } else if (!language.toString().trimmed().isEmpty() || !signature.isEmpty()) {
+        target.subtitleMode = QStringLiteral("auto");
+    }
+    if (target.subtitleMode.isEmpty()) {
+        return;
+    }
+    target.subtitleLanguage = language.toString().trimmed();
+    if (forced.isBool()) {
+        target.showForcedSubtitles = forced.toBool();
+    }
+    if (!signature.isEmpty()) {
+        target.subtitleSignature.source = signature.value(QStringLiteral("source")).toString();
+        target.subtitleSignature.language =
+            signature.value(QStringLiteral("language")).toString();
+        target.subtitleSignature.codec = signature.value(QStringLiteral("codec")).toString();
+        target.subtitleSignature.label = signature.value(QStringLiteral("label")).toString();
+        target.subtitleSignature.forced = signature.value(QStringLiteral("forced")).toBool();
+        target.subtitleSignature.hearingImpaired =
+            signature.value(QStringLiteral("hearing_impaired")).toBool();
+    }
+}
+
 int trackIndex(const QJsonObject &wireTrack, int fallback)
 {
     if (!wireTrack.contains(QStringLiteral("index"))) {
@@ -922,8 +1025,10 @@ MediaStreamInfo SiloModelMapper::mediaStream(const QJsonObject &wireTrack,
     result.codec = wireTrack.value(QStringLiteral("codec")).toString();
     result.language = wireTrack.value(QStringLiteral("language")).toString();
     result.title = wireTrack.value(QStringLiteral("title")).toString();
-    if (result.title.isEmpty()) {
-        result.title = wireTrack.value(QStringLiteral("embedded_title")).toString();
+    result.embeddedTitle = wireTrack.value(QStringLiteral("embedded_title")).toString();
+    if (result.title.isEmpty() && !result.embeddedTitle.isEmpty()) {
+        result.title = result.embeddedTitle;
+        result.titleFromEmbeddedTitle = true;
     }
     result.displayTitle = result.title;
     result.isDefault = wireTrack.value(QStringLiteral("default")).toBool();
@@ -1031,6 +1136,10 @@ PlaybackInfoResponse SiloModelMapper::playbackInfoFromVersions(const QJsonArray 
         if (source.defaultSubtitleStreamIndex < 0 && !subtitles.isEmpty()) {
             source.defaultSubtitleStreamIndex = 0;
         }
+        source.serverTrackPreferences.audioStreamIndex =
+            siloPreferredAudioStreamIndex(wire, audio);
+        source.serverTrackPreferences.resolvedAudioStreamIndex =
+            siloEffectiveAudioStreamIndex(wire, audio);
         const QString streamUrl = wire.value(QStringLiteral("stream_url")).toString();
         source.directStreamUrl = streamUrl.isEmpty()
             ? wire.value(QStringLiteral("download_url")).toString()
@@ -1042,6 +1151,35 @@ PlaybackInfoResponse SiloModelMapper::playbackInfoFromVersions(const QJsonArray 
 }
 
 PlaybackInfoResponse SiloModelMapper::playbackInfo(const QJsonObject &wireItem)
+{
+    PlaybackInfoResponse response = playbackInfoWithoutSubtitlePreferences(wireItem);
+    Bloom::ServerTrackPreferences subtitles;
+    applySiloSubtitlePreferences(wireItem, subtitles);
+    if (subtitles.subtitleMode.isEmpty()
+        && wireItem.value(QStringLiteral("playback_info")).isObject()) {
+        applySiloSubtitlePreferences(
+            wireItem.value(QStringLiteral("playback_info")).toObject(), subtitles);
+    }
+    // Silo keys track preferences by the series of an episode and by the
+    // movie itself; extras and other types keep none.
+    const QString seriesId = identityString(wireItem.value(QStringLiteral("series_id")));
+    if (!seriesId.isEmpty()) {
+        response.trackPreferenceContentId = seriesId;
+    } else if (wireItem.value(QStringLiteral("type")).toString() == QStringLiteral("movie")) {
+        response.trackPreferenceContentId =
+            identityString(wireItem.value(QStringLiteral("content_id")));
+    }
+    for (MediaSourceInfo &source : response.mediaSources) {
+        source.serverTrackPreferences.subtitleMode = subtitles.subtitleMode;
+        source.serverTrackPreferences.subtitleLanguage = subtitles.subtitleLanguage;
+        source.serverTrackPreferences.showForcedSubtitles = subtitles.showForcedSubtitles;
+        source.serverTrackPreferences.subtitleSignature = subtitles.subtitleSignature;
+    }
+    return response;
+}
+
+PlaybackInfoResponse SiloModelMapper::playbackInfoWithoutSubtitlePreferences(
+    const QJsonObject &wireItem)
 {
     const QJsonObject nested = wireItem.value(QStringLiteral("playback_info")).isObject()
         ? wireItem.value(QStringLiteral("playback_info")).toObject()

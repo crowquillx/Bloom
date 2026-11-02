@@ -1843,7 +1843,7 @@ Window {
     Connections {
         target: PlayerController
         
-        function onNavigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay) {
+        function onNavigateToNextEpisode(episodeData, seriesId, carryTrackPreferencesFromSeasonId, autoplay) {
             // A previous Up Next still waiting on its episode is done now.
             window.finishUpNextStart()
             var normalizedSeriesId = seriesId
@@ -1871,8 +1871,6 @@ Window {
             var upNextScreen = stackView.push("UpNextScreen.qml", {
                 episodeData: episodeData,
                 seriesId: normalizedSeriesId,
-                lastAudioIndex: lastAudioIndex,
-                lastSubtitleIndex: lastSubtitleIndex,
                 autoplay: autoplay,
                 stillWatching: hasNextEpisode && PlayerController.stillWatchingPromptActive
             }, StackView.Immediate)
@@ -1922,8 +1920,7 @@ Window {
                         console.log("[Main] Up Next: Restoring existing episode context")
                         returnScreen["restoreUpNextEpisodeContext"](targetEpisodeData,
                                                                     normalizedSeriesId,
-                                                                    lastAudioIndex,
-                                                                    lastSubtitleIndex)
+                                                                    carryTrackPreferencesFromSeasonId)
                         return
                     }
 
@@ -1942,8 +1939,7 @@ Window {
                             showSeasonView: true,
                             directNavigationMode: true,
                             returnToHomeOnDirectBack: true,
-                            pendingAudioTrackIndex: lastAudioIndex,
-                            pendingSubtitleTrackIndex: lastSubtitleIndex
+                            pendingCarryTrackPreferencesFromSeasonId: carryTrackPreferencesFromSeasonId
                         }, StackView.Immediate)
 
                         LibraryService.getSeriesDetails(normalizedSeriesId)
