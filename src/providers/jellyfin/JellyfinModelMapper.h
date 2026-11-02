@@ -57,9 +57,9 @@ public:
     static QVariantList collections(const QJsonArray &wireBoxSets,
                                     const QString &connectionId);
     // /Shows/Upcoming episodes as canonical airing maps
-    // (docs/canonical-models.md), in the server's order. A PremiereDate at
-    // midnight UTC is a calendar date (Jellyfin's metadata keeps no air
-    // time), so only other times become an `airAt` instant.
+    // (docs/canonical-models.md), in the server's order. Jellyfin's
+    // metadata keeps no air time, so every PremiereDate becomes an
+    // `airDate` (its nearest UTC midnight) and none an `airAt`.
     static QVariantList upcomingAirings(const QJsonArray &wireEpisodes,
                                         const QString &connectionId);
     static Bloom::Chapter chapter(const QJsonObject &wireChapter,

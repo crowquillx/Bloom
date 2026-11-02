@@ -118,6 +118,11 @@ public:
         Q_UNUSED(connectionId)
         return {};
     }
+    /// True when the airing calendar (ProviderCapability::AiringCalendar)
+    /// stays empty unless the server is set up to list unaired episodes,
+    /// so LibraryService offers it only after a read finds an airing in the
+    /// window (Jellyfin). False offers it with the capability (Silo).
+    virtual bool airingCalendarNeedsProbe() const { return false; }
     /// The wire airings of an UpcomingAirings response as canonical airing
     /// maps (docs/canonical-models.md, Ratings and airings), in the order
     /// the provider sent them; entries that are not series episodes are

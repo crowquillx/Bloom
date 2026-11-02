@@ -102,7 +102,8 @@ public:
     /// flattens the days), in order, as canonical airing maps
     /// (docs/canonical-models.md) with `connectionId`, `seriesId`,
     /// `seriesName`, `itemId`, `watched` and the poster as
-    /// `seriesPrimaryArtwork`. Movie releases are left out.
+    /// `seriesPrimaryArtwork`, plus `airTime` (the network's HH:mm) when the
+    /// event has an air_time but no air_at. Movie releases are left out.
     static QVariantList calendarAirings(const QJsonArray &wireEvents,
                                         const QString &connectionId);
 

@@ -93,6 +93,7 @@ class UpcomingViewModelTest : public QObject
     Q_OBJECT
 
 private slots:
+    void init();
     void groupsByLocalDayAcrossTheAutumnTransition();
     void groupsByLocalDayAcrossTheSpringTransition();
     void labelsEpisodesTimesAndBadges();
@@ -101,7 +102,15 @@ private slots:
     void filtersAndEmptyStatesFollowTheProvider();
     void failuresAndMissingConnectionAreErrors();
     void refreshesWhenStaleOrMovedAndRegroupsOnANewDay();
+    void regroupsAtMidnightAndAfterASuspend();
+    void wallClockTimesSortWithInstants();
+    void remembersThePresetPerConnection();
 };
+
+void UpcomingViewModelTest::init()
+{
+    UpcomingViewModel::forgetFilters();
+}
 
 void UpcomingViewModelTest::groupsByLocalDayAcrossTheAutumnTransition()
 {
@@ -359,11 +368,14 @@ void UpcomingViewModelTest::failuresAndMissingConnectionAreErrors()
     ScriptedLibraryService service;
     UpcomingViewModel vm(&service);
     vm.load();
+    QSignalSpy refreshFailed(&vm, &UpcomingViewModel::refreshFailed);
     service.fail(QStringLiteral("Server error"));
     QVERIFY(!vm.isLoading());
     QVERIFY(vm.hasError());
     QCOMPARE(vm.errorMessage(), QStringLiteral("Server error"));
     QCOMPARE(vm.count(), 0);
+    // With no days shown the page's message says it; no toast.
+    QCOMPARE(refreshFailed.count(), 0);
 
     // Try again clears the error while it reads.
     vm.reload();
@@ -392,7 +404,7 @@ void UpcomingViewModelTest::refreshesWhenStaleOrMovedAndRegroupsOnANewDay()
     ScriptedLibraryService service;
     UpcomingViewModel vm(&service);
     vm.setTimeZone(QTimeZone(QTimeZone::UTC));
-    QDateTime now = utc(QStringLiteral("2026-11-01T08:00:00Z"));
+    QDateTime now = utc(QStringLiteral("2026-11-01T23:55:00Z"));
     vm.setClock([&now]() { return now; });
     vm.load();
     service.answer({airing(QStringLiteral("a"), QStringLiteral("A"), 1, 1, QStringLiteral("2026-11-01")),
@@ -402,25 +414,149 @@ void UpcomingViewModelTest::refreshesWhenStaleOrMovedAndRegroupsOnANewDay()
 
     // A fresh calendar is regrouped, not read: the next day drops
     // yesterday and moves "Today" on.
-    now = utc(QStringLiteral("2026-11-02T08:00:00Z"));
+    now = utc(QStringLiteral("2026-11-02T00:02:00Z"));
     vm.refreshIfStale();
     QCOMPARE(service.reads.size(), 1);
     QCOMPARE(vm.count(), 1);
     QCOMPARE(vm.get(0).value(QStringLiteral("date")).toString(), QStringLiteral("2026-11-02"));
     QCOMPARE(vm.get(0).value(QStringLiteral("title")).toString(), QStringLiteral("Today"));
 
+    // Ten minutes after the read it is still fresh; past them it is read
+    // again, and the days stay until the answer.
+    now = utc(QStringLiteral("2026-11-02T00:05:00Z"));
+    vm.refreshIfStale();
+    QCOMPARE(service.reads.size(), 1);
+    now = utc(QStringLiteral("2026-11-02T00:05:01Z"));
+    vm.refreshIfStale();
+    QCOMPARE(service.reads.size(), 2);
+    QVERIFY(vm.isLoading());
+    QCOMPARE(vm.count(), 1);
+    service.answer({airing(QStringLiteral("b"), QStringLiteral("B"), 1, 2, QStringLiteral("2026-11-02"))});
+    QVERIFY(!vm.isLoading());
+
+    // A failed refresh keeps the days and says so.
+    QSignalSpy refreshFailed(&vm, &UpcomingViewModel::refreshFailed);
+    vm.reload();
+    service.fail(QStringLiteral("Server error"));
+    QVERIFY(vm.hasError());
+    QCOMPARE(vm.count(), 1);
+    QCOMPARE(refreshFailed.count(), 1);
+    QCOMPARE(refreshFailed.first().at(0).toString(), QStringLiteral("Server error"));
+
     // Another live connection (a merged space routed elsewhere) reads again,
     // and drops the other source's days.
     service.connectionId = QStringLiteral("connection-2");
     QSignalSpy connectionChanged(&vm, &UpcomingViewModel::connectionChanged);
     vm.refreshIfStale();
-    QCOMPARE(service.reads.size(), 2);
+    QCOMPARE(service.reads.size(), 4);
     QCOMPARE(connectionChanged.count(), 1);
     QCOMPARE(vm.connectionId(), QStringLiteral("connection-2"));
     QCOMPARE(vm.count(), 0);
     // While it reads, a refresh does not start another.
     vm.refreshIfStale();
+    QCOMPARE(service.reads.size(), 4);
+}
+
+void UpcomingViewModelTest::regroupsAtMidnightAndAfterASuspend()
+{
+    ScriptedLibraryService service;
+    UpcomingViewModel vm(&service);
+    vm.setTimeZone(QTimeZone(QTimeZone::UTC));
+    QDateTime now = utc(QStringLiteral("2026-11-01T23:59:30Z"));
+    vm.setClock([&now]() { return now; });
+    vm.load();
+    service.answer({airing(QStringLiteral("a"), QStringLiteral("A"), 1, 1, QStringLiteral("2026-11-01")),
+                    airing(QStringLiteral("b"), QStringLiteral("B"), 1, 2, QStringLiteral("2026-11-02")),
+                    airing(QStringLiteral("c"), QStringLiteral("C"), 1, 3, QStringLiteral("2026-11-04"))});
+    QCOMPARE(vm.count(), 3);
+
+    // The check is due a second past local midnight.
+    auto *dayCheck = vm.findChild<QTimer *>(QStringLiteral("upcomingDayCheck"));
+    QVERIFY(dayCheck);
+    QVERIFY(dayCheck->isActive());
+    QCOMPARE(dayCheck->interval(), 31 * 1000);
+
+    // It fires: "Today" moves on without the page being shown again.
+    now = utc(QStringLiteral("2026-11-02T00:00:01Z"));
+    dayCheck->start(0);
+    QTRY_COMPARE(vm.get(0).value(QStringLiteral("date")).toString(), QStringLiteral("2026-11-02"));
+    QCOMPARE(vm.get(0).value(QStringLiteral("title")).toString(), QStringLiteral("Today"));
+    QCOMPARE(vm.count(), 2);
+    QCOMPARE(service.reads.size(), 1);
+
+    // Far from midnight it still checks every minute: a timer stands still
+    // while the machine sleeps.
+    now = utc(QStringLiteral("2026-11-02T08:00:00Z"));
+    vm.refreshIfStale(); // stale by now: read again
+    service.answer({airing(QStringLiteral("b"), QStringLiteral("B"), 1, 2, QStringLiteral("2026-11-02")),
+                    airing(QStringLiteral("c"), QStringLiteral("C"), 1, 3, QStringLiteral("2026-11-04"))});
     QCOMPARE(service.reads.size(), 2);
+    QVERIFY(dayCheck->isActive());
+    QCOMPARE(dayCheck->interval(), 60 * 1000);
+    // Waking two days later regroups at the next check and reads the
+    // stale calendar again.
+    now = utc(QStringLiteral("2026-11-04T09:00:00Z"));
+    dayCheck->start(0);
+    QTRY_COMPARE(vm.get(0).value(QStringLiteral("date")).toString(), QStringLiteral("2026-11-04"));
+    QCOMPARE(vm.get(0).value(QStringLiteral("title")).toString(), QStringLiteral("Today"));
+    QCOMPARE(service.reads.size(), 3);
+}
+
+void UpcomingViewModelTest::wallClockTimesSortWithInstants()
+{
+    const QTimeZone zone(QTimeZone::UTC);
+    const QLocale locale(QLocale::English, QLocale::UnitedStates);
+    const QDateTime now = utc(QStringLiteral("2026-11-01T08:00:00Z"));
+    QVariantMap wallClock = airing(QStringLiteral("wall"), QStringLiteral("A"), 1, 1,
+                                   QStringLiteral("2026-11-01"));
+    wallClock.insert(QStringLiteral("airTime"), QStringLiteral("21:00"));
+    QVariantMap early = airing(QStringLiteral("early"), QStringLiteral("Z"), 1, 1,
+                               QStringLiteral("2026-11-01"));
+    early.insert(QStringLiteral("airTime"), QStringLiteral("06:30"));
+    const QVariantList days = UpcomingViewModel::groupByDay(
+        {airing(QStringLiteral("bare"), QStringLiteral("B"), 1, 1, QStringLiteral("2026-11-01")),
+         wallClock,
+         airing(QStringLiteral("instant"), QStringLiteral("C"), 1, 1, QStringLiteral("2026-11-01"),
+                QStringLiteral("2026-11-01T20:00:00Z")),
+         early},
+        now, zone, locale);
+    QCOMPARE(days.size(), 1);
+    // Timed airings first, by time, whether instant or wall clock; then
+    // the bare day.
+    QCOMPARE(itemIds(days.first().toMap()),
+             (QStringList{QStringLiteral("early"), QStringLiteral("instant"),
+                          QStringLiteral("wall"), QStringLiteral("bare")}));
+    const QVariantMap wall = days.first().toMap().value(QStringLiteral("airings")).toList().at(2).toMap();
+    QCOMPARE(wall.value(QStringLiteral("timeLabel")).toString(),
+             locale.toString(QTime(21, 0), QLocale::ShortFormat));
+}
+
+void UpcomingViewModelTest::remembersThePresetPerConnection()
+{
+    ScriptedLibraryService service;
+    {
+        UpcomingViewModel vm(&service);
+        vm.load();
+        QCOMPARE(service.reads.last().filter, QStringLiteral("following"));
+        vm.setFilter(QStringLiteral("trending"));
+        QCOMPARE(service.reads.last().filter, QStringLiteral("trending"));
+    }
+    // The next visit opens on the preset chosen on this connection.
+    UpcomingViewModel again(&service);
+    QSignalSpy filterChanged(&again, &UpcomingViewModel::filterChanged);
+    again.load();
+    QCOMPARE(again.filter(), QStringLiteral("trending"));
+    QCOMPARE(service.reads.last().filter, QStringLiteral("trending"));
+    QCOMPARE(filterChanged.count(), 1);
+
+    // Another connection has its own, Following until one is chosen.
+    service.connectionId = QStringLiteral("connection-2");
+    again.reload();
+    QCOMPARE(again.filter(), QStringLiteral("following"));
+    QCOMPARE(service.reads.last().filter, QStringLiteral("following"));
+    service.connectionId = QStringLiteral("connection-1");
+    again.reload();
+    QCOMPARE(again.filter(), QStringLiteral("trending"));
 }
 
 QTEST_GUILESS_MAIN(UpcomingViewModelTest)

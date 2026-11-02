@@ -298,11 +298,13 @@ played state, so its cards have no menu.
 navigation bar's **Upcoming** tab. It earns a tab because it is a top-level
 way to browse (what is coming, across every series) that belongs to no
 library and no account page; like Discover, the tab shows only while the live
-connection can answer it (Silo's calendar, Jellyfin's upcoming episodes). It
+connection can answer it (Silo's calendar; Jellyfin's upcoming episodes once
+a probe found one in the next 30 days, since stock Jellyfin lists none). It
 sits after Movies and Series, the tabs it extends, and before Discover.
 
 Below `pageMarginTop`, a `PageHeader` reads "Upcoming" with the number of
-episodes in the next 30 days. On Silo the header's trailing row holds the
+episodes in the next 30 days and, in a merged space, the source it lists
+("12 episodes in the next 30 days · Living room"). On Silo the header's trailing row holds the
 calendar presets as `ActionButton`s (`selected` marks the current one):
 **Following** (the default: the profile's favorites, watchlist and every show
 it has watched, the same default as Silo's web calendar), **Trending** and
@@ -325,10 +327,11 @@ and Up from the presets (or from the first day on Jellyfin) reaches the
 navigation bar; Down from the presets returns to the cards. The bar recedes
 once the days scroll. Loading, errors (with Try again) and empty calendars
 use `StateMessage`: an empty Following or Trending calendar offers "Show all",
-and Jellyfin's says that only servers keeping missing episodes' metadata
-list upcoming episodes. When a read fails or comes back empty, the message's
-action takes focus. The days are read again when the page is shown after 10
-minutes (Silo's poster URLs expire), and regrouped at local midnight.
+and Jellyfin's names the TMDb plugin option that creates unaired episodes. When a read fails or comes back empty, the message's
+action takes focus, and once the message hides (Try again, Show all) focus
+returns to the cards. A failed refresh keeps the cards and shows a toast. The days are read again when the page is shown after 10
+minutes (Silo's poster URLs expire), and regrouped once the local day
+changes (also after a suspend). The chosen preset is kept for the session.
 
 ## Watch Tonight row
 

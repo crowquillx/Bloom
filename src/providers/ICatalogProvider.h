@@ -56,10 +56,12 @@ enum class ProviderCatalogOperation {
     SetNotInterested,
     // Upcoming episode airings: on Silo the viewer's local days from
     // calendarStart through 30 days later, narrowed by calendarFilter; on
-    // Jellyfin the episodes premiering from yesterday on (no window, no
-    // filter). rawItems holds one wire airing per entry; the adapter maps
-    // them (IProviderAdapter::mapAirings). Providers that honor
-    // calendarFilter set capabilityMetadata `filterable`.
+    // Jellyfin the episodes premiering from yesterday on, one page
+    // (startIndex, limit; no window, no filter). rawItems holds one wire
+    // airing per entry; the adapter maps them (IProviderAdapter::mapAirings).
+    // Providers that honor calendarFilter set capabilityMetadata
+    // `filterable`; providers that page set `paged` (a full page may have
+    // more after it).
     UpcomingAirings,
     // Server-side media requests (Silo): the viewer's request capability,
     // a title search, one title's request detail, submitting a request,

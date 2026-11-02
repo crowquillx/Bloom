@@ -7,6 +7,7 @@
 #include <QSet>
 #include <QList>
 #include <QPointer>
+#include <QTimer>
 #include <QDate>
 #include <QDeadlineTimer>
 #include <QDateTime>
@@ -242,11 +243,20 @@ public:
     // True when the provider has an airing calendar
     // (ProviderCapability::AiringCalendar: Silo's calendar, Jellyfin's
     // upcoming episodes), so getNextAiring can answer something other than
-    // an empty map.
+    // an empty map. A calendar that stays empty unless the server is set
+    // up for it (IProviderAdapter::airingCalendarNeedsProbe, Jellyfin)
+    // counts only once a probe found an airing in the next 30 days: one
+    // small read per connection and user after sign-in, kept and read
+    // again at most every kUpcomingProbeTtlMs (after a failure, every
+    // kUpcomingProbeRetryMs) and after a session change, which keeps the
+    // last answer until the new one. A first answer, or a changed one,
+    // emits upcomingAiringsAvailabilityChanged.
     Q_INVOKABLE virtual bool supportsNextAiring() const;
     // Whether the live connection can show the Upcoming page (the same
-    // airing calendar).
+    // airing calendar, with the same probe).
     Q_INVOKABLE virtual bool supportsUpcomingAirings() const;
+    static constexpr qint64 kUpcomingProbeTtlMs = 4LL * 60 * 60 * 1000;
+    static constexpr qint64 kUpcomingProbeRetryMs = 10 * 60 * 1000;
     // The live connection's upcoming episode airings from today, in the
     // viewer's zone: canonical airing maps, in the provider's order, with
     // canonicalUpcomingAiringsLoaded; `filterable` says the provider
@@ -255,18 +265,27 @@ public:
     // answered, answers canonicalUpcomingAiringsFailed. requestKey comes
     // back with the answer.
     virtual void getUpcomingAirings(const QString &filter, const QString &requestKey);
-    // The series' next airing in the viewer's next 30 local days. Answers
+    // The series' next airing in the viewer's next kAiringWindowDays local
+    // days (today included). Answers
     // nextAiringLoaded, with an empty map when none is known or the read
     // fails; an unsupported provider answers at once. The calendar is read
     // once per connection, profile, local day and zone and kept for
     // kAiringCalendarTtlMs, and pages asking while it is read share it.
     Q_INVOKABLE virtual void getNextAiring(const QString &seriesId);
     static constexpr qint64 kAiringCalendarTtlMs = 12 * 60 * 1000;
+    static constexpr int kAiringWindowDays = 30;
+    // Calendar pages of a provider that pages (Jellyfin): entries per page
+    // and the most pages one read takes. A read cut short logs a warning.
+    static constexpr int kAiringCalendarPageSize = 200;
+    static constexpr int kAiringCalendarMaxPages = 5;
     // The earliest airing of seriesId among canonical airings that is still
-    // ahead of now: by its instant when known, else by its local day.
+    // ahead of now: by its instant when known, else by its local day. With
+    // windowDays >= 0, airings after the local day windowDays past today
+    // are left out.
     static QVariantMap nextAiringFor(const QVariantList &airings,
                                      const QString &seriesId,
-                                     const QDateTime &now);
+                                     const QDateTime &now,
+                                     int windowDays = -1);
     Q_INVOKABLE virtual void getThemeSongs(const QString &seriesId);
 
     // Home card writes. Capabilities are read from the provider of
@@ -626,6 +645,8 @@ signals:
     void userRatingFailed(const QString &connectionId, const QString &itemId, int value,
                           const QString &error);
     void nextAiringLoaded(const QString &seriesId, const QVariantMap &airing);
+    // supportsNextAiring/supportsUpcomingAirings may answer differently.
+    void upcomingAiringsAvailabilityChanged();
     void canonicalUpcomingAiringsLoaded(const QString &connectionId,
                                         const QString &requestKey,
                                         const QVariantList &airings,
@@ -994,14 +1015,48 @@ private:
     QHash<QString, AiringCalendarRead> m_airingCalendarReads;
     void readAiringCalendar(const QString &key, const QDate &start,
                             const QString &timeZoneId, bool zoneFallbackAllowed);
-    // Reads the airing calendar from start in timeZoneId; a zone the
+    // One airing calendar read from start in timeZoneId. A zone the
     // server rejects is retried once as the viewer's whole-hour offset
-    // when zoneFallbackAllowed.
+    // when zoneFallbackAllowed. A provider that pages is read page by page
+    // until a page comes back short, ends after lastDay, holds an airing
+    // from start through lastDay (stopAtFirstInWindow), or maxPages were
+    // read. Retries and later pages are sent only while the session that
+    // started the read is current; otherwise the read fails.
+    struct AiringCalendarRequest {
+        QString operationName;
+        QDate start;
+        QString timeZoneId;
+        bool zoneFallbackAllowed = false;
+        QString filter;
+        int pageSize = kAiringCalendarPageSize;
+        int maxPages = kAiringCalendarMaxPages;
+        QDate lastDay;
+        bool stopAtFirstInWindow = false;
+    };
     using AiringsHandler = std::function<void(const QVariantList &airings, bool filterable)>;
-    void sendAiringCalendarRequest(const QString &operationName, const QDate &start,
-                                   const QString &timeZoneId, bool zoneFallbackAllowed,
-                                   const QString &filter, AiringsHandler loaded,
-                                   std::function<void(const NetworkError &)> failed);
+    using AiringsFailureHandler = std::function<void(const NetworkError &)>;
+    void sendAiringCalendarRequest(const AiringCalendarRequest &request, AiringsHandler loaded,
+                                   AiringsFailureHandler failed);
+    void sendAiringCalendarPage(const AiringCalendarRequest &request,
+                                const CatalogRequestIdentity &identity, int page,
+                                int startIndex, const QVariantList &previous,
+                                AiringsHandler loaded, AiringsFailureHandler failed);
+    // The probe of a calendar that needs one, per connection and user.
+    struct UpcomingProbe {
+        bool answered = false;
+        bool available = false;
+        bool inFlight = false;
+        quint64 generation = 0;
+        // Read again from then on; invalid: at the next chance.
+        QDateTime nextCheckAt;
+    };
+    QHash<QString, UpcomingProbe> m_upcomingProbes;
+    QTimer m_upcomingProbeTimer;
+    QString upcomingProbeKey() const;
+    bool airingCalendarNeedsProbe() const;
+    void ensureUpcomingProbe();
+    void finishUpcomingProbe(const QString &key, quint64 generation,
+                             std::optional<bool> available);
     // Upcoming page reads in flight, by request key: a session change
     // drops their replies, so they are answered as failed instead.
     QHash<QString, CatalogRequestIdentity> m_upcomingReads;

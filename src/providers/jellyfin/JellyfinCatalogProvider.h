@@ -16,8 +16,9 @@
 class JellyfinCatalogProvider final : public ICatalogProvider
 {
 public:
-    // Upcoming episodes read at once: Jellyfin has no end date, and a
-    // month of airings across a household's series fits well within it.
+    // Upcoming episodes per page when the caller sets no limit. Jellyfin
+    // takes no end date, so LibraryService reads further pages until the
+    // last premiere passes its window.
     static constexpr int kUpcomingAiringsLimit = 300;
 
     using ICatalogProvider::parseResponse;
@@ -341,6 +342,14 @@ public:
             response.capabilityMetadata = LetterIndex::fromSortKeys(sortKeys);
             response.total = static_cast<int>(sortKeys.size());
             response.rawItems = {};
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::UpcomingAirings) {
+            // TotalRecordCount counts only this page here, so the caller
+            // pages while a page comes back full.
+            response.total = static_cast<int>(response.rawItems.size());
+            response.capabilityMetadata.insert(QStringLiteral("paged"), true);
             response.valid = true;
             return response;
         }
@@ -769,9 +778,10 @@ private:
         return supportedRequest(endpointWithQuery(QStringLiteral("/Shows/NextUp"), parameters));
     }
 
-    // Episodes premiering from yesterday (UTC) on, soonest first. Jellyfin
-    // knows them only when its libraries keep missing episodes' metadata;
-    // it takes no end date, preset or zone, so Bloom trims the window.
+    // Episodes premiering from yesterday (UTC) on, soonest first, one page
+    // (startIndex, limit). Jellyfin knows them only when its libraries keep
+    // unaired episodes' metadata; it takes no end date, preset or zone, so
+    // Bloom trims the window.
     static ProviderCatalogRequest upcomingAiringsRequest(const ProviderCatalogQuery &query)
     {
         const ProviderCatalogRequest validation = requireIds(
@@ -781,7 +791,13 @@ private:
         }
         QUrlQuery parameters;
         parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
-        parameters.addQueryItem(QStringLiteral("Limit"), QString::number(kUpcomingAiringsLimit));
+        if (query.startIndex > 0) {
+            parameters.addQueryItem(QStringLiteral("StartIndex"),
+                                    QString::number(query.startIndex));
+        }
+        parameters.addQueryItem(
+            QStringLiteral("Limit"),
+            QString::number(query.limit > 0 ? query.limit : kUpcomingAiringsLimit));
         parameters.addQueryItem(QStringLiteral("EnableImageTypes"), QStringLiteral("Primary"));
         parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("false"));
         return supportedRequest(endpointWithQuery(QStringLiteral("/Shows/Upcoming"), parameters));

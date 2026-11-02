@@ -2289,6 +2289,13 @@ QVariantList SiloModelMapper::calendarAirings(const QJsonArray &wireEvents,
         mapped.insert(QStringLiteral("seriesName"), event.value(QStringLiteral("title")).toString());
         mapped.insert(QStringLiteral("itemId"), itemId);
         mapped.insert(QStringLiteral("watched"), event.value(QStringLiteral("watched")).toBool());
+        // Without air_at (the network's zone is unknown) air_time is still
+        // the network's wall clock: kept as `airTime`, never an instant.
+        const QTime wallClock = QTime::fromString(
+            event.value(QStringLiteral("air_time")).toString(), QStringLiteral("HH:mm"));
+        if (!mapped.contains(QStringLiteral("airAt")) && wallClock.isValid()) {
+            mapped.insert(QStringLiteral("airTime"), wallClock.toString(QStringLiteral("HH:mm")));
+        }
         // An episode shows its series' poster; a season premiere its
         // season's when it has one, so the season owns it.
         QVariantList artwork;

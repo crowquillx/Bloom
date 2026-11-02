@@ -50,6 +50,10 @@ FocusScope {
                 Qt.callLater(root.restoreLastFocusIfIdle)
         }
         onHasErrorChanged: Qt.callLater(root.restoreLastFocusIfIdle)
+        // The cards stay; a toast says they are not current.
+        onRefreshFailed: function(error) {
+            toast.show(qsTr("Couldn't refresh what's coming up. %1").arg(error))
+        }
     }
 
     SourceRouter {
@@ -74,12 +78,22 @@ FocusScope {
     // Text
     // ========================================
 
+    // A merged space lists one source's calendar, so the header names it.
+    readonly property string sourceLabel: typeof MergedCatalog !== "undefined"
+                                          && MergedCatalog !== null && MergedCatalog.active
+                                          && upcoming.connectionId !== ""
+                                          ? MergedCatalog.sourceLabel(upcoming.connectionId) : ""
+
     function headerDetail() {
-        if (upcoming.count === 0)
-            return ""
-        var episodes = upcoming.airingCount === 1
-                ? qsTr("1 episode") : qsTr("%1 episodes").arg(upcoming.airingCount)
-        return qsTr("%1 in the next 30 days").arg(episodes)
+        var parts = []
+        if (upcoming.count > 0) {
+            var episodes = upcoming.airingCount === 1
+                    ? qsTr("1 episode") : qsTr("%1 episodes").arg(upcoming.airingCount)
+            parts.push(qsTr("%1 in the next 30 days").arg(episodes))
+        }
+        if (root.sourceLabel !== "")
+            parts.push(root.sourceLabel)
+        return parts.join("  ·  ")
     }
 
     function dayDetail(airings) {
@@ -218,8 +232,11 @@ FocusScope {
     function restoreLastFocusIfIdle() {
         if (root.StackView.status !== StackView.Active || upcoming.isLoading)
             return
+        // A message's action keeps focus only while the message shows: Try
+        // again and Show all hide their message while the read runs.
         if (!root.activeFocus || filtersHaveFocus() || cardHasFocus()
-                || errorState.activeFocus || emptyState.activeFocus)
+                || (errorState.visible && errorState.activeFocus)
+                || (emptyState.visible && emptyState.activeFocus))
             return
         restoreLastFocus()
     }
@@ -331,6 +348,10 @@ FocusScope {
             message: upcoming.errorMessage
             actionText: qsTr("Try again")
             onActionTriggered: upcoming.reload()
+            onVisibleChanged: {
+                if (!visible)
+                    Qt.callLater(root.restoreLastFocusIfIdle)
+            }
             Keys.onUpPressed: function(event) {
                 event.accepted = root.filtersShown && root.focusFilters()
             }
@@ -348,6 +369,10 @@ FocusScope {
             message: upcoming.emptyMessage
             actionText: upcoming.emptyActionFilter !== "" ? qsTr("Show all") : ""
             onActionTriggered: upcoming.filter = upcoming.emptyActionFilter
+            onVisibleChanged: {
+                if (!visible)
+                    Qt.callLater(root.restoreLastFocusIfIdle)
+            }
             Keys.onUpPressed: function(event) {
                 event.accepted = root.filtersShown && root.focusFilters()
             }

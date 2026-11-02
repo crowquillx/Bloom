@@ -55,8 +55,9 @@ FocusScope {
                                               && MediaRequests !== null
                                               && MediaRequests.discoverAvailable
     /// Upcoming appears while the live connection has an airing calendar
-    /// (docs/style-guide.md, Upcoming); a merged space follows the source
-    /// the session is on, so the revision re-reads it when that changes.
+    /// (docs/style-guide.md, Upcoming; on Jellyfin once a probe found an
+    /// airing); a merged space follows the source the session is on, so the
+    /// revision re-reads it when that or the probe's answer changes.
     property int _liveConnectionRevision: 0
     readonly property bool upcomingAvailable: _liveConnectionRevision >= 0
                                               && typeof AuthenticationService !== "undefined"
@@ -269,6 +270,13 @@ FocusScope {
         function onConnectionActivated(connectionId) { root._liveConnectionRevision++ }
         function onProviderSelectionChanged() { root._liveConnectionRevision++ }
         function onUserIdChanged() { root._liveConnectionRevision++ }
+    }
+
+    // A Jellyfin calendar shows only once its probe finds an airing.
+    Connections {
+        target: typeof LibraryService !== "undefined" ? LibraryService : null
+        ignoreUnknownSignals: true
+        function onUpcomingAiringsAvailabilityChanged() { root._liveConnectionRevision++ }
     }
 
     SourceRouter {

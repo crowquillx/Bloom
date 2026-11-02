@@ -825,13 +825,15 @@ QVariantList JellyfinModelMapper::upcomingAirings(const QJsonArray &wireEpisodes
             {QStringLiteral("episodeTitle"), wire.value(QStringLiteral("Name")).toString()},
             {QStringLiteral("badges"), badges},
             {QStringLiteral("watched"), false}};
-        if (instant.time() == QTime(0, 0)) {
-            airing.insert(QStringLiteral("airDate"), instant.date().toString(Qt::ISODate));
-        } else {
-            airing.insert(QStringLiteral("airDate"),
-                          instant.toLocalTime().date().toString(Qt::ISODate));
-            airing.insert(QStringLiteral("airAt"), instant.toString(Qt::ISODate));
-        }
+        // Jellyfin keeps an episode's air date, not its air time: TMDb's
+        // date is stored as the server's local midnight in UTC (05:00Z on a
+        // UTC-5 server, 14:00Z the day before on UTC+10), NFO and TVDB as
+        // the date itself. The nearest UTC midnight recovers the date for
+        // servers from UTC-11 to UTC+12. No instant is kept: a time here
+        // is the server's zone, not when the episode airs, so even a real
+        // 00:00Z premiere lists under its UTC date.
+        airing.insert(QStringLiteral("airDate"),
+                      instant.addSecs(12 * 60 * 60).date().toString(Qt::ISODate));
         // The series poster, owned by the series, as on episode cards.
         const QVariantMap item = mediaItem(wire, connectionId);
         const QVariantMap poster = item.value(QStringLiteral("seriesPrimaryArtwork")).toMap();

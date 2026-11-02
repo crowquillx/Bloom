@@ -540,7 +540,14 @@ private:
     bool airingStillAhead(const QVariantMap &airing) const;
     void setNextAiring(const QVariantMap &airing);
     void scheduleNextAiringRefresh();
+    void startNextAiringTimer(const QDateTime &now);
+    void checkNextAiring();
     void refreshNextAiring();
+    // Asks the calendar once for a running series whose details named no
+    // airing, when the provider offers one.
+    void requestNextAiring();
+    // When the chip is due to change (the next local day or the airing).
+    QDateTime m_nextAiringDueAt;
     QString m_imdbId;
     QString m_tmdbId;
     QVariantList m_people;

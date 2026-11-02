@@ -123,6 +123,9 @@ public:
     {
         return JellyfinModelMapper::upcomingAirings(wireAirings, connectionId);
     }
+    // /Shows/Upcoming lists only virtual episodes a metadata provider
+    // created (TMDb's "Create unaired (upcoming) episodes"), off by default.
+    bool airingCalendarNeedsProbe() const override { return true; }
     QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
                                      const QString &connectionId,
                                      const QString &itemId) const override
