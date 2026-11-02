@@ -9,6 +9,7 @@ FocusScope {
     readonly property bool scrolled: flickable.scrolled
     signal signOutRequested()
     signal sessionsRequested()
+    signal historyRequested()
 
     readonly property Item preferredEntryItem: autoUpdateCheckToggle
     property Item _lastFocusedItem: null
@@ -52,6 +53,13 @@ FocusScope {
         if (index === 1) return "debug"
         if (index === 2) return "quiet"
         return "info"
+    }
+
+    // The first enabled row below the log level: sessions, history, then
+    // Sign Out.
+    function focusFirstAccountRow() {
+        (activeSessionsBtn.enabled ? activeSessionsBtn
+            : historyBtn.enabled ? historyBtn : signOutBtn).forceActiveFocus()
     }
 
     function focusLastUpdatesControl() {
@@ -508,8 +516,7 @@ FocusScope {
                         }
                         Keys.onDownPressed: function(event) {
                             if (!popup.visible) {
-                                (activeSessionsBtn.enabled
-                                    ? activeSessionsBtn : signOutBtn).forceActiveFocus()
+                                root.focusFirstAccountRow()
                                 event.accepted = true
                             }
                         }
@@ -559,7 +566,7 @@ FocusScope {
                         event.accepted = true
                     }
                     Keys.onDownPressed: function(event) {
-                        signOutBtn.forceActiveFocus()
+                        (historyBtn.enabled ? historyBtn : signOutBtn).forceActiveFocus()
                         event.accepted = true
                     }
 
@@ -568,6 +575,39 @@ FocusScope {
                         font.family: Theme.fontIcon
                         font.pixelSize: Theme.iconSizeLarge
                         color: activeSessionsBtn.highlighted ? Theme.textPrimary : Theme.textSecondary
+                        Accessible.ignored: true
+                    }
+                }
+
+                // What this account watched, newest first (HistoryScreen).
+                SettingsRow {
+                    id: historyBtn
+                    label: qsTr("Watch History")
+                    description: qsTr("Movies and shows you watched on this account, newest first")
+                    enabled: typeof AuthenticationService !== "undefined"
+                        && AuthenticationService.authenticated
+                    Accessible.role: Accessible.Button
+                    onActivated: root.historyRequested()
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            root._lastFocusedItem = this
+                            flickable.ensureFocusVisible(this)
+                        }
+                    }
+                    Keys.onUpPressed: function(event) {
+                        (activeSessionsBtn.enabled ? activeSessionsBtn : logLevelCombo).forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onDownPressed: function(event) {
+                        signOutBtn.forceActiveFocus()
+                        event.accepted = true
+                    }
+
+                    Text {
+                        text: Icons.chevronRight
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Theme.iconSizeLarge
+                        color: historyBtn.highlighted ? Theme.textPrimary : Theme.textSecondary
                         Accessible.ignored: true
                     }
                 }
@@ -590,8 +630,9 @@ FocusScope {
                         }
                     }
                     Keys.onUpPressed: function(event) {
-                        (activeSessionsBtn.enabled
-                            ? activeSessionsBtn : logLevelCombo).forceActiveFocus()
+                        (historyBtn.enabled ? historyBtn
+                            : activeSessionsBtn.enabled ? activeSessionsBtn
+                            : logLevelCombo).forceActiveFocus()
                         event.accepted = true
                     }
                     Keys.onReturnPressed: root.signOutRequested()

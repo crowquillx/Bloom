@@ -231,6 +231,8 @@ private:
         capabilities |= ProviderCapability::HomeDismissals;
         capabilities |= ProviderCapability::SubtitleAppearance;
         capabilities |= ProviderCapability::StarRatings;
+        capabilities |= ProviderCapability::WatchHistoryRemoval;
+        capabilities |= ProviderCapability::WatchTonight;
         return capabilities;
     }
 

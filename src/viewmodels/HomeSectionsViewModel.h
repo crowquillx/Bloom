@@ -32,6 +32,8 @@ class LibraryService;
  *   connection that was active when they were set.
  * - Recommendation rows are read again only when `refresh(true)` asks for
  *   it; other refreshes (a favorite or watchlist change) reuse them.
+ * - Silo's Watch Tonight row (LibraryService::WatchTonightRowId) comes
+ *   first when the setting is on and the server has picks for the profile.
  *
  * Merged spaces show no curated rows: Home calls `clear()` instead.
  */
@@ -62,6 +64,8 @@ public:
     Q_INVOKABLE void refresh(bool reloadRecommendations = false);
     /// Drops the recommendation rows at once (the setting turned off).
     Q_INVOKABLE void removeRecommendationRows();
+    /// Drops the Watch Tonight row at once (the setting turned off).
+    Q_INVOKABLE void removeWatchTonightRow();
     /// The row focus returns to: the row sectionId when it is still shown,
     /// otherwise the one now at position or the last row above it. -1 when
     /// there are no rows.
@@ -82,6 +86,9 @@ private slots:
 private:
     void connectService();
     void applyRows(const QVariantList &rows);
+    /// Removes the rows whose section ID starts with prefix (rowsRemoved,
+    /// so the other rows keep their delegates).
+    void removeRowsWithPrefix(const QString &prefix);
     /// Refreshes rows loaded or loading for the live connection.
     void refreshLoadedRows();
     static QString sectionIdOf(const QVariant &row);

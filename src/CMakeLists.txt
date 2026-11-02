@@ -77,6 +77,9 @@ qt_add_executable(Bloom
     viewmodels/PersonViewModel.h
     viewmodels/PersonViewModel.cpp
     ui/PersonViewModelRegistration.h
+    viewmodels/WatchHistoryViewModel.h
+    viewmodels/WatchHistoryViewModel.cpp
+    ui/WatchHistoryViewModelRegistration.h
     viewmodels/LibrarySectionsViewModel.h
     viewmodels/LibrarySectionsViewModel.cpp
     viewmodels/SubtitleSearchViewModel.h
@@ -209,6 +212,7 @@ qt_add_qml_module(Bloom
         ui/settings/ImportMpvConfigDialog.qml
         ui/SearchScreen.qml
         ui/PersonScreen.qml
+        ui/HistoryScreen.qml
         ui/DiscoverScreen.qml
         ui/BrowseScreen.qml
         ui/DiscoveryCard.qml

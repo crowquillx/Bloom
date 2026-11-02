@@ -74,7 +74,16 @@ enum class ProviderCapability {
     StarRatings = 1 << 22,
     // A personal like or dislike per item (SetUserRating with +1 or -1,
     // Jellyfin).
-    LikeRatings = 1 << 23
+    LikeRatings = 1 << 23,
+    // ProviderCatalogOperation::RemoveFromWatchHistory (Silo).
+    WatchHistoryRemoval = 1 << 25,
+    // ProviderCatalogOperation::WatchTonight: taste picks for a Home row
+    // (Silo).
+    WatchTonight = 1 << 26,
+    // ProviderCatalogOperation::WatchHistory reads one library at a time
+    // and pages by startIndex (Jellyfin); otherwise it is one cursor-paged
+    // list for the whole profile (Silo).
+    LibraryScopedHistory = 1 << 27
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

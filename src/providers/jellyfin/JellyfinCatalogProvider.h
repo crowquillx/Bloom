@@ -132,6 +132,12 @@ public:
                 "Jellyfin has no because-watched read; similar items stand in"));
         case ProviderCatalogOperation::SetUserRating:
             return userRatingRequest(query);
+        case ProviderCatalogOperation::WatchHistory:
+            return watchHistoryRequest(query);
+        case ProviderCatalogOperation::RemoveFromWatchHistory:
+            return unsupported(QStringLiteral("Jellyfin keeps no watch history apart from played state"));
+        case ProviderCatalogOperation::WatchTonight:
+            return unsupported(QStringLiteral("Jellyfin has no Watch Tonight picks"));
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -1074,6 +1080,29 @@ private:
             QStringLiteral("/Items/%1").arg(encodedPathSegment(query.itemId)), parameters));
     }
 
+    // One library's played movies and episodes, most recently played first,
+    // one page at a time. Jellyfin has no per-watch history: a title shows
+    // once, at its last play.
+    static ProviderCatalogRequest watchHistoryRequest(const ProviderCatalogQuery &query)
+    {
+        if (query.parentId.trimmed().isEmpty() || !query.cursor.isEmpty()) {
+            return unsupported(QStringLiteral(
+                "Jellyfin history reads one library by StartIndex"));
+        }
+        ProviderCatalogQuery played;
+        played.userId = query.userId;
+        played.parentId = query.parentId.trimmed();
+        played.startIndex = qMax(0, query.startIndex);
+        played.limit = query.limit > 0 ? qMin(query.limit, 100) : 50;
+        played.watched = ProviderCatalogTriState::Yes;
+        played.includeItemTypes = {QStringLiteral("Movie"), QStringLiteral("Episode")};
+        played.recursive = true;
+        played.sortBy = QStringLiteral("datePlayed");
+        played.sortOrder = QStringLiteral("descending");
+        played.includeHeavyFields = false;
+        return itemsRequest(played);
+    }
+
     // The person's movies and series, newest first, one page at a time.
     static ProviderCatalogRequest personItemsRequest(const ProviderCatalogQuery &query)
     {
@@ -1351,6 +1380,9 @@ private:
         case ProviderCatalogOperation::SetSubtitleAppearance: return QStringLiteral("subtitle appearance override");
         case ProviderCatalogOperation::BecauseWatched: return QStringLiteral("because watched");
         case ProviderCatalogOperation::SetUserRating: return QStringLiteral("rating");
+        case ProviderCatalogOperation::WatchHistory: return QStringLiteral("watch history");
+        case ProviderCatalogOperation::RemoveFromWatchHistory: return QStringLiteral("history removal");
+        case ProviderCatalogOperation::WatchTonight: return QStringLiteral("watch tonight");
         }
         return QStringLiteral("catalog");
     }

@@ -33,6 +33,13 @@ int compareKey(const QVariantMap &a, const QVariantMap &b, const QString &sortBy
         const qint64 right = dateKey(b, QStringLiteral("premiereDate"));
         return left < right ? -1 : (left > right ? 1 : 0);
     }
+    if (sortBy == QStringLiteral("datePlayed")) {
+        const qint64 left = dateKey(a.value(QStringLiteral("userState")).toMap(),
+                                    QStringLiteral("lastPlayedAt"));
+        const qint64 right = dateKey(b.value(QStringLiteral("userState")).toMap(),
+                                     QStringLiteral("lastPlayedAt"));
+        return left < right ? -1 : (left > right ? 1 : 0);
+    }
     if (sortBy == QStringLiteral("dateAdded")) {
         const qint64 left = dateKey(a, QStringLiteral("dateAdded"));
         const qint64 right = dateKey(b, QStringLiteral("dateAdded"));

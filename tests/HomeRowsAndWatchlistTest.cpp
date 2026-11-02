@@ -240,6 +240,7 @@ private slots:
     void homeRowsReadRecommendationsFromShownMovieLibraries();
     void homeRowsReloadRecommendationsOnlyWhenAsked();
     void homeRowsDropRecommendationRowsAtOnce();
+    void homeRowsDropWatchTonightRowAtOnce();
     void homeRowsRestoreFocusToNearestRow();
 
     void movieWatchlistToggleIsOptimisticAndRollsBack();
@@ -617,6 +618,31 @@ void HomeRowsAndWatchlistTest::homeRowsDropRecommendationRowsAtOnce()
     // Nothing to drop: nothing changes.
     model.removeRecommendationRows();
     QCOMPARE(removed.count(), 2);
+}
+
+void HomeRowsAndWatchlistTest::homeRowsDropWatchTonightRowAtOnce()
+{
+    HomeSectionsViewModel model(m_service);
+    model.refresh();
+    m_service->loadRows(
+        QStringLiteral("connection-1"),
+        {row(LibraryService::WatchTonightRowId, QStringLiteral("Watch Tonight"),
+             {card(QStringLiteral("movie-a"), QStringLiteral("Movie"))}),
+         row(QStringLiteral("for-you"), QStringLiteral("For You"),
+             {card(QStringLiteral("movie-b"), QStringLiteral("Movie"))})});
+    QCOMPARE(sectionIds(model),
+             (QStringList{LibraryService::WatchTonightRowId, QStringLiteral("for-you")}));
+
+    // The setting turned off: the row goes at once, and the profile's rows
+    // keep their delegates.
+    QSignalSpy reset(&model, &QAbstractItemModel::modelReset);
+    QSignalSpy removed(&model, &QAbstractItemModel::rowsRemoved);
+    model.removeWatchTonightRow();
+    QCOMPARE(sectionIds(model), QStringList{QStringLiteral("for-you")});
+    QCOMPARE(removed.count(), 1);
+    QCOMPARE(reset.count(), 0);
+    model.removeWatchTonightRow();
+    QCOMPARE(removed.count(), 1);
 }
 
 void HomeRowsAndWatchlistTest::homeRowsRestoreFocusToNearestRow()

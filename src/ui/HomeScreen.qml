@@ -1920,6 +1920,14 @@ FocusScope {
                 HomeSectionsViewModel.removeRecommendationRows()
             HomeSectionsViewModel.refresh(ConfigManager.homeRecommendationsEnabled)
         }
+        function onHomeWatchTonightEnabledChanged() {
+            if (root.mergedMode || !AuthenticationService.authenticated)
+                return
+            // Off: the row goes at once, whatever the refresh answers.
+            if (!ConfigManager.homeWatchTonightEnabled)
+                HomeSectionsViewModel.removeWatchTonightRow()
+            HomeSectionsViewModel.refresh()
+        }
     }
 
     Connections {

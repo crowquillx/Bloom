@@ -357,6 +357,32 @@ public:
                                 const QString &requestKey);
     Q_INVOKABLE virtual void searchPeople(const QString &searchTerm, int limit = 20);
 
+    // Watch history (the History page), on the live connection. Providers
+    // with ProviderCapability::LibraryScopedHistory (Jellyfin) read one
+    // library (libraryId) at a time by startIndex; the others (Silo) read
+    // the profile's whole history by cursor and ignore libraryId. A page
+    // holds movie, series and episode cards, most recent watch first; a
+    // Silo page may be short or empty while hasMore holds. requestKey comes
+    // back with the answer.
+    virtual bool watchHistoryByLibrary() const;
+    virtual void getWatchHistory(const QString &libraryId, int startIndex,
+                                 const QString &cursor, int limit,
+                                 const QString &requestKey);
+    // Section ID of the Watch Tonight row on Home.
+    static inline const QString WatchTonightRowId = QStringLiteral("bloom:watch-tonight");
+    // Whether the live provider can take a title out of the history
+    // (ProviderCapability::WatchHistoryRemoval, Silo).
+    Q_INVOKABLE virtual bool supportsWatchHistoryRemoval() const;
+    // Hides itemId's watches from the history; a series takes its episodes
+    // with it. Silo also counts them as unwatched again and drops their
+    // resume points, so itemPlayedStatusChanged(itemId, false) follows a
+    // success. Answers once with homeCardWriteFinished(requestKey), like
+    // the Home card writes, also when the session changes first.
+    virtual void removeFromWatchHistory(const QString &requestKey, const QString &itemId);
+    // Whether Home can show the Watch Tonight row for the live provider
+    // (ProviderCapability::WatchTonight, Silo), whatever the setting.
+    Q_INVOKABLE virtual bool supportsWatchTonight() const;
+
     // Hero Banner: random library sample (Movies + Series). When parentIds is empty,
     // all libraries are sampled. When unwatchedOnly is true, only unplayed items are
     // returned. Used by the Home screen "Library" hero source.
@@ -566,6 +592,15 @@ signals:
                                     const QString &personId,
                                     const QString &requestKey,
                                     const QString &error);
+    void canonicalWatchHistoryLoaded(const QString &connectionId,
+                                     const QString &requestKey,
+                                     const QVariantList &items,
+                                     int totalRecordCount,
+                                     bool hasMore,
+                                     const QString &nextCursor);
+    void canonicalWatchHistoryFailed(const QString &connectionId,
+                                     const QString &requestKey,
+                                     const QString &error);
     void canonicalPeopleSearchLoaded(const QString &connectionId,
                                      const QString &searchTerm,
                                      const QVariantList &people);
@@ -667,10 +702,19 @@ private:
         QStringList movieLibraryIds;
         bool reloadRecommendations = false;
     };
+    // Answers the profile's rows (with Bloom's Watchlist row), or an error
+    // when the layout read failed.
+    using HomeRowsDone = std::function<void(const QVariantList &rows, const QString &error,
+                                            bool failed)>;
     // The profile's Home rows, each capped at itemLimitMax cards when it
     // is positive.
     void readHomeSections(const QString &connectionId, quint64 generation, int itemLimitMax,
-                          const HomeRowsRequest &request);
+                          const HomeRowsRequest &request, HomeRowsDone done);
+    // The Watch Tonight row ({sectionId, title, items}), or an empty map
+    // when the server answers no picks, only a generic fallback (is_cold),
+    // or fails.
+    void readWatchTonightRow(const QString &connectionId, quint64 generation,
+                             std::function<void(const QVariantMap &row)> done);
     void readLibrarySections(const QString &connectionId, const QString &libraryId,
                              quint64 generation, int itemLimitMax);
     // The provider query for a library query, without paging cursors.

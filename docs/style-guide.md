@@ -63,7 +63,7 @@ the shell's `NavigationBar` floating above it.
 | Archetype | Pages | Stage | Header | Body |
 |-----------|-------|-------|--------|------|
 | **Hero** | Home, movie/series/season/episode details, Up Next and its movie counterpart (the after-movie screen) | `mode: "hero"`, the subject's backdrop | Hero block | Shelves below the hero |
-| **Browse** | Library grids, Search, Discover and its Browse pages, collections, person pages | `mode: "ambient"`, optionally the focused item's backdrop | `PageHeader` + toolbar | Poster grid or shelves |
+| **Browse** | Library grids, Search, Discover and its Browse pages, collections, person pages, Watch History | `mode: "ambient"`, optionally the focused item's backdrop | `PageHeader` + toolbar | Poster grid or shelves |
 | **Panel** | Settings, Active Sessions, account pages | `mode: "ambient"`, no art | `PageHeader` | Category list + content column of rows |
 
 Only hero pages carry a hero. Browse and panel pages do not invent one; they
@@ -75,7 +75,8 @@ get their warmth from the stage.
 (Home, Movies, Series, Discover when requests have a backend, Search),
 and a utility cluster (update when available, Settings, space avatar, power). Keep the tab row short: a new destination
 earns a tab only if it is a top-level way to browse, and libraries never get
-their own tabs.
+their own tabs. Account pages (Manage Sessions, Watch History) open from
+Settings > About & Account instead.
 
 - **Movies and Series** stand for every library of that kind (Bloom supports
   only movie and series libraries). With one library the tab opens it. With
@@ -205,8 +206,8 @@ Cards are always `MediaCard`:
   whose Cancel takes focus. A removed card leaves the shelf at once, focus
   moves to its neighbour, and a `ToastNotification` reports failures or
   offers Undo, naming the key that reaches it; the menu's Undo comes last.
-  Other shelves have no card menu yet; reuse this pattern when one needs
-  it.
+  The Watch History grid reuses this pattern; other shelves have no card
+  menu yet.
 - People use `PersonCard` (cast and crew on detail pages, People in Search).
   Enter or a click opens the person's page when the card has a `personId`.
   Don't introduce other card shapes without adding them to this table.
@@ -245,6 +246,38 @@ of the extras is a trailer (or else a teaser), the hero adds a secondary
 themselves when the extra ends. Remote (YouTube) trailers are never shown.
 Labels and the playback request come from `src/ui/ExtrasUtils.js`, shared by
 both pages.
+
+## Watch history
+
+`HistoryScreen.qml` is a browse page with no hero, opened from Settings >
+About & Account > Watch History. Below `pageMarginTop`, a `PageHeader` reads
+"Watch History" with the account it belongs to (`user · server`; in a merged
+space, the source the session is on), then a poster grid of what that
+account watched, most recent first: movies with their year, series with
+their run, episodes as their series poster with `S1 E4 · Title`. Silo shows
+a watched episode as its series. The stage picks up the focused title's
+backdrop. The grid reads the next page as focus nears its end without
+moving the focused card. Enter opens a title (an episode on its series page
+with the episode selected) and Back returns to the same card; Up from the
+first row reaches the navigation bar. Loading, error (with Try again), "Nothing
+watched yet" and, when Silo's newest pages hold only titles Bloom does not
+show, "Look further back" use `StateMessage`.
+
+On Silo, `nav.menu` (or right-click, press-and-hold) opens the card's menu
+(Go to details or Go to series, then Remove from history). Removal also
+counts the title as unwatched and drops its resume point, so it asks first in
+a dialog whose Cancel takes focus; the card leaves at once and comes back
+with a toast if the server refuses. Jellyfin keeps no history apart from the
+played state, so its cards have no menu.
+
+## Watch Tonight row
+
+Silo profiles get a "Watch Tonight" poster shelf of picks from their taste,
+the first row after Bloom's own shelves (Continue Watching, Up Next, Recently
+Added) and before the profile's curated rows. It is an ordinary shelf, not a
+second hero: only Home, detail pages and Up Next carry one. It is absent when
+the server has no picks for the profile or only a generic fallback, in merged
+spaces, on Jellyfin, and when Settings > Home > Watch Tonight row is off.
 
 ## Grids
 

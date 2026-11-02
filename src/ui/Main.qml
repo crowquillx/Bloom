@@ -1672,6 +1672,11 @@ Window {
                         signOutDialog.open()
                 })
             }
+            if (settingsScreen && settingsScreen["historyRequested"]) {
+                settingsScreen["historyRequested"].connect(function() {
+                    window.pushHistoryScreen()
+                })
+            }
             if (settingsScreen && options.focusUpdatesOnActivate && typeof settingsScreen["requestUpdateSectionFocus"] === "function") {
                 settingsScreen["requestUpdateSectionFocus"]()
             }
@@ -1729,6 +1734,21 @@ Window {
         var personScreen = stackView.push("PersonScreen.qml", { personData: person })
         if (personScreen)
             connectDetailNavigation(personScreen)
+        updateNavigationSelection()
+    }
+
+    // The live account's watch history, from Settings > About & Account.
+    // Episodes open on their series page with the episode selected; Back
+    // returns to the History page.
+    function pushHistoryScreen() {
+        playPointerSelectSound()
+        var historyScreen = stackView.push("HistoryScreen.qml")
+        if (historyScreen) {
+            connectDetailNavigation(historyScreen)
+            historyScreen.navigateToEpisode.connect(function(episode) {
+                window.handleHomeNavigateToEpisode(episode, episode.seriesId || "", "", "")
+            })
+        }
         updateNavigationSelection()
     }
 

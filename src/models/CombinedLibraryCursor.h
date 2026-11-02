@@ -19,8 +19,9 @@
  * order never changes as more pages arrive.
  *
  * Sorting mirrors the Bloom sort keys the providers translate (`title`,
- * `releaseDate`, `dateAdded`, `rating`, `year`); library order sorts by title
- * and `random` interleaves the libraries. Qt-Core only and free of I/O.
+ * `releaseDate`, `dateAdded`, `rating`, `year`, and `datePlayed`, which
+ * compares `userState.lastPlayedAt`); library order sorts by title and
+ * `random` interleaves the libraries. Qt-Core only and free of I/O.
  */
 class CombinedLibraryCursor
 {

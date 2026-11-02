@@ -103,6 +103,7 @@ stdenv.mkDerivation {
       SimilarItemsRetryTest \
       HomeRowsAndWatchlistTest \
       PersonViewModelTest \
+      WatchHistoryViewModelTest \
       LibrarySectionsViewModelTest \
       ContinueWatchingViewModelTest \
       MediaRequestServiceTest \

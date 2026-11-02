@@ -386,11 +386,13 @@ void ConfigManagerThemeTest::homeRowSettingsDefaultNormalizeAndPersist()
     QCOMPARE(config.getNextUpCutoffDays(), 0);
     QCOMPARE(config.getHomeFavoritesRowEnabled(), true);
     QCOMPARE(config.getHomeRecommendationsEnabled(), true);
+    QCOMPARE(config.getHomeWatchTonightEnabled(), true);
 
     QSignalSpy rewatchingSpy(&config, &ConfigManager::nextUpRewatchingChanged);
     QSignalSpy cutoffSpy(&config, &ConfigManager::nextUpCutoffDaysChanged);
     QSignalSpy favoritesSpy(&config, &ConfigManager::homeFavoritesRowEnabledChanged);
     QSignalSpy recommendationsSpy(&config, &ConfigManager::homeRecommendationsEnabledChanged);
+    QSignalSpy watchTonightSpy(&config, &ConfigManager::homeWatchTonightEnabledChanged);
 
     config.setNextUpRewatching(true);
     config.setNextUpRewatching(true);
@@ -422,6 +424,9 @@ void ConfigManagerThemeTest::homeRowSettingsDefaultNormalizeAndPersist()
     config.setHomeRecommendationsEnabled(false);
     config.setHomeRecommendationsEnabled(false);
     QCOMPARE(recommendationsSpy.count(), 1);
+    config.setHomeWatchTonightEnabled(false);
+    config.setHomeWatchTonightEnabled(false);
+    QCOMPARE(watchTonightSpy.count(), 1);
 
     ConfigManager reloaded;
     reloaded.load();
@@ -429,6 +434,7 @@ void ConfigManagerThemeTest::homeRowSettingsDefaultNormalizeAndPersist()
     QCOMPARE(reloaded.getNextUpCutoffDays(), 180);
     QCOMPARE(reloaded.getHomeFavoritesRowEnabled(), false);
     QCOMPARE(reloaded.getHomeRecommendationsEnabled(), false);
+    QCOMPARE(reloaded.getHomeWatchTonightEnabled(), false);
 }
 
 void ConfigManagerThemeTest::themeVariantSettersPersistAndEmit()

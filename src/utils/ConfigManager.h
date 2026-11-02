@@ -96,6 +96,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(int nextUpCutoffDays READ getNextUpCutoffDays WRITE setNextUpCutoffDays NOTIFY nextUpCutoffDaysChanged)
     Q_PROPERTY(bool homeFavoritesRowEnabled READ getHomeFavoritesRowEnabled WRITE setHomeFavoritesRowEnabled NOTIFY homeFavoritesRowEnabledChanged)
     Q_PROPERTY(bool homeRecommendationsEnabled READ getHomeRecommendationsEnabled WRITE setHomeRecommendationsEnabled NOTIFY homeRecommendationsEnabledChanged)
+    Q_PROPERTY(bool homeWatchTonightEnabled READ getHomeWatchTonightEnabled WRITE setHomeWatchTonightEnabled NOTIFY homeWatchTonightEnabledChanged)
     Q_PROPERTY(int autoplayCountdownSeconds READ getAutoplayCountdownSeconds WRITE setAutoplayCountdownSeconds NOTIFY autoplayCountdownSecondsChanged)
     Q_PROPERTY(bool autoSkipIntro READ getAutoSkipIntro WRITE setAutoSkipIntro NOTIFY autoSkipIntroChanged)
     Q_PROPERTY(bool autoSkipOutro READ getAutoSkipOutro WRITE setAutoSkipOutro NOTIFY autoSkipOutroChanged)
@@ -312,6 +313,8 @@ public:
     bool getHomeFavoritesRowEnabled() const;
     void setHomeRecommendationsEnabled(bool enabled);
     bool getHomeRecommendationsEnabled() const;
+    void setHomeWatchTonightEnabled(bool enabled);
+    bool getHomeWatchTonightEnabled() const;
     void setAutoplayCountdownSeconds(int seconds);
     int getAutoplayCountdownSeconds() const;
     void setAutoSkipIntro(bool enabled);
@@ -660,6 +663,7 @@ signals:
     void nextUpCutoffDaysChanged();
     void homeFavoritesRowEnabledChanged();
     void homeRecommendationsEnabledChanged();
+    void homeWatchTonightEnabledChanged();
     void autoplayCountdownSecondsChanged();
     void autoSkipIntroChanged();
     void autoSkipOutroChanged();

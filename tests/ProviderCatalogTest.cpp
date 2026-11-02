@@ -45,6 +45,7 @@ private slots:
     void jellyfinMovieRecommendationsRequestAndParse();
     void jellyfinRecommendationLibraryAndServerReads();
     void jellyfinPersonRequestsAndMapping();
+    void jellyfinWatchHistoryReadsOneLibraryByLastPlay();
     void siloPersonRequestsAndMapping();
     void siloTrackIndicesAndMultipartFallbackStayContiguous();
     void siloCanonicalIdentityVersionsMultipartAndStateUseMilliseconds();
@@ -887,6 +888,88 @@ void ProviderCatalogTest::jellyfinPersonRequestsAndMapping()
     QVERIFY(page.valid);
     QVERIFY(page.hasMore);
     QCOMPARE(page.total, 61);
+}
+
+void ProviderCatalogTest::jellyfinWatchHistoryReadsOneLibraryByLastPlay()
+{
+    JellyfinProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+    QVERIFY(adapter.supportsCapability(ProviderCapability::LibraryScopedHistory));
+    QVERIFY(!adapter.supportsCapability(ProviderCapability::WatchHistoryRemoval));
+    QVERIFY(!adapter.supportsCapability(ProviderCapability::WatchTonight));
+
+    ProviderCatalogQuery query;
+    query.userId = QStringLiteral("user-1");
+    query.parentId = QStringLiteral("lib-movies");
+    query.startIndex = 60;
+    query.limit = 60;
+    const ProviderCatalogRequest request =
+        catalog->createRequest(ProviderCatalogOperation::WatchHistory, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    const QUrl url(request.relativeEndpoint);
+    QCOMPARE(url.path(), QStringLiteral("/Items"));
+    const QUrlQuery parameters(url);
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("ParentId")), QStringLiteral("lib-movies"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("IsPlayed")), QStringLiteral("true"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Movie,Episode"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("SortBy")), QStringLiteral("DatePlayed,SortName"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("SortOrder")), QStringLiteral("Descending,Ascending"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("StartIndex")), QStringLiteral("60"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("Limit")), QStringLiteral("60"));
+    // Card fields only: no media sources or paths.
+    QVERIFY(!parameters.queryItemValue(QStringLiteral("Fields")).contains(QStringLiteral("MediaSources")));
+
+    // Every query parameter is a current, non-obsolete GET /Items parameter.
+    QFile openApiManifest(QStringLiteral(BLOOM_JELLYFIN_OPENAPI_MANIFEST));
+    QVERIFY(openApiManifest.open(QIODevice::ReadOnly));
+    const QJsonObject manifest = QJsonDocument::fromJson(openApiManifest.readAll()).object();
+    QHash<QString, bool> itemsParameters;
+    for (const QJsonValue &value : manifest.value(QStringLiteral("operations")).toArray()) {
+        const QJsonObject operation = value.toObject();
+        if (operation.value(QStringLiteral("method")).toString() != QStringLiteral("GET")
+            || operation.value(QStringLiteral("path")).toString() != QStringLiteral("/Items")) {
+            continue;
+        }
+        for (const QJsonValue &parameter : operation.value(QStringLiteral("parameters")).toArray()) {
+            itemsParameters.insert(
+                parameter.toObject().value(QStringLiteral("name")).toString().toLower(),
+                parameter.toObject().value(QStringLiteral("deprecated")).toBool());
+        }
+    }
+    QVERIFY(!itemsParameters.isEmpty());
+    for (const auto &item : parameters.queryItems()) {
+        const QString name = item.first.toLower();
+        QVERIFY2(itemsParameters.contains(name), qPrintable(item.first));
+        QVERIFY2(!itemsParameters.value(name), qPrintable(item.first));
+    }
+
+    // One library at a time, by offset.
+    query.parentId.clear();
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::WatchHistory, query).supported);
+    query.parentId = QStringLiteral("lib-movies");
+    query.cursor = QStringLiteral("cursor");
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::WatchHistory, query).supported);
+
+    // Pages know whether more follow.
+    const ProviderCatalogResponse page = catalog->parseResponse(
+        ProviderCatalogOperation::WatchHistory,
+        QByteArrayLiteral(R"({"Items":[{"Id":"m1","Name":"Heat","Type":"Movie","UserData":{"Played":true,"LastPlayedDate":"2026-10-30T19:00:00.0000000Z"}}],"TotalRecordCount":61,"StartIndex":59})"));
+    QVERIFY(page.valid);
+    QVERIFY(page.hasMore);
+    QCOMPARE(page.total, 61);
+
+    // Jellyfin keeps no history apart from played state, and has no Watch
+    // Tonight.
+    query = {};
+    query.userId = QStringLiteral("user-1");
+    query.itemId = QStringLiteral("m1");
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::RemoveFromWatchHistory, query).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::WatchTonight, query).supported);
 }
 
 void ProviderCatalogTest::siloPersonRequestsAndMapping()

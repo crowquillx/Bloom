@@ -98,9 +98,19 @@ void HomeSectionsViewModel::refresh(bool reloadRecommendations)
 
 void HomeSectionsViewModel::removeRecommendationRows()
 {
+    removeRowsWithPrefix(HomeRecommendations::SectionIdPrefix);
+}
+
+void HomeSectionsViewModel::removeWatchTonightRow()
+{
+    removeRowsWithPrefix(LibraryService::WatchTonightRowId);
+}
+
+void HomeSectionsViewModel::removeRowsWithPrefix(const QString &prefix)
+{
     // From the end, so the rows above keep their delegates.
     for (qsizetype i = m_rows.size() - 1; i >= 0; --i) {
-        if (sectionIdOf(m_rows.at(i)).startsWith(HomeRecommendations::SectionIdPrefix)) {
+        if (sectionIdOf(m_rows.at(i)).startsWith(prefix)) {
             beginRemoveRows({}, static_cast<int>(i), static_cast<int>(i));
             m_rows.removeAt(i);
             endRemoveRows();

@@ -515,6 +515,51 @@ private:
             }
             return request;
         }
+        case ProviderCatalogOperation::WatchHistory: {
+            // The profile's whole history, newest first, by cursor only:
+            // listHistory has no library or type filter.
+            if (query.limit < 0 || query.startIndex != 0
+                || !query.parentId.trimmed().isEmpty()) {
+                return unsupported(QStringLiteral(
+                    "Silo's history pages by cursor for the whole profile"));
+            }
+            QUrlQuery parameters;
+            appendLimit(parameters, query.limit);
+            if (!query.cursor.isEmpty()) {
+                parameters.addQueryItem(QStringLiteral("cursor"), query.cursor);
+            }
+            return get(endpointWithQuery(QStringLiteral("/api/v2/history"), parameters));
+        }
+        case ProviderCatalogOperation::RemoveFromWatchHistory: {
+            const QString contentId = query.itemId.trimmed();
+            if (contentId.isEmpty()) {
+                return unsupported(QStringLiteral("Removing from Silo history needs a content_id"));
+            }
+            // removeHistoryEntries is non_retryable: the server picks the
+            // cutoff when the request runs, so a replay could hide a watch
+            // recorded in between. A series or season target takes its
+            // episodes with it (scope item, the default).
+            ProviderCatalogRequest request;
+            request.method = ProviderHttpMethod::Post;
+            request.retrySafety = ProviderCatalogRetrySafety::Never;
+            request.relativeEndpoint = QStringLiteral("/api/v2/history/remove");
+            request.body = QJsonDocument(QJsonObject{
+                {QStringLiteral("targets"),
+                 QJsonArray{QJsonObject{{QStringLiteral("content_id"), contentId}}}}})
+                               .toJson(QJsonDocument::Compact);
+            request.supported = true;
+            return request;
+        }
+        case ProviderCatalogOperation::WatchTonight: {
+            // Discover mode: taste picks only. Continue mode would repeat
+            // Bloom's Continue Watching and Up Next shelves.
+            QUrlQuery parameters;
+            parameters.addQueryItem(QStringLiteral("mode"), QStringLiteral("discover"));
+            parameters.addQueryItem(QStringLiteral("limit"),
+                                    QString::number(query.limit > 0 ? qMin(query.limit, 20) : 20));
+            return get(endpointWithQuery(
+                QStringLiteral("/api/v2/recommendations/watch-tonight/cards"), parameters));
+        }
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -575,7 +620,8 @@ public:
         if (operation == ProviderCatalogOperation::SetWatchlist
             || operation == ProviderCatalogOperation::SetNotInterested
             || operation == ProviderCatalogOperation::SetHomeDismissal
-            || operation == ProviderCatalogOperation::SetUserRating) {
+            || operation == ProviderCatalogOperation::SetUserRating
+            || operation == ProviderCatalogOperation::RemoveFromWatchHistory) {
             // 204 No Content on success.
             ProviderCatalogResponse response;
             response.valid = true;
@@ -702,12 +748,30 @@ public:
             response.valid = true;
             return response;
         }
-        if (operation == ProviderCatalogOperation::Watchlist) {
+        if (operation == ProviderCatalogOperation::Watchlist
+            || operation == ProviderCatalogOperation::WatchHistory) {
             ProviderCatalogResponse response
                 = SiloModelMapper::catalogResponse(operation, body, responseHeaders);
             if (response.valid) {
                 response.rawItems = videoCards(response.rawItems);
             }
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::WatchTonight) {
+            ProviderCatalogResponse response;
+            const QJsonObject page = QJsonDocument::fromJson(body).object();
+            if (!page.value(QStringLiteral("items")).isArray()
+                || !page.value(QStringLiteral("is_cold")).isBool()) {
+                response.error = QStringLiteral("Invalid Silo Watch Tonight response");
+                return response;
+            }
+            response.rawItems = videoCards(page.value(QStringLiteral("items")).toArray());
+            response.total = static_cast<int>(response.rawItems.size());
+            response.hasMore = page.value(QStringLiteral("has_more")).toBool();
+            response.capabilityMetadata.insert(
+                QStringLiteral("isCold"), page.value(QStringLiteral("is_cold")).toBool());
+            response.capabilityMetadata.insert(QStringLiteral("hasMore"), response.hasMore);
+            response.valid = true;
             return response;
         }
         if (operation == ProviderCatalogOperation::ThemeSongs
@@ -816,6 +880,8 @@ private:
         case ProviderCatalogOperation::NextUp:
         case ProviderCatalogOperation::HomeSections:
         case ProviderCatalogOperation::Watchlist:
+        case ProviderCatalogOperation::WatchHistory:
+        case ProviderCatalogOperation::WatchTonight:
         case ProviderCatalogOperation::PersonItems:
         case ProviderCatalogOperation::LibrarySections:
         case ProviderCatalogOperation::LibrarySectionItems:

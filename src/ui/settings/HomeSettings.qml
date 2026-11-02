@@ -23,8 +23,11 @@ FocusScope {
     readonly property bool recommendationsSupported: _liveConnectionRevision >= 0
                                                      && AuthenticationService.authenticated
                                                      && LibraryService.supportsHomeRecommendations()
+    readonly property bool watchTonightSupported: _liveConnectionRevision >= 0
+                                                  && AuthenticationService.authenticated
+                                                  && LibraryService.supportsWatchTonight()
     readonly property bool homeRowControlsShown: nextUpOptionsSupported || favoritesRowSupported
-                                                 || recommendationsSupported
+                                                 || recommendationsSupported || watchTonightSupported
 
     Connections {
         target: AuthenticationService
@@ -39,7 +42,7 @@ FocusScope {
     function ensureWithTrailingNotes(item) {
         ensure(item)
         if (!homeRowControlsShown)
-            flickable.ensureFocusVisible(recommendationsNote)
+            flickable.ensureFocusVisible(watchTonightNote)
     }
     function sourceIndex() {
         var values = ["recentlyAdded", "continueWatching", "upNext", "library", "mixed"]
@@ -302,7 +305,8 @@ FocusScope {
                     KeyNavigation.up: hideSeriesRow
                     KeyNavigation.down: root.nextUpOptionsSupported ? rewatchingRow
                                         : root.favoritesRowSupported ? favoritesRow
-                                        : root.recommendationsSupported ? recommendationsRow : null
+                                        : root.recommendationsSupported ? recommendationsRow
+                                        : root.watchTonightSupported ? watchTonightRow : null
                 }
                 Text {
                     text: qsTr("Library source uses all visible libraries unless specific library IDs are configured.")
@@ -363,7 +367,8 @@ FocusScope {
                         onActiveFocusChanged: if (activeFocus) root.ensure(this)
                         KeyNavigation.up: rewatchingRow
                         KeyNavigation.down: root.favoritesRowSupported ? favoritesRow
-                                            : root.recommendationsSupported ? recommendationsRow : null
+                                            : root.recommendationsSupported ? recommendationsRow
+                                            : root.watchTonightSupported ? watchTonightRow : null
                     }
                 }
                 Text {
@@ -380,7 +385,8 @@ FocusScope {
                     checked: ConfigManager.homeFavoritesRowEnabled; ensureVisible: root.ensure
                     onToggled: function(value) { ConfigManager.homeFavoritesRowEnabled = value }
                     KeyNavigation.up: root.nextUpOptionsSupported ? cutoffCombo : unwatchedRow
-                    KeyNavigation.down: root.recommendationsSupported ? recommendationsRow : null
+                    KeyNavigation.down: root.recommendationsSupported ? recommendationsRow
+                                        : root.watchTonightSupported ? watchTonightRow : null
                 }
                 Text {
                     id: favoritesNote
@@ -398,11 +404,30 @@ FocusScope {
                     onToggled: function(value) { ConfigManager.homeRecommendationsEnabled = value }
                     KeyNavigation.up: root.favoritesRowSupported ? favoritesRow
                                       : root.nextUpOptionsSupported ? cutoffCombo : unwatchedRow
+                    KeyNavigation.down: root.watchTonightSupported ? watchTonightRow : null
                 }
                 Text {
                     id: recommendationsNote
                     visible: !root.recommendationsSupported
                     text: qsTr("This server curates its own recommendation rows on Home.")
+                    color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall; font.family: Theme.fontPrimary
+                    wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.topMargin: Theme.spacingSmall
+                }
+                SettingsToggleRow {
+                    id: watchTonightRow
+                    visible: root.watchTonightSupported
+                    label: qsTr("Watch Tonight row")
+                    description: qsTr("Show titles picked for you from what you watch, below Recently Added.")
+                    checked: ConfigManager.homeWatchTonightEnabled; ensureVisible: root.ensure
+                    onToggled: function(value) { ConfigManager.homeWatchTonightEnabled = value }
+                    KeyNavigation.up: root.recommendationsSupported ? recommendationsRow
+                                      : root.favoritesRowSupported ? favoritesRow
+                                      : root.nextUpOptionsSupported ? cutoffCombo : unwatchedRow
+                }
+                Text {
+                    id: watchTonightNote
+                    visible: !root.watchTonightSupported
+                    text: qsTr("Watch Tonight picks come from Silo servers. This server has none.")
                     color: Theme.textSecondary; font.pixelSize: Theme.fontSizeSmall; font.family: Theme.fontPrimary
                     wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.topMargin: Theme.spacingSmall
                 }
