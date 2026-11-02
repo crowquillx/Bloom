@@ -412,6 +412,10 @@ public:
     // when a new stream is needed first.
     static constexpr int kDownloadedSubtitleLoadTimeoutMs = 15000;
     static constexpr int kDownloadedSubtitleReplanTimeoutMs = 45000;
+    // Loads the selected external subtitle again from its URL and keeps it
+    // selected, after the server changed its timing (subtitle sync). False
+    // when no loaded external subtitle is selected.
+    bool reloadSelectedExternalSubtitle();
     Q_INVOKABLE void cycleAudioTrack();
     Q_INVOKABLE void cycleSubtitleTrack();
     Q_INVOKABLE void previousChapter();
@@ -663,6 +667,7 @@ private:
 #ifdef BLOOM_TESTING
     friend class PlayerControllerAutoplayContextTest;
     friend class SubtitleSearchTest;
+    friend class SubtitleSyncTest;
 #endif
     enum class TerminalReason {
         Stop,

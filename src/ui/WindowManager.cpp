@@ -17,6 +17,7 @@
 #include "viewmodels/SeriesDetailsViewModel.h"
 #include "viewmodels/MovieDetailsViewModel.h"
 #include "viewmodels/UpNextRecommendationsViewModel.h"
+#include "viewmodels/SubtitleSyncViewModel.h"
 #include "viewmodels/HomeSectionsViewModel.h"
 #include "viewmodels/LibrarySectionsViewModel.h"
 #include "viewmodels/SubtitleSearchViewModel.h"
@@ -162,6 +163,7 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("SeriesDetailsViewModel", ServiceLocator::get<SeriesDetailsViewModel>());
     context->setContextProperty("MovieDetailsViewModel", ServiceLocator::get<MovieDetailsViewModel>());
     context->setContextProperty("UpNextRecommendationsViewModel", ServiceLocator::get<UpNextRecommendationsViewModel>());
+    context->setContextProperty("SubtitleSync", ServiceLocator::get<SubtitleSyncViewModel>());
     context->setContextProperty("HomeSectionsViewModel", ServiceLocator::get<HomeSectionsViewModel>());
     context->setContextProperty("LibrarySectionsViewModel", ServiceLocator::get<LibrarySectionsViewModel>());
     context->setContextProperty("SubtitleSearch", ServiceLocator::get<SubtitleSearchViewModel>());

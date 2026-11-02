@@ -12257,6 +12257,316 @@
     },
     {
       "method": "GET",
+      "path": "/api/v2/subtitles/sync/status",
+      "operationId": "getSubtitleSyncStatus",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "If-Match",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubtitleSyncStatus"
+              }
+            }
+          },
+          "headers": {
+            "Cache-Control": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "304": {
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "412": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          },
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": true,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/subtitles/{media_file_id}/sync/{key}",
+      "operationId": "getSubtitleSync",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "media_file_id",
+          "required": true,
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "key",
+          "required": true,
+          "schema": {
+            "pattern": "^(stored-[1-9][0-9]*|external-[0-9a-f]{64})$",
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubtitleSyncStateOutputBody"
+              }
+            }
+          },
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
       "path": "/api/v2/system/info",
       "operationId": "getSystemInfo",
       "parameters": [],
@@ -16758,6 +17068,141 @@
     },
     {
       "method": "POST",
+      "path": "/api/v2/subtitles/{media_file_id}/sync/{key}",
+      "operationId": "startSubtitleSync",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "media_file_id",
+          "required": true,
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "key",
+          "required": true,
+          "schema": {
+            "pattern": "^(stored-[1-9][0-9]*|external-[0-9a-f]{64})$",
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "202": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubtitleSyncStartOutputBody"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "POST",
       "path": "/api/v2/watched/{id}",
       "operationId": "markWatched",
       "parameters": [
@@ -18033,6 +18478,224 @@
           }
         },
         "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v2/subtitles/{media_file_id}/sync/{key}/timing",
+      "operationId": "setSubtitleTiming",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "If-Match",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "media_file_id",
+          "required": true,
+          "schema": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        {
+          "in": "path",
+          "name": "key",
+          "required": true,
+          "schema": {
+            "pattern": "^(stored-[1-9][0-9]*|external-[0-9a-f]{64})$",
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SubtitleTiming"
+            }
+          }
+        },
+        "required": true
+      },
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubtitleSyncStateOutputBody"
+              }
+            }
+          },
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "408": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "412": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          },
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "413": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "415": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "428": {
           "content": {
             "application/problem+json": {
               "schema": {
@@ -25690,6 +26353,194 @@
         "confidence",
         "created_at",
         "finished_at"
+      ],
+      "type": "object"
+    },
+    "SubtitleSyncJobState": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "created_at": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": "string"
+        },
+        "failure": {
+          "enum": [
+            "subtitle_changed",
+            "no_audio",
+            "unavailable",
+            "error"
+          ],
+          "type": "string"
+        },
+        "finished_at": {
+          "format": "date-time",
+          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "queued",
+            "analyzing",
+            "matching"
+          ],
+          "type": "string"
+        },
+        "progress": {
+          "format": "double",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "result": {
+          "$ref": "#/components/schemas/SubtitleTiming"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "synced",
+            "already_synced",
+            "no_match",
+            "failed"
+          ],
+          "type": "string"
+        },
+        "trigger": {
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "trigger",
+        "confidence",
+        "created_at",
+        "finished_at"
+      ],
+      "type": "object"
+    },
+    "SubtitleSyncStartOutputBody": {
+      "additionalProperties": false,
+      "properties": {
+        "subtitle": {
+          "$ref": "#/components/schemas/SubtitleSyncState"
+        }
+      },
+      "required": [
+        "subtitle"
+      ],
+      "type": "object"
+    },
+    "SubtitleSyncState": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "media_file_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "downloaded",
+            "external"
+          ],
+          "type": "string"
+        },
+        "stored_subtitle_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sync": {
+          "$ref": "#/components/schemas/SubtitleSyncJobState"
+        },
+        "timing": {
+          "$ref": "#/components/schemas/SubtitleTiming"
+        }
+      },
+      "required": [
+        "key",
+        "media_file_id",
+        "source",
+        "language",
+        "format",
+        "label",
+        "timing"
+      ],
+      "type": "object"
+    },
+    "SubtitleSyncStateOutputBody": {
+      "additionalProperties": false,
+      "properties": {
+        "subtitle": {
+          "$ref": "#/components/schemas/SubtitleSyncState"
+        }
+      },
+      "required": [
+        "subtitle"
+      ],
+      "type": "object"
+    },
+    "SubtitleSyncStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "auto_sync": {
+          "type": "boolean"
+        },
+        "external": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "available",
+            "disabled",
+            "not_configured",
+            "unsupported"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "auto_sync",
+        "external",
+        "revision",
+        "state",
+        "allowed"
       ],
       "type": "object"
     },

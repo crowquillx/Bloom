@@ -962,6 +962,7 @@
       "native.playback.transcode",
       "native.playback.track",
       "native.playback.track-preferences",
+      "native.subtitles.sync",
       "native.markers",
       "native.chapters",
       "native.trickplay",
@@ -2296,6 +2297,58 @@
           "src/providers/silo/SiloPlaybackProvider.cpp",
           "src/network/PlaybackService.cpp",
           "src/player/PlaybackPolicy.cpp",
+          "src/player/PlayerController.cpp"
+        ]
+      },
+      {
+        "id": "native.subtitles.sync",
+        "method": "GET/POST/PUT",
+        "path": "/api/v2/subtitles/sync/status and /api/v2/subtitles/{media_file_id}/sync/{key} and /api/v2/subtitles/{media_file_id}/sync/{key}/timing",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/subtitles/sync/status"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/subtitles/{media_file_id}/sync/{key}"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/subtitles/{media_file_id}/sync/{key}"
+          },
+          {
+            "method": "PUT",
+            "path": "/api/v2/subtitles/{media_file_id}/sync/{key}/timing"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "getSubtitleSyncStatus (SubtitleSyncStatus) read once per connection; Bloom offers Sync to Audio only for state: available with allowed, on the Bloom playback overlay, for an external or downloaded subtitle whose inventory entry carries sync_key."
+        },
+        "requestSemantics": [
+          "{key} is SubtitleInventoryItemV3.sync_key from the playback plan's subtitle inventory, accepted only when it matches the path pattern (stored-N or external-<64 hex>); embedded entries are never synced. {media_file_id} is the plan's effective_media_file_id.",
+          "getSubtitleSyncStatus and getSubtitleSync are safe reads sent as Idempotent. startSubtitleSync is coalescing (a repeat returns the active job, or starts another that reaches the same timing), so it is sent as Idempotent too.",
+          "Bloom polls getSubtitleSync every 3 seconds while the job is pending or running, for at most 5 minutes, and stops when playback stops, the item or session changes, or another subtitle is selected. The subtitle_sync_updated realtime event is not used.",
+          "Reset Timing reads getSubtitleSync for its ETag, then sends setSubtitleTiming with If-Match and SubtitleTiming {offset_ms: 0, scale: 1}. The operation is natural_idempotent; a replay after a lost answer is refused with 412, which Bloom settles with another read."
+        ],
+        "requiredSemantics": [
+          "SubtitleSyncState carries key, media_file_id, timing (offset_ms, scale) and the latest job in sync (status pending, running, synced, already_synced, no_match or failed; phase, progress, failure).",
+          "Every delivery path applies the stored correction, so the session sidecar URL serves re-timed cues (Cache-Control private, no-cache); Bloom reloads the subtitle from the same URL when the timing it observes changes, keeping the selection and the HLS timeline offset.",
+          "A job the user started that changed the timing resets Bloom's local subtitle delay to 0, so the correction is not applied twice; no_match and failed leave the timing and the delay alone."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/playback/subtitle_inventory_v3.go",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/subtitles/external_timing.go",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/api/handlers/stream.go",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/web/src/player/hooks/useSubtitleSync.ts"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloPlaybackProvider.cpp",
+          "src/network/PlaybackService.cpp",
+          "src/viewmodels/SubtitleSyncViewModel.cpp",
           "src/player/PlayerController.cpp"
         ]
       },

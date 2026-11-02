@@ -2,6 +2,19 @@
 
 A live gate passes only when the required behavior is observed. Source inspection, a unit test, and a successful HTTP status do not establish a platform runtime pass. `UNAVAILABLE` and `NOT RUN` are not automated passes.
 
+## Silo subtitle sync to the audio, 2026-11-01 UTC
+
+On Silo, the Subtitles page of the playback settings pop-out gains Sync to Audio for the selected external or downloaded subtitle, and Reset Timing after a correction. Bloom polls the job, reloads the subtitle from the same URL when its timing changes, and resets its own subtitle delay after a sync the user started (see [playback](playback.md#syncing-subtitles-to-the-audio)). This changes `src/ui/EmbeddedPlaybackOverlay.qml`, so the Windows embedded-playback check in AGENTS.md applies. No live server, Windows runtime or controller was available.
+
+| Gate | Result | Evidence or procedure |
+| --- | --- | --- |
+| Automated checks | PASS | Built with `./scripts/dev-build.sh --tests` on the remote build host; full CTest passed 62/62 after the rebase onto the after-movie screen. `SubtitleSyncTest` (10 cases) and `SiloPlaybackProviderTest` (`mapsSubtitleSyncKeys`, `buildsSubtitleSyncRequests`, `parsesSubtitleSyncState`) pass. `validate_contracts.py`, `provider_contracts_test.py` and `canonical_boundary_test.py` pass with the regenerated manifest; the flake QML lint passes. `VisualRegressionTest` skips locally. `nix flake check` was not run. |
+| Live Silo sync | NOT RUN / UNAVAILABLE | Against Silo `a103c2c8` with subtitle sync configured: play a file with a downloaded SRT that is visibly 2 s late, set Bloom's subtitle delay to about -2 s, then choose Subtitles › Sync to Audio. The row shows "Waiting to start…", then "Listening to the audio…" with a percentage; when it finishes, the subtitle stays selected, its cues are on time with the delay back at 0 ms, and Silo's web player shows the same correction. Repeat with an external `.srt` beside the file. A subtitle for another release reports that it doesn't match and keeps its timing and delay. Reset Timing brings back the late cues. |
+| HLS timeline offset | NOT RUN / UNAVAILABLE | Start the same file mid-way so Silo serves a remux or transcode HLS stream with a timeline offset, then sync the external subtitle: after the reload the cues stay on time, so the offset is still applied. |
+| Stop and switch during a job | NOT RUN / UNAVAILABLE | Start a sync, then stop playback, or select another subtitle: Bloom stops polling (no further `GET .../sync/{key}` in the server log). Select the subtitle again and choose Sync to Audio: Bloom follows the job still running on the server. |
+| Windows `win-libmpv` overlays | NOT RUN / UNAVAILABLE | On Windows with embedded libmpv: the Sync to Audio and Reset Timing rows and the result notice render above video in the detached overlay window, and the video does not move or clip across show/hide, resize, minimize/restore, maximize and fullscreen, and when the subtitle reloads. |
+| Keyboard and gamepad | NOT RUN | With only arrows or the D-pad, A/Enter and B/Escape: open the Subtitles page (X), move down to Sync to Audio, press A, watch the progress with the menu open, then Reset Timing; Left returns to the root list and B closes the menu, with focus back on the settings control. |
+
 ## Watch history and Watch Tonight, 2026-11-01 UTC
 
 Settings > About & Account gets a Watch History page (both providers; Silo cards can be removed), and Silo Home gets a Watch Tonight row behind a setting (see [view models](viewmodels.md#watchhistoryviewmodel) and [provider compatibility](provider-compatibility.md#watch-history-and-watch-tonight)).

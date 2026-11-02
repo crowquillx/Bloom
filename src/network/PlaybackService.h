@@ -131,6 +131,23 @@ public:
                                                    const QString &playbackOrder = QStringLiteral("Default"));
     Q_INVOKABLE void markItemPlayed(const QString &itemId);
 
+    // Server-side subtitle sync of the playing file through the live
+    // connection (docs/playback.md, "Syncing subtitles to the audio"). Every
+    // call names the caller's requestKey and answers once with it:
+    // subtitleSyncStatusLoaded, subtitleSyncStateLoaded or subtitleSyncFailed.
+    // A new call with the same key replaces the one in flight; answers from
+    // before a session change or a cancel are dropped.
+    virtual bool supportsSubtitleSync() const;
+    virtual QString subtitleSyncConnectionId() const;
+    virtual void loadSubtitleSyncStatus(const QString &requestKey);
+    virtual void readSubtitleSync(const QString &requestKey, const QString &mediaFileId,
+                                  const QString &syncKey);
+    virtual void startSubtitleSync(const QString &requestKey, const QString &mediaFileId,
+                                   const QString &syncKey);
+    virtual void resetSubtitleTiming(const QString &requestKey, const QString &mediaFileId,
+                                     const QString &syncKey, const QByteArray &etag);
+    virtual void cancelSubtitleSync(const QString &requestKey);
+
     /// Remembers a track the user picked on the server so other devices
     /// follow (Silo only). Best-effort: a failure is only logged and never
     /// touches the local choice. Writes for the same content and kind are
@@ -180,6 +197,13 @@ public:
     static constexpr int kDownloadedSubtitleReadIntervalMs = 2000;
 
 signals:
+    void subtitleSyncStatusLoaded(const QString &requestKey, bool available);
+    // etag is the reply's validator (empty when it sent none).
+    void subtitleSyncStateLoaded(const QString &requestKey,
+                                 const Bloom::SubtitleSyncState &state,
+                                 const QByteArray &etag);
+    // httpStatus is 0 when no HTTP answer arrived.
+    void subtitleSyncFailed(const QString &requestKey, int httpStatus, const QString &error);
     // The account, profile or server track preference writes go to may have
     // changed; writes picked under another one must be dropped.
     void trackPreferenceIdentityChanged();
@@ -236,6 +260,11 @@ signals:
     void networkError(const NetworkError &error);
 
 private:
+    void sendSubtitleSyncRequest(const QString &requestKey, const SubtitleSyncRequest &request,
+                                 std::function<void(QNetworkReply *)> onSuccess);
+    void sendSubtitleSyncStateRequest(const QString &requestKey, const SubtitleSyncRequest &request);
+    void failSubtitleSync(const QString &requestKey, int httpStatus, const QString &error);
+    QHash<QString, QPointer<HttpRequestHandle>> m_subtitleSyncRequests;
     Bloom::PlaybackDescriptor withAudioPlan(Bloom::PlaybackDescriptor descriptor) const;
     Bloom::AudioOutputService *m_audioOutput;
     AuthenticationService *m_authService;
@@ -281,7 +310,8 @@ private:
                           quint64 generation) const;
     QNetworkReply *sendProviderRequest(const QString &endpoint,
                                        const QString &method,
-                                       const QJsonObject &body) const;
+                                       const QJsonObject &body,
+                                       const QByteArray &ifMatch = QByteArray()) const;
     void emitDescriptorFailure(const QString &itemId,
                                const QString &requestContext,
                                const QString &error);

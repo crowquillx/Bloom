@@ -2,6 +2,7 @@
 
 #include "models/MediaModels.h"
 #include "models/SubtitleSearch.h"
+#include "models/SubtitleSync.h"
 #include "network/Types.h"
 
 #include <QByteArray>
@@ -141,6 +142,30 @@ struct TrackPreferenceWriteRequest
     bool replaySafe = false;
 
     [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
+};
+
+// A request of the server's subtitle sync, which re-times an external
+// subtitle to the file's audio (docs/playback.md, "Syncing subtitles to the
+// audio").
+struct SubtitleSyncRequest
+{
+    QString endpoint;
+    QString method = QStringLiteral("GET");
+    QJsonObject body;
+    // Sent as If-Match when not empty.
+    QByteArray ifMatch;
+
+    // Reads, and a start the server coalesces with the subtitle's active job,
+    // may be replayed after a lost response (see each provider).
+    bool replaySafe = false;
+
+    [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
+};
+
+struct SubtitleSyncStateParseResult
+{
+    bool valid = false;
+    Bloom::SubtitleSyncState state;
 };
 
 // How a failed progress report reflects the server-side playback session.
@@ -331,6 +356,51 @@ public:
     {
         Q_UNUSED(context)
         Q_UNUSED(wireResponse)
+        return {};
+    }
+
+    /// Server-side subtitle sync (docs/playback.md, "Syncing subtitles to the
+    /// audio"). Providers without it keep the defaults; a track it applies to
+    /// carries a PlaybackTrack::syncKey.
+    virtual bool supportsSubtitleSync() const { return false; }
+    /// The capability document that gates the sync.
+    virtual SubtitleSyncRequest createSubtitleSyncStatusRequest() const { return {}; }
+    /// True when the document says the sync can be used now.
+    virtual bool parseSubtitleSyncStatus(const QByteArray &body) const
+    {
+        Q_UNUSED(body)
+        return false;
+    }
+    /// Reads one subtitle's timing and latest job; the reply's ETag is the
+    /// validator createSubtitleTimingResetRequest needs.
+    virtual SubtitleSyncRequest createSubtitleSyncReadRequest(
+        const QString &mediaFileId, const QString &syncKey) const
+    {
+        Q_UNUSED(mediaFileId)
+        Q_UNUSED(syncKey)
+        return {};
+    }
+    /// Starts a sync job, or joins the subtitle's active one.
+    virtual SubtitleSyncRequest createSubtitleSyncStartRequest(
+        const QString &mediaFileId, const QString &syncKey) const
+    {
+        Q_UNUSED(mediaFileId)
+        Q_UNUSED(syncKey)
+        return {};
+    }
+    /// Restores the subtitle's original timing; etag is from the last read.
+    virtual SubtitleSyncRequest createSubtitleTimingResetRequest(
+        const QString &mediaFileId, const QString &syncKey, const QByteArray &etag) const
+    {
+        Q_UNUSED(mediaFileId)
+        Q_UNUSED(syncKey)
+        Q_UNUSED(etag)
+        return {};
+    }
+    /// Parses the answer of a read, a start or a reset.
+    virtual SubtitleSyncStateParseResult parseSubtitleSyncState(const QByteArray &body) const
+    {
+        Q_UNUSED(body)
         return {};
     }
 

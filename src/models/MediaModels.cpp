@@ -327,7 +327,8 @@ QVariantMap PlaybackTrack::toVariantMap() const
         {QStringLiteral("externalUrl"), externalUrl},
         {QStringLiteral("sourceIndex"), sourceIndex},
         {QStringLiteral("requiresReplan"), requiresReplan},
-        {QStringLiteral("storedSubtitleId"), storedSubtitleId}
+        {QStringLiteral("storedSubtitleId"), storedSubtitleId},
+        {QStringLiteral("syncKey"), syncKey}
     };
 }
 

@@ -29,6 +29,7 @@ class LibraryViewModel;
 class SeriesDetailsViewModel;
 class MovieDetailsViewModel;
 class UpNextRecommendationsViewModel;
+class SubtitleSyncViewModel;
 class HomeSectionsViewModel;
 class LibrarySectionsViewModel;
 class SubtitleSearchViewModel;
@@ -140,6 +141,7 @@ private:
     std::unique_ptr<SeriesDetailsViewModel> m_seriesDetailsViewModel;
     std::unique_ptr<MovieDetailsViewModel> m_movieDetailsViewModel;
     std::unique_ptr<UpNextRecommendationsViewModel> m_upNextRecommendationsViewModel;
+    std::unique_ptr<SubtitleSyncViewModel> m_subtitleSyncViewModel;
     std::unique_ptr<HomeSectionsViewModel> m_homeSectionsViewModel;
     std::unique_ptr<LibrarySectionsViewModel> m_librarySectionsViewModel;
     std::unique_ptr<SubtitleSearchViewModel> m_subtitleSearchViewModel;

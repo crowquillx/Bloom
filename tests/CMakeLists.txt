@@ -925,6 +925,46 @@ target_link_libraries(DisplayManagerTest
 
 add_test(NAME DisplayManagerTest COMMAND DisplayManagerTest)
 
+add_executable(SubtitleSyncTest
+    SubtitleSyncTest.cpp
+    TestConfigIsolation.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/SubtitleSyncViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/TrackPreferencesManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(SubtitleSyncTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_compile_definitions(SubtitleSyncTest PRIVATE BLOOM_TESTING=1)
+
+target_link_libraries(SubtitleSyncTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME SubtitleSyncTest COMMAND SubtitleSyncTest)
+
 add_executable(PlayerControllerAutoplayContextTest
     PlayerControllerAutoplayContextTest.cpp
     ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
@@ -1385,6 +1425,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     PlayerBackendFactoryTest
     PlayerProcessManagerTest
     DisplayManagerTest
+    SubtitleSyncTest
     PlayerControllerAutoplayContextTest
     SubtitleSearchTest
     ShuffleSessionTest
@@ -1507,6 +1548,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/viewmodels/UserRatingState.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/MovieDetailsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/UpNextRecommendationsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/SubtitleSyncViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/HomeSectionsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/LibrarySectionsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SubtitleSearchViewModel.cpp

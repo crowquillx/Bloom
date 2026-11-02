@@ -3290,6 +3290,11 @@ void PlayerController::appendDescriptorExternalSubtitleTracks(
         if (!track.storedSubtitleId.isEmpty()) {
             option[QStringLiteral("storedSubtitleId")] = track.storedSubtitleId;
         }
+        if (!track.syncKey.isEmpty()) {
+            option[QStringLiteral("syncKey")] = track.syncKey;
+        } else {
+            option.remove(QStringLiteral("syncKey"));
+        }
         if (existingPosition >= 0) {
             availableSubtitleTracks[existingPosition] = option;
         } else {
@@ -5421,6 +5426,44 @@ void PlayerController::checkPendingDownloadedSubtitleSelection()
         resolvePendingDownloadedSubtitle(
             false, tr("The server could not switch to the downloaded subtitle."));
     }
+}
+
+bool PlayerController::reloadSelectedExternalSubtitle()
+{
+    if (!(m_playbackState == Playing || m_playbackState == Paused)) {
+        return false;
+    }
+    const int index = m_selectedSubtitleTrack;
+    const int previousMpvTrack = m_externalSubtitleTrackMap.value(index, -1);
+    if (!m_externalSubtitleTrackMap.contains(index) || previousMpvTrack <= 0) {
+        return false;
+    }
+    QVariantMap option;
+    for (const QVariant &trackVariant : m_availableSubtitleTracks) {
+        const QVariantMap candidate = trackVariant.toMap();
+        if (candidate.value(QStringLiteral("index"), -1).toInt() == index) {
+            option = candidate;
+            break;
+        }
+    }
+    const QString url = option.value(QStringLiteral("externalUrl")).toString().trimmed();
+    if (url.isEmpty()) {
+        return false;
+    }
+    // The new copy is added selected, so the selection never passes through
+    // "off"; its sid report maps it to the same menu entry. The old copy goes
+    // after. sub-delay (the user's delay and any timeline offset) stays.
+    m_externalSubtitleTrackMap.insert(index, -1);
+    m_pendingExternalSubtitleIndex = index;
+    m_playerBackend->sendVariantCommand({
+        QStringLiteral("sub-add"),
+        url,
+        QStringLiteral("select"),
+        option.value(QStringLiteral("displayTitle")).toString(),
+        option.value(QStringLiteral("language")).toString()
+    });
+    m_playerBackend->sendVariantCommand({QStringLiteral("sub-remove"), previousMpvTrack});
+    return true;
 }
 
 void PlayerController::cycleAudioTrack()

@@ -288,12 +288,16 @@ bool PlaybackService::isCurrentRequest(const QString &operation,
 
 QNetworkReply *PlaybackService::sendProviderRequest(const QString &endpoint,
                                                     const QString &method,
-                                                    const QJsonObject &body) const
+                                                    const QJsonObject &body,
+                                                    const QByteArray &ifMatch) const
 {
     if (!m_authService) {
         return nullptr;
     }
     QNetworkRequest request = m_authService->createRequest(endpoint);
+    if (!ifMatch.isEmpty()) {
+        request.setRawHeader(QByteArrayLiteral("If-Match"), ifMatch);
+    }
     if (!body.isEmpty()) {
         request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     }
@@ -1705,6 +1709,170 @@ void PlaybackService::writeTrackPreference(const TrackPreferenceWrite &write)
             finish();
         },
         options);
+}
+
+// ============================================================================
+// Subtitle sync
+// ============================================================================
+
+namespace {
+
+const QString kSubtitleSyncRequest = QStringLiteral("subtitle-sync");
+
+} // namespace
+
+bool PlaybackService::supportsSubtitleSync() const
+{
+    const IPlaybackProvider *provider =
+        m_authService ? m_authService->playbackProvider() : nullptr;
+    return m_authService && m_authService->isAuthenticated() && provider
+        && provider->supportsSubtitleSync();
+}
+
+QString PlaybackService::subtitleSyncConnectionId() const
+{
+    return activeConnectionId(m_authService, m_configManager);
+}
+
+void PlaybackService::loadSubtitleSyncStatus(const QString &requestKey)
+{
+    if (!supportsSubtitleSync()) {
+        emit subtitleSyncStatusLoaded(requestKey, false);
+        return;
+    }
+    const IPlaybackProvider *provider = m_authService->playbackProvider();
+    const SubtitleSyncRequest request = provider->createSubtitleSyncStatusRequest();
+    if (!request.isValid()) {
+        emit subtitleSyncStatusLoaded(requestKey, false);
+        return;
+    }
+    sendSubtitleSyncRequest(requestKey, request, [this, requestKey, provider](QNetworkReply *reply) {
+        emit subtitleSyncStatusLoaded(requestKey, provider->parseSubtitleSyncStatus(reply->readAll()));
+    });
+}
+
+void PlaybackService::readSubtitleSync(const QString &requestKey, const QString &mediaFileId,
+                                       const QString &syncKey)
+{
+    if (!supportsSubtitleSync()) {
+        failSubtitleSync(requestKey, 0, tr("Subtitle sync is not available on this server."));
+        return;
+    }
+    sendSubtitleSyncStateRequest(
+        requestKey,
+        m_authService->playbackProvider()->createSubtitleSyncReadRequest(mediaFileId, syncKey));
+}
+
+void PlaybackService::startSubtitleSync(const QString &requestKey, const QString &mediaFileId,
+                                        const QString &syncKey)
+{
+    if (!supportsSubtitleSync()) {
+        failSubtitleSync(requestKey, 0, tr("Subtitle sync is not available on this server."));
+        return;
+    }
+    sendSubtitleSyncStateRequest(
+        requestKey,
+        m_authService->playbackProvider()->createSubtitleSyncStartRequest(mediaFileId, syncKey));
+}
+
+void PlaybackService::resetSubtitleTiming(const QString &requestKey, const QString &mediaFileId,
+                                          const QString &syncKey, const QByteArray &etag)
+{
+    if (!supportsSubtitleSync()) {
+        failSubtitleSync(requestKey, 0, tr("Subtitle sync is not available on this server."));
+        return;
+    }
+    sendSubtitleSyncStateRequest(
+        requestKey,
+        m_authService->playbackProvider()->createSubtitleTimingResetRequest(
+            mediaFileId, syncKey, etag));
+}
+
+void PlaybackService::cancelSubtitleSync(const QString &requestKey)
+{
+    if (const QPointer<HttpRequestHandle> handle = m_subtitleSyncRequests.take(requestKey)) {
+        handle->cancel();
+    }
+    const QString key = kSubtitleSyncRequest + QChar(0x1f) + QString() + QChar(0x1f) + requestKey;
+    m_requestGenerations.remove(key);
+    m_requestIdentities.remove(key);
+}
+
+void PlaybackService::failSubtitleSync(const QString &requestKey, int httpStatus,
+                                       const QString &error)
+{
+    cancelSubtitleSync(requestKey);
+    emit subtitleSyncFailed(requestKey, httpStatus, error);
+}
+
+void PlaybackService::sendSubtitleSyncStateRequest(const QString &requestKey,
+                                                   const SubtitleSyncRequest &request)
+{
+    if (!request.isValid()) {
+        failSubtitleSync(requestKey, 0, tr("This subtitle cannot be synced."));
+        return;
+    }
+    const IPlaybackProvider *provider = m_authService->playbackProvider();
+    sendSubtitleSyncRequest(requestKey, request, [this, requestKey, provider](QNetworkReply *reply) {
+        const QByteArray etag = reply->rawHeader(QByteArrayLiteral("ETag"));
+        const SubtitleSyncStateParseResult parsed = provider->parseSubtitleSyncState(reply->readAll());
+        if (!parsed.valid) {
+            emit subtitleSyncFailed(requestKey, 0, tr("The server sent an unreadable subtitle state."));
+            return;
+        }
+        emit subtitleSyncStateLoaded(requestKey, parsed.state, etag);
+    });
+}
+
+void PlaybackService::sendSubtitleSyncRequest(const QString &requestKey,
+                                              const SubtitleSyncRequest &request,
+                                              std::function<void(QNetworkReply *)> onSuccess)
+{
+    if (const QPointer<HttpRequestHandle> previous = m_subtitleSyncRequests.take(requestKey)) {
+        previous->cancel();
+    }
+    if (!m_transport || !m_authService) {
+        failSubtitleSync(requestKey, 0, tr("Network transport is unavailable."));
+        return;
+    }
+    const quint64 generation = beginRequest(kSubtitleSyncRequest, requestKey, QString());
+    HttpRequestOptions options;
+    options.retryPolicy = m_retryPolicy;
+    options.retrySafety = request.replaySafe ? RetrySafety::Idempotent : RetrySafety::Never;
+    options.unauthorizedPolicy = UnauthorizedPolicy::DeferSessionExpiry;
+    options.attemptTimeoutMs = 15000;
+    HttpRequestHandle *handle = m_transport->sendWithRetry(
+        this,
+        request.endpoint,
+        [this, request, requestKey, generation]() -> QNetworkReply * {
+            if (!isCurrentRequest(kSubtitleSyncRequest, requestKey, QString(), generation)) {
+                return nullptr;
+            }
+            return sendProviderRequest(request.endpoint, request.method, request.body,
+                                       request.ifMatch);
+        },
+        [this, requestKey, generation, onSuccess = std::move(onSuccess)](QNetworkReply *reply) {
+            if (!isCurrentRequest(kSubtitleSyncRequest, requestKey, QString(), generation)) {
+                return;
+            }
+            endRequest(kSubtitleSyncRequest, requestKey, QString(), generation);
+            m_subtitleSyncRequests.remove(requestKey);
+            onSuccess(reply);
+        },
+        [this, requestKey, generation](const NetworkError &error) {
+            if (!isCurrentRequest(kSubtitleSyncRequest, requestKey, QString(), generation)) {
+                return;
+            }
+            qCWarning(lcPlayback) << "Subtitle sync request failed:" << error.endpoint
+                                  << "status" << error.httpStatus;
+            failSubtitleSync(requestKey, error.httpStatus,
+                             error.userMessage.isEmpty() ? tr("Subtitle sync failed.")
+                                                         : error.userMessage);
+        },
+        options);
+    if (handle) {
+        m_subtitleSyncRequests.insert(requestKey, handle);
+    }
 }
 
 void PlaybackService::markItemPlayed(const QString &itemId)

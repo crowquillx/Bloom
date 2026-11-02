@@ -437,6 +437,9 @@ FocusScope {
             if (SubtitleSearch.available) rows.push({ kind: "searchEntry" })
             rows.push({ kind: "delay" })
             rows.push({ kind: "size" })
+            // Server-side sync of the selected external subtitle (Silo).
+            if (SubtitleSync.available) rows.push({ kind: "subtitleSync" })
+            if (SubtitleSync.canReset) rows.push({ kind: "subtitleTimingReset" })
         } else if (settingsPage === "subtitleSearch") {
             rows.push({ kind: "searchLanguage" })
             if (SubtitleSearch.isLoading) {
@@ -674,6 +677,11 @@ FocusScope {
             if (row.state === "error" || row.state === "warning") SubtitleSearch.reload()
         } else if (row.kind === "searchResult") {
             if (!SubtitleSearch.downloading) SubtitleSearch.download(row.result.id)
+        } else if (row.kind === "subtitleSync") {
+            // The menu stays open so the row can show the job's progress.
+            SubtitleSync.startSync()
+        } else if (row.kind === "subtitleTimingReset") {
+            SubtitleSync.resetTiming()
         }
     }
 
@@ -3091,6 +3099,7 @@ FocusScope {
                 readonly property bool isStepper: root.isStepperRow(kind)
                 height: root.settingsRowHeight(kind)
                 Accessible.role: kind === "page" || kind === "searchEntry" || kind === "searchResult"
+                                 || kind === "subtitleSync" || kind === "subtitleTimingReset"
                                  ? Accessible.Button
                                  : (isStepper || kind === "searchLanguage"
                                     ? Accessible.Slider
@@ -3190,6 +3199,8 @@ FocusScope {
                                 if (row.kind === "output") return root.audioOutputPrimaryLabel(row.entry)
                                 if (row.kind === "delay") return qsTr("Subtitle Delay")
                                 if (row.kind === "size") return qsTr("Subtitle Size")
+                                if (row.kind === "subtitleSync") return qsTr("Sync to Audio")
+                                if (row.kind === "subtitleTimingReset") return qsTr("Reset Timing")
                                 if (row.kind === "sleep") return root.sleepTimerChoiceLabel(row.choice)
                                 if (row.kind === "searchEntry") return qsTr("Search subtitles…")
                                 if (row.kind === "searchLanguage") return qsTr("Language")
@@ -3228,6 +3239,8 @@ FocusScope {
                                 if (row.kind === "searchLanguage") return InputModeManager.pointerActive
                                                                          ? "" : qsTr("Left/Right to change")
                                 if (row.kind === "searchResult") return root.subtitleResultDetail(row.result)
+                                if (row.kind === "subtitleSync") return SubtitleSync.statusText
+                                if (row.kind === "subtitleTimingReset") return qsTr("Restore the subtitle's original timing")
                                 return ""
                             }
                             visible: text.length > 0
@@ -3387,7 +3400,8 @@ FocusScope {
         }
     }
 
-    // Transient notice for output fallbacks (device missing, exclusive refused).
+    // Transient notice for output fallbacks (device missing, exclusive refused)
+    // and subtitle sync results.
     Rectangle {
         id: audioNotice
         z: 1300
@@ -3447,6 +3461,14 @@ FocusScope {
                 audioNoticeTimer.restart()
             }
             function onDownloadFailed(message) {
+                root.audioNoticeText = message
+                audioNoticeTimer.restart()
+            }
+        }
+
+        Connections {
+            target: SubtitleSync
+            function onNotice(message) {
                 root.audioNoticeText = message
                 audioNoticeTimer.restart()
             }
