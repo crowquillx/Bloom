@@ -14,6 +14,7 @@ UpNextRecommendationsViewModel::UpNextRecommendationsViewModel(QObject *parent)
 {
     m_libraryService = ServiceLocator::tryGet<LibraryService>();
     m_mediaRequests = ServiceLocator::tryGet<MediaRequestService>();
+    m_movieRating = new UserRatingState(m_libraryService, this);
 
     if (m_libraryService) {
         connect(m_libraryService, &LibraryService::canonicalSimilarItemsLoadedForConnection,
@@ -36,6 +37,10 @@ UpNextRecommendationsViewModel::UpNextRecommendationsViewModel(QObject *parent)
                 this, &UpNextRecommendationsViewModel::onSeriesDetailsFallbackFailed);
         connect(m_libraryService, &LibraryService::canonicalItemsLoadedForConnection,
                 this, &UpNextRecommendationsViewModel::onSeasonItemsLoaded);
+        connect(m_libraryService, &LibraryService::canonicalBecauseWatchedLoadedForConnection,
+                this, &UpNextRecommendationsViewModel::onBecauseWatchedLoaded);
+        connect(m_libraryService, &LibraryService::canonicalBecauseWatchedFailedForConnection,
+                this, &UpNextRecommendationsViewModel::onBecauseWatchedFailed);
     } else {
         qWarning() << "UpNextRecommendationsViewModel: LibraryService not available";
     }
@@ -54,7 +59,9 @@ QVariantList UpNextRecommendationsViewModel::items() const
         return m_cachedItems;
     }
 
-    m_cachedItems = mergeRecommendations(m_libraryItems, m_requestItems, m_limit);
+    m_cachedItems = m_movieMode
+        ? selectBecauseWatched(m_libraryItems, m_sourceId, m_limit)
+        : mergeRecommendations(m_libraryItems, m_requestItems, m_limit);
     m_itemsDirty = false;
     return m_cachedItems;
 }
@@ -66,7 +73,7 @@ void UpNextRecommendationsViewModel::loadForSeries(const QString &seriesId, int 
         return;
     }
 
-    if (m_seriesId == seriesId && m_loading) {
+    if (!m_movieMode && m_sourceId == seriesId && m_loading) {
         return;
     }
 
@@ -75,15 +82,40 @@ void UpNextRecommendationsViewModel::loadForSeries(const QString &seriesId, int 
 
     m_waitingForLibrary = true;
     m_waitingForSeriesDetails = true;
-    m_libraryService->getSimilarItems(m_seriesId, m_limit);
-    m_libraryService->getSeriesDetails(m_seriesId);
+    m_libraryService->getSimilarItems(m_sourceId, m_limit);
+    m_libraryService->getSeriesDetails(m_sourceId);
+}
+
+void UpNextRecommendationsViewModel::loadForMovie(const QString &movieId, int limit)
+{
+    if (movieId.trimmed().isEmpty() || !m_libraryService) {
+        clear();
+        return;
+    }
+    if (m_movieMode && m_sourceId == movieId && m_loading) {
+        return;
+    }
+
+    resetRequestState(movieId, limit);
+    m_movieMode = true;
+    m_movieRating->setItem(movieId, m_connectionId);
+    setLoading(true);
+
+    m_waitingForLibrary = true;
+    m_libraryService->getBecauseWatchedItems(m_sourceId, m_limit);
+
+    // Fresh details for the hero and the viewer's rating; an unchanged
+    // answer would carry neither.
+    m_movieDetailsContext = QStringLiteral("UpNextMovie:%1:%2").arg(m_connectionId, m_sourceId);
+    m_libraryService->clearItemCacheValidation(m_sourceId);
+    m_libraryService->getItem(m_sourceId, m_movieDetailsContext);
 }
 
 void UpNextRecommendationsViewModel::clear()
 {
     const bool hadItems = !m_libraryItems.isEmpty() || !m_requestItems.isEmpty();
     m_connectionId.clear();
-    m_seriesId.clear();
+    m_sourceId.clear();
     m_limit = 6;
     m_pendingRequestTmdbId = -1;
     m_seriesDetailsFallbackContext.clear();
@@ -92,6 +124,13 @@ void UpNextRecommendationsViewModel::clear()
     m_waitingForLibrary = false;
     m_waitingForSeriesDetails = false;
     m_waitingForRequests = false;
+    m_movieMode = false;
+    m_movieDetailsContext.clear();
+    m_movieRating->clear();
+    if (!m_movie.isEmpty()) {
+        m_movie.clear();
+        emit movieChanged();
+    }
     m_itemsDirty = true;
     m_cachedItems.clear();
     setLoading(false);
@@ -231,6 +270,43 @@ QVariantList UpNextRecommendationsViewModel::mergeRecommendations(const QVariant
     return merged;
 }
 
+QVariantList UpNextRecommendationsViewModel::selectBecauseWatched(const QVariantList &items,
+                                                                 const QString &sourceItemId,
+                                                                 int limit)
+{
+    QVariantList selected;
+    QSet<QString> seen;
+    for (const QVariant &value : items) {
+        if (selected.size() >= limit) {
+            break;
+        }
+        const QVariantMap item = value.toMap();
+        const QString itemId = item.value(QStringLiteral("itemId")).toString();
+        // The app has only movie and series libraries.
+        if (!isMovieOrSeriesItem(item) || itemId.isEmpty() || itemId == sourceItemId) {
+            continue;
+        }
+        // The server's own identity, not a TMDB id or title: a movie and a
+        // series share TMDB numbers, and remakes share titles.
+        const QString key = item.value(QStringLiteral("connectionId")).toString()
+            + QLatin1Char('\n') + item.value(QStringLiteral("mediaType")).toString().toLower()
+            + QLatin1Char('\n') + itemId;
+        if (seen.contains(key)) {
+            continue;
+        }
+        seen.insert(key);
+        selected.append(item);
+    }
+    return selected;
+}
+
+bool UpNextRecommendationsViewModel::isMovieOrSeriesItem(const QVariantMap &item)
+{
+    return isSeriesItem(item)
+        || item.value(QStringLiteral("mediaType")).toString()
+               .compare(QStringLiteral("Movie"), Qt::CaseInsensitive) == 0;
+}
+
 bool UpNextRecommendationsViewModel::isSeriesItem(const QVariantMap &item)
 {
     return item.value(QStringLiteral("mediaType")).toString()
@@ -312,8 +388,15 @@ void UpNextRecommendationsViewModel::notifyItemsChanged()
 void UpNextRecommendationsViewModel::resetRequestState(const QString &seriesId, int limit)
 {
     m_connectionId = m_libraryService ? m_libraryService->getActiveConnectionId() : QString();
-    m_seriesId = seriesId;
+    m_sourceId = seriesId;
     m_limit = qBound(1, limit, 24);
+    m_movieMode = false;
+    m_movieDetailsContext.clear();
+    m_movieRating->clear();
+    if (!m_movie.isEmpty()) {
+        m_movie.clear();
+        emit movieChanged();
+    }
     m_pendingRequestTmdbId = -1;
     m_seriesDetailsFallbackContext.clear();
     m_libraryItems = {};
@@ -350,23 +433,23 @@ void UpNextRecommendationsViewModel::requestSimilarTitlesIfPossible(const QVaria
 
 void UpNextRecommendationsViewModel::requestSeriesDetailsFallback()
 {
-    if (!m_libraryService || m_seriesId.isEmpty()) {
+    if (!m_libraryService || m_sourceId.isEmpty()) {
         m_waitingForSeriesDetails = false;
         finishProviderIfComplete();
         return;
     }
 
     m_seriesDetailsFallbackContext = QStringLiteral("UpNextRecommendations:%1:%2")
-                                         .arg(m_connectionId, m_seriesId);
-    m_libraryService->clearItemCacheValidation(m_seriesId);
-    m_libraryService->getItem(m_seriesId, m_seriesDetailsFallbackContext);
+                                         .arg(m_connectionId, m_sourceId);
+    m_libraryService->clearItemCacheValidation(m_sourceId);
+    m_libraryService->getItem(m_sourceId, m_seriesDetailsFallbackContext);
 }
 
 bool UpNextRecommendationsViewModel::matchesSeriesDetailsFallback(const QString &itemId,
                                                                   const QString &requestContext) const
 {
     return m_waitingForSeriesDetails
-        && itemId == m_seriesId
+        && itemId == m_sourceId
         && requestContext == m_seriesDetailsFallbackContext
         && !m_seriesDetailsFallbackContext.isEmpty();
 }
@@ -375,7 +458,8 @@ void UpNextRecommendationsViewModel::onSimilarItemsLoaded(const QString &connect
                                                            const QString &itemId,
                                                            const QVariantList &items)
 {
-    if (connectionId != m_connectionId || itemId != m_seriesId || !m_waitingForLibrary) {
+    if (m_movieMode || connectionId != m_connectionId || itemId != m_sourceId
+        || !m_waitingForLibrary) {
         return;
     }
 
@@ -388,7 +472,8 @@ void UpNextRecommendationsViewModel::onSimilarItemsFailed(const QString &connect
                                                            const QString &itemId,
                                                            const QString &error)
 {
-    if (connectionId != m_connectionId || itemId != m_seriesId || !m_waitingForLibrary) {
+    if (m_movieMode || connectionId != m_connectionId || itemId != m_sourceId
+        || !m_waitingForLibrary) {
         return;
     }
 
@@ -402,7 +487,7 @@ void UpNextRecommendationsViewModel::onSeriesDetailsLoaded(const QString &connec
                                                             const QString &seriesId,
                                                             const QVariantMap &seriesData)
 {
-    if (connectionId != m_connectionId || seriesId != m_seriesId || !m_waitingForSeriesDetails) {
+    if (connectionId != m_connectionId || seriesId != m_sourceId || !m_waitingForSeriesDetails) {
         return;
     }
 
@@ -412,7 +497,7 @@ void UpNextRecommendationsViewModel::onSeriesDetailsLoaded(const QString &connec
 void UpNextRecommendationsViewModel::onSeriesDetailsNotModified(const QString &connectionId,
                                                                  const QString &seriesId)
 {
-    if (connectionId != m_connectionId || seriesId != m_seriesId || !m_waitingForSeriesDetails) {
+    if (connectionId != m_connectionId || seriesId != m_sourceId || !m_waitingForSeriesDetails) {
         return;
     }
 
@@ -423,7 +508,7 @@ void UpNextRecommendationsViewModel::onSeriesDetailsFailed(const QString &connec
                                                             const QString &seriesId,
                                                             const QString &error)
 {
-    if (connectionId != m_connectionId || seriesId != m_seriesId || !m_waitingForSeriesDetails) {
+    if (connectionId != m_connectionId || seriesId != m_sourceId || !m_waitingForSeriesDetails) {
         return;
     }
 
@@ -436,6 +521,17 @@ void UpNextRecommendationsViewModel::onSeriesDetailsFallbackLoaded(const QString
                                                                    const QVariantMap &itemData,
                                                                    const QString &requestContext)
 {
+    if (m_movieMode && !m_movieDetailsContext.isEmpty()
+        && requestContext == m_movieDetailsContext && itemId == m_sourceId) {
+        if (itemData.value(QStringLiteral("connectionId")).toString() != m_connectionId) {
+            return;
+        }
+        m_movieDetailsContext.clear();
+        m_movie = itemData;
+        emit movieChanged();
+        m_movieRating->updateFromItem(itemData);
+        return;
+    }
     if (!matchesSeriesDetailsFallback(itemId, requestContext)
             || itemData.value(QStringLiteral("connectionId")).toString() != m_connectionId) {
         return;
@@ -500,5 +596,35 @@ void UpNextRecommendationsViewModel::onRequestSimilarResultsFailed(const QString
     qWarning() << "UpNextRecommendationsViewModel request recommendations failed:" << error;
     m_requestItems = {};
     m_waitingForRequests = false;
+    finishProviderIfComplete();
+}
+
+void UpNextRecommendationsViewModel::onBecauseWatchedLoaded(const QString &connectionId,
+                                                            const QString &itemId,
+                                                            const QVariantList &items)
+{
+    if (!m_movieMode || connectionId != m_connectionId || itemId != m_sourceId
+        || !m_waitingForLibrary) {
+        return;
+    }
+
+    m_libraryItems = items;
+    m_waitingForLibrary = false;
+    finishProviderIfComplete();
+}
+
+void UpNextRecommendationsViewModel::onBecauseWatchedFailed(const QString &connectionId,
+                                                            const QString &itemId,
+                                                            const QString &error)
+{
+    if (!m_movieMode || connectionId != m_connectionId || itemId != m_sourceId
+        || !m_waitingForLibrary) {
+        return;
+    }
+
+    // Silent on the after-movie screen: the shelf just stays away.
+    qWarning() << "UpNextRecommendationsViewModel because-watched failed:" << error;
+    m_libraryItems = {};
+    m_waitingForLibrary = false;
     finishProviderIfComplete();
 }

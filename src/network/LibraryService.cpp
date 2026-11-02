@@ -265,6 +265,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         m_airingCalendars.clear();
         // Cancelled writes answer nothing on their own.
         failStaleHomeCardWrites();
+        failStaleUserRatingWrites();
     };
     connect(m_authService, &AuthenticationService::authenticationStepChanged,
             this, [this, invalidateRequests]() {
@@ -283,6 +284,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
                               &AuthenticationService::profilesChanged,
                               &AuthenticationService::authSessionsChanged}) {
         connect(m_authService, signal, this, &LibraryService::failStaleHomeCardWrites);
+        connect(m_authService, signal, this, &LibraryService::failStaleUserRatingWrites);
     }
 }
 
@@ -1211,6 +1213,31 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
         });
 }
 
+void LibraryService::getBecauseWatchedItems(const QString &itemId, int limit)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.limit = qMax(1, limit);
+    // Providers without a because-watched read answer with similar items.
+    const ICatalogProvider *provider = catalogRequestIdentity().provider;
+    const bool native = provider
+        && provider->createRequest(ProviderCatalogOperation::BecauseWatched, query).supported;
+    sendCatalogRequest(
+        native ? QStringLiteral("getBecauseWatchedItems") : QStringLiteral("getSimilarItems"),
+        native ? ProviderCatalogOperation::BecauseWatched : ProviderCatalogOperation::SimilarItems,
+        query,
+        [this, itemId, connectionId](const ProviderCatalogResponse &response) {
+            const QVariantList items =
+                m_authService->mapMediaItems(response.rawItems, connectionId);
+            emit canonicalBecauseWatchedLoadedForConnection(connectionId, itemId, items);
+        },
+        [this, itemId, connectionId](const NetworkError &error) {
+            emit canonicalBecauseWatchedFailedForConnection(
+                connectionId, itemId, error.userMessage);
+        });
+}
+
 void LibraryService::getItemExtras(const QString &itemId)
 {
     const QString connectionId = activeConnectionId(m_authService);
@@ -1599,6 +1626,80 @@ void LibraryService::setItemNotInterested(const QString &itemId, bool notInteres
         [this, itemId, notInterested](const NetworkError &error) {
             emit notInterestedStatusFailed(itemId, notInterested, error.userMessage);
         });
+}
+
+QString LibraryService::userRatingScale() const
+{
+    if (!m_authService || !m_authService->isAuthenticated()
+        || m_userRatingUnavailable.contains(userRatingKey())) {
+        return {};
+    }
+    if (m_authService->supportsCapability(ProviderCapability::LikeRatings)) {
+        return QStringLiteral("likes");
+    }
+    if (m_authService->supportsCapability(ProviderCapability::StarRatings)) {
+        return QStringLiteral("stars");
+    }
+    return {};
+}
+
+QString LibraryService::userRatingKey() const
+{
+    return activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
+}
+
+void LibraryService::setUserRating(const QString &itemId, int value)
+{
+    const CatalogRequestIdentity identity = catalogRequestIdentity();
+    const quint64 writeId = ++m_userRatingWriteSequence;
+    m_userRatingWrites.insert(writeId, {identity, itemId, value});
+    // False once the write was answered (or failed as stale).
+    const auto take = [this, writeId]() { return m_userRatingWrites.remove(writeId) > 0; };
+    const QString key = userRatingKey();
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.ratingValue = value;
+    sendCatalogRequest(
+        value == 0 ? QStringLiteral("clearUserRating") : QStringLiteral("setUserRating"),
+        ProviderCatalogOperation::SetUserRating,
+        query,
+        [this, identity, itemId, value, take](const ProviderCatalogResponse &) {
+            if (!take()) {
+                return;
+            }
+            emit userRatingChanged(identity.connectionId, itemId, value);
+        },
+        [this, identity, itemId, value, key, take](const NetworkError &error) {
+            if (!take()) {
+                return;
+            }
+            // A server without ratings (Silo answers 503 when its ratings
+            // service is absent; older servers lack the route) never takes
+            // one: hide the control for this connection and profile.
+            if (error.httpStatus == 503 || error.httpStatus == 501
+                || error.httpStatus == 404 || error.httpStatus == 405) {
+                m_userRatingUnavailable.insert(key);
+                emit userRatingSupportChanged();
+            }
+            emit userRatingFailed(identity.connectionId, itemId, value, error.userMessage);
+        });
+}
+
+void LibraryService::failStaleUserRatingWrites()
+{
+    QList<PendingUserRatingWrite> stale;
+    for (auto it = m_userRatingWrites.begin(); it != m_userRatingWrites.end();) {
+        if (isCurrent(it->identity)) {
+            ++it;
+            continue;
+        }
+        stale.append(it.value());
+        it = m_userRatingWrites.erase(it);
+    }
+    for (const PendingUserRatingWrite &write : std::as_const(stale)) {
+        emit userRatingFailed(write.identity.connectionId, write.itemId, write.value,
+                              tr("The connection changed before the server answered."));
+    }
 }
 
 bool LibraryService::supportsNextAiring() const

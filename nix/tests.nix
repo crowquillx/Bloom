@@ -83,6 +83,7 @@ stdenv.mkDerivation {
       ResponsiveLayoutPolicyTest \
       NavigationBarTest \
       ModalFocusGuardTest \
+      UserRatingControlTest \
       ScreensaverFocusMemoryTest \
       DiscoveryListModelTest \
       PosterBadgesTest \
@@ -125,7 +126,7 @@ stdenv.mkDerivation {
         qt6.qtimageformats
       ]
     }''${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
-    # QML scene tests (NavigationBarTest, ModalFocusGuardTest) import QtQuick.Controls.
+    # QML scene tests (NavigationBarTest, ModalFocusGuardTest, UserRatingControlTest) import QtQuick.Controls.
     export QML2_IMPORT_PATH="${qt6.qtdeclarative}/lib/qt-6/qml''${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
     ctest --output-on-failure \
       --exclude-regex '^(VisualRegressionTest|SeriesDetailsCacheTest)$'

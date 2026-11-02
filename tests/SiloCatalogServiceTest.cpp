@@ -30,6 +30,7 @@
 #include "providers/silo/SiloModelMapper.h"
 #include "providers/silo/SiloProviderAdapter.h"
 #include "utils/ConfigManager.h"
+#include "viewmodels/UserRatingState.h"
 
 #include "TestConfigIsolation.h"
 
@@ -222,6 +223,11 @@ private slots:
     void notInterestedRequestsAndCapabilityParse();
     void notInterestedServiceGatesOnProfileCapability();
     void notInterestedReadCancelledWithSessionIsAskedAgain();
+    void becauseWatchedAndRatingRequestsParse();
+    void starRatingsNeverReplayAndHideWhenUnavailable();
+    void staleRatingWriteFailsAfterSessionChange();
+    void becauseWatchedReadsNativeRouteOrJellyfinSimilar();
+    void jellyfinLikesWriteAndClear();
     void nextAiringSharesAndCachesOneCalendarRead();
     void nextAiringRetriesUnknownZoneAsOffset();
     void upcomingAiringsReadTheViewerCalendar();
@@ -2871,6 +2877,335 @@ void SiloCatalogServiceTest::notInterestedReadCancelledWithSessionIsAskedAgain()
     }
     QCoreApplication::processEvents(QEventLoop::AllEvents);
     QCOMPARE(support.count(), 1);
+}
+
+void SiloCatalogServiceTest::becauseWatchedAndRatingRequestsParse()
+{
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery query;
+    query.itemId = QStringLiteral("movie:heat-1995");
+    query.limit = 80;
+
+    // listBecauseWatched answers at most 50 cards.
+    ProviderCatalogRequest request
+        = provider.createRequest(ProviderCatalogOperation::BecauseWatched, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    const QUrl becauseWatched(QStringLiteral("https://silo.test") + request.relativeEndpoint);
+    QCOMPARE(becauseWatched.path(),
+             QStringLiteral("/api/v2/recommendations/because-watched/movie:heat-1995"));
+    QCOMPARE(QUrlQuery(becauseWatched).queryItemValue(QStringLiteral("limit")), QStringLiteral("50"));
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::BecauseWatched, {}).supported);
+
+    const ProviderCatalogResponse cards = provider.parseResponse(
+        ProviderCatalogOperation::BecauseWatched,
+        QByteArrayLiteral(R"({"items":[{"content_id":"movie:ronin-1998","type":"movie","title":"Ronin"},)"
+                          R"({"content_id":"series:the-wire","type":"series","title":"The Wire"}],)"
+                          R"("page":{"next_cursor":null}})"));
+    QVERIFY(cards.valid);
+    QCOMPARE(cards.rawItems.size(), 2);
+    QCOMPARE(cards.rawItems.first().toObject().value(QStringLiteral("content_id")).toString(),
+             QStringLiteral("movie:ronin-1998"));
+
+    // setRating and deleteRating are non_retryable.
+    query.ratingValue = 4;
+    request = provider.createRequest(ProviderCatalogOperation::SetUserRating, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Put);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Never);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/ratings/movie%3Aheat-1995"));
+    QCOMPARE(QJsonDocument::fromJson(request.body).object().keys(), QStringList{QStringLiteral("rating")});
+    QCOMPARE(QJsonDocument::fromJson(request.body).object().value(QStringLiteral("rating")).toInt(), 4);
+    query.ratingValue = 0;
+    request = provider.createRequest(ProviderCatalogOperation::SetUserRating, query);
+    QCOMPARE(request.method, ProviderHttpMethod::Delete);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Never);
+    QVERIFY(request.body.isEmpty());
+    query.ratingValue = 6;
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::SetUserRating, query).supported);
+    query.ratingValue = -1;
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::SetUserRating, query).supported);
+    QVERIFY(provider.parseResponse(ProviderCatalogOperation::SetUserRating, {}).valid);
+
+    // CatalogItemDetail.user_rating is the canonical userRating.
+    QVariantMap mapped = SiloModelMapper::mediaItem(
+        QJsonDocument::fromJson(QByteArrayLiteral(
+            R"({"content_id":"movie:heat-1995","type":"movie","title":"Heat","user_rating":4})"))
+            .object(),
+        QStringLiteral("connection-1"));
+    QCOMPARE(mapped.value(QStringLiteral("userRating")).toInt(), 4);
+    QCOMPARE(mapped.value(QStringLiteral("userState")).toMap()
+                 .value(QStringLiteral("userRating")).toInt(), 4);
+    mapped = SiloModelMapper::mediaItem(
+        QJsonDocument::fromJson(QByteArrayLiteral(
+            R"({"content_id":"movie:heat-1995","type":"movie","title":"Heat"})")).object(),
+        QStringLiteral("connection-1"));
+    QCOMPARE(mapped.value(QStringLiteral("userRating")).toInt(), 0);
+
+    SiloProviderAdapter silo;
+    QVERIFY(silo.supportsCapability(ProviderCapability::StarRatings));
+    QVERIFY(!silo.supportsCapability(ProviderCapability::LikeRatings));
+    JellyfinProviderAdapter jellyfin;
+    QVERIFY(jellyfin.supportsCapability(ProviderCapability::LikeRatings));
+    QVERIFY(!jellyfin.supportsCapability(ProviderCapability::StarRatings));
+    QVERIFY(!jellyfin.catalogProvider()
+                 ->createRequest(ProviderCatalogOperation::BecauseWatched, query).supported);
+}
+
+void SiloCatalogServiceTest::starRatingsNeverReplayAndHideWhenUnavailable()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QSignalSpy support(&service, &LibraryService::userRatingSupportChanged);
+    QSignalSpy changed(&service, &LibraryService::userRatingChanged);
+    QSignalSpy failed(&service, &LibraryService::userRatingFailed);
+    // Silo has no personal-ratings capability document: stars at once, and
+    // getRatingsCapability (the external rating sources) is never read.
+    const qsizetype beforeScale = manager.requests.size();
+    QCOMPARE(service.userRatingScale(), QStringLiteral("stars"));
+    QCOMPARE(manager.requests.size(), beforeScale);
+    const QString connectionId = service.getActiveConnectionId();
+    QVERIFY(!connectionId.isEmpty());
+
+    manager.responses = { { 204, QByteArray(), false }, { 204, QByteArray(), false } };
+    qsizetype firstRequest = manager.requests.size();
+    service.setUserRating(QStringLiteral("movie:heat-1995"), 4);
+    QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 1, 1000);
+    QCOMPARE(changed.first().at(0).toString(), connectionId);
+    QCOMPARE(changed.first().at(1).toString(), QStringLiteral("movie:heat-1995"));
+    QCOMPARE(changed.first().at(2).toInt(), 4);
+    const RecordedRequest rate = manager.requests.at(firstRequest);
+    QCOMPARE(rate.operation, QNetworkAccessManager::PutOperation);
+    QCOMPARE(rate.request.url().path(), QStringLiteral("/api/v2/ratings/movie:heat-1995"));
+    QCOMPARE(rate.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
+    QCOMPARE(QJsonDocument::fromJson(rate.body).object().keys(), QStringList{QStringLiteral("rating")});
+    QCOMPARE(QJsonDocument::fromJson(rate.body).object().value(QStringLiteral("rating")).toInt(), 4);
+
+    service.setUserRating(QStringLiteral("movie:heat-1995"), 0);
+    QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 2, 1000);
+    QCOMPARE(changed.at(1).at(2).toInt(), 0);
+    QCOMPARE(manager.requests.at(firstRequest + 1).operation,
+             QNetworkAccessManager::DeleteOperation);
+
+    // An ordinary refusal is reported once, never replayed, and keeps stars.
+    manager.responses = {
+        { 422, QByteArrayLiteral(R"({"type":"about:blank","title":"Unprocessable","status":422})"), false },
+        { 204, QByteArray(), false }
+    };
+    firstRequest = manager.requests.size();
+    service.setUserRating(QStringLiteral("movie:heat-1995"), 2);
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 3000);
+    QCOMPARE(failed.first().at(0).toString(), connectionId);
+    QCOMPARE(failed.first().at(1).toString(), QStringLiteral("movie:heat-1995"));
+    QCOMPARE(failed.first().at(2).toInt(), 2);
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(manager.requests.size(), firstRequest + 1);
+    QCOMPARE(changed.count(), 2);
+    QCOMPARE(support.count(), 0);
+    QCOMPARE(service.userRatingScale(), QStringLiteral("stars"));
+
+    // 503 (no ratings service) fails once, never replays, and hides stars.
+    manager.responses = {
+        { 503, QByteArrayLiteral(R"({"type":"about:blank","title":"Unavailable","status":503})"), false },
+        { 204, QByteArray(), false }
+    };
+    firstRequest = manager.requests.size();
+    service.setUserRating(QStringLiteral("movie:heat-1995"), 3);
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 2, 3000);
+    QCOMPARE(failed.at(1).at(2).toInt(), 3);
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(manager.requests.size(), firstRequest + 1);
+    QCOMPARE(support.count(), 1);
+    QCOMPARE(service.userRatingScale(), QString());
+}
+
+void SiloCatalogServiceTest::staleRatingWriteFailsAfterSessionChange()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    UserRatingState state(&service);
+    state.setItem(QStringLiteral("movie:heat-1995"));
+    QSignalSpy failed(&service, &LibraryService::userRatingFailed);
+    QSignalSpy stateFailed(&state, &UserRatingState::updateFailed);
+    const QString connectionId = service.getActiveConnectionId();
+
+    // The write is held; the session changes before the server answers.
+    manager.responses = { { 204, QByteArray(), true } };
+    state.rate(4);
+    QVERIFY(state.pending());
+    QCOMPARE(state.value(), 4);
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.replies.isEmpty(), 1000);
+    QPointer<ControlledReply> reply = manager.replies.constLast();
+    QVERIFY(reply);
+
+    auth.replaceAccount(QStringLiteral("account-2"), QStringLiteral("access-2"));
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+    QCOMPARE(failed.first().at(0).toString(), connectionId);
+    QCOMPARE(failed.first().at(1).toString(), QStringLiteral("movie:heat-1995"));
+    // The control is usable again, back on the rating it had.
+    QVERIFY(!state.pending());
+    QCOMPARE(state.value(), 0);
+    QCOMPARE(stateFailed.count(), 1);
+
+    // The aborted reply finishing later reports nothing more.
+    if (reply) {
+        reply->complete();
+    }
+    QCoreApplication::sendPostedEvents();
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(failed.count(), 1);
+}
+
+void SiloCatalogServiceTest::becauseWatchedReadsNativeRouteOrJellyfinSimilar()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    {
+        ControlledNetworkAccessManager manager;
+        HttpTransport transport(&manager);
+        SiloProviderAdapter adapter;
+        ExposedAuthenticationService auth(&transport, &adapter);
+        QVERIFY(signInToSilo(manager, auth, config));
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalBecauseWatchedLoadedForConnection);
+        QSignalSpy similar(&service, &LibraryService::canonicalSimilarItemsLoadedForConnection);
+
+        manager.responses = {
+            { 200, QByteArrayLiteral(R"({"items":[{"content_id":"movie:ronin-1998","type":"movie","title":"Ronin"}],)"
+                                     R"("page":{"next_cursor":null}})"), false }
+        };
+        const qsizetype firstRequest = manager.requests.size();
+        service.getBecauseWatchedItems(QStringLiteral("movie:heat-1995"), 12);
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        const RecordedRequest read = manager.requests.at(firstRequest);
+        QCOMPARE(read.request.url().path(),
+                 QStringLiteral("/api/v2/recommendations/because-watched/movie:heat-1995"));
+        QCOMPARE(QUrlQuery(read.request.url()).queryItemValue(QStringLiteral("limit")),
+                 QStringLiteral("12"));
+        QCOMPARE(read.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
+        QCOMPARE(loaded.first().at(1).toString(), QStringLiteral("movie:heat-1995"));
+        const QVariantList items = loaded.first().at(2).toList();
+        QCOMPARE(items.size(), 1);
+        QCOMPARE(items.first().toMap().value(QStringLiteral("itemId")).toString(),
+                 QStringLiteral("movie:ronin-1998"));
+        QCOMPARE(similar.count(), 0);
+    }
+    {
+        // Jellyfin has no because-watched read; its similar items stand in.
+        JellyfinProviderAdapter jellyfin;
+        ControlledNetworkAccessManager manager;
+        HttpTransport transport(&manager);
+        ExposedAuthenticationService auth(&transport, &jellyfin);
+        auth.replaceAccount(QStringLiteral("user-1"), QStringLiteral("token-1"));
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalBecauseWatchedLoadedForConnection);
+        QSignalSpy failed(&service, &LibraryService::canonicalBecauseWatchedFailedForConnection);
+        manager.responses = {
+            { 200, QByteArrayLiteral(R"({"Items":[{"Id":"movie-2","Name":"Ronin","Type":"Movie"}],"TotalRecordCount":1})"), false },
+            { 404, QByteArrayLiteral(R"({"title":"Not Found"})"), false }
+        };
+        service.getBecauseWatchedItems(QStringLiteral("movie-1"), 6);
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        QVERIFY(manager.requests.first().request.url().path().endsWith(
+            QStringLiteral("/Items/movie-1/Similar")));
+        QCOMPARE(QUrlQuery(manager.requests.first().request.url())
+                     .queryItemValue(QStringLiteral("Limit")), QStringLiteral("6"));
+        const QVariantList items = loaded.first().at(2).toList();
+        QCOMPARE(items.size(), 1);
+        QCOMPARE(items.first().toMap().value(QStringLiteral("itemId")).toString(),
+                 QStringLiteral("movie-2"));
+
+        service.getBecauseWatchedItems(QStringLiteral("movie-1"), 6);
+        QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("movie-1"));
+    }
+}
+
+void SiloCatalogServiceTest::jellyfinLikesWriteAndClear()
+{
+    JellyfinProviderAdapter jellyfin;
+    const ICatalogProvider *catalog = jellyfin.catalogProvider();
+    ProviderCatalogQuery query;
+    query.itemId = QStringLiteral("movie-1");
+    query.userId = QStringLiteral("user-1");
+
+    // UpdateUserItemRating (Likes) and DeleteUserItemRating; never retried.
+    query.ratingValue = 1;
+    ProviderCatalogRequest request = catalog->createRequest(ProviderCatalogOperation::SetUserRating, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Never);
+    QUrl url(QStringLiteral("https://jellyfin.test") + request.relativeEndpoint);
+    QCOMPARE(url.path(), QStringLiteral("/UserItems/movie-1/Rating"));
+    QCOMPARE(QUrlQuery(url).queryItemValue(QStringLiteral("Likes")), QStringLiteral("true"));
+    QCOMPARE(QUrlQuery(url).queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
+    query.ratingValue = -1;
+    request = catalog->createRequest(ProviderCatalogOperation::SetUserRating, query);
+    url = QUrl(QStringLiteral("https://jellyfin.test") + request.relativeEndpoint);
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    QCOMPARE(QUrlQuery(url).queryItemValue(QStringLiteral("Likes")), QStringLiteral("false"));
+    query.ratingValue = 0;
+    request = catalog->createRequest(ProviderCatalogOperation::SetUserRating, query);
+    url = QUrl(QStringLiteral("https://jellyfin.test") + request.relativeEndpoint);
+    QCOMPARE(request.method, ProviderHttpMethod::Delete);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Never);
+    QCOMPARE(url.path(), QStringLiteral("/UserItems/movie-1/Rating"));
+    QVERIFY(!QUrlQuery(url).hasQueryItem(QStringLiteral("Likes")));
+    query.ratingValue = 4;
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::SetUserRating, query).supported);
+    QVERIFY(catalog->parseResponse(ProviderCatalogOperation::SetUserRating,
+                                   QByteArrayLiteral(R"({"Likes":true})")).valid);
+
+    // UserData.Likes is the canonical userLikes.
+    const auto likesOf = [&jellyfin](const QByteArray &userData) {
+        const QJsonObject item = QJsonDocument::fromJson(
+            QByteArrayLiteral(R"({"Id":"movie-1","Name":"Heat","Type":"Movie","UserData":)") + userData
+            + QByteArrayLiteral("}")).object();
+        return jellyfin.mapMediaItem(item, QStringLiteral("connection-1"))
+            .value(QStringLiteral("userLikes")).toInt();
+    };
+    QCOMPARE(likesOf(QByteArrayLiteral(R"({"Likes":true})")), 1);
+    QCOMPARE(likesOf(QByteArrayLiteral(R"({"Likes":false})")), -1);
+    QCOMPARE(likesOf(QByteArrayLiteral(R"({"Likes":null})")), 0);
+    QCOMPARE(likesOf(QByteArrayLiteral(R"({})")), 0);
+
+    // Through the service, as a like scale with no capability read.
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    ExposedAuthenticationService auth(&transport, &jellyfin);
+    auth.replaceAccount(QStringLiteral("user-1"), QStringLiteral("token-1"));
+    LibraryService service(&auth);
+    QCOMPARE(service.userRatingScale(), QStringLiteral("likes"));
+    QCOMPARE(manager.requests.size(), 0);
+    QSignalSpy changed(&service, &LibraryService::userRatingChanged);
+    manager.responses = { { 200, QByteArrayLiteral(R"({"Likes":false})"), false } };
+    service.setUserRating(QStringLiteral("movie-1"), -1);
+    QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 1, 1000);
+    QCOMPARE(changed.first().at(1).toString(), QStringLiteral("movie-1"));
+    QCOMPARE(changed.first().at(2).toInt(), -1);
+    QCOMPARE(manager.requests.first().operation, QNetworkAccessManager::PostOperation);
+    QVERIFY(manager.requests.first().request.url().path().endsWith(
+        QStringLiteral("/UserItems/movie-1/Rating")));
 }
 
 namespace {

@@ -70,6 +70,8 @@ QJsonObject capabilitiesObject(ProviderCapabilities capabilities)
     add(ProviderCapability::NotInterested, "not_interested");
     add(ProviderCapability::AiringCalendar, "airing_calendar");
     add(ProviderCapability::MovieRecommendations, "movie_recommendations");
+    add(ProviderCapability::StarRatings, "star_ratings");
+    add(ProviderCapability::LikeRatings, "like_ratings");
     return result;
 }
 }

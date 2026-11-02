@@ -164,6 +164,11 @@ public:
     // Series details and episodes
     Q_INVOKABLE virtual void getSeriesDetails(const QString &seriesId);
     Q_INVOKABLE virtual void getSimilarItems(const QString &itemId, int limit = 12);
+    // Titles recommended because the viewer watched itemId: the provider's
+    // because-watched read (Silo), else its similar items (Jellyfin).
+    // Answers canonicalBecauseWatchedLoadedForConnection or
+    // canonicalBecauseWatchedFailedForConnection.
+    Q_INVOKABLE virtual void getBecauseWatchedItems(const QString &itemId, int limit = 12);
     // Local extras of a movie or series (trailers first). Providers that
     // carry extras in the item detail (Silo) answer an empty list here.
     Q_INVOKABLE virtual void getItemExtras(const QString &itemId);
@@ -192,6 +197,18 @@ public:
     Q_INVOKABLE virtual bool supportsNotInterested() const;
     Q_INVOKABLE virtual void loadNotInterestedCapability();
     Q_INVOKABLE virtual void setItemNotInterested(const QString &itemId, bool notInterested);
+    // The viewer's own rating of a movie or series on the live connection.
+    // userRatingScale is "stars" (1 to 5) where
+    // ProviderCapability::StarRatings (Silo), "likes" (+1 or -1) where
+    // ProviderCapability::LikeRatings (Jellyfin), and empty otherwise. Silo
+    // has no capability document for personal ratings, so a write refused
+    // with 503, 501, 404 or 405 hides them for the connection and profile
+    // until restart (userRatingSupportChanged). setUserRating sends value in
+    // the scale, 0 to clear; results arrive as userRatingChanged or
+    // userRatingFailed with the connection the write went to. A write whose
+    // session changed before the answer fails.
+    Q_INVOKABLE virtual QString userRatingScale() const;
+    Q_INVOKABLE virtual void setUserRating(const QString &itemId, int value);
     // True when the provider has an airing calendar
     // (ProviderCapability::AiringCalendar, Silo), so getNextAiring can
     // answer something other than an empty map.
@@ -437,6 +454,12 @@ signals:
     void canonicalSimilarItemsFailedForConnection(const QString &connectionId,
                                                   const QString &itemId,
                                                   const QString &error);
+    void canonicalBecauseWatchedLoadedForConnection(const QString &connectionId,
+                                                    const QString &itemId,
+                                                    const QVariantList &items);
+    void canonicalBecauseWatchedFailedForConnection(const QString &connectionId,
+                                                    const QString &itemId,
+                                                    const QString &error);
     // `complete` is false when one of several provider requests failed:
     // `extras` is then only what arrived and must not be cached as the
     // item's full list.
@@ -462,6 +485,10 @@ signals:
     void notInterestedSupportChanged();
     void notInterestedStatusChanged(const QString &itemId, bool notInterested);
     void notInterestedStatusFailed(const QString &itemId, bool notInterested, const QString &error);
+    void userRatingSupportChanged();
+    void userRatingChanged(const QString &connectionId, const QString &itemId, int value);
+    void userRatingFailed(const QString &connectionId, const QString &itemId, int value,
+                          const QString &error);
     void nextAiringLoaded(const QString &seriesId, const QVariantMap &airing);
     // markItemPlayed/markItemUnplayed and the favorite writes were refused
     // or never reached the server.
@@ -571,6 +598,16 @@ private:
                            std::function<void()> onSuccess,
                            std::function<void(const NetworkError &)> onFailure);
     void failStaleHomeCardWrites();
+    // Rating writes in flight; one whose session is gone is answered with
+    // userRatingFailed, so the control does not stay pending.
+    struct PendingUserRatingWrite {
+        CatalogRequestIdentity identity;
+        QString itemId;
+        int value = 0;
+    };
+    QHash<quint64, PendingUserRatingWrite> m_userRatingWrites;
+    quint64 m_userRatingWriteSequence = 0;
+    void failStaleUserRatingWrites();
     void sendCatalogRequest(
         const QString &operationName,
         ProviderCatalogOperation operation,
@@ -665,6 +702,10 @@ private:
     // an older generation was cancelled and no longer blocks a new one.
     QHash<QString, bool> m_notInterestedAllowed;
     QHash<QString, quint64> m_notInterestedCapabilityReads;
+    // Connection and profile keys whose server refused a rating as
+    // unsupported (userRatingScale is then empty).
+    QSet<QString> m_userRatingUnavailable;
+    QString userRatingKey() const;
     // Home card writes in flight, by request key. A write whose session is
     // gone is answered with a failure (failStaleHomeCardWrites).
     QHash<QString, CatalogRequestIdentity> m_homeCardWrites;

@@ -602,6 +602,20 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
     connect(m_nextAiringTimer, &QTimer::timeout, this, &SeriesDetailsViewModel::refreshNextAiring);
 
     m_libraryService = ServiceLocator::tryGet<LibraryService>();
+    m_userRating = new UserRatingState(m_libraryService, this);
+    // A confirmed rating reaches the details cache for the next visit.
+    connect(m_userRating, &UserRatingState::confirmed,
+            this, [this](const QString &itemId, const QString &scale, int value) {
+                const QString key = UserRatingState::itemKey(scale);
+                if (itemId != m_seriesId || key.isEmpty() || m_seriesData.isEmpty()) {
+                    return;
+                }
+                m_seriesData.insert(key, value);
+                QJsonObject userState = m_seriesData.value(QStringLiteral("userState")).toObject();
+                userState.insert(key, value);
+                m_seriesData.insert(QStringLiteral("userState"), userState);
+                storeSeriesCache(m_seriesId, m_seriesData);
+            });
     
     // Set service on child models
     m_seasonsModel.setLibraryService(m_libraryService);
@@ -700,6 +714,7 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
     if (m_libraryService) {
         m_libraryService->loadNotInterestedCapability();
     }
+    m_userRating->setItem(seriesId);
     
     // Try cache first (serve stale-while-revalidate)
     QJsonObject cachedSeries;
@@ -1245,6 +1260,7 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     m_watchlistPending = false;
     m_notInterested = false;
     m_notInterestedPending = false;
+    m_userRating->clear();
     m_nextAiring.clear();
     m_nextAiringRequested = false;
     m_nextAiringPending = false;
@@ -2036,6 +2052,7 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QVariantMap &data)
     if (!m_notInterestedPending) {
         m_notInterested = data.value(QStringLiteral("notInterested")).toBool();
     }
+    m_userRating->updateFromItem(data);
     m_officialRating = data.value(QStringLiteral("officialRating")).toString();
     m_recursiveItemCount = data.value(QStringLiteral("recursiveItemCount")).toInt();
     m_status = data.value(QStringLiteral("status")).toString();

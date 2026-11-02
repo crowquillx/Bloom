@@ -122,6 +122,20 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
 {
     m_libraryService = ServiceLocator::tryGet<LibraryService>();
     m_networkManager = new QNetworkAccessManager(this);
+    m_userRating = new UserRatingState(m_libraryService, this);
+    // A confirmed rating reaches the details cache for the next visit.
+    connect(m_userRating, &UserRatingState::confirmed,
+            this, [this](const QString &itemId, const QString &scale, int value) {
+                const QString key = UserRatingState::itemKey(scale);
+                if (itemId != m_movieId || key.isEmpty() || m_movieData.isEmpty()) {
+                    return;
+                }
+                m_movieData.insert(key, value);
+                QJsonObject userState = m_movieData.value(QStringLiteral("userState")).toObject();
+                userState.insert(key, value);
+                m_movieData.insert(QStringLiteral("userState"), userState);
+                storeMovieCache(m_movieId, m_movieData);
+            });
     
     if (m_libraryService) {
         connect(m_libraryService,
@@ -294,6 +308,7 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
     if (m_libraryService) {
         m_libraryService->loadNotInterestedCapability();
     }
+    m_userRating->setItem(movieId);
     
     // Try cache first
     QJsonObject cachedMovie;
@@ -472,6 +487,7 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     m_watchlistPending = false;
     m_notInterested = false;
     m_notInterestedPending = false;
+    m_userRating->clear();
     m_officialRating.clear();
     m_durationMs = 0;
     m_positionMs = 0;
@@ -849,6 +865,7 @@ void MovieDetailsViewModel::updateMovieMetadata(const QVariantMap &data)
     if (!m_notInterestedPending) {
         m_notInterested = data.value(QStringLiteral("notInterested")).toBool();
     }
+    m_userRating->updateFromItem(data);
     m_genres = genresFromCanonical(data.value(QStringLiteral("genres")));
     m_people = mapCanonicalPeople(data.value(QStringLiteral("people")).toList());
 

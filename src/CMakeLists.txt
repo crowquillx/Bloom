@@ -70,6 +70,8 @@ qt_add_executable(Bloom
     viewmodels/MovieDetailsViewModel.cpp
     viewmodels/UpNextRecommendationsViewModel.h
     viewmodels/UpNextRecommendationsViewModel.cpp
+    viewmodels/UserRatingState.h
+    viewmodels/UserRatingState.cpp
     viewmodels/HomeSectionsViewModel.h
     viewmodels/HomeSectionsViewModel.cpp
     viewmodels/PersonViewModel.h
@@ -235,6 +237,9 @@ qt_add_qml_module(Bloom
         ui/WheelStepScroller.qml
         ui/ToastNotification.qml
         ui/UpNextScreen.qml
+        ui/AfterMovieScreen.qml
+        ui/UserRatingControl.qml
+        ui/UserRatingDialog.qml
         ui/RoundedImage.qml
         ui/ActiveSessionsScreen.qml
         ui/EpisodeSelection.js

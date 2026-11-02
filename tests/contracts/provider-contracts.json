@@ -460,6 +460,19 @@
       }
     },
     {
+      "id": "state.rating",
+      "journey": "user-state",
+      "bloomCaller": "LibraryService::setUserRating",
+      "method": "POST/DELETE",
+      "path": "/UserItems/{itemId}/Rating",
+      "requestSemantics": ["UserId is sent; UpdateUserItemRating carries Likes=true or Likes=false and no body, DeleteUserItemRating carries neither", "Neither write is replayed: the server declares no replay semantics"],
+      "requiredSemantics": ["The item's UserData.Likes becomes true, false or null, which seeds the like and dislike control on detail pages and the after-movie screen", "The control changes at once and returns to the earlier state when the write fails"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "UpdateUserItemRating (likes, userId) and DeleteUserItemRating (userId) are current, non-obsolete operations in the pinned OpenAPI; UserItemDataDto.Likes is the nullable like state."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "internal/jellycompat/router.go at the compatibility revision registers no /UserItems/{itemId}/Rating route, so the write fails and Bloom puts the rating back with an error toast."}
+      }
+    },
+    {
       "id": "hierarchy.ancestors",
       "journey": "catalog",
       "bloomCaller": "LibraryService::resolveLibraryForItem",
@@ -610,7 +623,7 @@
       "id": "catalog.recommendations",
       "issue": 80,
       "journey": "catalog",
-      "bloomCaller": "LibraryService::getSimilarItems and UpNextRecommendationsViewModel",
+      "bloomCaller": "LibraryService::getSimilarItems, LibraryService::getBecauseWatchedItems (the Jellyfin stand-in for Silo's because-watched read) and UpNextRecommendationsViewModel",
       "method": "GET",
       "path": "/Items/{itemId}/Similar",
       "requestSemantics": ["Bloom requests similar titles by the current logical item identity and applies a bounded result limit"],
@@ -877,6 +890,8 @@
       "native.state.favorite",
       "native.state.watchlist",
       "native.state.not-interested",
+      "native.state.ratings",
+      "native.recommendations.because-watched",
       "native.home.sections",
       "native.home.calendar",
       "native.library.sections",
@@ -1598,6 +1613,74 @@
         "implementationEvidence": [
           "src/providers/silo/SiloCatalogProvider.h",
           "src/network/LibraryService.cpp"
+        ]
+      },
+      {
+        "id": "native.state.ratings",
+        "method": "PUT/DELETE",
+        "path": "/api/v2/ratings/{item_id}",
+        "operations": [
+          {
+            "method": "PUT",
+            "path": "/api/v2/ratings/{item_id}"
+          },
+          {
+            "method": "DELETE",
+            "path": "/api/v2/ratings/{item_id}"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "conditional",
+          "discovery": "Silo has no personal-ratings capability document (getRatingsCapability describes the external rating sources title pages show), so Bloom offers star ratings on every native Silo connection (ProviderCapability::StarRatings) and hides them for the connection and profile after a write answers 503 (no ratings service), 501, 404 or 405."
+        },
+        "requestSemantics": [
+          "Profile-scoped rating by content identity of a movie or series: setRating sends the JSON body {\"rating\": n} with n from 1 to 5, deleteRating sends no body.",
+          "setRating and deleteRating are non_retryable (a replay repeats the rating timestamp and the recommendation refresh), so Bloom never replays either."
+        ],
+        "requiredSemantics": [
+          "A rating replaces any earlier one and deleting an absent rating succeeds, so the title ends rated or unrated as asked.",
+          "Item details carry user_rating, which seeds the rating control; an absent value reads as unrated.",
+          "The control changes at once and returns to the earlier rating when the write fails, including a write whose session changed before the answer."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/network/LibraryService.cpp",
+          "src/viewmodels/UserRatingState.cpp"
+        ]
+      },
+      {
+        "id": "native.recommendations.because-watched",
+        "method": "GET",
+        "path": "/api/v2/recommendations/because-watched/{item_id}",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/recommendations/because-watched/{item_id}"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operation read by the after-movie screen on native Silo; other providers answer with their similar items instead."
+        },
+        "requestSemantics": [
+          "Profile-scoped read by the finished movie's content identity with limit 12 (the route allows at most 50) and the artwork width parameters."
+        ],
+        "requiredSemantics": [
+          "The answer is a CatalogItemCollection of cards the profile has neither watched nor rated; Bloom keeps only movie and series cards and drops the source title and duplicates.",
+          "A failed read leaves the after-movie screen without the shelf; it never blocks the rating or Done."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/network/LibraryService.cpp",
+          "src/viewmodels/UpNextRecommendationsViewModel.cpp"
         ]
       },
       {
