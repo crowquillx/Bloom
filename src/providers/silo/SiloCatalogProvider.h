@@ -1250,7 +1250,8 @@ private:
     }
 
     // One collection as the adapter's wire shape: `id`, `title`,
-    // `description`, `poster_url`, `backdrop_url`, `item_count` and `kind`
+    // `description`, `poster_url`, `backdrop_url`, `item_count` (only when
+    // the server sends a number) and `kind`
     // (`library` for curated collections, `user` for personal ones); empty
     // without an ID or a title.
     static QJsonObject collectionEntry(const QJsonObject &collection,
@@ -1261,14 +1262,19 @@ private:
         if (id.isEmpty() || title.isEmpty()) {
             return {};
         }
-        return QJsonObject{
+        QJsonObject entry{
             {QStringLiteral("id"), id},
             {QStringLiteral("title"), title},
             {QStringLiteral("description"), collection.value(QStringLiteral("description")).toString()},
             {QStringLiteral("poster_url"), collection.value(QStringLiteral("poster_url")).toString()},
             {QStringLiteral("backdrop_url"), collection.value(QStringLiteral("backdrop_url")).toString()},
-            {QStringLiteral("item_count"), collection.value(QStringLiteral("item_count")).toInt()},
             {QStringLiteral("kind"), kind}};
+        // A missing count stays unknown (the mapper's -1), never 0.
+        const QJsonValue itemCount = collection.value(QStringLiteral("item_count"));
+        if (itemCount.isDouble()) {
+            entry.insert(QStringLiteral("item_count"), itemCount);
+        }
+        return entry;
     }
 
     // getLibraryCollections in the tab's display order: its groups, with

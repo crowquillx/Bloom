@@ -10,10 +10,14 @@ from pathlib import Path
 CONTRACT_DIR = Path(__file__).resolve().parent
 
 
-def compact(value):
+def compact(value, property_names=False):
+    # Drops documentation keys. Inside a `properties` map the keys are field
+    # names (a schema may have a field called `description`), so they stay.
     if isinstance(value, dict):
-        return {key: compact(item) for key, item in value.items()
-                if key not in {"description", "examples", "example", "patternDescription"}}
+        return {key: compact(item, key == "properties" and not property_names)
+                for key, item in value.items()
+                if property_names
+                or key not in {"description", "examples", "example", "patternDescription"}}
     if isinstance(value, list):
         return [compact(item) for item in value]
     return value

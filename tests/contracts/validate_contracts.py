@@ -130,7 +130,7 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
                             "sortBy", "sortOrder", "startIndex", "limit", "parentId",
                             "recursive", "enableImages", "enableUserData",
                             "enableTotalRecordCount", "isPlayed", "isFavorite",
-                            "isMissing", "enableImageTypes"},
+                            "isMissing", "enableImageTypes", "collapseBoxSetItems"},
         ("GET", "/System/Info/Public"): set(),
         ("GET", "/Items/{itemId}"): {"itemId", "userId"},
         ("GET", "/Persons"): {"userId", "searchTerm", "limit", "enableImages",

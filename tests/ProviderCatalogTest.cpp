@@ -1318,10 +1318,15 @@ void ProviderCatalogTest::siloCollectionRequestsAndMapping()
     const ProviderCatalogResponse flat = provider.parseResponse(
         ProviderCatalogOperation::LibraryCollections,
         QByteArrayLiteral(R"({"library_id":"1","groups":[],"collections":[)"
-                          R"({"id":"c2","title":"B","item_count":1},{"id":"c1","title":"A","item_count":1}]})"));
+                          R"({"id":"c2","title":"B","item_count":1},{"id":"c1","title":"A"}]})"));
     QVERIFY(flat.valid);
     QCOMPARE(flat.rawItems.size(), 2);
     QCOMPARE(flat.rawItems.first().toObject().value(QStringLiteral("id")).toString(), QStringLiteral("c2"));
+    // A record without item_count keeps its count unknown, never 0.
+    const QVariantList flatCollections = adapter.mapCollections(flat.rawItems, QStringLiteral("connection-1"));
+    QCOMPARE(flatCollections.size(), 2);
+    QCOMPARE(flatCollections.at(0).toMap().value(QStringLiteral("itemCount")).toInt(), 1);
+    QCOMPARE(flatCollections.at(1).toMap().value(QStringLiteral("itemCount")).toInt(), -1);
 
     // listCollections: only collections that hold the title.
     const ProviderCatalogResponse holders = provider.parseResponse(
