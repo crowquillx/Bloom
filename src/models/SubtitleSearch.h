@@ -44,7 +44,9 @@ struct SubtitleSearchResult
 /**
  * A subtitle the server has just downloaded, ready for mpv. sourceIndex is
  * the provider's stream index when the subtitle became a stream of the
- * media source (Jellyfin), so a pick of it can be saved; otherwise -1.
+ * media source (Jellyfin); otherwise -1, and storedId names the server's
+ * stored copy (Silo). The identity fields describe the track, so a pick of
+ * it is saved by what it is and found again in later files.
  */
 struct DownloadedSubtitle
 {
@@ -53,6 +55,13 @@ struct DownloadedSubtitle
     QString language;
     QString format;
     int sourceIndex = -1;
+    QString storedId;
+    // The stream's own title and codec as the media source lists them
+    // (Jellyfin); empty when the subtitle is no stream of the source.
+    QString streamTitle;
+    QString codec;
+    bool isForced = false;
+    bool isHearingImpaired = false;
 
     [[nodiscard]] bool isValid() const { return url.isValid() && !url.isEmpty(); }
     [[nodiscard]] QVariantMap toVariantMap() const;

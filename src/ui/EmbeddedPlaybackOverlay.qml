@@ -443,6 +443,8 @@ FocusScope {
                 rows.push({ kind: "searchState", state: "loading" })
             } else if (SubtitleSearch.hasError) {
                 rows.push({ kind: "searchState", state: "error" })
+            } else if (SubtitleSearch.searched && SubtitleSearch.warnings.length > 0) {
+                rows.push({ kind: "searchState", state: "warning" })
             } else if (SubtitleSearch.searched && SubtitleSearch.count === 0) {
                 rows.push({ kind: "searchState", state: "empty" })
             }
@@ -518,12 +520,15 @@ FocusScope {
     function subtitleSearchStateTitle(state) {
         if (state === "loading") return qsTr("Searching for subtitles…")
         if (state === "error") return qsTr("Subtitle search failed")
+        if (state === "warning") return SubtitleSearch.count > 0 ? qsTr("Some subtitle providers failed")
+                                                                 : qsTr("Subtitle providers failed")
         return qsTr("No subtitles found")
     }
 
     function subtitleSearchStateMessage(state) {
         if (state === "loading") return SubtitleSearch.languageLabel
         if (state === "error") return SubtitleSearch.errorMessage + "\n" + qsTr("Select to try again.")
+        if (state === "warning") return SubtitleSearch.warnings.join("\n") + "\n" + qsTr("Select to try again.")
         return qsTr("Try another language.")
     }
 
@@ -666,7 +671,7 @@ FocusScope {
         } else if (row.kind === "searchLanguage") {
             SubtitleSearch.search()
         } else if (row.kind === "searchState") {
-            if (row.state === "error") SubtitleSearch.reload()
+            if (row.state === "error" || row.state === "warning") SubtitleSearch.reload()
         } else if (row.kind === "searchResult") {
             if (!SubtitleSearch.downloading) SubtitleSearch.download(row.result.id)
         }
@@ -3141,12 +3146,13 @@ FocusScope {
                     anchors.centerIn: parent
                     width: parent.width - Math.round(32 * Theme.layoutScale)
                     compact: true
-                    kind: settingsRow.modelData.state || "empty"
+                    kind: settingsRow.modelData.state === "warning" ? "error" : (settingsRow.modelData.state || "empty")
                     title: settingsRow.kind === "searchState" ? root.subtitleSearchStateTitle(settingsRow.modelData.state) : ""
                     message: settingsRow.kind === "searchState" ? root.subtitleSearchStateMessage(settingsRow.modelData.state) : ""
                     titleColor: Theme.playbackTimePrimary
                     messageColor: Theme.playbackTimeSecondary
-                    iconColor: settingsRow.modelData.state === "error" ? Theme.errorColor : Theme.playbackTimeSecondary
+                    iconColor: settingsRow.modelData.state === "error" || settingsRow.modelData.state === "warning"
+                               ? Theme.errorColor : Theme.playbackTimeSecondary
                 }
 
                 RowLayout {
@@ -3432,6 +3438,10 @@ FocusScope {
                 if (root.settingsMenuOpen && root.settingsPage === "subtitleSearch") {
                     root.closeSettingsMenu()
                 }
+            }
+            function onSubtitleListed(title) {
+                root.audioNoticeText = qsTr("Subtitle downloaded: %1. It is listed under Subtitles.").arg(title)
+                audioNoticeTimer.restart()
             }
             function onDownloadFailed(message) {
                 root.audioNoticeText = message

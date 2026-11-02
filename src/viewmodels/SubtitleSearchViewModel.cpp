@@ -5,6 +5,7 @@
 #include "utils/ConfigManager.h"
 
 #include <QStringList>
+#include <QTimer>
 
 #include <algorithm>
 
@@ -22,6 +23,11 @@ SubtitleSearchViewModel::SubtitleSearchViewModel(PlaybackService *playbackServic
     }
     m_language = defaultLanguage(QString(), QString(), m_languages);
 
+    m_languageSearchTimer = new QTimer(this);
+    m_languageSearchTimer->setSingleShot(true);
+    m_languageSearchTimer->setInterval(kLanguageSearchDelayMs);
+    connect(m_languageSearchTimer, &QTimer::timeout, this, &SubtitleSearchViewModel::search);
+
     if (m_playbackService) {
         connect(m_playbackService, &PlaybackService::subtitleSearchStatusLoaded,
                 this, &SubtitleSearchViewModel::onStatusLoaded);
@@ -31,6 +37,8 @@ SubtitleSearchViewModel::SubtitleSearchViewModel(PlaybackService *playbackServic
                 this, &SubtitleSearchViewModel::onDownloaded);
         connect(m_playbackService, &PlaybackService::subtitleSearchFailed,
                 this, &SubtitleSearchViewModel::onFailed);
+        connect(m_playbackService, &PlaybackService::subtitleSearchScopeChanged,
+                this, &SubtitleSearchViewModel::onScopeChanged);
     }
     if (m_playerController) {
         for (const auto signal : {&PlayerController::isPlaybackActiveChanged,
@@ -39,6 +47,10 @@ SubtitleSearchViewModel::SubtitleSearchViewModel(PlaybackService *playbackServic
                                   &PlayerController::playSessionIdChanged}) {
             connect(m_playerController, signal, this, &SubtitleSearchViewModel::onPlaybackChanged);
         }
+        connect(m_playerController, &PlayerController::downloadedSubtitleLoaded,
+                this, &SubtitleSearchViewModel::onTrackLoaded);
+        connect(m_playerController, &PlayerController::downloadedSubtitleLoadFailed,
+                this, &SubtitleSearchViewModel::onTrackLoadFailed);
     }
 }
 
@@ -134,6 +146,7 @@ void SubtitleSearchViewModel::search()
     if (!m_available || !m_playbackService || m_playbackKey.isEmpty()) {
         return;
     }
+    m_languageSearchTimer->stop();
     if (!m_searchKey.isEmpty()) {
         m_playbackService->cancelSubtitleSearch(m_searchKey);
     }
@@ -177,7 +190,24 @@ void SubtitleSearchViewModel::cycleLanguage(int step)
     }
     const int size = static_cast<int>(m_languages.size());
     const int next = ((position + step) % size + size) % size;
-    setLanguage(m_languages.at(next).toMap().value(QStringLiteral("value")).toString());
+    m_languageChosen = true;
+    m_language = m_languages.at(next).toMap().value(QStringLiteral("value")).toString();
+    emit languageChanged();
+    if (!m_available || !m_playbackService || m_playbackKey.isEmpty()) {
+        return;
+    }
+    // Stepping through several languages searches only the one it stops
+    // on; the page shows it loading meanwhile.
+    if (!m_searchKey.isEmpty()) {
+        m_playbackService->cancelSubtitleSearch(m_searchKey);
+        m_searchKey.clear();
+    }
+    m_resultsPlaybackKey = m_playbackKey;
+    m_resultsLanguage = m_language;
+    clearError();
+    setResults({}, false);
+    setLoading(true);
+    m_languageSearchTimer->start();
 }
 
 void SubtitleSearchViewModel::download(const QString &resultId)
@@ -195,6 +225,8 @@ void SubtitleSearchViewModel::download(const QString &resultId)
     ++m_generation;
     m_downloadKey = nextRequestKey(QStringLiteral("download"));
     m_downloadPlaybackKey = m_playbackKey;
+    m_selectionAtDownload = m_playerController ? m_playerController->selectedSubtitleTrack() : -1;
+    m_loadingTrack = false;
     setDownloadingId(resultId);
     const QString key = m_downloadKey;
     m_playbackService->downloadSubtitle(key, currentTarget(), *found);
@@ -210,6 +242,8 @@ void SubtitleSearchViewModel::cancel()
 void SubtitleSearchViewModel::cancelRequests()
 {
     ++m_generation;
+    m_languageSearchTimer->stop();
+    m_loadingTrack = false;
     if (m_playbackService) {
         if (!m_searchKey.isEmpty()) {
             m_playbackService->cancelSubtitleSearch(m_searchKey);
@@ -250,12 +284,7 @@ SubtitleSearchTarget SubtitleSearchViewModel::currentTarget() const
     target.media.itemId = m_playerController->currentItemId();
     target.mediaVersionId = m_playerController->mediaSourceId();
     target.playbackSessionId = m_playerController->playSessionId();
-    for (const QVariant &track : m_playerController->availableSubtitleTracks()) {
-        const int index = track.toMap().value(QStringLiteral("index"), -1).toInt();
-        if (index >= 0) {
-            target.knownSubtitleIndexes.append(index);
-        }
-    }
+    target.knownSubtitleStreams = m_playerController->currentSubtitleStreams();
     return target;
 }
 
@@ -273,29 +302,60 @@ void SubtitleSearchViewModel::onPlaybackChanged()
     if (key == m_playbackKey) {
         return;
     }
+    // The same item on a new stream or version: a download in flight is
+    // dropped (its URL belongs to the old session), so say so.
+    const bool sameItem = !key.isEmpty() && !m_playbackKey.isEmpty()
+        && key.section(QLatin1Char('\n'), 0, 1) == m_playbackKey.section(QLatin1Char('\n'), 0, 1);
+    const bool interruptedDownload = sameItem && downloading();
     m_playbackKey = key;
     resetForItem();
-    if (key.isEmpty() || !m_playbackService) {
+    if (interruptedDownload) {
+        emit downloadFailed(tr("The stream changed before the subtitle was loaded. Choose it again."));
+    }
+    refreshStatus();
+}
+
+void SubtitleSearchViewModel::refreshStatus()
+{
+    if (m_playbackKey.isEmpty() || !m_playbackService) {
+        m_availableScope.clear();
         setAvailable(false);
         return;
     }
-    const QString connectionId = m_playbackService->subtitleSearchConnectionId();
-    const auto known = m_statusByConnection.constFind(connectionId);
-    if (known != m_statusByConnection.cend()) {
+    const QString scope = m_playbackService->subtitleSearchScope();
+    const auto known = m_statusByScope.constFind(scope);
+    if (known != m_statusByScope.cend()) {
+        m_availableScope = scope;
         setAvailable(*known);
         return;
     }
-    setAvailable(false);
-    if (!m_statusKey.isEmpty() && m_statusConnectionId == connectionId) {
-        return; // the read in flight answers for this connection
+    if (m_availableScope != scope) {
+        // Another profile or connection: hidden until its own answer. The
+        // same one read again keeps its entry meanwhile.
+        m_availableScope.clear();
+        setAvailable(false);
+    }
+    if (!m_statusKey.isEmpty() && m_statusScope == scope) {
+        return; // the read in flight answers for this connection and profile
     }
     if (!m_statusKey.isEmpty()) {
         m_playbackService->cancelSubtitleSearch(m_statusKey);
     }
     m_statusKey = nextRequestKey(QStringLiteral("status"));
-    m_statusConnectionId = connectionId;
+    m_statusScope = scope;
     const QString statusKey = m_statusKey;
     m_playbackService->loadSubtitleSearchStatus(statusKey);
+}
+
+void SubtitleSearchViewModel::onScopeChanged()
+{
+    m_statusByScope.clear();
+    if (!m_statusKey.isEmpty() && m_playbackService) {
+        m_playbackService->cancelSubtitleSearch(m_statusKey);
+    }
+    m_statusKey.clear();
+    m_playbackKey = playbackKey();
+    refreshStatus();
 }
 
 void SubtitleSearchViewModel::resetForItem()
@@ -316,14 +376,16 @@ void SubtitleSearchViewModel::onStatusLoaded(const QString &requestKey, bool ava
         return;
     }
     m_statusKey.clear();
-    m_statusByConnection.insert(m_statusConnectionId, available);
+    m_statusByScope.insert(m_statusScope, available);
     if (!m_playbackKey.isEmpty() && m_playbackService
-        && m_playbackService->subtitleSearchConnectionId() == m_statusConnectionId) {
+        && m_playbackService->subtitleSearchScope() == m_statusScope) {
+        m_availableScope = m_statusScope;
         setAvailable(available);
     }
 }
 
-void SubtitleSearchViewModel::onResultsLoaded(const QString &requestKey, const QVariantList &results)
+void SubtitleSearchViewModel::onResultsLoaded(const QString &requestKey, const QVariantList &results,
+                                              const QStringList &warnings)
 {
     if (requestKey.isEmpty() || requestKey != m_searchKey) {
         return; // an older search, language or item
@@ -339,7 +401,7 @@ void SubtitleSearchViewModel::onResultsLoaded(const QString &requestKey, const Q
         }
     }
     setLoading(false);
-    setResults(Bloom::sortSubtitleSearchResults(parsed), true);
+    setResults(Bloom::sortSubtitleSearchResults(parsed), true, warnings);
 }
 
 void SubtitleSearchViewModel::onDownloaded(const QString &requestKey, const QVariantMap &subtitle)
@@ -349,8 +411,8 @@ void SubtitleSearchViewModel::onDownloaded(const QString &requestKey, const QVar
     }
     m_downloadKey.clear();
     const QString resultId = m_downloadingId;
-    setDownloadingId(QString());
     if (m_downloadPlaybackKey != m_playbackKey || !m_playerController) {
+        setDownloadingId(QString());
         return; // playback moved on while the server downloaded it
     }
     const Bloom::DownloadedSubtitle downloaded = Bloom::DownloadedSubtitle::fromVariantMap(subtitle);
@@ -366,14 +428,50 @@ void SubtitleSearchViewModel::onDownloaded(const QString &requestKey, const QVar
     if (title.isEmpty()) {
         title = tr("Downloaded subtitle");
     }
-    if (!downloaded.isValid()
-        || !m_playerController->addDownloadedSubtitleTrack(
-            downloaded.url.toString(QUrl::FullyEncoded), title, downloaded.language,
-            downloaded.sourceIndex)) {
+    // A subtitle the viewer chose while this downloaded stays: the download
+    // is only listed, not selected or saved.
+    const bool select = m_playerController->selectedSubtitleTrack() == m_selectionAtDownload;
+    Bloom::DownloadedSubtitle track = downloaded;
+    track.title = title;
+    const int index = downloaded.isValid()
+        ? m_playerController->addDownloadedSubtitleTrack(track.toVariantMap(), select)
+        : PlayerController::kNoSubtitleTrackIndex;
+    if (index == PlayerController::kNoSubtitleTrackIndex) {
+        setDownloadingId(QString());
         emit downloadFailed(tr("The subtitle was downloaded but could not be loaded."));
         return;
     }
-    emit subtitleLoaded(title);
+    if (!select) {
+        setDownloadingId(QString());
+        emit subtitleListed(title);
+        return;
+    }
+    // Announced once mpv has the track; the row shows it loading until then.
+    m_loadingTrack = true;
+    m_loadingTrackIndex = index;
+    m_loadingTitle = title;
+}
+
+void SubtitleSearchViewModel::onTrackLoaded(int index)
+{
+    if (!m_loadingTrack || index != m_loadingTrackIndex) {
+        return;
+    }
+    m_loadingTrack = false;
+    setDownloadingId(QString());
+    emit subtitleLoaded(m_loadingTitle);
+}
+
+void SubtitleSearchViewModel::onTrackLoadFailed(int index, const QString &message)
+{
+    if (!m_loadingTrack || index != m_loadingTrackIndex) {
+        return;
+    }
+    m_loadingTrack = false;
+    setDownloadingId(QString());
+    if (!message.isEmpty()) {
+        emit downloadFailed(message); // no message: the viewer picked another subtitle
+    }
 }
 
 void SubtitleSearchViewModel::onFailed(const QString &requestKey, const QString &error)
@@ -384,6 +482,10 @@ void SubtitleSearchViewModel::onFailed(const QString &requestKey, const QString 
     if (requestKey == m_statusKey) {
         // Not remembered: the next item asks again.
         m_statusKey.clear();
+        if (m_availableScope == m_statusScope) {
+            m_availableScope.clear();
+            setAvailable(false);
+        }
         return;
     }
     if (requestKey == m_searchKey) {
@@ -411,14 +513,15 @@ void SubtitleSearchViewModel::setAvailable(bool available)
 }
 
 void SubtitleSearchViewModel::setResults(const QList<Bloom::SubtitleSearchResult> &results,
-                                         bool searched)
+                                         bool searched, const QStringList &warnings)
 {
-    if (results == m_results && searched == m_searched) {
+    if (results == m_results && searched == m_searched && warnings == m_warnings) {
         return;
     }
-    emitModelReset([this, &results, searched]() {
+    emitModelReset([this, &results, searched, &warnings]() {
         m_results = results;
         m_searched = searched;
+        m_warnings = warnings;
     });
     emit resultsChanged();
 }

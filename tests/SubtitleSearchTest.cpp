@@ -20,6 +20,7 @@
 #include "network/PlaybackService.h"
 #include "player/PlayerController.h"
 #include "player/backend/IPlayerBackend.h"
+#include "providers/jellyfin/JellyfinAuthenticator.h"
 #include "providers/jellyfin/JellyfinPlaybackProvider.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include "providers/silo/SiloPlaybackProvider.h"
@@ -140,6 +141,7 @@ public:
     {
         seedSession(serverUrl, accountId, accessToken, accountId);
     }
+    using AuthenticationService::setAccountPrivileges;
 };
 
 class FakePlayerBackend final : public IPlayerBackend
@@ -162,6 +164,7 @@ public:
     void setVideoViewport(const QRectF &) override {}
 
     void emitSubtitleTrackId(int mpvTrackId) { emit subtitleTrackChanged(mpvTrackId); }
+    void emitFileLoaded() { emit fileLoaded(); }
 
     QList<QVariantList> variantCommands;
     QList<QStringList> commands;
@@ -185,6 +188,18 @@ public:
 
     bool supportsSubtitleSearch() const override { return true; }
     QString subtitleSearchConnectionId() const override { return connectionId; }
+    QString subtitleSearchScope() const override { return connectionId + QLatin1Char('/') + profileId; }
+    bool replanPlayback(const QString &, const PlaybackReplan &replan,
+                        const QString &requestContext) override
+    {
+        replans.append(replan);
+        replanContexts.append(requestContext);
+        return true;
+    }
+    void completeReplan(const QString &playbackSessionId, const Bloom::PlaybackDescriptor &descriptor)
+    {
+        emit playbackReplannedForRequest(playbackSessionId, descriptor, replanContexts.last());
+    }
     void loadSubtitleSearchStatus(const QString &requestKey) override
     {
         calls.append({QStringLiteral("status"), requestKey, {}, {}, {}});
@@ -212,8 +227,11 @@ public:
     }
 
     QString connectionId = QStringLiteral("connection-1");
+    QString profileId = QStringLiteral("profile-1");
     QList<Call> calls;
     QStringList cancelled;
+    QList<PlaybackReplan> replans;
+    QStringList replanContexts;
 };
 
 bool signInToSilo(ControlledNetworkAccessManager &manager, ExposedAuthenticationService &auth,
@@ -299,6 +317,14 @@ private slots:
     void viewModelDropsStaleAnswers();
     void viewModelCancelsWhenPlaybackStops();
     void viewModelDefaultsToTheSubtitleLanguage();
+    void jellyfinDownloadMatchesByIdentityAndLanguage();
+    void jellyfinSubtitleManagementGatesTheSearch();
+    void siloWarningsAreShown();
+    void siloDownloadIsSavedByLanguageForLaterEpisodes();
+    void failedLoadSavesNothing();
+    void manualChoiceDuringDownloadWins();
+    void downloadReplacesBurnedInSubtitleAndSurvivesReplans();
+    void statusIsReadPerProfile();
 
 private:
     struct PlayerFixture;
@@ -604,6 +630,20 @@ QByteArray jellyfinPlaybackInfo(bool withDownload)
              {QStringLiteral("MediaStreams"), streams}}}}}).toJson(QJsonDocument::Compact);
 }
 
+QVariantMap embeddedEnglishStream()
+{
+    return {{QStringLiteral("index"), 1}, {QStringLiteral("type"), QStringLiteral("Subtitle")},
+            {QStringLiteral("codec"), QStringLiteral("subrip")}, {QStringLiteral("language"), QStringLiteral("eng")},
+            {QStringLiteral("isExternal"), false}};
+}
+
+QVariantMap externalGermanStream()
+{
+    return {{QStringLiteral("index"), 2}, {QStringLiteral("type"), QStringLiteral("Subtitle")},
+            {QStringLiteral("codec"), QStringLiteral("srt")}, {QStringLiteral("language"), QStringLiteral("ger")},
+            {QStringLiteral("isExternal"), true}};
+}
+
 Bloom::SubtitleSearchResult jellyfinResult()
 {
     Bloom::SubtitleSearchResult result;
@@ -632,7 +672,7 @@ void SubtitleSearchTest::jellyfinDownloadReadsTheNewStream()
     QSignalSpy failed(&service, &PlaybackService::subtitleSearchFailed);
 
     SubtitleSearchTarget target = fileTarget();
-    target.knownSubtitleIndexes = {1};
+    target.knownSubtitleStreams = {embeddedEnglishStream()};
     manager.responses = {{204, QByteArray()}, {200, jellyfinPlaybackInfo(true)}};
     service.downloadSubtitle(QStringLiteral("download-1"), target, jellyfinResult());
     QTRY_COMPARE_WITH_TIMEOUT(downloaded.count(), 1, 3000);
@@ -651,6 +691,11 @@ void SubtitleSearchTest::jellyfinDownloadReadsTheNewStream()
     QCOMPARE(subtitle.url.path(), QStringLiteral("/Videos/movie-1/42/Subtitles/3/0/Stream.srt"));
     QCOMPARE(QUrlQuery(subtitle.url).queryItemValue(QStringLiteral("ApiKey")), QStringLiteral("token-1"));
     QCOMPARE(subtitle.title, QStringLiteral("English - SRT - External"));
+    // What the stream is, so a pick of it is saved by identity.
+    QCOMPARE(subtitle.language, QStringLiteral("eng"));
+    QCOMPARE(subtitle.codec, QStringLiteral("srt"));
+    QVERIFY(!subtitle.isForced);
+    QVERIFY(!subtitle.isHearingImpaired);
 }
 
 void SubtitleSearchTest::jellyfinDownloadWaitsForTheItemRefresh()
@@ -667,7 +712,7 @@ void SubtitleSearchTest::jellyfinDownloadWaitsForTheItemRefresh()
     QSignalSpy downloaded(&service, &PlaybackService::subtitleDownloaded);
 
     SubtitleSearchTarget target = fileTarget();
-    target.knownSubtitleIndexes = {1, 2};
+    target.knownSubtitleStreams = {embeddedEnglishStream(), externalGermanStream()};
     // The refresh has not finished on the first read.
     manager.responses = {{204, QByteArray()},
                          {200, jellyfinPlaybackInfo(false)},
@@ -730,6 +775,9 @@ struct SubtitleSearchTest::PlayerFixture
         controller.m_playSessionId = sessionId;
         controller.m_availableSubtitleTracks = {
             QVariantMap{{QStringLiteral("index"), 1}, {QStringLiteral("language"), QStringLiteral("ger")}}};
+        controller.m_activeMediaSource = {{QStringLiteral("mediaStreams"), QVariantList{QVariantMap{
+            {QStringLiteral("index"), 1}, {QStringLiteral("type"), QStringLiteral("Subtitle")},
+            {QStringLiteral("language"), QStringLiteral("ger")}}}}};
         controller.m_playbackState = PlayerController::Playing;
         emit controller.currentItemIdChanged();
         emit controller.isPlaybackActiveChanged();
@@ -764,11 +812,12 @@ void SubtitleSearchTest::viewModelSearchDownloadSelectAndPersist()
     QCOMPARE(search.target.media.itemId, QStringLiteral("episode-1"));
     QCOMPARE(search.target.mediaVersionId, QStringLiteral("source-1"));
     QCOMPARE(search.target.playbackSessionId, QStringLiteral("play-1"));
-    QCOMPARE(search.target.knownSubtitleIndexes, QList<int>{1});
+    QCOMPARE(search.target.knownSubtitleStreams.size(), 1);
+    QCOMPARE(search.target.knownSubtitleStreams.first().toMap().value(QStringLiteral("index")).toInt(), 1);
 
     emit service.subtitleSearchResultsLoaded(
         search.key, {resultMap(QStringLiteral("low"), 2.0, 5), resultMap(QStringLiteral("match"), 1.0, 0, true),
-                     resultMap(QStringLiteral("high"), 8.0, 5)});
+                     resultMap(QStringLiteral("high"), 8.0, 5)}, {});
     QVERIFY(!model.isLoading());
     QVERIFY(model.searched());
     QCOMPARE(resultIds(model.results()),
@@ -788,39 +837,76 @@ void SubtitleSearchTest::viewModelSearchDownloadSelectAndPersist()
     model.download(QStringLiteral("low"));
     QCOMPARE(service.last(QStringLiteral("download")).key, download.key);
 
+    QSignalSpy failedSpy(&model, &SubtitleSearchViewModel::downloadFailed);
     Bloom::DownloadedSubtitle subtitle;
     subtitle.url = QUrl(QStringLiteral("https://jellyfin.example.test/Videos/episode-1/source-1/Subtitles/4/0/Stream.srt?ApiKey=t"));
     subtitle.title = QStringLiteral("English - SRT - External");
     subtitle.language = QStringLiteral("eng");
     subtitle.sourceIndex = 4;
+    subtitle.streamTitle = QStringLiteral("SDH");
+    subtitle.codec = QStringLiteral("srt");
+    subtitle.isHearingImpaired = true;
     fixture.backend.variantCommands.clear();
     emit service.subtitleDownloaded(download.key, subtitle.toVariantMap());
-    QVERIFY(!model.downloading());
-    QCOMPARE(loadedSpy.count(), 1);
 
-    // Loaded into mpv with select, selected, and saved for the season.
+    // Loaded into mpv with select and selected; announced and saved only
+    // once mpv has it.
     QVERIFY(fixture.backend.variantCommands.contains(QVariantList{
         QStringLiteral("sub-add"), subtitle.url.toString(QUrl::FullyEncoded), QStringLiteral("select"),
         QStringLiteral("English - SRT - External"), QStringLiteral("eng")}));
     QCOMPARE(fixture.controller.selectedSubtitleTrack(), 4);
-    const ScopedTrackPreferences saved = fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1"));
-    QCOMPARE(saved.subtitle.mode, TrackPreferenceMode::ExplicitStream);
-    QCOMPARE(saved.subtitle.streamIndex, 4);
-    // mpv's sid report maps the new track.
+    QVERIFY(model.downloading());
+    QCOMPARE(loadedSpy.count(), 0);
+    QCOMPARE(fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1")).subtitle.mode,
+             TrackPreferenceMode::Unset);
+    // The download is a stream of the playing source now.
+    const QVariantList streams = fixture.controller.currentSubtitleStreams();
+    QVERIFY(std::any_of(streams.cbegin(), streams.cend(), [](const QVariant &stream) {
+        return stream.toMap().value(QStringLiteral("index")).toInt() == 4
+            && stream.toMap().value(QStringLiteral("isExternal")).toBool();
+    }));
+
+    // mpv's sid report maps the new track; the pick is saved by what it is.
     fixture.backend.emitSubtitleTrackId(2);
     QCOMPARE(fixture.controller.selectedSubtitleTrack(), 4);
     QCOMPARE(fixture.controller.m_externalSubtitleTrackMap.value(4), 2);
+    QCOMPARE(loadedSpy.count(), 1);
+    QVERIFY(!model.downloading());
+    QCOMPARE(failedSpy.count(), 0);
+    const ScopedTrackPreferences saved = fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1"));
+    QCOMPARE(saved.subtitle.mode, TrackPreferenceMode::ExplicitStream);
+    QCOMPARE(saved.subtitle.streamIndex, 4);
+    QCOMPARE(saved.subtitle.preferredLanguage, QStringLiteral("eng"));
+    QVERIFY(!saved.subtitle.forcedOnly);
+    QVERIFY(saved.subtitle.hearingImpaired);
+    QCOMPARE(saved.subtitle.title, QStringLiteral("SDH"));
+    QCOMPARE(saved.subtitle.codec, QStringLiteral("srt"));
 
-    // A download without a provider index plays but is not saved.
+    // A Silo download (no stream of the source) is the pick too, saved by
+    // its language and kind; the earlier index pick does not survive it.
     model.download(QStringLiteral("low"));
     const FakePlaybackService::Call second = service.last(QStringLiteral("download"));
     Bloom::DownloadedSubtitle sessionOnly;
     sessionOnly.url = QUrl(QStringLiteral("https://silo.example.test/api/v2/stream/play-1/subtitles/0.vtt?file_id=1&downloaded_subtitle_id=7&token=t"));
     sessionOnly.title = QStringLiteral("Release low");
+    sessionOnly.language = QStringLiteral("en");
+    sessionOnly.storedId = QStringLiteral("7");
     emit service.subtitleDownloaded(second.key, sessionOnly.toVariantMap());
+    const int siloIndex = fixture.controller.selectedSubtitleTrack();
+    QVERIFY(siloIndex <= PlayerController::kDownloadedSubtitleIndexBase);
+    QCOMPARE(loadedSpy.count(), 1);
+    fixture.backend.emitSubtitleTrackId(3);
     QCOMPARE(loadedSpy.count(), 2);
-    QVERIFY(fixture.controller.selectedSubtitleTrack() <= -1000);
-    QCOMPARE(fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1")).subtitle.streamIndex, 4);
+    const TrackSelectionPreference siloPick =
+        fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1")).subtitle;
+    QCOMPARE(siloPick.mode, TrackPreferenceMode::ExplicitStream);
+    QCOMPARE(siloPick.streamIndex, -1);
+    QCOMPARE(siloPick.preferredLanguage, QStringLiteral("en"));
+    QVERIFY(!siloPick.forcedOnly);
+    QVERIFY(!siloPick.hearingImpaired);
+    QCOMPARE(fixture.controller.getLastSubtitleTrackForSeason(QStringLiteral("season-1")), -2);
+    // Silo keeps no preference for a downloaded track: nothing is written.
+    QVERIFY(fixture.controller.m_pendingTrackPreferenceWrites.isEmpty());
     Q_UNUSED(availableChanged)
 }
 
@@ -841,12 +927,12 @@ void SubtitleSearchTest::viewModelDropsStaleAnswers()
     QVERIFY(service.cancelled.contains(english.key));
 
     // The English answer lands after the language changed.
-    emit service.subtitleSearchResultsLoaded(english.key, {resultMap(QStringLiteral("en-1"), 1.0, 1)});
+    emit service.subtitleSearchResultsLoaded(english.key, {resultMap(QStringLiteral("en-1"), 1.0, 1)}, {});
     QVERIFY(model.isLoading());
     QCOMPARE(model.count(), 0);
     emit service.subtitleSearchFailed(english.key, QStringLiteral("late"));
     QVERIFY(!model.hasError());
-    emit service.subtitleSearchResultsLoaded(french.key, {resultMap(QStringLiteral("fr-1"), 1.0, 1)});
+    emit service.subtitleSearchResultsLoaded(french.key, {resultMap(QStringLiteral("fr-1"), 1.0, 1)}, {});
     QCOMPARE(resultIds(model.results()), QStringList{QStringLiteral("fr-1")});
 
     // A download whose answer arrives after playback moved to another item
@@ -891,7 +977,7 @@ void SubtitleSearchTest::viewModelCancelsWhenPlaybackStops()
     QVERIFY(service.cancelled.contains(search.key));
     QVERIFY(!model.available());
     QVERIFY(!model.isLoading());
-    emit service.subtitleSearchResultsLoaded(search.key, {resultMap(QStringLiteral("a"), 1.0, 1)});
+    emit service.subtitleSearchResultsLoaded(search.key, {resultMap(QStringLiteral("a"), 1.0, 1)}, {});
     QCOMPARE(model.count(), 0);
 
     // The status is read once per connection.
@@ -951,13 +1037,444 @@ void SubtitleSearchTest::viewModelDefaultsToTheSubtitleLanguage()
         return -1;
     }();
     QVERIFY(position >= 0);
+    const auto searches = [&service]() {
+        return std::count_if(service.calls.cbegin(), service.calls.cend(),
+                             [](const FakePlaybackService::Call &call) {
+                                 return call.kind == QStringLiteral("search");
+                             });
+    };
+    const qsizetype searchesBefore = searches();
     model.cycleLanguage(1);
     const QString next = model.languages().at((position + 1) % model.languages().size())
                              .toMap().value(QStringLiteral("value")).toString();
     QCOMPARE(model.language(), next);
+    // Stepping through languages searches only where it stops.
+    QVERIFY(model.isLoading());
+    QCOMPARE(searches(), searchesBefore);
+    QTRY_COMPARE_WITH_TIMEOUT(searches(), searchesBefore + 1,
+                              SubtitleSearchViewModel::kLanguageSearchDelayMs + 1000);
     QCOMPARE(service.last(QStringLiteral("search")).language, next);
+    model.cycleLanguage(1);
+    model.cycleLanguage(-1);
     model.cycleLanguage(-1);
     QCOMPARE(model.language(), QStringLiteral("ger"));
+    QTRY_COMPARE_WITH_TIMEOUT(searches(), searchesBefore + 2,
+                              SubtitleSearchViewModel::kLanguageSearchDelayMs + 1000);
+    QCOMPARE(service.last(QStringLiteral("search")).language, QStringLiteral("ger"));
+    QTest::qWait(SubtitleSearchViewModel::kLanguageSearchDelayMs + 100);
+    QCOMPARE(searches(), searchesBefore + 2);
+}
+
+void SubtitleSearchTest::jellyfinDownloadMatchesByIdentityAndLanguage()
+{
+    QTemporaryDir directory;
+    ScopedConfigIsolation isolation(directory.path());
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    JellyfinProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    auth.seed(QStringLiteral("https://jellyfin.example.test"), QStringLiteral("user-1"),
+              QStringLiteral("token-1"));
+    PlaybackService service(&auth);
+    QSignalSpy downloaded(&service, &PlaybackService::subtitleDownloaded);
+
+    const auto playbackInfo = [](const QJsonArray &externals) {
+        QJsonArray streams{QJsonObject{{QStringLiteral("Index"), 0}, {QStringLiteral("Type"), QStringLiteral("Video")},
+                                       {QStringLiteral("Codec"), QStringLiteral("h264")}}};
+        for (const QJsonValue &external : externals) {
+            streams.append(external);
+        }
+        return QJsonDocument(QJsonObject{
+            {QStringLiteral("PlaySessionId"), QStringLiteral("play-1")},
+            {QStringLiteral("MediaSources"), QJsonArray{QJsonObject{
+                 {QStringLiteral("Id"), QStringLiteral("42")},
+                 {QStringLiteral("Container"), QStringLiteral("mkv")},
+                 {QStringLiteral("SupportsDirectPlay"), true},
+                 {QStringLiteral("MediaStreams"), streams}}}}}).toJson(QJsonDocument::Compact);
+    };
+    const auto external = [](int index, const QString &language) {
+        return QJsonObject{{QStringLiteral("Index"), index}, {QStringLiteral("Type"), QStringLiteral("Subtitle")},
+                           {QStringLiteral("Codec"), QStringLiteral("srt")},
+                           {QStringLiteral("Language"), language},
+                           {QStringLiteral("IsExternal"), true},
+                           {QStringLiteral("DeliveryMethod"), QStringLiteral("External")},
+                           {QStringLiteral("DeliveryUrl"),
+                            QStringLiteral("/Videos/movie-1/42/Subtitles/%1/0/Stream.srt").arg(index)}};
+    };
+
+    // Before: an English sidecar at index 1. The refresh lists a German
+    // sidecar someone else added first (at the old English index, which
+    // moves to 2): neither is the French download, so the read goes on
+    // until the French stream appears.
+    SubtitleSearchTarget target = fileTarget();
+    target.knownSubtitleStreams = {QVariantMap{
+        {QStringLiteral("index"), 1}, {QStringLiteral("type"), QStringLiteral("Subtitle")},
+        {QStringLiteral("codec"), QStringLiteral("srt")}, {QStringLiteral("language"), QStringLiteral("eng")},
+        {QStringLiteral("isExternal"), true}}};
+    Bloom::SubtitleSearchResult french = jellyfinResult();
+    french.language = QStringLiteral("fre");
+    manager.responses = {{204, QByteArray()},
+                         {200, playbackInfo({external(1, QStringLiteral("ger")), external(2, QStringLiteral("eng"))})},
+                         {200, playbackInfo({external(1, QStringLiteral("fre")), external(2, QStringLiteral("ger")),
+                                             external(3, QStringLiteral("eng"))})}};
+    service.downloadSubtitle(QStringLiteral("download-1"), target, french);
+    QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), 2, 2000);
+    QTest::qWait(100);
+    QCOMPARE(downloaded.count(), 0);
+    QTRY_COMPARE_WITH_TIMEOUT(downloaded.count(), 1,
+                              PlaybackService::kDownloadedSubtitleReadIntervalMs + 3000);
+    const Bloom::DownloadedSubtitle subtitle =
+        Bloom::DownloadedSubtitle::fromVariantMap(downloaded.first().at(1).toMap());
+    QCOMPARE(subtitle.sourceIndex, 1);
+    QCOMPARE(subtitle.language, QStringLiteral("fre"));
+    QCOMPARE(subtitle.url.path(), QStringLiteral("/Videos/movie-1/42/Subtitles/1/0/Stream.srt"));
+}
+
+void SubtitleSearchTest::jellyfinSubtitleManagementGatesTheSearch()
+{
+    const JellyfinAuthenticator authenticator;
+    const auto rights = [&authenticator](const QJsonObject &policy) {
+        return authenticator
+            .parseSessionValidationResponse(QJsonDocument(QJsonObject{
+                {QStringLiteral("Id"), QStringLiteral("user-1")}, {QStringLiteral("Policy"), policy}})
+                                                .toJson())
+            .canManageSubtitles;
+    };
+    QCOMPARE(rights({{QStringLiteral("EnableSubtitleManagement"), true},
+                     {QStringLiteral("IsAdministrator"), false}}),
+             std::optional<bool>(true));
+    QCOMPARE(rights({{QStringLiteral("EnableSubtitleManagement"), false},
+                     {QStringLiteral("IsAdministrator"), true}}),
+             std::optional<bool>(true));
+    QCOMPARE(rights({{QStringLiteral("EnableSubtitleManagement"), false},
+                     {QStringLiteral("IsAdministrator"), false}}),
+             std::optional<bool>(false));
+    QCOMPARE(rights({}), std::optional<bool>());
+
+    // Jellyfin has no status document: the account's rights answer.
+    QTemporaryDir directory;
+    ScopedConfigIsolation isolation(directory.path());
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    JellyfinProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    auth.seed(QStringLiteral("https://jellyfin.example.test"), QStringLiteral("user-1"),
+              QStringLiteral("token-1"));
+    PlaybackService service(&auth);
+    QSignalSpy status(&service, &PlaybackService::subtitleSearchStatusLoaded);
+    QSignalSpy scopeChanged(&service, &PlaybackService::subtitleSearchScopeChanged);
+    service.loadSubtitleSearchStatus(QStringLiteral("status-1"));
+    QCOMPARE(status.count(), 1);
+    QCOMPARE(status.first().at(1).toBool(), true); // unknown: offered, the server enforces it
+    auth.setAccountPrivileges(false, false);
+    QVERIFY(scopeChanged.count() >= 1);
+    service.loadSubtitleSearchStatus(QStringLiteral("status-2"));
+    QCOMPARE(status.last().at(1).toBool(), false);
+    auth.setAccountPrivileges(false, true);
+    service.loadSubtitleSearchStatus(QStringLiteral("status-3"));
+    QCOMPARE(status.last().at(1).toBool(), true);
+}
+
+void SubtitleSearchTest::siloWarningsAreShown()
+{
+    const SiloPlaybackProvider provider;
+    const SubtitleSearchParseResult parsed = provider.parseSubtitleSearchResponse(QByteArrayLiteral(
+        R"({"results":[],"warnings":["opensubtitles: rate limited"]})"));
+    QVERIFY(parsed.valid);
+    QCOMPARE(parsed.warnings, QStringList{QStringLiteral("opensubtitles: rate limited")});
+
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSearchViewModel model(&service, &fixture.controller, &fixture.config);
+    fixture.play(QStringLiteral("movie-1"), QString(), QStringLiteral("play-1"));
+    emit service.subtitleSearchStatusLoaded(service.last(QStringLiteral("status")).key, true);
+    model.open();
+    emit service.subtitleSearchResultsLoaded(service.last(QStringLiteral("search")).key, {},
+                                             parsed.warnings);
+    QVERIFY(model.searched());
+    QCOMPARE(model.count(), 0);
+    QCOMPARE(model.warnings(), parsed.warnings);
+    // A new search clears them.
+    model.search();
+    QVERIFY(model.warnings().isEmpty());
+}
+
+void SubtitleSearchTest::siloDownloadIsSavedByLanguageForLaterEpisodes()
+{
+    PlayerFixture fixture;
+    PlayerController &controller = fixture.controller;
+    fixture.play(QStringLiteral("episode-3"), QStringLiteral("season-1"), QStringLiteral("play-1"));
+
+    Bloom::DownloadedSubtitle subtitle;
+    subtitle.url = QUrl(QStringLiteral("https://silo.example.test/api/v2/stream/play-1/subtitles/0.srt?file_id=1&downloaded_subtitle_id=9"));
+    subtitle.title = QStringLiteral("Show.S01E03");
+    subtitle.language = QStringLiteral("en");
+    subtitle.storedId = QStringLiteral("9");
+    const int index = controller.addDownloadedSubtitleTrack(subtitle.toVariantMap(), true);
+    QVERIFY(index <= PlayerController::kDownloadedSubtitleIndexBase);
+    fixture.backend.emitSubtitleTrackId(2);
+
+    // E4 has no download but an embedded English track: the season pick
+    // finds it by language, past the forced track and the German one.
+    const ScopedTrackPreferences preferences =
+        fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1"));
+    QCOMPARE(preferences.subtitle.mode, TrackPreferenceMode::ExplicitStream);
+    const QVariantMap episode4{{QStringLiteral("mediaStreams"), QVariantList{
+        QVariantMap{{QStringLiteral("index"), 0}, {QStringLiteral("type"), QStringLiteral("Video")}},
+        QVariantMap{{QStringLiteral("index"), 1}, {QStringLiteral("type"), QStringLiteral("Audio")},
+                    {QStringLiteral("language"), QStringLiteral("jpn")}},
+        QVariantMap{{QStringLiteral("index"), 2}, {QStringLiteral("type"), QStringLiteral("Subtitle")},
+                    {QStringLiteral("language"), QStringLiteral("eng")}, {QStringLiteral("isForced"), true}},
+        QVariantMap{{QStringLiteral("index"), 3}, {QStringLiteral("type"), QStringLiteral("Subtitle")},
+                    {QStringLiteral("language"), QStringLiteral("ger")}},
+        QVariantMap{{QStringLiteral("index"), 4}, {QStringLiteral("type"), QStringLiteral("Subtitle")},
+                    {QStringLiteral("language"), QStringLiteral("eng")}}}}};
+    const auto resolved = controller.resolveTrackSelection(episode4, preferences, -1, -2);
+    QCOMPARE(resolved.subtitleIndex, 4);
+    QCOMPARE(resolved.subtitleSource, QStringLiteral("explicit"));
+}
+
+void SubtitleSearchTest::failedLoadSavesNothing()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSearchViewModel model(&service, &fixture.controller, &fixture.config);
+    QSignalSpy loadedSpy(&model, &SubtitleSearchViewModel::subtitleLoaded);
+    QSignalSpy failedSpy(&model, &SubtitleSearchViewModel::downloadFailed);
+    fixture.play(QStringLiteral("episode-1"), QStringLiteral("season-1"), QStringLiteral("play-1"));
+    fixture.controller.m_selectedSubtitleTrack = 1;
+    emit service.subtitleSearchStatusLoaded(service.last(QStringLiteral("status")).key, true);
+    model.open();
+    emit service.subtitleSearchResultsLoaded(service.last(QStringLiteral("search")).key,
+                                             {resultMap(QStringLiteral("a"), 1.0, 1)}, {});
+    model.download(QStringLiteral("a"));
+    Bloom::DownloadedSubtitle subtitle;
+    subtitle.url = QUrl(QStringLiteral("https://silo.example.test/api/v2/stream/play-1/subtitles/0.vtt?downloaded_subtitle_id=3"));
+    subtitle.language = QStringLiteral("en");
+    subtitle.storedId = QStringLiteral("3");
+    emit service.subtitleDownloaded(service.last(QStringLiteral("download")).key, subtitle.toVariantMap());
+    QVERIFY(fixture.controller.m_downloadedSubtitleTimer->isActive());
+    QCOMPARE(fixture.controller.m_downloadedSubtitleTimer->interval(),
+             PlayerController::kDownloadedSubtitleLoadTimeoutMs);
+
+    // mpv never reports the track (the fetch failed): the time limit runs out.
+    fixture.controller.resolvePendingDownloadedSubtitle(
+        false, QStringLiteral("The downloaded subtitle could not be loaded."));
+    QCOMPARE(loadedSpy.count(), 0);
+    QCOMPARE(failedSpy.count(), 1);
+    QVERIFY(!model.downloading());
+    QCOMPARE(fixture.controller.selectedSubtitleTrack(), 1);
+    QCOMPARE(fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1")).subtitle.mode,
+             TrackPreferenceMode::Unset);
+    // A late sid report for it changes nothing.
+    fixture.backend.emitSubtitleTrackId(4);
+    QCOMPARE(loadedSpy.count(), 0);
+    QCOMPARE(fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1")).subtitle.mode,
+             TrackPreferenceMode::Unset);
+}
+
+void SubtitleSearchTest::manualChoiceDuringDownloadWins()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSearchViewModel model(&service, &fixture.controller, &fixture.config);
+    QSignalSpy loadedSpy(&model, &SubtitleSearchViewModel::subtitleLoaded);
+    QSignalSpy listedSpy(&model, &SubtitleSearchViewModel::subtitleListed);
+    fixture.play(QStringLiteral("episode-1"), QStringLiteral("season-1"), QStringLiteral("play-1"));
+    emit service.subtitleSearchStatusLoaded(service.last(QStringLiteral("status")).key, true);
+    model.open();
+    emit service.subtitleSearchResultsLoaded(service.last(QStringLiteral("search")).key,
+                                             {resultMap(QStringLiteral("a"), 1.0, 1)}, {});
+    model.download(QStringLiteral("a"));
+
+    // The viewer picks the German track while the server downloads.
+    fixture.controller.setSelectedSubtitleTrack(1);
+    const TrackSelectionPreference picked =
+        fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1")).subtitle;
+    QCOMPARE(picked.streamIndex, 1);
+
+    Bloom::DownloadedSubtitle subtitle;
+    subtitle.url = QUrl(QStringLiteral("https://jellyfin.example.test/Videos/episode-1/source-1/Subtitles/5/0/Stream.srt?ApiKey=t"));
+    subtitle.title = QStringLiteral("English");
+    subtitle.language = QStringLiteral("eng");
+    subtitle.sourceIndex = 5;
+    fixture.backend.variantCommands.clear();
+    emit service.subtitleDownloaded(service.last(QStringLiteral("download")).key, subtitle.toVariantMap());
+
+    // Listed, not selected, loaded or saved.
+    QCOMPARE(listedSpy.count(), 1);
+    QCOMPARE(loadedSpy.count(), 0);
+    QVERIFY(!model.downloading());
+    QCOMPARE(fixture.controller.selectedSubtitleTrack(), 1);
+    QVERIFY(std::none_of(fixture.backend.variantCommands.cbegin(), fixture.backend.variantCommands.cend(),
+                         [](const QVariantList &command) {
+                             return command.value(0).toString() == QStringLiteral("sub-add");
+                         }));
+    const QVariantList tracks = fixture.controller.availableSubtitleTracks();
+    QVERIFY(std::any_of(tracks.cbegin(), tracks.cend(), [](const QVariant &track) {
+        return track.toMap().value(QStringLiteral("index")).toInt() == 5;
+    }));
+    QCOMPARE(fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1")).subtitle, picked);
+}
+
+void SubtitleSearchTest::downloadReplacesBurnedInSubtitleAndSurvivesReplans()
+{
+    PlayerFixture fixture;
+    PlayerController &controller = fixture.controller;
+    FakePlaybackService &service = fixture.playbackService;
+    QSignalSpy loadedSpy(&controller, &PlayerController::downloadedSubtitleLoaded);
+    fixture.play(QStringLiteral("episode-1"), QStringLiteral("season-1"), QStringLiteral("play-1"));
+    // A Silo stream with the German subtitle burned in.
+    controller.m_activeMediaSource = {{QStringLiteral("mediaStreams"), QVariantList{QVariantMap{
+        {QStringLiteral("index"), 1}, {QStringLiteral("type"), QStringLiteral("Subtitle")},
+        {QStringLiteral("language"), QStringLiteral("ger")}}}}};
+    controller.m_playbackSegments = {QVariantMap{
+        {QStringLiteral("url"), QStringLiteral("https://silo.example.test/stream/master.m3u8")},
+        {QStringLiteral("mediaSource"), controller.m_activeMediaSource},
+        {QStringLiteral("availableSubtitleTracks"), controller.m_availableSubtitleTracks},
+        {QStringLiteral("subtitleIndex"), 1},
+        {QStringLiteral("subtitleBurnedIn"), true}}};
+    controller.m_activePlaybackSegmentIndex = 0;
+    controller.m_selectedSubtitleTrack = 1;
+    controller.m_streamSubtitleBurnedIn = true;
+    controller.m_pinnedSubtitleTrack = 1;
+
+    Bloom::DownloadedSubtitle subtitle;
+    subtitle.url = QUrl(QStringLiteral("https://silo.example.test/api/v2/stream/play-1/subtitles/0.vtt?file_id=1&downloaded_subtitle_id=7"));
+    subtitle.title = QStringLiteral("Release");
+    subtitle.language = QStringLiteral("en");
+    subtitle.format = QStringLiteral("vtt");
+    subtitle.storedId = QStringLiteral("7");
+    fixture.backend.variantCommands.clear();
+    const int index = controller.addDownloadedSubtitleTrack(subtitle.toVariantMap(), true);
+    QVERIFY(index <= PlayerController::kDownloadedSubtitleIndexBase);
+    const auto subAdds = [&fixture]() {
+        QList<QVariantList> found;
+        for (const QVariantList &command : std::as_const(fixture.backend.variantCommands)) {
+            if (command.value(0).toString() == QStringLiteral("sub-add")) {
+                found.append(command);
+            }
+        }
+        return found;
+    };
+
+    // The burned-in subtitle goes first: a new stream, nothing drawn over it.
+    QCOMPARE(service.replans.size(), 1);
+    QCOMPARE(service.replans.last().operation, PlaybackReplan::Operation::TrackChange);
+    QVERIFY(subAdds().isEmpty());
+    QCOMPARE(controller.selectedSubtitleTrack(), index);
+    QVERIFY(controller.m_downloadedSubtitleTimer->isActive());
+    QCOMPARE(fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1")).subtitle.mode,
+             TrackPreferenceMode::Unset);
+
+    // Silo turns subtitles off and its inventory now lists the download.
+    const auto answer = [](const QString &ordinal) {
+        Bloom::PlaybackDescriptor descriptor;
+        descriptor.playbackSessionId = QStringLiteral("play-1");
+        descriptor.stream.url = QUrl(QStringLiteral("https://silo.example.test/stream/%1/master.m3u8").arg(ordinal));
+        descriptor.stream.method = Bloom::PlaybackMethod::DirectStream;
+        Bloom::PlaybackTrack download;
+        download.trackId = ordinal;
+        download.kind = QStringLiteral("subtitle");
+        download.language = QStringLiteral("en");
+        download.displayTitle = QStringLiteral("Release");
+        download.isExternal = true;
+        download.externalUrl = QUrl(QStringLiteral(
+            "https://silo.example.test/api/v2/stream/play-1/subtitles/%1.vtt?file_id=1&downloaded_subtitle_id=7")
+                                        .arg(ordinal));
+        download.storedSubtitleId = QStringLiteral("7");
+        descriptor.subtitleTracks = {download};
+        return descriptor;
+    };
+    const auto listedOnce = [&controller, index]() {
+        int count = 0;
+        bool sameIndex = false;
+        for (const QVariant &track : controller.availableSubtitleTracks()) {
+            if (track.toMap().value(QStringLiteral("storedSubtitleId")).toString() == QStringLiteral("7")) {
+                ++count;
+                sameIndex = track.toMap().value(QStringLiteral("index")).toInt() == index;
+            }
+        }
+        return count == 1 && sameIndex;
+    };
+    service.completeReplan(QStringLiteral("play-1"), answer(QStringLiteral("3")));
+    QVERIFY(listedOnce());
+    QCOMPARE(controller.selectedSubtitleTrack(), index);
+    fixture.backend.variantCommands.clear();
+    fixture.backend.emitFileLoaded();
+    QCOMPARE(subAdds().size(), 1);
+    QCOMPARE(subAdds().first().value(1).toString(),
+             QStringLiteral("https://silo.example.test/api/v2/stream/play-1/subtitles/3.vtt?file_id=1&downloaded_subtitle_id=7"));
+    QCOMPARE(subAdds().first().value(2).toString(), QStringLiteral("select"));
+    fixture.backend.emitSubtitleTrackId(1);
+    QCOMPARE(loadedSpy.count(), 1);
+    const TrackSelectionPreference saved =
+        fixture.trackPrefs.getSeasonPreferences(QStringLiteral("season-1")).subtitle;
+    QCOMPARE(saved.mode, TrackPreferenceMode::ExplicitStream);
+    QCOMPARE(saved.preferredLanguage, QStringLiteral("en"));
+
+    // A seek re-anchor keeps the download under its index, at its new
+    // inventory position.
+    QVERIFY(controller.requestStreamReplan(true, 600.0));
+    service.completeReplan(QStringLiteral("play-1"), answer(QStringLiteral("5")));
+    QVERIFY(listedOnce());
+    QCOMPARE(controller.selectedSubtitleTrack(), index);
+    fixture.backend.variantCommands.clear();
+    fixture.backend.emitFileLoaded();
+    QCOMPARE(subAdds().size(), 1);
+    QVERIFY(subAdds().first().value(1).toString().contains(QStringLiteral("/subtitles/5.vtt")));
+
+    // An audio change keeps it too, although Silo selects no subtitle.
+    QVERIFY(controller.requestStreamReplan(false, 600.0));
+    Bloom::PlaybackDescriptor unlisted = answer(QStringLiteral("5"));
+    unlisted.subtitleTracks.clear();
+    service.completeReplan(QStringLiteral("play-1"), unlisted);
+    QCOMPARE(controller.selectedSubtitleTrack(), index);
+    fixture.backend.variantCommands.clear();
+    fixture.backend.emitFileLoaded();
+    QCOMPARE(subAdds().size(), 1);
+    QCOMPARE(subAdds().first().value(1).toString(), subtitle.url.toString(QUrl::FullyEncoded));
+}
+
+void SubtitleSearchTest::statusIsReadPerProfile()
+{
+    PlayerFixture fixture;
+    FakePlaybackService &service = fixture.playbackService;
+    SubtitleSearchViewModel model(&service, &fixture.controller, &fixture.config);
+    const auto statusReads = [&service]() {
+        return std::count_if(service.calls.cbegin(), service.calls.cend(),
+                             [](const FakePlaybackService::Call &call) {
+                                 return call.kind == QStringLiteral("status");
+                             });
+    };
+    fixture.play(QStringLiteral("movie-1"), QString(), QStringLiteral("play-1"));
+    emit service.subtitleSearchStatusLoaded(service.last(QStringLiteral("status")).key, true);
+    QVERIFY(model.available());
+    QCOMPARE(statusReads(), 1);
+
+    // Another profile of the same server may not be allowed: it is asked.
+    service.profileId = QStringLiteral("profile-kid");
+    emit service.subtitleSearchScopeChanged();
+    QVERIFY(!model.available());
+    QCOMPARE(statusReads(), 2);
+    emit service.subtitleSearchStatusLoaded(service.last(QStringLiteral("status")).key, false);
+    QVERIFY(!model.available());
+
+    // A download in flight when the stream changes under the same item is
+    // reported, not dropped silently.
+    service.profileId = QStringLiteral("profile-1");
+    emit service.subtitleSearchScopeChanged();
+    emit service.subtitleSearchStatusLoaded(service.last(QStringLiteral("status")).key, true);
+    QVERIFY(model.available());
+    model.open();
+    emit service.subtitleSearchResultsLoaded(service.last(QStringLiteral("search")).key,
+                                             {resultMap(QStringLiteral("a"), 1.0, 1)}, {});
+    model.download(QStringLiteral("a"));
+    QSignalSpy failedSpy(&model, &SubtitleSearchViewModel::downloadFailed);
+    fixture.controller.m_playSessionId = QStringLiteral("play-2");
+    emit fixture.controller.playSessionIdChanged();
+    QCOMPARE(failedSpy.count(), 1);
+    QVERIFY(!model.downloading());
 }
 
 QTEST_MAIN(SubtitleSearchTest)

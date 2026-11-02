@@ -410,6 +410,12 @@ Bloom::PlaybackDescriptor descriptorFromDecision(const PlaybackProviderContext &
         if (isSelected && !artifact.isEmpty())
             track.externalUrl = mediaConsumerUrl(context, artifact.value("url").toString());
         track.isExternal = !track.externalUrl.isEmpty();
+        if (item.value("source").toString() == QStringLiteral("downloaded"))
+        {
+            // The row id is published only in the sidecar URL's pin.
+            track.storedSubtitleId = QUrlQuery(QUrl(item.value("url").toString()))
+                                         .queryItemValue(QStringLiteral("downloaded_subtitle_id"));
+        }
         descriptor.subtitleTracks.append(track);
     }
     descriptor.reporting = { false, true, true, true };
@@ -1123,6 +1129,12 @@ SubtitleSearchParseResult SiloPlaybackProvider::parseSubtitleSearchResponse(
         // flags; they stay false.
         parsed.results.append(result);
     }
+    for (const QJsonValue &value : document.object().value(QStringLiteral("warnings")).toArray()) {
+        const QString warning = value.toString().trimmed();
+        if (!warning.isEmpty()) {
+            parsed.warnings.append(warning);
+        }
+    }
     parsed.valid = true;
     return parsed;
 }
@@ -1168,6 +1180,9 @@ SubtitleDownloadParseResult SiloPlaybackProvider::parseSubtitleDownloadResponse(
     parsed.subtitle.format = stored.value(QStringLiteral("format")).toString(result.format).toLower();
     parsed.subtitle.language = stored.value(QStringLiteral("language")).toString(result.language);
     parsed.subtitle.title = stored.value(QStringLiteral("release_name")).toString(result.title);
+    parsed.subtitle.storedId = storedId;
+    parsed.subtitle.isHearingImpaired =
+        stored.value(QStringLiteral("hearing_impaired")).toBool(result.hearingImpaired);
     // The session's sidecar route serves a stored subtitle of its file when
     // the URL pins its identity (downloaded_subtitle_id); the path ordinal
     // is then only for display, so 0 serves. Without a session there is no

@@ -386,14 +386,22 @@ public:
                                               const QString &displayTitle = QString(),
                                               const QString &language = QString(),
                                               int sourceStreamIndexHint = -1);
-    // Loads a subtitle the server has just downloaded for the playing file
-    // (subtitle search) and selects it. With the provider's stream index
-    // (sourceIndex >= 0) the pick is saved for the season or movie like any
-    // other subtitle choice. False when playback cannot take the track.
-    Q_INVOKABLE bool addDownloadedSubtitleTrack(const QString &subtitleUrl,
-                                                const QString &displayTitle,
-                                                const QString &language,
-                                                int sourceIndex = -1);
+    // Adds a subtitle the server has just downloaded for the playing file
+    // (subtitle search, a Bloom::DownloadedSubtitle map) to the Subtitles
+    // menu and, with `select`, selects it like a menu pick: a burned-in
+    // subtitle is replaced through a new stream first. The pick is saved by
+    // what the track is once mpv has loaded it (downloadedSubtitleLoaded);
+    // a failed load saves nothing (downloadedSubtitleLoadFailed). Returns
+    // the track's menu index, or kNoSubtitleTrackIndex when playback cannot
+    // take it.
+    Q_INVOKABLE int addDownloadedSubtitleTrack(const QVariantMap &subtitle, bool select = true);
+    // The playing media source's subtitle streams (canonical maps).
+    QVariantList currentSubtitleStreams() const;
+    static constexpr int kNoSubtitleTrackIndex = std::numeric_limits<int>::min();
+    // How long mpv may take to load a downloaded subtitle, and to get there
+    // when a new stream is needed first.
+    static constexpr int kDownloadedSubtitleLoadTimeoutMs = 15000;
+    static constexpr int kDownloadedSubtitleReplanTimeoutMs = 45000;
     Q_INVOKABLE void cycleAudioTrack();
     Q_INVOKABLE void cycleSubtitleTrack();
     Q_INVOKABLE void previousChapter();
@@ -490,6 +498,10 @@ signals:
     // Track selection signals
     void selectedAudioTrackChanged();
     void selectedSubtitleTrackChanged();
+    // A downloaded subtitle added with select: mpv loaded and selected it,
+    // or it could not be loaded or selected.
+    void downloadedSubtitleLoaded(int index);
+    void downloadedSubtitleLoadFailed(int index, const QString &message);
     void subtitleDelayChanged();
     void subtitleDelayStepChanged();
     void subtitleSizeChanged();
@@ -960,13 +972,24 @@ private:
     void applyPendingExternalSubtitleTracks();
     // Returns the track's menu index, or kNoSubtitleTrackIndex when it was
     // not added.
-    static constexpr int kNoSubtitleTrackIndex = std::numeric_limits<int>::min();
     int addExternalSubtitleTrackInternal(const QString &subtitleUrl,
                                          const QString &displayTitle,
                                          const QString &language,
                                          int sourceStreamIndexHint,
                                          bool select,
                                          bool loadInMpv = true);
+    // Downloaded subtitles: menu indexes of downloads that are no stream of
+    // the source (Silo) start here, apart from the descriptor's sidecars.
+    static constexpr int kDownloadedSubtitleIndexBase = -2000;
+    int nextDownloadedSubtitleIndex() const;
+    void upsertSubtitleOption(QVariantList &options, const QVariantMap &option) const;
+    // After a new stream rebuilt the segment's menu: puts the segment's
+    // downloads back under their own indexes (a Silo inventory entry for a
+    // download becomes that entry), and keeps a download the viewer asked
+    // for selected when the stream burns nothing in.
+    void restoreDownloadedSubtitleTracks(QVariantMap &segment, int requestedSubtitle) const;
+    void resolvePendingDownloadedSubtitle(bool loaded, const QString &message = QString());
+    void checkPendingDownloadedSubtitleSelection();
     QVariantMap buildPlaybackVersionDialogModel(const QString &requestId) const;
     QString buildVersionSubtitle(const QVariantMap &mediaSource) const;
     /**
@@ -1280,6 +1303,15 @@ private:
     QHash<int, int> m_subtitleTrackMap; // Provider source index -> mpv sid track ID (1-based)
     QHash<int, int> m_externalSubtitleTrackMap; // Synthetic external index -> mpv sid track ID (1-based)
     int m_pendingExternalSubtitleIndex = -1;     // Synthetic index awaiting sid resolution from mpv
+    // A downloaded subtitle being selected, until mpv confirms it; its pick
+    // is saved then. Silo downloads are no stream of the source, so their
+    // pick is the preference itself.
+    int m_pendingDownloadedSubtitleIndex = kNoSubtitleTrackIndex;
+    std::optional<TrackSelectionPreference> m_pendingDownloadedSubtitlePreference;
+    int m_pendingDownloadedSubtitlePrevious = -1;
+    QTimer *m_downloadedSubtitleTimer = nullptr;
+    // Set while a downloaded subtitle is selected: its pick waits for mpv.
+    bool m_deferSubtitlePickPersistence = false;
     QHash<int, int> m_audioTrackReverseMap;    // mpv aid track ID (1-based) -> provider source index
     QHash<int, int> m_subtitleTrackReverseMap; // mpv sid track ID (1-based) -> provider source index
     QString m_mediaSourceId;            // Current media source ID

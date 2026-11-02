@@ -6,7 +6,10 @@
 
 #include <QHash>
 #include <QPointer>
+#include <QStringList>
 #include <QVariantList>
+
+class QTimer;
 
 class ConfigManager;
 class PlaybackService;
@@ -33,6 +36,9 @@ class SubtitleSearchViewModel : public BaseViewModel
     Q_PROPERTY(QVariantList results READ results NOTIFY resultsChanged)
     Q_PROPERTY(int count READ count NOTIFY resultsChanged)
     Q_PROPERTY(bool searched READ searched NOTIFY resultsChanged)
+    // Providers that failed while others answered; shown with the results
+    // so a failing provider does not read as "No subtitles found".
+    Q_PROPERTY(QStringList warnings READ warnings NOTIFY resultsChanged)
     Q_PROPERTY(QVariantList languages READ languages CONSTANT)
     Q_PROPERTY(QString language READ language NOTIFY languageChanged)
     Q_PROPERTY(QString languageLabel READ languageLabel NOTIFY languageChanged)
@@ -56,6 +62,7 @@ public:
     QVariantList results() const;
     int count() const { return static_cast<int>(m_results.size()); }
     bool searched() const { return m_searched; }
+    QStringList warnings() const { return m_warnings; }
     QVariantList languages() const { return m_languages; }
     QString language() const { return m_language; }
     QString languageLabel() const;
@@ -69,9 +76,12 @@ public:
     Q_INVOKABLE void search();
     void reload() override { search(); }
     Q_INVOKABLE void setLanguage(const QString &language);
-    /// Moves through the language list by step (Left/Right) and searches.
+    /// Moves through the language list by step (Left/Right) and searches
+    /// once the language has stayed for kLanguageSearchDelayMs.
     Q_INVOKABLE void cycleLanguage(int step);
-    /// Downloads the result, loads it into mpv, selects it and saves the pick.
+    /// Downloads the result, loads it into mpv, selects it and saves the
+    /// pick. When the viewer picked another subtitle meanwhile, the download
+    /// is only listed.
     Q_INVOKABLE void download(const QString &resultId);
     /// Drops every request in flight.
     Q_INVOKABLE void cancel();
@@ -82,6 +92,8 @@ public:
                                    const QString &audioSelection,
                                    const QVariantList &languages);
 
+    static constexpr int kLanguageSearchDelayMs = 500;
+
 signals:
     void availableChanged();
     void resultsChanged();
@@ -89,14 +101,22 @@ signals:
     void downloadingChanged();
     /// The chosen subtitle is playing.
     void subtitleLoaded(const QString &title);
+    /// The download is listed in the Subtitles menu but not selected: the
+    /// viewer picked another subtitle while it downloaded.
+    void subtitleListed(const QString &title);
     void downloadFailed(const QString &message);
 
 private:
     void onPlaybackChanged();
     void onStatusLoaded(const QString &requestKey, bool available);
-    void onResultsLoaded(const QString &requestKey, const QVariantList &results);
+    void onScopeChanged();
+    void onResultsLoaded(const QString &requestKey, const QVariantList &results,
+                         const QStringList &warnings);
     void onDownloaded(const QString &requestKey, const QVariantMap &subtitle);
     void onFailed(const QString &requestKey, const QString &error);
+    void onTrackLoaded(int index);
+    void onTrackLoadFailed(int index, const QString &message);
+    void refreshStatus();
 
     bool playbackActive() const;
     QString playbackKey() const;
@@ -104,7 +124,8 @@ private:
     QString nextRequestKey(const QString &kind);
     void resetForItem();
     void setAvailable(bool available);
-    void setResults(const QList<Bloom::SubtitleSearchResult> &results, bool searched);
+    void setResults(const QList<Bloom::SubtitleSearchResult> &results, bool searched,
+                    const QStringList &warnings = {});
     void setDownloadingId(const QString &resultId);
     void cancelRequests();
 
@@ -126,15 +147,28 @@ private:
     // The playing item the state belongs to (connection, item, version,
     // session); results and downloads of another are dropped.
     QString m_playbackKey;
-    // Status answers per connection: the document is read once.
-    QHash<QString, bool> m_statusByConnection;
-    QString m_statusConnectionId;
+    // Status answers per connection and profile: the document is read
+    // once, and again after a profile, account or rights change.
+    QHash<QString, bool> m_statusByScope;
+    QString m_statusScope;
+    // The scope whose answer `available` shows.
+    QString m_availableScope;
     bool m_available = false;
 
     QList<Bloom::SubtitleSearchResult> m_results;
     bool m_searched = false;
+    QStringList m_warnings;
+    // Left/Right through the languages search once the language stays.
+    QTimer *m_languageSearchTimer = nullptr;
     QString m_resultsPlaybackKey;
     QString m_resultsLanguage;
     QString m_downloadingId;
     QString m_downloadPlaybackKey;
+    // The subtitle selected when the download started; a different one
+    // when it is ready means the viewer chose meanwhile.
+    int m_selectionAtDownload = 0;
+    // The menu index the player is loading, until mpv confirms it.
+    int m_loadingTrackIndex = 0;
+    bool m_loadingTrack = false;
+    QString m_loadingTitle;
 };

@@ -69,6 +69,11 @@ QVariantMap DownloadedSubtitle::toVariantMap() const
         {QStringLiteral("language"), language},
         {QStringLiteral("format"), format},
         {QStringLiteral("sourceIndex"), sourceIndex},
+        {QStringLiteral("storedId"), storedId},
+        {QStringLiteral("streamTitle"), streamTitle},
+        {QStringLiteral("codec"), codec},
+        {QStringLiteral("isForced"), isForced},
+        {QStringLiteral("isHearingImpaired"), isHearingImpaired},
     };
 }
 
@@ -80,6 +85,11 @@ DownloadedSubtitle DownloadedSubtitle::fromVariantMap(const QVariantMap &map)
     subtitle.language = map.value(QStringLiteral("language")).toString();
     subtitle.format = map.value(QStringLiteral("format")).toString();
     subtitle.sourceIndex = map.value(QStringLiteral("sourceIndex"), -1).toInt();
+    subtitle.storedId = map.value(QStringLiteral("storedId")).toString();
+    subtitle.streamTitle = map.value(QStringLiteral("streamTitle")).toString();
+    subtitle.codec = map.value(QStringLiteral("codec")).toString();
+    subtitle.isForced = map.value(QStringLiteral("isForced")).toBool();
+    subtitle.isHearingImpaired = map.value(QStringLiteral("isHearingImpaired")).toBool();
     return subtitle;
 }
 

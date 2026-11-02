@@ -162,6 +162,9 @@ public:
     // from before a session change or a cancel are dropped.
     virtual bool supportsSubtitleSearch() const;
     virtual QString subtitleSearchConnectionId() const;
+    /// The connection and profile a status answer belongs to; the search is
+    /// gated per profile (a Silo profile may not be allowed).
+    virtual QString subtitleSearchScope() const;
     virtual void loadSubtitleSearchStatus(const QString &requestKey);
     virtual void searchSubtitles(const QString &requestKey,
                                  const SubtitleSearchTarget &target,
@@ -204,8 +207,13 @@ signals:
                                       const QString &error,
                                       const QString &requestContext);
     void subtitleSearchStatusLoaded(const QString &requestKey, bool available);
-    // Canonical SubtitleSearchResult maps, in the server's order.
-    void subtitleSearchResultsLoaded(const QString &requestKey, const QVariantList &results);
+    // The account, profile or its rights changed: status answers read
+    // before no longer hold.
+    void subtitleSearchScopeChanged();
+    // Canonical SubtitleSearchResult maps, in the server's order, and the
+    // providers that failed while others answered.
+    void subtitleSearchResultsLoaded(const QString &requestKey, const QVariantList &results,
+                                     const QStringList &warnings);
     // A DownloadedSubtitle map, ready for mpv.
     void subtitleDownloaded(const QString &requestKey, const QVariantMap &subtitle);
     void subtitleSearchFailed(const QString &requestKey, const QString &error);

@@ -19,6 +19,7 @@
 #include <QStringList>
 #include <QUuid>
 #include <QCryptographicHash>
+#include <algorithm>
 #include <optional>
 
 namespace {
@@ -133,7 +134,11 @@ PlaybackService::PlaybackService(AuthenticationService *authService,
         }
         connect(m_authService, &AuthenticationService::connectionActivated, this,
                 [this](const QString &) { emit trackPreferenceIdentityChanged(); });
+        connect(m_authService, &AuthenticationService::accountPrivilegesChanged, this,
+                &PlaybackService::subtitleSearchScopeChanged);
     }
+    connect(this, &PlaybackService::trackPreferenceIdentityChanged, this,
+            &PlaybackService::subtitleSearchScopeChanged);
     // A session or profile change cancels the shared transport, which can
     // suppress a write's callbacks; forget the bookkeeping so a later write
     // with the same identity and key is never left waiting behind it.
@@ -1779,6 +1784,21 @@ namespace {
 const QString kSubtitleSearchRequest = QStringLiteral("subtitle-search");
 const QString kSubtitleDownloadFlow = QStringLiteral("subtitle-download");
 
+// What a subtitle stream is, without its index: two streams with the same
+// identity cannot be told apart, so the source holding one more of them is
+// how a download shows up.
+QString downloadedSubtitleIdentity(const QVariantMap &stream)
+{
+    return QStringList{
+        Bloom::PlaybackPolicy::normalizeLanguageCode(stream.value(QStringLiteral("language")).toString()),
+        stream.value(QStringLiteral("isForced")).toBool() ? QStringLiteral("1") : QStringLiteral("0"),
+        stream.value(QStringLiteral("isHearingImpaired")).toBool() ? QStringLiteral("1") : QStringLiteral("0"),
+        stream.value(QStringLiteral("codec")).toString().trimmed().toLower(),
+        stream.value(QStringLiteral("title")).toString().trimmed().toLower(),
+        stream.value(QStringLiteral("path")).toString()}
+        .join(QChar(0x1f));
+}
+
 } // namespace
 
 bool PlaybackService::supportsSubtitleSearch() const
@@ -1794,6 +1814,15 @@ QString PlaybackService::subtitleSearchConnectionId() const
     return activeConnectionId(m_authService, m_configManager);
 }
 
+QString PlaybackService::subtitleSearchScope() const
+{
+    if (!m_authService) {
+        return {};
+    }
+    return subtitleSearchConnectionId() + QChar(0x1f) + m_authService->getUserId() + QChar(0x1f)
+        + m_authService->requestContext().profileId;
+}
+
 void PlaybackService::loadSubtitleSearchStatus(const QString &requestKey)
 {
     if (!supportsSubtitleSearch()) {
@@ -1804,8 +1833,11 @@ void PlaybackService::loadSubtitleSearchStatus(const QString &requestKey)
     const SubtitleSearchRequest request =
         provider->createSubtitleSearchStatusRequest(providerContext());
     if (!request.isValid()) {
-        // No status document: the search is always offered.
-        emit subtitleSearchStatusLoaded(requestKey, true);
+        // No status document: the account's rights decide (Jellyfin's
+        // subtitle management policy, or an administrator). When the server
+        // did not say, the search is offered and the server enforces it.
+        emit subtitleSearchStatusLoaded(requestKey,
+                                        m_authService->accountCanManageSubtitles().value_or(true));
         return;
     }
     sendSubtitleSearchRequest(requestKey, request, [this, requestKey, provider](const QByteArray &body) {
@@ -1842,7 +1874,7 @@ void PlaybackService::searchSubtitles(const QString &requestKey,
         for (const Bloom::SubtitleSearchResult &result : parsed.results) {
             results.append(result.toVariantMap());
         }
-        emit subtitleSearchResultsLoaded(requestKey, results);
+        emit subtitleSearchResultsLoaded(requestKey, results, parsed.warnings);
     });
 }
 
@@ -1925,13 +1957,23 @@ void PlaybackService::readDownloadedSubtitleStream(const QString &requestKey,
             const PlaybackInfoParseResult parsed = provider->parsePlaybackInfoResponse(
                 context, target.media, QJsonDocument::fromJson(body).object());
             // The new subtitle is an external stream of the playing media
-            // source that the player does not list yet; with several, the
-            // one in the downloaded language, newest (highest index) first.
+            // source, in the downloaded language, that the source did not
+            // list before. Streams are compared by what they are: indexes
+            // can shift when the item is refreshed. With several, the
+            // newest (highest index) wins.
             Bloom::DownloadedSubtitle found = downloaded;
             found.sourceIndex = -1;
+            bool replacedExisting = false;
             if (parsed.valid) {
                 const QString language =
                     Bloom::PlaybackPolicy::normalizeLanguageCode(downloaded.language);
+                QHash<QString, int> known;
+                for (const QVariant &streamValue : target.knownSubtitleStreams) {
+                    const QVariantMap stream = streamValue.toMap();
+                    if (stream.value(QStringLiteral("isExternal")).toBool()) {
+                        ++known[downloadedSubtitleIdentity(stream)];
+                    }
+                }
                 const QVariantList sources = parsed.response.getMediaSourcesVariant();
                 for (const QVariant &sourceValue : sources) {
                     const QVariantMap source = sourceValue.toMap();
@@ -1941,27 +1983,57 @@ void PlaybackService::readDownloadedSubtitleStream(const QString &requestKey,
                     }
                     const Bloom::PlaybackDescriptor descriptor = provider->createDescriptor(
                         context, target.media, source, -1, -1, 0, target.playbackSessionId);
-                    bool foundLanguageMatch = false;
+                    QHash<int, Bloom::PlaybackTrack> loadable;
                     for (const Bloom::PlaybackTrack &track : descriptor.subtitleTracks) {
-                        if (!track.isExternal || track.externalUrl.isEmpty() || track.sourceIndex < 0
-                            || target.knownSubtitleIndexes.contains(track.sourceIndex)) {
+                        if (track.isExternal && !track.externalUrl.isEmpty() && track.sourceIndex >= 0) {
+                            loadable.insert(track.sourceIndex, track);
+                        }
+                    }
+                    QHash<QString, int> seen;
+                    QVariantList streams;
+                    for (const QVariant &streamValue :
+                         source.value(QStringLiteral("mediaStreams")).toList()) {
+                        const QVariantMap stream = streamValue.toMap();
+                        if (stream.value(QStringLiteral("type")).toString().compare(
+                                QStringLiteral("Subtitle"), Qt::CaseInsensitive) == 0
+                            && stream.value(QStringLiteral("isExternal")).toBool()) {
+                            streams.append(stream);
+                        }
+                    }
+                    // Lowest index first, so a stream whose identity the
+                    // source already had is matched to the old copy.
+                    std::sort(streams.begin(), streams.end(), [](const QVariant &a, const QVariant &b) {
+                        return a.toMap().value(QStringLiteral("index")).toInt()
+                            < b.toMap().value(QStringLiteral("index")).toInt();
+                    });
+                    for (const QVariant &streamValue : std::as_const(streams)) {
+                        const QVariantMap stream = streamValue.toMap();
+                        const int index = stream.value(QStringLiteral("index"), -1).toInt();
+                        const QString identity = downloadedSubtitleIdentity(stream);
+                        const bool languageMatch = !language.isEmpty()
+                            && Bloom::PlaybackPolicy::normalizeLanguageCode(
+                                   stream.value(QStringLiteral("language")).toString()) == language;
+                        if (++seen[identity] <= known.value(identity)) {
+                            // Listed before. A download saved under the same
+                            // file name replaces it in place.
+                            replacedExisting = replacedExisting || languageMatch;
                             continue;
                         }
-                        const bool languageMatch = !language.isEmpty()
-                            && Bloom::PlaybackPolicy::normalizeLanguageCode(track.language) == language;
-                        if ((languageMatch && !foundLanguageMatch)
-                            || (languageMatch == foundLanguageMatch
-                                && track.sourceIndex > found.sourceIndex)) {
-                            found.sourceIndex = track.sourceIndex;
-                            found.url = track.externalUrl;
-                            if (!track.displayTitle.trimmed().isEmpty()) {
-                                found.title = track.displayTitle;
-                            }
-                            if (!track.language.isEmpty()) {
-                                found.language = track.language;
-                            }
-                            foundLanguageMatch = languageMatch;
+                        if (!languageMatch || !loadable.contains(index) || index <= found.sourceIndex) {
+                            continue;
                         }
+                        const Bloom::PlaybackTrack &track = loadable[index];
+                        found.sourceIndex = index;
+                        found.url = track.externalUrl;
+                        if (!track.displayTitle.trimmed().isEmpty()) {
+                            found.title = track.displayTitle;
+                        }
+                        found.language = stream.value(QStringLiteral("language")).toString();
+                        found.streamTitle = stream.value(QStringLiteral("title")).toString();
+                        found.codec = stream.value(QStringLiteral("codec")).toString();
+                        found.isForced = stream.value(QStringLiteral("isForced")).toBool();
+                        found.isHearingImpaired =
+                            stream.value(QStringLiteral("isHearingImpaired")).toBool();
                     }
                     break;
                 }
@@ -1974,7 +2046,11 @@ void PlaybackService::readDownloadedSubtitleStream(const QString &requestKey,
             if (attempt >= kDownloadedSubtitleReadAttempts) {
                 failSubtitleSearch(
                     requestKey,
-                    tr("The subtitle was downloaded and will be listed the next time this plays."));
+                    replacedExisting
+                        ? tr("The subtitle was downloaded, but the server lists no new subtitle "
+                             "in that language. It may have replaced a subtitle file of the same "
+                             "name; it will be listed the next time this plays.")
+                        : tr("The subtitle was downloaded and will be listed the next time this plays."));
                 return;
             }
             QTimer::singleShot(kDownloadedSubtitleReadIntervalMs, this,

@@ -233,16 +233,35 @@ void TrackPreferencesManagerTest::pickedTrackIdentityRoundTrips()
     ScopedTrackPreferences indexOnly;
     indexOnly.audio.mode = TrackPreferenceMode::ExplicitStream;
     indexOnly.audio.streamIndex = 1;
+    // A downloaded subtitle that is no stream of the source is saved by its
+    // language and kind alone; an explicit pick with nothing at all is none.
+    ScopedTrackPreferences languageOnly;
+    languageOnly.subtitle.mode = TrackPreferenceMode::ExplicitStream;
+    languageOnly.subtitle.preferredLanguage = QStringLiteral("en");
+    languageOnly.subtitle.hearingImpaired = true;
+    ScopedTrackPreferences empty;
+    empty.subtitle.mode = TrackPreferenceMode::ExplicitStream;
     {
         TrackPreferencesManager manager;
         manager.setSeasonPreferences(QStringLiteral("season-ja"), picked);
         manager.setMoviePreferences(QStringLiteral("movie-1"), indexOnly);
+        manager.setSeasonPreferences(QStringLiteral("season-downloaded"), languageOnly);
+        manager.setSeasonPreferences(QStringLiteral("season-empty"), empty);
         manager.save();
     }
 
     TrackPreferencesManager reloaded;
     QCOMPARE(reloaded.getSeasonPreferences(QStringLiteral("season-ja")), picked);
     QCOMPARE(reloaded.getMoviePreferences(QStringLiteral("movie-1")), indexOnly);
+    const TrackSelectionPreference downloaded =
+        reloaded.getSeasonPreferences(QStringLiteral("season-downloaded")).subtitle;
+    QCOMPARE(downloaded.mode, TrackPreferenceMode::ExplicitStream);
+    QCOMPARE(downloaded.streamIndex, -1);
+    QCOMPARE(downloaded.preferredLanguage, QStringLiteral("en"));
+    QVERIFY(downloaded.hearingImpaired);
+    QVERIFY(!downloaded.forcedOnly);
+    QCOMPARE(reloaded.getSeasonPreferences(QStringLiteral("season-empty")).subtitle.mode,
+             TrackPreferenceMode::Unset);
 
     QFile file(TrackPreferencesManager::getPreferencesPath());
     QVERIFY(file.open(QIODevice::ReadOnly));

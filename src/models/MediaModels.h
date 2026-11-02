@@ -181,6 +181,10 @@ struct PlaybackTrack {
     // The current stream cannot select this track; choosing it asks the
     // provider for a new stream that delivers it.
     bool requiresReplan = false;
+    // The server's stored copy of a subtitle downloaded through its subtitle
+    // search (Silo), so a download the player added keeps its menu entry
+    // when a new stream lists it.
+    QString storedSubtitleId;
 
     QVariantMap toVariantMap() const;
 };

@@ -171,9 +171,12 @@ struct SubtitleSearchTarget
     Bloom::MediaRef media;
     QString mediaVersionId;
     QString playbackSessionId;
-    // Subtitle stream indices the player already lists; a subtitle that
-    // appears after a download is one of the others.
-    QList<int> knownSubtitleIndexes;
+    // The playing media source's subtitle streams (canonical maps) before
+    // the download. A Jellyfin download is the external stream in the
+    // downloaded language that this list does not already hold, compared
+    // by what the streams are, since indexes can shift when the item is
+    // refreshed.
+    QVariantList knownSubtitleStreams;
 };
 
 struct SubtitleSearchStatus
@@ -188,6 +191,8 @@ struct SubtitleSearchParseResult
     bool valid = false;
     QString error;
     QList<Bloom::SubtitleSearchResult> results;
+    // Providers that failed while others answered (Silo `warnings`).
+    QStringList warnings;
 };
 
 struct SubtitleDownloadParseResult

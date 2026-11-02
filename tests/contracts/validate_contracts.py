@@ -234,6 +234,12 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
                          "Forced", "MachineTranslated", "AiTranslated")),
         "RemoteSubtitleInfo fields Bloom reads must remain supported",
     )
+    user_policy = schemas.get("UserPolicy", {}).get("properties", {})
+    _require(
+        all(name in user_policy and not user_policy[name].get("deprecated", False)
+            for name in ("IsAdministrator", "EnableSubtitleManagement")),
+        "UserPolicy fields Bloom reads (subtitle search gating) must remain supported",
+    )
     progress_properties = schemas.get("PlaybackProgressInfo", {}).get("properties", {})
     _require(
         "EventName" not in progress_properties,
