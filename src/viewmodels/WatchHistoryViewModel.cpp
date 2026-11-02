@@ -24,6 +24,14 @@ bool isHistoryCard(const QVariantMap &item)
         || mediaType == QStringLiteral("Episode");
 }
 
+// The server rejected the request itself (an expired or foreign cursor
+// answers invalid_cursor, 400), not the session or the network.
+bool isRequestRejected(int httpStatus)
+{
+    return httpStatus >= 400 && httpStatus < 500 && httpStatus != 401 && httpStatus != 403
+        && httpStatus != 408 && httpStatus != 429;
+}
+
 } // namespace
 
 WatchHistoryViewModel::WatchHistoryViewModel(QObject *parent)
@@ -54,6 +62,19 @@ void WatchHistoryViewModel::connectService()
             this, &WatchHistoryViewModel::onHistoryFailed);
     connect(m_libraryService, &LibraryService::homeCardWriteFinished,
             this, &WatchHistoryViewModel::onWriteFinished);
+    connect(m_libraryService, &LibraryService::homeCardWriteUnconfirmed,
+            this, &WatchHistoryViewModel::onWriteUnconfirmed);
+}
+
+QString WatchHistoryViewModel::cardKey(const QVariantMap &item)
+{
+    // A series card and its episodes share the series' ID.
+    const QString seriesId = item.value(QStringLiteral("seriesId")).toString();
+    if (item.value(QStringLiteral("mediaType")).toString() == QStringLiteral("Episode")
+        && !seriesId.isEmpty()) {
+        return seriesId;
+    }
+    return item.value(QStringLiteral("itemId")).toString();
 }
 
 int WatchHistoryViewModel::rowCount(const QModelIndex &parent) const
@@ -114,17 +135,22 @@ void WatchHistoryViewModel::reload()
     m_wanted = 0;
     m_libraryCount = 0;
     m_failedLibraries = 0;
+    m_libraryRounds = 0;
     m_cursor.reset({}, QString(), QString());
     if (!m_items.isEmpty()) {
-        emitModelReset([this]() { m_items.clear(); });
+        emitModelReset([this]() {
+            m_items.clear();
+            m_rowOrder.clear();
+        });
         emit countChanged();
     }
     m_itemIds.clear();
     // A removal in flight keeps its card out of the new list until the
     // server answers.
     for (const PendingRemoval &removal : std::as_const(m_pendingRemovals)) {
-        m_itemIds.insert(removal.item.value(QStringLiteral("itemId")).toString());
+        m_itemIds.insert(cardKey(removal.item));
     }
+    setNeedsReload(false);
     setHasMore(false);
     setLoadingMore(false);
     clearError();
@@ -161,6 +187,7 @@ void WatchHistoryViewModel::loadMore()
     setLoadingMore(true);
     if (m_byLibrary) {
         m_wanted = PageSize;
+        m_libraryRounds = 0;
         pumpLibraries();
     } else {
         m_emptyPages = 0;
@@ -194,11 +221,14 @@ int WatchHistoryViewModel::appendNew(const QVariantList &items)
     QVariantList added;
     for (const QVariant &value : items) {
         const QVariantMap item = value.toMap();
-        const QString itemId = item.value(QStringLiteral("itemId")).toString();
-        if (!isHistoryCard(item) || itemId.isEmpty() || m_itemIds.contains(itemId)) {
+        const QString key = cardKey(item);
+        // Pages come newest first, so the first card of a title is its
+        // latest watch.
+        if (!isHistoryCard(item) || item.value(QStringLiteral("itemId")).toString().isEmpty()
+            || key.isEmpty() || m_itemIds.contains(key)) {
             continue;
         }
-        m_itemIds.insert(itemId);
+        m_itemIds.insert(key);
         added.append(item);
     }
     if (added.isEmpty()) {
@@ -207,6 +237,9 @@ int WatchHistoryViewModel::appendNew(const QVariantList &items)
     const int first = count();
     beginInsertRows(QModelIndex(), first, first + static_cast<int>(added.size()) - 1);
     m_items.append(added);
+    for (qsizetype i = 0; i < added.size(); ++i) {
+        m_rowOrder.append(++m_nextOrder);
+    }
     endInsertRows();
     emit countChanged();
     return static_cast<int>(added.size());
@@ -239,6 +272,7 @@ void WatchHistoryViewModel::onViewsLoaded(const QString &connectionId,
     m_cursor.reset(libraryIds, QStringLiteral("datePlayed"), QStringLiteral("descending"));
     m_libraryCount = static_cast<int>(libraryIds.size());
     m_wanted = PageSize;
+    m_libraryRounds = 0;
     pumpLibraries();
 }
 
@@ -265,14 +299,29 @@ void WatchHistoryViewModel::pumpLibraries()
     m_pumping = true;
     do {
         m_pumpAgain = false;
-        const QVariantList taken = m_cursor.take(m_wanted);
-        m_wanted -= static_cast<int>(taken.size());
-        appendNew(taken);
+        // Cards already shown (another episode of a series) do not count,
+        // so take again until the page is full or a library's next page
+        // is needed.
+        QVariantList taken;
+        do {
+            taken = m_cursor.take(m_wanted);
+            m_wanted -= appendNew(taken);
+        } while (m_wanted > 0 && !taken.isEmpty());
         if (m_wanted <= 0 || m_cursor.finished()) {
             finishPage();
             break;
         }
-        const QStringList needed = m_cursor.librariesNeedingPages();
+        // A long run of one series' episodes reads no further than
+        // MaxLibraryRounds rounds; then the page waits for the viewer.
+        const bool roundsLeft = m_libraryRounds < MaxLibraryRounds;
+        if (!roundsLeft && m_libraryRequests.isEmpty()) {
+            finishPage();
+            break;
+        }
+        const QStringList needed = roundsLeft ? m_cursor.librariesNeedingPages() : QStringList();
+        if (!needed.isEmpty()) {
+            ++m_libraryRounds;
+        }
         QList<std::pair<QString, QString>> requests;
         for (const QString &libraryId : needed) {
             const QString requestKey = nextRequestKey(QStringLiteral("library"));
@@ -331,7 +380,7 @@ void WatchHistoryViewModel::onHistoryLoaded(const QString &connectionId,
 
 void WatchHistoryViewModel::onHistoryFailed(const QString &connectionId,
                                             const QString &requestKey,
-                                            const QString &error)
+                                            const QString &error, int httpStatus)
 {
     if (requestKey.isEmpty() || connectionId != m_connectionId) {
         return;
@@ -347,6 +396,9 @@ void WatchHistoryViewModel::onHistoryFailed(const QString &connectionId,
             failFirstPage(error);
             return;
         }
+        if (!m_firstPagePending) {
+            emit pageFailed(tr("Couldn't load all of your older history."));
+        }
         pumpLibraries();
         return;
     }
@@ -359,8 +411,17 @@ void WatchHistoryViewModel::onHistoryFailed(const QString &connectionId,
         failFirstPage(error);
         return;
     }
+    qCWarning(lcViewModels) << "WatchHistoryViewModel: history page failed:" << httpStatus
+                            << error;
+    if (!m_firstPagePending && !m_nextCursor.isEmpty() && isRequestRejected(httpStatus)) {
+        // The cursor no longer holds (it expired, or the history changed
+        // under it): start over rather than ask for it again.
+        emit pageFailed(tr("Your history changed. Showing it from the top."));
+        reload();
+        return;
+    }
     // Cards already shown stay; the next loadMore() tries again.
-    qCWarning(lcViewModels) << "WatchHistoryViewModel: history page failed:" << error;
+    emit pageFailed(tr("Couldn't load more of your history."));
     finishPage();
 }
 
@@ -458,12 +519,14 @@ bool WatchHistoryViewModel::trigger(const QString &actionId, const QVariantMap &
         }
     }
     const QVariantMap shown = m_items.at(row).toMap();
+    const quint64 order = m_rowOrder.at(row);
     beginRemoveRows(QModelIndex(), row, row);
     m_items.removeAt(row);
+    m_rowOrder.removeAt(row);
     endRemoveRows();
     emit countChanged();
     const QString requestKey = nextRequestKey(QStringLiteral("remove"));
-    m_pendingRemovals.insert(requestKey, PendingRemoval{shown, row, m_serial});
+    m_pendingRemovals.insert(requestKey, PendingRemoval{shown, order, m_serial});
     // May answer synchronously.
     m_libraryService->removeFromWatchHistory(requestKey, itemId);
     return true;
@@ -483,25 +546,56 @@ void WatchHistoryViewModel::onWriteFinished(const QString &connectionId,
     if (success) {
         return;
     }
-    const QString itemId = removal.item.value(QStringLiteral("itemId")).toString();
     qCWarning(lcViewModels) << "WatchHistoryViewModel: removal failed:" << error;
     if (removal.serial == m_serial && connectionId == m_connectionId) {
-        // Back in its place, or as near as the list now allows.
-        insertRow(std::min(removal.row, count()), removal.item);
+        // Back in its place: before the first card that came after it,
+        // whatever else was removed or put back meanwhile.
+        const auto at = std::upper_bound(m_rowOrder.cbegin(), m_rowOrder.cend(), removal.order);
+        insertRow(static_cast<int>(at - m_rowOrder.cbegin()), removal.item, removal.order);
     } else {
         // A newer load left the card out; the next one shows it again.
-        m_itemIds.remove(itemId);
+        m_itemIds.remove(cardKey(removal.item));
     }
     emit actionFailed(tr("Couldn't remove %1 from your history.")
                           .arg(removal.item.value(QStringLiteral("name")).toString()));
 }
 
-void WatchHistoryViewModel::insertRow(int row, const QVariantMap &item)
+void WatchHistoryViewModel::onWriteUnconfirmed(const QString &connectionId,
+                                               const QString &requestKey)
+{
+    const auto pending = m_pendingRemovals.constFind(requestKey);
+    if (pending == m_pendingRemovals.cend()
+        || pending->item.value(QStringLiteral("connectionId")).toString() != connectionId) {
+        return;
+    }
+    // The session changed before the server answered: the removal may
+    // have happened. The card stays out, and the page reads the server's
+    // list again when it is shown next. homeCardWriteFinished follows and
+    // finds nothing pending.
+    const QVariantMap item = pending->item;
+    m_pendingRemovals.erase(pending);
+    setNeedsReload(true);
+    emit actionFailed(tr("Bloom couldn't confirm that %1 left your history. "
+                         "The page reloads when you come back to it.")
+                          .arg(item.value(QStringLiteral("name")).toString()));
+}
+
+void WatchHistoryViewModel::insertRow(int row, const QVariantMap &item, quint64 order)
 {
     beginInsertRows(QModelIndex(), row, row);
     m_items.insert(row, item);
+    m_rowOrder.insert(row, order);
     endInsertRows();
     emit countChanged();
+}
+
+void WatchHistoryViewModel::setNeedsReload(bool needsReload)
+{
+    if (m_needsReload == needsReload) {
+        return;
+    }
+    m_needsReload = needsReload;
+    emit needsReloadChanged();
 }
 
 void WatchHistoryViewModel::setHasMore(bool hasMore)

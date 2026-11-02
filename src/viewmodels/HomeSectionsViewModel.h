@@ -22,8 +22,10 @@ class LibraryService;
  * - `refresh()` loads in the background (`isLoading`). A failure sets
  *   `hasError`/`errorMessage` and keeps the rows already shown.
  * - Answers for another connection than the newest request are ignored.
- * - A refresh that keeps the same rows in the same order updates their
- *   titles and items in place, so the shelves keep their delegates.
+ * - A refresh updates rows in place: rows it keeps (in the same order)
+ *   change their titles and items, new rows are inserted and gone rows
+ *   removed, so the other shelves keep their delegates and focus. Only a
+ *   reorder resets the model.
  * - A successful watchlist or Not interested change refreshes rows already
  *   loaded, and so does a favorite change when the provider has the
  *   Favorites row.
@@ -34,6 +36,8 @@ class LibraryService;
  *   it; other refreshes (a favorite or watchlist change) reuse them.
  * - Silo's Watch Tonight row (LibraryService::WatchTonightRowId) comes
  *   first when the setting is on and the server has picks for the profile.
+ *   It may arrive after the other rows (canonicalHomeSectionsUpdated) and
+ *   is then inserted above them.
  *
  * Merged spaces show no curated rows: Home calls `clear()` instead.
  */
@@ -80,6 +84,7 @@ public:
 private slots:
     void onSectionsLoaded(const QString &connectionId, const QVariantList &sections);
     void onSectionsFailed(const QString &connectionId, const QString &error);
+    void onSectionsUpdated(const QString &connectionId, const QVariantList &sections);
     void onWatchlistStatusChanged(const QString &itemId, bool inWatchlist);
     void onFavoriteStatusChanged(const QString &itemId, bool isFavorite);
 

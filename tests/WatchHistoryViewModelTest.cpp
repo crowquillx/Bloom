@@ -68,16 +68,28 @@ public:
     {
         answerPage(pageRequests.last(), items, int(items.size()), hasMore, nextCursor);
     }
-    void failPage(const PageRequest &request)
+    void failPage(const PageRequest &request, int httpStatus = 500)
     {
         emit canonicalWatchHistoryFailed(connectionId, request.requestKey,
-                                         QStringLiteral("Server error"));
+                                         QStringLiteral("Server error"), httpStatus);
     }
     void answerRemove(bool succeeded, const QString &forConnection = QString())
     {
+        answerRemoveAt(removeRequests.size() - 1, succeeded, forConnection);
+    }
+    void answerRemoveAt(qsizetype index, bool succeeded, const QString &forConnection = QString())
+    {
         emit homeCardWriteFinished(forConnection.isEmpty() ? connectionId : forConnection,
-                                   removeRequests.last().requestKey, succeeded,
+                                   removeRequests.at(index).requestKey, succeeded,
                                    succeeded ? QString() : QStringLiteral("Refused"));
+    }
+    // The session changed before the server answered (LibraryService's
+    // failStaleHomeCardWrites).
+    void dropRemove()
+    {
+        emit homeCardWriteUnconfirmed(connectionId, removeRequests.last().requestKey);
+        emit homeCardWriteFinished(connectionId, removeRequests.last().requestKey, false,
+                                   QStringLiteral("The connection changed"));
     }
     PageRequest requestFor(const QString &libraryId) const
     {
@@ -110,6 +122,13 @@ QVariantMap card(const QString &itemId, const QString &mediaType,
         item.insert(QStringLiteral("userState"),
                     QVariantMap{{QStringLiteral("lastPlayedAt"), lastPlayedAt}});
     }
+    return item;
+}
+
+QVariantMap episode(const QString &itemId, const QString &seriesId, const QString &lastPlayedAt)
+{
+    QVariantMap item = card(itemId, QStringLiteral("Episode"), lastPlayedAt);
+    item.insert(QStringLiteral("seriesId"), seriesId);
     return item;
 }
 
@@ -156,6 +175,11 @@ private slots:
     void removalIsOptimisticAndRollsBack();
     void removalNeedsTheLiveConnection();
     void actionsFollowTheProvider();
+    void overlappingRefusalsRestoreTheOrder();
+    void sessionChangeLeavesRemovalUnconfirmed();
+    void laterPageFailuresTellAndRejectedCursorsStartOver();
+    void libraryEpisodesShowOncePerSeries();
+    void libraryRunsOfOneSeriesWaitForTheViewer();
 };
 
 void WatchHistoryViewModelTest::streamPagesByCursorAndKeepsVideoCards()
@@ -322,6 +346,25 @@ void WatchHistoryViewModelTest::librariesMergeByLastPlay()
                        3, false);
     QCOMPARE(shownIds(model), (QStringList{QStringLiteral("m1"), QStringLiteral("e1"),
                                            QStringLiteral("m2"), QStringLiteral("m3")}));
+    QVERIFY(!model.isLoading());
+    QVERIFY(!model.hasMore());
+
+    // The libraries answering the other way round merge the same.
+    model.load();
+    service.answerViews({library(QStringLiteral("movies"), QStringLiteral("movies")),
+                         library(QStringLiteral("shows"), QStringLiteral("tvshows"))});
+    const ScriptedLibraryService::PageRequest movies = service.requestFor(QStringLiteral("movies"));
+    service.answerPage(service.requestFor(QStringLiteral("shows")),
+                       {card(QStringLiteral("e1"), QStringLiteral("Episode"), QStringLiteral("2026-10-15T20:00:00Z"))},
+                       1, false);
+    QCOMPARE(model.count(), 0);
+    QVERIFY(model.isLoading());
+    service.answerPage(movies,
+                       {card(QStringLiteral("m1"), QStringLiteral("Movie"), QStringLiteral("2026-10-31T20:00:00Z")),
+                        card(QStringLiteral("m2"), QStringLiteral("Movie"), QStringLiteral("2026-10-01T20:00:00Z"))},
+                       2, false);
+    QCOMPARE(shownIds(model), (QStringList{QStringLiteral("m1"), QStringLiteral("e1"),
+                                           QStringLiteral("m2")}));
     QVERIFY(!model.isLoading());
     QVERIFY(!model.hasMore());
 }
@@ -531,6 +574,214 @@ void WatchHistoryViewModelTest::actionsFollowTheProvider()
     QCOMPARE(actions.size(), 1);
     QVERIFY(actionById(actions, QStringLiteral("remove")).isEmpty());
     QVERIFY(!model.trigger(QStringLiteral("remove"), card(QStringLiteral("m"), QStringLiteral("Movie"))));
+}
+
+void WatchHistoryViewModelTest::overlappingRefusalsRestoreTheOrder()
+{
+    ScriptedLibraryService service;
+    WatchHistoryViewModel model(&service);
+    const QStringList all{QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c"),
+                          QStringLiteral("d")};
+    const auto loadAll = [&]() {
+        model.load();
+        QVariantList cards;
+        for (const QString &id : all) {
+            cards.append(card(id, QStringLiteral("Movie")));
+        }
+        service.answerLast(cards, false);
+        QCOMPARE(shownIds(model), all);
+    };
+
+    // b, then c, are removed before either answers; both refused, in
+    // either order, come back where they were.
+    for (const bool bFirst : {true, false}) {
+        loadAll();
+        const qsizetype first = service.removeRequests.size();
+        QVERIFY(model.trigger(QStringLiteral("remove"), model.get(1)));
+        QVERIFY(model.trigger(QStringLiteral("remove"), model.get(1)));
+        QCOMPARE(shownIds(model), (QStringList{QStringLiteral("a"), QStringLiteral("d")}));
+        service.answerRemoveAt(bFirst ? first : first + 1, false);
+        service.answerRemoveAt(bFirst ? first + 1 : first, false);
+        QCOMPARE(shownIds(model), all);
+    }
+
+    // With other cards gone meanwhile, a refused one still goes back
+    // between its neighbours.
+    loadAll();
+    const qsizetype first = service.removeRequests.size();
+    QVERIFY(model.trigger(QStringLiteral("remove"), model.get(1)));
+    QVERIFY(model.trigger(QStringLiteral("remove"), model.get(0)));
+    QVERIFY(model.trigger(QStringLiteral("remove"), model.get(1)));
+    QCOMPARE(shownIds(model), QStringList{QStringLiteral("c")});
+    service.answerRemoveAt(first + 1, true);
+    service.answerRemoveAt(first + 2, false);
+    service.answerRemoveAt(first, false);
+    QCOMPARE(shownIds(model), (QStringList{QStringLiteral("b"), QStringLiteral("c"),
+                                           QStringLiteral("d")}));
+}
+
+void WatchHistoryViewModelTest::sessionChangeLeavesRemovalUnconfirmed()
+{
+    ScriptedLibraryService service;
+    WatchHistoryViewModel model(&service);
+    model.load();
+    service.answerLast({card(QStringLiteral("a"), QStringLiteral("Movie")),
+                        card(QStringLiteral("b"), QStringLiteral("Movie"))},
+                       false);
+    QSignalSpy failed(&model, &WatchHistoryViewModel::actionFailed);
+    QSignalSpy needsReload(&model, &WatchHistoryViewModel::needsReloadChanged);
+    QVERIFY(!model.needsReload());
+
+    // The removal may have landed: the card stays out, the viewer is told
+    // it is unconfirmed, and the page asks to load again.
+    QVERIFY(model.trigger(QStringLiteral("remove"), model.get(0)));
+    service.dropRemove();
+    QCOMPARE(shownIds(model), QStringList{QStringLiteral("b")});
+    QCOMPARE(failed.count(), 1);
+    QVERIFY(failed.first().at(0).toString().contains(QStringLiteral("confirm")));
+    QVERIFY(model.needsReload());
+    QCOMPARE(needsReload.count(), 1);
+    // The failure that follows finds nothing pending.
+    QCOMPARE(model.count(), 1);
+
+    // Loading again reads the server's list and clears the request.
+    model.reload();
+    QVERIFY(!model.needsReload());
+    service.answerLast({card(QStringLiteral("a"), QStringLiteral("Movie")),
+                        card(QStringLiteral("b"), QStringLiteral("Movie"))},
+                       false);
+    QCOMPARE(shownIds(model), (QStringList{QStringLiteral("a"), QStringLiteral("b")}));
+}
+
+void WatchHistoryViewModelTest::laterPageFailuresTellAndRejectedCursorsStartOver()
+{
+    ScriptedLibraryService service;
+    WatchHistoryViewModel model(&service);
+    QSignalSpy pageFailed(&model, &WatchHistoryViewModel::pageFailed);
+
+    // A failed first page is the page's error, not a toast.
+    model.load();
+    service.failPage(service.pageRequests.last());
+    QVERIFY(model.hasError());
+    QCOMPARE(pageFailed.count(), 0);
+
+    // A later page that fails keeps the cards and says so.
+    model.reload();
+    service.answerLast({card(QStringLiteral("a"), QStringLiteral("Movie"))}, true,
+                       QStringLiteral("c1"));
+    model.loadMore();
+    service.failPage(service.pageRequests.last(), 503);
+    QCOMPARE(pageFailed.count(), 1);
+    QCOMPARE(shownIds(model), QStringList{QStringLiteral("a")});
+    QVERIFY(model.hasMore());
+
+    // A cursor the server rejects starts the list over from the top.
+    model.loadMore();
+    QCOMPARE(service.pageRequests.last().cursor, QStringLiteral("c1"));
+    service.failPage(service.pageRequests.last(), 400);
+    QCOMPARE(pageFailed.count(), 2);
+    QCOMPARE(model.count(), 0);
+    QVERIFY(model.isLoading());
+    QCOMPARE(service.pageRequests.last().cursor, QString());
+    service.answerLast({card(QStringLiteral("new"), QStringLiteral("Movie")),
+                        card(QStringLiteral("a"), QStringLiteral("Movie"))},
+                       false);
+    QCOMPARE(shownIds(model), (QStringList{QStringLiteral("new"), QStringLiteral("a")}));
+
+    // A failed library on a later page says so too.
+    service.byLibrary = true;
+    model.load();
+    service.answerViews({library(QStringLiteral("movies"), QStringLiteral("movies")),
+                         library(QStringLiteral("shows"), QStringLiteral("tvshows"))});
+    QVariantList movies;
+    for (int i = 0; i < WatchHistoryViewModel::PageSize; ++i) {
+        movies.append(card(QStringLiteral("m%1").arg(i), QStringLiteral("Movie"),
+                           QStringLiteral("2026-10-31T20:00:00Z")));
+    }
+    QVariantList shows;
+    for (int i = 0; i < WatchHistoryViewModel::PageSize; ++i) {
+        shows.append(card(QStringLiteral("e%1").arg(i), QStringLiteral("Episode"),
+                          QStringLiteral("2026-10-01T20:00:00Z")));
+    }
+    service.answerPage(service.requestFor(QStringLiteral("movies")), movies, 200, true);
+    service.answerPage(service.requestFor(QStringLiteral("shows")), shows, 200, true);
+    QCOMPARE(model.count(), WatchHistoryViewModel::PageSize);
+    model.loadMore();
+    service.failPage(service.requestFor(QStringLiteral("movies")));
+    QCOMPARE(pageFailed.count(), 3);
+}
+
+void WatchHistoryViewModelTest::libraryEpisodesShowOncePerSeries()
+{
+    ScriptedLibraryService service;
+    service.byLibrary = true;
+    WatchHistoryViewModel model(&service);
+
+    // Jellyfin lists episodes; one card per series, its newest watch, as
+    // Silo's series cards.
+    model.load();
+    service.answerViews({library(QStringLiteral("shows"), QStringLiteral("tvshows"))});
+    service.answerPage(service.pageRequests.last(),
+                       {episode(QStringLiteral("s1e3"), QStringLiteral("s1"), QStringLiteral("2026-10-31T20:00:00Z")),
+                        episode(QStringLiteral("s2e5"), QStringLiteral("s2"), QStringLiteral("2026-10-30T20:00:00Z")),
+                        episode(QStringLiteral("s1e2"), QStringLiteral("s1"), QStringLiteral("2026-10-29T20:00:00Z")),
+                        card(QStringLiteral("loose"), QStringLiteral("Episode"), QStringLiteral("2026-10-28T20:00:00Z"))},
+                       4, false);
+    QCOMPARE(shownIds(model), (QStringList{QStringLiteral("s1e3"), QStringLiteral("s2e5"),
+                                           QStringLiteral("loose")}));
+    QVERIFY(!model.hasMore());
+
+    // A series' episodes on the next page of the same library stay out too,
+    // and the page reads on until it is full.
+    model.load();
+    service.answerViews({library(QStringLiteral("shows"), QStringLiteral("tvshows"))});
+    QVariantList page;
+    for (int i = 0; i < WatchHistoryViewModel::PageSize; ++i) {
+        page.append(episode(QStringLiteral("a%1").arg(i), QStringLiteral("s1"),
+                            QStringLiteral("2026-10-31T20:00:00Z")));
+    }
+    service.answerPage(service.pageRequests.last(), page, 61, true);
+    QCOMPARE(model.count(), 1);
+    QVERIFY(model.isLoading());
+    QCOMPARE(service.pageRequests.last().startIndex, WatchHistoryViewModel::PageSize);
+    service.answerPage(service.pageRequests.last(),
+                       {episode(QStringLiteral("b0"), QStringLiteral("s2"), QStringLiteral("2026-10-01T20:00:00Z"))},
+                       61, false);
+    QCOMPARE(shownIds(model), (QStringList{QStringLiteral("a0"), QStringLiteral("b0")}));
+    QVERIFY(!model.isLoading());
+    QVERIFY(!model.hasMore());
+}
+
+void WatchHistoryViewModelTest::libraryRunsOfOneSeriesWaitForTheViewer()
+{
+    ScriptedLibraryService service;
+    service.byLibrary = true;
+    WatchHistoryViewModel model(&service);
+
+    const auto oneSeriesPage = [](int from) {
+        QVariantList page;
+        for (int i = 0; i < WatchHistoryViewModel::PageSize; ++i) {
+            page.append(episode(QStringLiteral("e%1").arg(from + i), QStringLiteral("s1"),
+                                QStringLiteral("2026-10-01T20:00:00Z")));
+        }
+        return page;
+    };
+    model.load();
+    service.answerViews({library(QStringLiteral("shows"), QStringLiteral("tvshows"))});
+    for (int round = 0; round < WatchHistoryViewModel::MaxLibraryRounds; ++round) {
+        QVERIFY(model.isLoading());
+        service.answerPage(service.pageRequests.last(),
+                           oneSeriesPage(round * WatchHistoryViewModel::PageSize), 5000, true);
+    }
+    // MaxLibraryRounds reads, one card: the page waits for loadMore().
+    QCOMPARE(service.pageRequests.size(), WatchHistoryViewModel::MaxLibraryRounds);
+    QVERIFY(!model.isLoading());
+    QCOMPARE(model.count(), 1);
+    QVERIFY(model.hasMore());
+    model.loadMore();
+    QCOMPARE(service.pageRequests.size(), WatchHistoryViewModel::MaxLibraryRounds + 1);
+    QCOMPARE(service.pageRequests.last().startIndex,
+             WatchHistoryViewModel::MaxLibraryRounds * WatchHistoryViewModel::PageSize);
 }
 
 QTEST_MAIN(WatchHistoryViewModelTest)

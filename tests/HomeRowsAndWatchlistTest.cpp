@@ -79,6 +79,10 @@ public:
     {
         emit canonicalHomeSectionsLoaded(forConnection, rows);
     }
+    void updateRows(const QString &forConnection, const QVariantList &rows)
+    {
+        emit canonicalHomeSectionsUpdated(forConnection, rows);
+    }
     void failRows(const QString &forConnection, const QString &error)
     {
         emit canonicalHomeSectionsFailed(forConnection, error);
@@ -241,6 +245,7 @@ private slots:
     void homeRowsReloadRecommendationsOnlyWhenAsked();
     void homeRowsDropRecommendationRowsAtOnce();
     void homeRowsDropWatchTonightRowAtOnce();
+    void homeRowsInsertLateWatchTonightRowInPlace();
     void homeRowsRestoreFocusToNearestRow();
 
     void movieWatchlistToggleIsOptimisticAndRollsBack();
@@ -342,7 +347,7 @@ void HomeRowsAndWatchlistTest::homeRowsUpdateInPlaceWhenRowsAreUnchanged()
     QCOMPARE(changed.count(), 1);
     QCOMPARE(changed.first().at(0).value<QModelIndex>().row(), 1);
 
-    // New or reordered rows reset the model.
+    // Reordered rows reset the model.
     model.refresh();
     m_service->loadRows(QStringLiteral("connection-1"), {
         row(QStringLiteral("b"), QStringLiteral("B"), {card(QStringLiteral("3"), QStringLiteral("Movie"))}),
@@ -643,6 +648,54 @@ void HomeRowsAndWatchlistTest::homeRowsDropWatchTonightRowAtOnce()
     QCOMPARE(reset.count(), 0);
     model.removeWatchTonightRow();
     QCOMPARE(removed.count(), 1);
+}
+
+void HomeRowsAndWatchlistTest::homeRowsInsertLateWatchTonightRowInPlace()
+{
+    HomeSectionsViewModel model(m_service);
+    const QVariant forYou = row(QStringLiteral("for-you"), QStringLiteral("For You"),
+                                {card(QStringLiteral("movie-b"), QStringLiteral("Movie"))});
+    const QVariant classics = row(QStringLiteral("classics"), QStringLiteral("Classics"),
+                                  {card(QStringLiteral("movie-c"), QStringLiteral("Movie"))});
+    const QVariant watchTonight = row(LibraryService::WatchTonightRowId, QStringLiteral("Watch Tonight"),
+                                      {card(QStringLiteral("movie-a"), QStringLiteral("Movie"))});
+
+    // Updates for rows nobody loaded are ignored.
+    m_service->updateRows(QStringLiteral("connection-1"), {watchTonight, forYou});
+    QCOMPARE(model.rowCount(), 0);
+
+    model.refresh();
+    m_service->loadRows(QStringLiteral("connection-1"), {forYou, classics});
+    QSignalSpy reset(&model, &QAbstractItemModel::modelReset);
+    QSignalSpy inserted(&model, &QAbstractItemModel::rowsInserted);
+    QSignalSpy removed(&model, &QAbstractItemModel::rowsRemoved);
+
+    // The Watch Tonight answer lands after the layout: inserted above the
+    // other rows, which keep their delegates (and focus).
+    m_service->updateRows(QStringLiteral("connection-1"), {watchTonight, forYou, classics});
+    QCOMPARE(sectionIds(model), (QStringList{LibraryService::WatchTonightRowId,
+                                             QStringLiteral("for-you"), QStringLiteral("classics")}));
+    QCOMPARE(inserted.count(), 1);
+    QCOMPARE(inserted.first().at(1).toInt(), 0);
+    QCOMPARE(reset.count(), 0);
+
+    // Another connection's update, or one while a refresh is pending, is
+    // not applied.
+    m_service->updateRows(QStringLiteral("connection-2"), {forYou});
+    model.refresh();
+    m_service->updateRows(QStringLiteral("connection-1"), {forYou});
+    QCOMPARE(model.rowCount(), 3);
+
+    // A refresh that drops one row and adds another changes only those.
+    m_service->loadRows(QStringLiteral("connection-1"),
+                        {forYou, row(QStringLiteral("new"), QStringLiteral("New"),
+                                     {card(QStringLiteral("movie-d"), QStringLiteral("Movie"))}),
+                         classics});
+    QCOMPARE(sectionIds(model), (QStringList{QStringLiteral("for-you"), QStringLiteral("new"),
+                                             QStringLiteral("classics")}));
+    QCOMPARE(removed.count(), 1);
+    QCOMPARE(inserted.count(), 2);
+    QCOMPARE(reset.count(), 0);
 }
 
 void HomeRowsAndWatchlistTest::homeRowsRestoreFocusToNearestRow()

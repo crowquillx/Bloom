@@ -915,7 +915,7 @@ void ProviderCatalogTest::jellyfinWatchHistoryReadsOneLibraryByLastPlay()
     QCOMPARE(parameters.queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("ParentId")), QStringLiteral("lib-movies"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("IsPlayed")), QStringLiteral("true"));
-    QCOMPARE(parameters.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Movie,Episode"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Episode,Movie"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("SortBy")), QStringLiteral("DatePlayed,SortName"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("SortOrder")), QStringLiteral("Descending,Ascending"));

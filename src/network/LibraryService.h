@@ -306,7 +306,12 @@ public:
     // answered last. Providers without ProviderCapability::HomeSections
     // answer no other rows. A failed read leaves the others; only when
     // every read fails and no row is left does it fail. A newer call
-    // supersedes an older one.
+    // supersedes an older one. Providers with ProviderCapability::WatchTonight
+    // (Silo) put the Watch Tonight row first when
+    // ConfigManager::homeWatchTonightEnabled is on. It is read once per
+    // connection and user, and again only when reloadRecommendations asks;
+    // the layout does not wait for it: an answer that lands after the rows
+    // were published publishes them again with canonicalHomeSectionsUpdated.
     Q_INVOKABLE virtual void getHomeSections(const QStringList &movieLibraryIds = {},
                                              bool reloadRecommendations = false);
     // Whether Home can show the Favorites row for the active provider (it
@@ -376,8 +381,9 @@ public:
     // Hides itemId's watches from the history; a series takes its episodes
     // with it. Silo also counts them as unwatched again and drops their
     // resume points, so itemPlayedStatusChanged(itemId, false) follows a
-    // success. Answers once with homeCardWriteFinished(requestKey), like
-    // the Home card writes, also when the session changes first.
+    // success, with watchHistoryItemRemoved. Answers once with
+    // homeCardWriteFinished(requestKey), like the Home card writes, also
+    // when the session changes first.
     virtual void removeFromWatchHistory(const QString &requestKey, const QString &itemId);
     // Whether Home can show the Watch Tonight row for the live provider
     // (ProviderCapability::WatchTonight, Silo), whatever the setting.
@@ -545,8 +551,14 @@ signals:
                                const QString &requestKey,
                                bool succeeded,
                                const QString &error);
+    // Comes just before homeCardWriteFinished(requestKey, false) when the
+    // session changed before the server answered: the write may or may not
+    // have landed.
+    void homeCardWriteUnconfirmed(const QString &connectionId, const QString &requestKey);
     void canonicalHomeSectionsLoaded(const QString &connectionId, const QVariantList &sections);
     void canonicalHomeSectionsFailed(const QString &connectionId, const QString &error);
+    // The rows of the newest getHomeSections changed after it answered.
+    void canonicalHomeSectionsUpdated(const QString &connectionId, const QVariantList &sections);
     void canonicalLibrarySectionsLoaded(const QString &connectionId,
                                         const QString &libraryId,
                                         const QVariantList &sections);
@@ -600,7 +612,11 @@ signals:
                                      const QString &nextCursor);
     void canonicalWatchHistoryFailed(const QString &connectionId,
                                      const QString &requestKey,
-                                     const QString &error);
+                                     const QString &error,
+                                     int httpStatus);
+    // A removal from the history succeeded; watched state and resume
+    // points under itemId changed with it.
+    void watchHistoryItemRemoved(const QString &connectionId, const QString &itemId);
     void canonicalPeopleSearchLoaded(const QString &connectionId,
                                      const QString &searchTerm,
                                      const QVariantList &people);
@@ -710,11 +726,20 @@ private:
     // is positive.
     void readHomeSections(const QString &connectionId, quint64 generation, int itemLimitMax,
                           const HomeRowsRequest &request, HomeRowsDone done);
-    // The Watch Tonight row ({sectionId, title, items}), or an empty map
-    // when the server answers no picks, only a generic fallback (is_cold),
-    // or fails.
-    void readWatchTonightRow(const QString &connectionId, quint64 generation,
-                             std::function<void(const QVariantMap &row)> done);
+    // Reads the Watch Tonight row ({sectionId, title, items}) into
+    // m_watchTonightRows: an empty map when the server answers no picks or
+    // only a generic fallback (is_cold); a failed read keeps the row known
+    // before. Publishes the Home rows again once it lands.
+    void readWatchTonightRow(const QString &connectionId);
+    // Publishes m_siloHomeLayout with the Watch Tonight row, once the
+    // layout read finished, for the newest getHomeSections only.
+    void publishSiloHomeRows();
+    bool homeWatchTonightEnabled() const;
+    // Connection and user: the Home caches' key.
+    QString homeCacheKey(const QString &connectionId) const;
+    // canonicalHomeSectionsLoaded for a request's first publish,
+    // canonicalHomeSectionsUpdated for a later one.
+    void emitHomeRows(const QString &connectionId, quint64 generation, const QVariantList &rows);
     void readLibrarySections(const QString &connectionId, const QString &libraryId,
                              quint64 generation, int itemLimitMax);
     // The provider query for a library query, without paging cursors.
@@ -747,6 +772,30 @@ private:
     quint64 m_requestGeneration = 0;
     quint64 m_heroRequestGeneration = 0;
     quint64 m_homeSectionsGeneration = 0;
+    // The newest getHomeSections that has published (loaded or failed).
+    quint64 m_homeRowsPublishedGeneration = 0;
+    // The Silo layout of the newest getHomeSections, kept so a late Watch
+    // Tonight answer can publish the rows again.
+    struct SiloHomeLayout {
+        QString connectionId;
+        quint64 generation = 0;
+        HomeRowsRequest request;
+        QVariantList rows;
+        QString error;
+        bool failed = false;
+        bool done = false;
+    };
+    SiloHomeLayout m_siloHomeLayout;
+    // The Watch Tonight row per connection and user (homeCacheKey; an empty
+    // map: no row), and the read in flight with the request generation it
+    // was sent in (a read from an older one was cancelled).
+    QHash<QString, QVariantMap> m_watchTonightRows;
+    struct WatchTonightRead {
+        QString key;
+        quint64 requestGeneration = 0;
+    };
+    WatchTonightRead m_watchTonightRead;
+    quint64 m_watchTonightReadGeneration = 0;
     // Newest Next Up refresh; an older one must not publish after it.
     quint64 m_nextUpGeneration = 0;
     /// Per connection, the largest per-row card cap its Home layout read

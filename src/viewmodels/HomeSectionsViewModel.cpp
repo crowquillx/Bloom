@@ -6,6 +6,8 @@
 #include "../network/LibraryService.h"
 #include "../utils/BloomLogging.h"
 
+#include <QSet>
+
 #include <algorithm>
 
 HomeSectionsViewModel::HomeSectionsViewModel(QObject *parent)
@@ -30,6 +32,8 @@ void HomeSectionsViewModel::connectService()
             this, &HomeSectionsViewModel::onSectionsLoaded);
     connect(m_libraryService, &LibraryService::canonicalHomeSectionsFailed,
             this, &HomeSectionsViewModel::onSectionsFailed);
+    connect(m_libraryService, &LibraryService::canonicalHomeSectionsUpdated,
+            this, &HomeSectionsViewModel::onSectionsUpdated);
     connect(m_libraryService, &LibraryService::watchlistStatusChanged,
             this, &HomeSectionsViewModel::onWatchlistStatusChanged);
     connect(m_libraryService, &LibraryService::favoriteStatusChanged,
@@ -197,6 +201,17 @@ void HomeSectionsViewModel::onSectionsFailed(const QString &connectionId, const 
     setLoading(false);
 }
 
+void HomeSectionsViewModel::onSectionsUpdated(const QString &connectionId,
+                                              const QVariantList &sections)
+{
+    // Only the rows shown for this connection; a newer refresh in flight
+    // answers for itself.
+    if (m_requestPending || connectionId.isEmpty() || connectionId != m_connectionId) {
+        return;
+    }
+    applyRows(sections);
+}
+
 void HomeSectionsViewModel::onWatchlistStatusChanged(const QString &itemId, bool inWatchlist)
 {
     Q_UNUSED(itemId)
@@ -241,15 +256,55 @@ QString HomeSectionsViewModel::sectionIdOf(const QVariant &row)
 
 void HomeSectionsViewModel::applyRows(const QVariantList &rows)
 {
-    bool sameRows = rows.size() == m_rows.size();
-    for (qsizetype i = 0; sameRows && i < rows.size(); ++i) {
-        sameRows = sectionIdOf(rows.at(i)) == sectionIdOf(m_rows.at(i));
+    QStringList oldIds;
+    for (const QVariant &row : std::as_const(m_rows)) {
+        oldIds.append(sectionIdOf(row));
     }
-    if (!sameRows) {
+    QStringList newIds;
+    for (const QVariant &row : rows) {
+        newIds.append(sectionIdOf(row));
+    }
+    // Rows kept must keep their order and IDs must be unique; otherwise
+    // the shelves are rebuilt.
+    const auto unique = [](const QStringList &ids) {
+        return QSet<QString>(ids.cbegin(), ids.cend()).size() == ids.size();
+    };
+    QStringList keptOld;
+    for (const QString &id : std::as_const(oldIds)) {
+        if (newIds.contains(id)) {
+            keptOld.append(id);
+        }
+    }
+    QStringList keptNew;
+    for (const QString &id : std::as_const(newIds)) {
+        if (oldIds.contains(id)) {
+            keptNew.append(id);
+        }
+    }
+    if (m_rows.isEmpty() || !unique(oldIds) || !unique(newIds) || keptOld != keptNew) {
+        if (m_rows.isEmpty() && rows.isEmpty()) {
+            return;
+        }
         emitModelReset([this, &rows]() { m_rows = rows; });
         return;
     }
+    // Rows that are gone, from the end so the rows above keep their place.
+    for (qsizetype i = m_rows.size() - 1; i >= 0; --i) {
+        if (!newIds.contains(oldIds.at(i))) {
+            beginRemoveRows({}, static_cast<int>(i), static_cast<int>(i));
+            m_rows.removeAt(i);
+            endRemoveRows();
+        }
+    }
+    // Now m_rows is newIds' kept rows in order: insert the new ones and
+    // update the kept ones where they changed.
     for (qsizetype i = 0; i < rows.size(); ++i) {
+        if (i >= m_rows.size() || sectionIdOf(m_rows.at(i)) != newIds.at(i)) {
+            beginInsertRows({}, static_cast<int>(i), static_cast<int>(i));
+            m_rows.insert(i, rows.at(i));
+            endInsertRows();
+            continue;
+        }
         if (rows.at(i) == m_rows.at(i)) {
             continue;
         }

@@ -1913,6 +1913,9 @@ void LibraryService::failStaleHomeCardWrites()
         it = m_homeCardWrites.erase(it);
     }
     for (const auto &[requestKey, connectionId] : std::as_const(stale)) {
+        // The write may still have landed; callers that cannot simply undo
+        // tell the viewer so.
+        emit homeCardWriteUnconfirmed(connectionId, requestKey);
         emit homeCardWriteFinished(connectionId, requestKey, false,
                                    tr("The connection changed before the server answered."));
     }
@@ -2216,56 +2219,35 @@ void LibraryService::getHomeSections(const QStringList &movieLibraryIds,
         return;
     }
 
-    // The layout and the Watch Tonight row read side by side and publish
-    // once, with Watch Tonight first: it follows Bloom's own shelves. A
-    // failed layout read still shows the Watch Tonight row.
-    const ConfigManager *config = m_authService->configManager();
-    const bool readWatchTonight = supportsWatchTonight() && config
-        && config->getHomeWatchTonightEnabled();
-    struct SiloHomeRead {
-        QVariantList rows;
-        QVariantMap watchTonightRow;
-        QString error;
-        bool rowsFailed = false;
-        int pending = 0;
-    };
-    const auto read = std::make_shared<SiloHomeRead>();
-    read->pending = readWatchTonight ? 2 : 1;
-    const auto finish = [this, connectionId, generation, request, read]() {
-        if (--read->pending > 0 || generation != m_homeSectionsGeneration) {
-            return;
+    // The layout publishes as soon as it is read, with the Watch Tonight
+    // row first when one is known: it follows Bloom's own shelves. The row
+    // is read again only when Home asks for it (a new Home, after
+    // playback) or none is known yet; a Watch Tonight answer that lands
+    // after the layout publishes the rows again (canonicalHomeSectionsUpdated).
+    // A failed layout read still shows the Watch Tonight row.
+    m_siloHomeLayout = SiloHomeLayout{connectionId, generation, request, {}, {}, false, false};
+    if (homeWatchTonightEnabled()) {
+        const QString key = homeCacheKey(connectionId);
+        const bool inFlight = m_watchTonightRead.key == key
+            && m_watchTonightRead.requestGeneration == m_requestGeneration;
+        if (request.reloadRecommendations || (!m_watchTonightRows.contains(key) && !inFlight)) {
+            readWatchTonightRow(connectionId);
         }
-        if (read->rowsFailed && read->watchTonightRow.isEmpty()) {
-            emit canonicalHomeSectionsFailed(connectionId, read->error);
-            return;
-        }
-        QVariantList rows;
-        if (!read->watchTonightRow.isEmpty()) {
-            rows.append(read->watchTonightRow);
-        }
-        rows.append(read->rows);
-        if (!m_authService->supportsCapability(ProviderCapability::Watchlist)) {
-            publishHomeSectionsWithBloomRows(connectionId, generation, rows, request);
-            return;
-        }
-        emit canonicalHomeSectionsLoaded(connectionId, rows);
-    };
-    if (readWatchTonight) {
-        readWatchTonightRow(connectionId, generation, [read, finish](const QVariantMap &row) {
-            read->watchTonightRow = row;
-            finish();
-        });
     }
 
     // Silo caps each row's cards only when its Home capabilities report the
     // largest cap it accepts; older servers reject item_limit. Next Up reads
     // the layout separately and uncapped, so no resume card is dropped.
-    const HomeRowsDone rowsDone = [read, finish](const QVariantList &rows, const QString &error,
-                                                 bool failed) {
-        read->rows = rows;
-        read->error = error;
-        read->rowsFailed = failed;
-        finish();
+    const HomeRowsDone rowsDone = [this, generation](const QVariantList &rows,
+                                                     const QString &error, bool failed) {
+        if (generation != m_homeSectionsGeneration) {
+            return;
+        }
+        m_siloHomeLayout.rows = rows;
+        m_siloHomeLayout.error = error;
+        m_siloHomeLayout.failed = failed;
+        m_siloHomeLayout.done = true;
+        publishSiloHomeRows();
     };
     withSectionItemLimit(
         connectionId,
@@ -2278,20 +2260,95 @@ void LibraryService::getHomeSections(const QStringList &movieLibraryIds,
         });
 }
 
-void LibraryService::readWatchTonightRow(const QString &connectionId,
-                                         quint64 generation,
-                                         std::function<void(const QVariantMap &row)> done)
+QString LibraryService::homeCacheKey(const QString &connectionId) const
 {
+    return connectionId + QLatin1Char('\n') + (m_authService ? m_authService->getUserId() : QString());
+}
+
+bool LibraryService::homeWatchTonightEnabled() const
+{
+    const ConfigManager *config = m_authService ? m_authService->configManager() : nullptr;
+    return supportsWatchTonight() && config && config->getHomeWatchTonightEnabled();
+}
+
+void LibraryService::emitHomeRows(const QString &connectionId, quint64 generation,
+                                  const QVariantList &rows)
+{
+    // The first publish answers getHomeSections; a later one for the same
+    // request (a late Watch Tonight answer) updates the rows in place.
+    if (m_homeRowsPublishedGeneration == generation) {
+        emit canonicalHomeSectionsUpdated(connectionId, rows);
+        return;
+    }
+    m_homeRowsPublishedGeneration = generation;
+    emit canonicalHomeSectionsLoaded(connectionId, rows);
+}
+
+void LibraryService::publishSiloHomeRows()
+{
+    const SiloHomeLayout layout = m_siloHomeLayout;
+    if (!layout.done || layout.generation != m_homeSectionsGeneration
+        || activeConnectionId(m_authService) != layout.connectionId) {
+        return;
+    }
+    const QString key = homeCacheKey(layout.connectionId);
+    const bool watchTonight = homeWatchTonightEnabled();
+    const QVariantMap watchTonightRow = watchTonight ? m_watchTonightRows.value(key) : QVariantMap();
+    if (layout.failed && watchTonightRow.isEmpty()) {
+        if (watchTonight && m_watchTonightRead.key == key
+            && m_watchTonightRead.requestGeneration == m_requestGeneration) {
+            // The Watch Tonight row may still show.
+            return;
+        }
+        if (m_homeRowsPublishedGeneration == layout.generation) {
+            emit canonicalHomeSectionsUpdated(layout.connectionId, {});
+        } else {
+            m_homeRowsPublishedGeneration = layout.generation;
+            emit canonicalHomeSectionsFailed(layout.connectionId, layout.error);
+        }
+        return;
+    }
+    QVariantList rows;
+    if (!watchTonightRow.isEmpty()) {
+        rows.append(watchTonightRow);
+    }
+    rows.append(layout.rows);
+    if (!m_authService->supportsCapability(ProviderCapability::Watchlist)) {
+        publishHomeSectionsWithBloomRows(layout.connectionId, layout.generation, rows,
+                                         layout.request);
+        return;
+    }
+    emitHomeRows(layout.connectionId, layout.generation, rows);
+}
+
+void LibraryService::readWatchTonightRow(const QString &connectionId)
+{
+    const QString key = homeCacheKey(connectionId);
+    const quint64 readGeneration = ++m_watchTonightReadGeneration;
+    m_watchTonightRead = {key, m_requestGeneration};
+    // Only the newest read for the live session lands; then the rows
+    // publish again if the layout is already out.
+    const auto land = [this, key, readGeneration](const std::optional<QVariantMap> &row) {
+        if (readGeneration != m_watchTonightReadGeneration) {
+            return;
+        }
+        m_watchTonightRead = {};
+        if (row) {
+            m_watchTonightRows.insert(key, *row);
+        } else if (!m_watchTonightRows.contains(key)) {
+            // A failed first read shows no row; a failed later one keeps
+            // the row shown.
+            m_watchTonightRows.insert(key, {});
+        }
+        publishSiloHomeRows();
+    };
     ProviderCatalogQuery query = baseCatalogQuery();
     query.limit = kHomeRowCardLimit;
     sendCatalogRequest(
         QStringLiteral("getWatchTonight"),
         ProviderCatalogOperation::WatchTonight,
         query,
-        [this, connectionId, generation, done](const ProviderCatalogResponse &response) {
-            if (generation != m_homeSectionsGeneration) {
-                return;
-            }
+        [this, connectionId, land](const ProviderCatalogResponse &response) {
             // A cold answer is the server's generic fallback, not picks
             // for this profile: no row, as when there are none.
             const bool cold = response.capabilityMetadata.value(QStringLiteral("isCold")).toBool();
@@ -2299,20 +2356,17 @@ void LibraryService::readWatchTonightRow(const QString &connectionId,
                 ? QVariantList()
                 : m_authService->mapMediaItems(response.rawItems, connectionId);
             if (items.isEmpty()) {
-                done({});
+                land(QVariantMap());
                 return;
             }
-            done(QVariantMap{
+            land(QVariantMap{
                 {QStringLiteral("sectionId"), WatchTonightRowId},
                 {QStringLiteral("title"), tr("Watch Tonight")},
                 {QStringLiteral("items"), items}});
         },
-        [this, generation, done](const NetworkError &error) {
-            if (generation != m_homeSectionsGeneration) {
-                return;
-            }
+        [land](const NetworkError &error) {
             qCWarning(lcLibrary) << "Watch Tonight read failed:" << error.userMessage;
-            done({});
+            land(std::nullopt);
         });
 }
 
@@ -2476,7 +2530,7 @@ void LibraryService::publishHomeSectionsWithBloomRows(const QString &connectionI
         }
     }
     if (!readFavorites && recommendationLibraries.isEmpty()) {
-        emit canonicalHomeSectionsLoaded(connectionId, rows);
+        emitHomeRows(connectionId, generation, rows);
         return;
     }
 
@@ -2524,6 +2578,7 @@ void LibraryService::publishHomeSectionsWithBloomRows(const QString &connectionI
             return;
         }
         if (read->succeeded == 0 && rows.isEmpty()) {
+            m_homeRowsPublishedGeneration = generation;
             emit canonicalHomeSectionsFailed(connectionId, read->error);
             return;
         }
@@ -2532,7 +2587,7 @@ void LibraryService::publishHomeSectionsWithBloomRows(const QString &connectionI
         QVariantList published = read->favoritesRow;
         published.append(rows);
         published.append(homeRecommendationRows(cacheKey, recommendationLibraries));
-        emit canonicalHomeSectionsLoaded(connectionId, published);
+        emitHomeRows(connectionId, generation, published);
     };
     const auto finish = [read, publish]() {
         if (--read->pending == 0) {
@@ -3365,7 +3420,8 @@ void LibraryService::getWatchHistory(const QString &libraryId, int startIndex,
                 response.total, response.hasMore, response.nextCursor);
         },
         [this, connectionId, requestKey](const NetworkError &error) {
-            emit canonicalWatchHistoryFailed(connectionId, requestKey, error.userMessage);
+            emit canonicalWatchHistoryFailed(connectionId, requestKey, error.userMessage,
+                                             error.httpStatus);
         });
 }
 
@@ -3384,8 +3440,13 @@ void LibraryService::removeFromWatchHistory(const QString &requestKey, const QSt
         QStringLiteral("removeHistoryEntries"),
         ProviderCatalogOperation::RemoveFromWatchHistory,
         query,
-        // The server also clears the watched state and resume points.
-        [this, itemId]() { emit itemPlayedStatusChanged(itemId, false); },
+        // The server also clears the watched state and resume points, which
+        // reach past itemId (a series takes its episodes): Home's Continue
+        // Watching and Next Up read again.
+        [this, connectionId = activeConnectionId(m_authService), itemId]() {
+            emit itemPlayedStatusChanged(itemId, false);
+            emit watchHistoryItemRemoved(connectionId, itemId);
+        },
         {});
 }
 

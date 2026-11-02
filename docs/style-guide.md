@@ -254,20 +254,28 @@ About & Account > Watch History. Below `pageMarginTop`, a `PageHeader` reads
 "Watch History" with the account it belongs to (`user · server`; in a merged
 space, the source the session is on), then a poster grid of what that
 account watched, most recent first: movies with their year, series with
-their run, episodes as their series poster with `S1 E4 · Title`. Silo shows
-a watched episode as its series. The stage picks up the focused title's
+their run, episodes as their series poster with `S1 E4 · Title`. A series
+shows once: Silo shows a watched episode as its series, and Jellyfin its
+most recently watched episode. The stage picks up the focused title's
 backdrop. The grid reads the next page as focus nears its end without
 moving the focused card. Enter opens a title (an episode on its series page
 with the episode selected) and Back returns to the same card; Up from the
 first row reaches the navigation bar. Loading, error (with Try again), "Nothing
 watched yet" and, when Silo's newest pages hold only titles Bloom does not
-show, "Look further back" use `StateMessage`.
+show, "Look further back" use `StateMessage`; after a failed or empty first
+read, its action takes focus. While cards are shown and older pages remain,
+the grid's footer offers a "Look further back" button with a busy indicator
+while a page loads; Down from the last row reads the next page and moves
+there, Up returns to the cards, and focus moves to the first new card when
+the page lands. A page that fails later shows a toast.
 
 On Silo, `nav.menu` (or right-click, press-and-hold) opens the card's menu
 (Go to details or Go to series, then Remove from history). Removal also
 counts the title as unwatched and drops its resume point, so it asks first in
 a dialog whose Cancel takes focus; the card leaves at once and comes back
-with a toast if the server refuses. Jellyfin keeps no history apart from the
+in its place with a toast if the server refuses. If the session changes
+before the server answers, a toast says the removal is unconfirmed and the
+page reloads when it is shown again. Jellyfin keeps no history apart from the
 played state, so its cards have no menu.
 
 ## Watch Tonight row
@@ -277,7 +285,9 @@ the first row after Bloom's own shelves (Continue Watching, Up Next, Recently
 Added) and before the profile's curated rows. It is an ordinary shelf, not a
 second hero: only Home, detail pages and Up Next carry one. It is absent when
 the server has no picks for the profile or only a generic fallback, in merged
-spaces, on Jellyfin, and when Settings > Home > Watch Tonight row is off.
+spaces, on Jellyfin, and when Settings > Home > Watch Tonight row is off. The
+other rows never wait for it: when it lands later it is inserted above them
+without moving focus off the focused shelf.
 
 ## Grids
 

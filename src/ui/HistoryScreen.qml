@@ -12,9 +12,10 @@ import BloomUI
  *
  * Opened from Settings > About & Account. WatchHistoryViewModel reads the
  * pages and decides which cards and actions there are; the grid reads the
- * next page as focus or scrolling nears its end. Enter opens a title, Back
- * returns to the same card. On Silo the actions key (nav.menu) opens a menu
- * with Remove from history, which asks first.
+ * next page as focus or scrolling nears its end, and while more remain its
+ * footer offers "Look further back" (Down from the last row). Enter opens a
+ * title, Back returns to the same card. On Silo the actions key (nav.menu)
+ * opens a menu with Remove from history, which asks first.
  */
 FocusScope {
     id: root
@@ -38,11 +39,35 @@ FocusScope {
     // The card focus returns to, by ID and position.
     property string lastItemId: ""
     property int lastIndex: 0
+    // Cards shown when the page being read started; a page that added
+    // none does not chain into the next.
+    property int countBeforePage: 0
 
     WatchHistoryViewModel {
         id: history
         onActionFailed: function(message) { toast.show(message) }
+        onPageFailed: function(message) { toast.show(message) }
         onCountChanged: Qt.callLater(root.focusFirstCardIfIdle)
+        // A failed or empty first read leaves no card to focus: its Try
+        // again or Look further back action takes focus instead.
+        onIsLoadingChanged: {
+            if (history.isLoading) {
+                root.countBeforePage = 0
+                return
+            }
+            Qt.callLater(root.focusFirstCardIfIdle)
+            Qt.callLater(root.pageFinished)
+        }
+        onHasErrorChanged: Qt.callLater(root.focusFirstCardIfIdle)
+        onHasMoreChanged: Qt.callLater(root.focusFirstCardIfIdle)
+        onLoadingMoreChanged: {
+            if (history.loadingMore) {
+                root.countBeforePage = history.count
+                return
+            }
+            Qt.callLater(root.focusFirstCardIfIdle)
+            Qt.callLater(root.pageFinished)
+        }
     }
 
     SourceRouter {
@@ -53,14 +78,21 @@ FocusScope {
         }
     }
 
-    Component.onCompleted: {
+    Component.onCompleted: loadHistory()
+
+    function loadHistory() {
         history.load(typeof Workspaces !== "undefined"
                      ? Workspaces.hiddenLibraryIds(LibraryService.getActiveConnectionId()) : [])
     }
 
     StackView.onStatusChanged: {
-        if (StackView.status === StackView.Active)
-            Qt.callLater(root.restoreLastFocus)
+        if (StackView.status !== StackView.Active)
+            return
+        // A removal the session change left unconfirmed: read the list
+        // the server has now.
+        if (history.needsReload)
+            loadHistory()
+        Qt.callLater(root.restoreLastFocus)
     }
 
     // ========================================
@@ -164,6 +196,7 @@ FocusScope {
 
     function focusGrid() {
         if (history.count > 0) {
+            leaveFooter()
             grid.forceActiveFocus()
             return true
         }
@@ -195,6 +228,8 @@ FocusScope {
             return
         if (root.activeFocus && !grid.activeFocus && !errorState.activeFocus && !moreState.activeFocus)
             focusGrid()
+        else if (grid.footerHasFocus && !(grid.footerItem && grid.footerItem.shown))
+            focusGrid()
     }
 
     function saveFocusForNavigation() {
@@ -208,6 +243,52 @@ FocusScope {
     function loadMoreIfNear(index) {
         if (history.hasMore && index >= history.count - grid.columns * 2)
             history.loadMore()
+    }
+
+    // After a page lands: a focused footer hands focus to the first new
+    // card (or the last card when nothing more remains), and focus or the
+    // pointer still near the end reads the next page. A page that added no
+    // card waits for the viewer, so a run of empty pages does not chain.
+    function pageFinished() {
+        if (history.isLoading || history.loadingMore)
+            return
+        var added = history.count > countBeforePage
+        if (grid.footerHasFocus && (added || !history.hasMore)) {
+            grid.currentIndex = added ? countBeforePage : history.count - 1
+            focusGrid()
+            grid.positionViewAtIndex(grid.currentIndex, GridView.Contain)
+        }
+        if (!added)
+            return
+        if (InputModeManager.pointerActive)
+            root.loadMoreIfNear(grid.atYEnd ? history.count - 1 : -1)
+        else
+            root.loadMoreIfNear(grid.currentIndex)
+    }
+
+    // The footer's "Look further back" action.
+    function focusFooter() {
+        if (grid.footerItem && grid.footerItem.shown)
+            grid.footerItem.focusAction()
+    }
+
+    function leaveFooter() {
+        if (grid.footerItem)
+            grid.footerItem.releaseFocus()
+    }
+
+    // Down from the last row reads the next page and moves to the footer;
+    // from a row whose card below is missing, it moves to the last card.
+    function moveDownFromGrid() {
+        var columns = Math.max(grid.columns, 1)
+        var row = Math.floor(grid.currentIndex / columns)
+        var lastRow = Math.floor((history.count - 1) / columns)
+        if (row < lastRow) {
+            grid.currentIndex = history.count - 1
+            return
+        }
+        history.loadMore()
+        focusFooter()
     }
 
     // ========================================
@@ -542,6 +623,8 @@ FocusScope {
             Accessible.name: qsTr("Watch History")
 
             property int columns: Math.max(Theme.gridColumns, 1)
+            // The footer's action holds focus inside the grid's scope.
+            readonly property bool footerHasFocus: footerItem ? footerItem.activeFocus : false
             cellWidth: width / columns
             readonly property int cardWidth: Math.round(cellWidth - Theme.cardGap)
             cellHeight: Math.round(cardWidth * 3 / 2) + Theme.cardCaptionHeight + Theme.cardGap
@@ -575,7 +658,7 @@ FocusScope {
                                 || (itemData.mediaType === "Movie" && !!itemData.watched)
                 unplayedCount: itemData.mediaType === "Series" ? (itemData.unplayedItemCount || 0) : 0
                 watched: !!itemData.watched
-                focused: GridView.isCurrentItem && grid.activeFocus
+                focused: GridView.isCurrentItem && grid.activeFocus && !grid.footerHasFocus
                 menuEnabled: history.canRemove
                 onFocusedChanged: if (focused) root.showBackdropFor(itemData)
                 onClicked: {
@@ -597,14 +680,81 @@ FocusScope {
                 if (contentHeight > height && contentHeight - contentY - height < cellHeight * 2)
                     root.loadMoreIfNear(history.count - 1)
             }
+            // So does the pointer reaching the bottom.
+            onAtYEndChanged: {
+                if (atYEnd && InputModeManager.pointerActive)
+                    root.loadMoreIfNear(history.count - 1)
+            }
+
+            // While more remain: "Look further back", with a busy
+            // indicator while a page loads. Up returns to the cards.
+            footer: FocusScope {
+                id: historyFooter
+                readonly property bool shown: history.count > 0 && history.hasMore
+                width: grid.width
+                height: shown ? footerRow.implicitHeight + Theme.spacingLarge * 2 : 0
+                visible: shown
+
+                function focusAction() {
+                    moreButton.forceActiveFocus()
+                }
+                function releaseFocus() {
+                    if (moreButton.activeFocus)
+                        moreButton.focus = false
+                }
+
+                RowLayout {
+                    id: footerRow
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingMedium
+
+                    ActionButton {
+                        id: moreButton
+                        variant: "secondary"
+                        text: history.loadingMore ? qsTr("Loading…") : qsTr("Look further back")
+                        focusPolicy: Qt.StrongFocus
+                        Accessible.description: qsTr("Load older watch history")
+                        onClicked: history.loadMore()
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        Keys.onUpPressed: function(event) {
+                            event.accepted = true
+                            root.focusGrid()
+                            grid.positionViewAtIndex(grid.currentIndex, GridView.Contain)
+                        }
+                        // The grid must not move its cards under the footer.
+                        Keys.onDownPressed: function(event) { event.accepted = true }
+                        Keys.onLeftPressed: function(event) { event.accepted = true }
+                        Keys.onRightPressed: function(event) { event.accepted = true }
+                    }
+
+                    BusyIndicator {
+                        running: history.loadingMore
+                        visible: running
+                        Layout.preferredWidth: Math.round(32 * Theme.layoutScale)
+                        Layout.preferredHeight: Layout.preferredWidth
+                        palette.dark: Theme.textPrimary
+                        palette.light: Theme.accentSecondary
+                    }
+                }
+            }
 
             // Up from the first row is left to Main, which enters the
             // navigation bar.
             Keys.onPressed: function(event) {
-                if (history.canRemove && root.isActionsKey(event)) {
+                if (!footerHasFocus && history.canRemove && root.isActionsKey(event)) {
                     event.accepted = true
                     cardMenu.openFor(currentIndex)
                 }
+            }
+            Keys.onDownPressed: function(event) {
+                if (footerHasFocus || currentIndex + columns < history.count) {
+                    // The GridView moves down a row.
+                    event.accepted = footerHasFocus
+                    return
+                }
+                event.accepted = true
+                root.moveDownFromGrid()
             }
             Keys.onReturnPressed: function(event) {
                 if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < history.count)
