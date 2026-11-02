@@ -30,6 +30,7 @@
 #include "providers/silo/SiloModelMapper.h"
 #include "providers/silo/SiloProviderAdapter.h"
 #include "utils/ConfigManager.h"
+#include "viewmodels/UserRatingState.h"
 
 #include "TestConfigIsolation.h"
 
@@ -223,7 +224,8 @@ private slots:
     void notInterestedServiceGatesOnProfileCapability();
     void notInterestedReadCancelledWithSessionIsAskedAgain();
     void becauseWatchedAndRatingRequestsParse();
-    void starRatingsGateOnProfileCapabilityAndNeverReplay();
+    void starRatingsNeverReplayAndHideWhenUnavailable();
+    void staleRatingWriteFailsAfterSessionChange();
     void becauseWatchedReadsNativeRouteOrJellyfinSimilar();
     void jellyfinLikesWriteAndClear();
     void nextAiringSharesAndCachesOneCalendarRead();
@@ -2925,21 +2927,6 @@ void SiloCatalogServiceTest::becauseWatchedAndRatingRequestsParse()
     QVERIFY(!provider.createRequest(ProviderCatalogOperation::SetUserRating, query).supported);
     QVERIFY(provider.parseResponse(ProviderCatalogOperation::SetUserRating, {}).valid);
 
-    request = provider.createRequest(ProviderCatalogOperation::UserRatingCapability, {});
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/capabilities/ratings"));
-    const auto capability = [&provider](const QByteArray &body) {
-        return provider.parseResponse(ProviderCatalogOperation::UserRatingCapability, body);
-    };
-    ProviderCatalogResponse response = capability(QByteArrayLiteral(
-        R"({"revision":"r1","state":"available","allowed":true,"sources":[]})"));
-    QVERIFY(response.valid);
-    QVERIFY(response.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
-    response = capability(QByteArrayLiteral(
-        R"({"revision":"r1","state":"not_configured","allowed":true,"sources":[]})"));
-    QVERIFY(response.valid);
-    QVERIFY(!response.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
-    QVERIFY(!capability(QByteArrayLiteral(R"({"state":"available"})")).valid);
-
     // CatalogItemDetail.user_rating is the canonical userRating.
     QVariantMap mapped = SiloModelMapper::mediaItem(
         QJsonDocument::fromJson(QByteArrayLiteral(
@@ -2963,11 +2950,9 @@ void SiloCatalogServiceTest::becauseWatchedAndRatingRequestsParse()
     QVERIFY(!jellyfin.supportsCapability(ProviderCapability::StarRatings));
     QVERIFY(!jellyfin.catalogProvider()
                  ->createRequest(ProviderCatalogOperation::BecauseWatched, query).supported);
-    QVERIFY(!jellyfin.catalogProvider()
-                 ->createRequest(ProviderCatalogOperation::UserRatingCapability, query).supported);
 }
 
-void SiloCatalogServiceTest::starRatingsGateOnProfileCapabilityAndNeverReplay()
+void SiloCatalogServiceTest::starRatingsNeverReplayAndHideWhenUnavailable()
 {
     QTemporaryDir temporaryDirectory;
     QVERIFY(temporaryDirectory.isValid());
@@ -2983,30 +2968,21 @@ void SiloCatalogServiceTest::starRatingsGateOnProfileCapabilityAndNeverReplay()
     QSignalSpy support(&service, &LibraryService::userRatingSupportChanged);
     QSignalSpy changed(&service, &LibraryService::userRatingChanged);
     QSignalSpy failed(&service, &LibraryService::userRatingFailed);
-    // No control until the profile's capability document allows it.
-    QCOMPARE(service.userRatingScale(), QString());
-
-    manager.responses = {
-        { 200, QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":true,"sources":[]})"), false }
-    };
-    qsizetype firstRequest = manager.requests.size();
-    service.loadUserRatingCapability();
-    service.loadUserRatingCapability();
-    QTRY_COMPARE_WITH_TIMEOUT(support.count(), 1, 1000);
+    // Silo has no personal-ratings capability document: stars at once, and
+    // getRatingsCapability (the external rating sources) is never read.
+    const qsizetype beforeScale = manager.requests.size();
     QCOMPARE(service.userRatingScale(), QStringLiteral("stars"));
-    QCOMPARE(manager.requests.size(), firstRequest + 1);
-    const RecordedRequest read = manager.requests.at(firstRequest);
-    QCOMPARE(read.request.url().path(), QStringLiteral("/api/v2/capabilities/ratings"));
-    QCOMPARE(read.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
-    service.loadUserRatingCapability();
-    QCOMPARE(manager.requests.size(), firstRequest + 1);
+    QCOMPARE(manager.requests.size(), beforeScale);
+    const QString connectionId = service.getActiveConnectionId();
+    QVERIFY(!connectionId.isEmpty());
 
     manager.responses = { { 204, QByteArray(), false }, { 204, QByteArray(), false } };
-    firstRequest = manager.requests.size();
+    qsizetype firstRequest = manager.requests.size();
     service.setUserRating(QStringLiteral("movie:heat-1995"), 4);
     QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 1, 1000);
-    QCOMPARE(changed.first().at(0).toString(), QStringLiteral("movie:heat-1995"));
-    QCOMPARE(changed.first().at(1).toInt(), 4);
+    QCOMPARE(changed.first().at(0).toString(), connectionId);
+    QCOMPARE(changed.first().at(1).toString(), QStringLiteral("movie:heat-1995"));
+    QCOMPARE(changed.first().at(2).toInt(), 4);
     const RecordedRequest rate = manager.requests.at(firstRequest);
     QCOMPARE(rate.operation, QNetworkAccessManager::PutOperation);
     QCOMPARE(rate.request.url().path(), QStringLiteral("/api/v2/ratings/movie:heat-1995"));
@@ -3016,33 +2992,86 @@ void SiloCatalogServiceTest::starRatingsGateOnProfileCapabilityAndNeverReplay()
 
     service.setUserRating(QStringLiteral("movie:heat-1995"), 0);
     QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 2, 1000);
-    QCOMPARE(changed.at(1).at(1).toInt(), 0);
+    QCOMPARE(changed.at(1).at(2).toInt(), 0);
     QCOMPARE(manager.requests.at(firstRequest + 1).operation,
              QNetworkAccessManager::DeleteOperation);
 
-    // A failed write is reported once and never replayed.
+    // An ordinary refusal is reported once, never replayed, and keeps stars.
     manager.responses = {
-        { 503, QByteArrayLiteral(R"({"type":"about:blank","title":"Unavailable","status":503})"), false },
+        { 422, QByteArrayLiteral(R"({"type":"about:blank","title":"Unprocessable","status":422})"), false },
         { 204, QByteArray(), false }
     };
     firstRequest = manager.requests.size();
     service.setUserRating(QStringLiteral("movie:heat-1995"), 2);
     QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 3000);
-    QCOMPARE(failed.first().at(0).toString(), QStringLiteral("movie:heat-1995"));
-    QCOMPARE(failed.first().at(1).toInt(), 2);
+    QCOMPARE(failed.first().at(0).toString(), connectionId);
+    QCOMPARE(failed.first().at(1).toString(), QStringLiteral("movie:heat-1995"));
+    QCOMPARE(failed.first().at(2).toInt(), 2);
     QCoreApplication::processEvents(QEventLoop::AllEvents);
     QCOMPARE(manager.requests.size(), firstRequest + 1);
     QCOMPARE(changed.count(), 2);
+    QCOMPARE(support.count(), 0);
+    QCOMPARE(service.userRatingScale(), QStringLiteral("stars"));
 
-    // A refused document hides the control for that profile.
-    LibraryService refused(&auth);
+    // 503 (no ratings service) fails once, never replays, and hides stars.
     manager.responses = {
-        { 200, QByteArrayLiteral(R"({"revision":"r1","state":"available","allowed":false,"sources":[]})"), false }
+        { 503, QByteArrayLiteral(R"({"type":"about:blank","title":"Unavailable","status":503})"), false },
+        { 204, QByteArray(), false }
     };
-    QSignalSpy refusedSupport(&refused, &LibraryService::userRatingSupportChanged);
-    refused.loadUserRatingCapability();
-    QTRY_COMPARE_WITH_TIMEOUT(refusedSupport.count(), 1, 1000);
-    QCOMPARE(refused.userRatingScale(), QString());
+    firstRequest = manager.requests.size();
+    service.setUserRating(QStringLiteral("movie:heat-1995"), 3);
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 2, 3000);
+    QCOMPARE(failed.at(1).at(2).toInt(), 3);
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(manager.requests.size(), firstRequest + 1);
+    QCOMPARE(support.count(), 1);
+    QCOMPARE(service.userRatingScale(), QString());
+}
+
+void SiloCatalogServiceTest::staleRatingWriteFailsAfterSessionChange()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    UserRatingState state(&service);
+    state.setItem(QStringLiteral("movie:heat-1995"));
+    QSignalSpy failed(&service, &LibraryService::userRatingFailed);
+    QSignalSpy stateFailed(&state, &UserRatingState::updateFailed);
+    const QString connectionId = service.getActiveConnectionId();
+
+    // The write is held; the session changes before the server answers.
+    manager.responses = { { 204, QByteArray(), true } };
+    state.rate(4);
+    QVERIFY(state.pending());
+    QCOMPARE(state.value(), 4);
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.replies.isEmpty(), 1000);
+    QPointer<ControlledReply> reply = manager.replies.constLast();
+    QVERIFY(reply);
+
+    auth.replaceAccount(QStringLiteral("account-2"), QStringLiteral("access-2"));
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+    QCOMPARE(failed.first().at(0).toString(), connectionId);
+    QCOMPARE(failed.first().at(1).toString(), QStringLiteral("movie:heat-1995"));
+    // The control is usable again, back on the rating it had.
+    QVERIFY(!state.pending());
+    QCOMPARE(state.value(), 0);
+    QCOMPARE(stateFailed.count(), 1);
+
+    // The aborted reply finishing later reports nothing more.
+    if (reply) {
+        reply->complete();
+    }
+    QCoreApplication::sendPostedEvents();
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
+    QCOMPARE(failed.count(), 1);
 }
 
 void SiloCatalogServiceTest::becauseWatchedReadsNativeRouteOrJellyfinSimilar()
@@ -3167,13 +3196,13 @@ void SiloCatalogServiceTest::jellyfinLikesWriteAndClear()
     auth.replaceAccount(QStringLiteral("user-1"), QStringLiteral("token-1"));
     LibraryService service(&auth);
     QCOMPARE(service.userRatingScale(), QStringLiteral("likes"));
-    service.loadUserRatingCapability();
     QCOMPARE(manager.requests.size(), 0);
     QSignalSpy changed(&service, &LibraryService::userRatingChanged);
     manager.responses = { { 200, QByteArrayLiteral(R"({"Likes":false})"), false } };
     service.setUserRating(QStringLiteral("movie-1"), -1);
     QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 1, 1000);
-    QCOMPARE(changed.first().at(1).toInt(), -1);
+    QCOMPARE(changed.first().at(1).toString(), QStringLiteral("movie-1"));
+    QCOMPARE(changed.first().at(2).toInt(), -1);
     QCOMPARE(manager.requests.first().operation, QNetworkAccessManager::PostOperation);
     QVERIFY(manager.requests.first().request.url().path().endsWith(
         QStringLiteral("/UserItems/movie-1/Rating")));

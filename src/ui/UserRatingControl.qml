@@ -10,6 +10,10 @@ import BloomUI
  * current value clears it. Left/Right move between the buttons and leave the
  * control at either end; Enter, Return, or Space rates. Hidden callers check
  * `available` and keep it out of the focus chain.
+ *
+ * The buttons stay enabled (and focusable) while a change is in flight, so
+ * focus never drops; they dim instead and presses are ignored. A rating
+ * goes through SourceRouter to the item's own connection first.
  */
 FocusScope {
     id: root
@@ -17,9 +21,13 @@ FocusScope {
     property var ratingState: null
     property int buttonHeight: Theme.buttonHeightMedium
 
+    /// The route to the item's connection failed; nothing was sent.
+    signal failed(string message)
+
     readonly property string scale: ratingState ? ratingState.scale : ""
     readonly property bool available: !!ratingState && ratingState.supported
     readonly property int value: ratingState ? ratingState.value : 0
+    readonly property bool pending: !!ratingState && ratingState.pending
     readonly property var choices: scale === "stars" ? [1, 2, 3, 4, 5]
                                  : (scale === "likes" ? [1, -1] : [])
     /// What the rating reads as, for labels and screen readers.
@@ -67,8 +75,19 @@ FocusScope {
     }
 
     function rate(choice) {
-        if (ratingState && !ratingState.pending)
-            ratingState.rate(choice)
+        if (!ratingState || ratingState.pending || ratingRouter.busy)
+            return
+        const state = ratingState
+        const itemId = state.itemId
+        ratingRouter.run(state.connectionId, function() {
+            if (state.itemId === itemId)
+                state.rate(choice)
+        })
+    }
+
+    SourceRouter {
+        id: ratingRouter
+        onFailed: (message) => root.failed(message || qsTr("Couldn't reach the server for this title."))
     }
 
     onActiveFocusChanged: {
@@ -78,6 +97,11 @@ FocusScope {
 
     Row {
         id: buttons
+        opacity: root.pending || ratingRouter.busy ? 0.6 : 1.0
+        Behavior on opacity {
+            enabled: Theme.uiAnimationsEnabled
+            NumberAnimation { duration: Theme.durationShort }
+        }
         spacing: root.scale === "stars" ? Theme.spacingXSmall : Theme.controlSpacing
 
         Repeater {
@@ -98,7 +122,6 @@ FocusScope {
                                                   : (choiceButton.isSelected ? Icons.star : Icons.starBorder)
                 iconColor: choiceButton.isSelected ? Theme.accentPrimary : Theme.textPrimary
                 accessibleLabel: root.choiceLabel(choiceButton.modelData)
-                enabled: !!root.ratingState && !root.ratingState.pending
                 Accessible.checkable: true
                 Accessible.checked: choiceButton.isSelected
 

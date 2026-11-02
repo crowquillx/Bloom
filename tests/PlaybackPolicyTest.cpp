@@ -1122,6 +1122,7 @@ void PlaybackPolicyTest::choosesPostPlaybackScreen()
     // A movie that reaches the threshold leads into the after-movie screen.
     PlayerPolicy::PostPlaybackInput movie;
     movie.itemId = QStringLiteral("movie-1");
+    movie.isMovie = true;
     movie.positionSeconds = 95.0;
     movie.durationSeconds = 100.0;
     movie.thresholdPercent = 90;
@@ -1149,6 +1150,20 @@ void PlaybackPolicyTest::choosesPostPlaybackScreen()
     PlayerPolicy::PostPlaybackInput noItem = movie;
     noItem.itemId.clear();
     QCOMPARE(PlayerPolicy::postPlaybackScreen(noItem), PostPlaybackScreen::None);
+
+    // Without a series, only an item the request marked as a movie opens the
+    // after-movie screen.
+    PlayerPolicy::PostPlaybackInput notMovie = movie;
+    notMovie.isMovie = false;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(notMovie), PostPlaybackScreen::None);
+
+    // The sleep timer ending the session suppresses both screens.
+    PlayerPolicy::PostPlaybackInput sleptMovie = movie;
+    sleptMovie.endedBySleepTimer = true;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(sleptMovie), PostPlaybackScreen::None);
+    PlayerPolicy::PostPlaybackInput sleptEpisode = episode;
+    sleptEpisode.endedBySleepTimer = true;
+    QCOMPARE(PlayerPolicy::postPlaybackScreen(sleptEpisode), PostPlaybackScreen::None);
 
     // An extra never leads anywhere, finished or not.
     PlayerPolicy::PostPlaybackInput extra = movie;

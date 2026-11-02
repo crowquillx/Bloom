@@ -256,7 +256,6 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         m_searchCapabilities.clear();
         // Cancelled reads answer nothing; a later page asks again.
         m_notInterestedCapabilityReads.clear();
-        m_userRatingCapabilityReads.clear();
         for (auto it = m_airingCalendarReads.cbegin(); it != m_airingCalendarReads.cend(); ++it) {
             for (const QString &seriesId : it->seriesIds) {
                 emit nextAiringLoaded(seriesId, {});
@@ -266,6 +265,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         m_airingCalendars.clear();
         // Cancelled writes answer nothing on their own.
         failStaleHomeCardWrites();
+        failStaleUserRatingWrites();
     };
     connect(m_authService, &AuthenticationService::authenticationStepChanged,
             this, [this, invalidateRequests]() {
@@ -284,6 +284,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
                               &AuthenticationService::profilesChanged,
                               &AuthenticationService::authSessionsChanged}) {
         connect(m_authService, signal, this, &LibraryService::failStaleHomeCardWrites);
+        connect(m_authService, signal, this, &LibraryService::failStaleUserRatingWrites);
     }
 }
 
@@ -1565,58 +1566,47 @@ void LibraryService::loadNotInterestedCapability()
         || !m_authService->supportsCapability(ProviderCapability::NotInterested)) {
         return;
     }
-    readProfileCapability(QStringLiteral("getNotInterestedCapability"),
-                          ProviderCatalogOperation::NotInterestedCapability,
-                          m_notInterestedAllowed, m_notInterestedCapabilityReads,
-                          &LibraryService::notInterestedSupportChanged);
-}
-
-void LibraryService::readProfileCapability(const QString &operationName,
-                                           ProviderCatalogOperation operation,
-                                           QHash<QString, bool> &allowed,
-                                           QHash<QString, quint64> &reads,
-                                           void (LibraryService::*announce)())
-{
     // The document is profile scoped: each profile may be allowed or not.
     const QString key =
         activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
-    if (allowed.contains(key)) {
+    if (m_notInterestedAllowed.contains(key)) {
         return;
     }
     // A read sent before the session last changed was cancelled with it.
-    const auto inFlight = reads.constFind(key);
-    if (inFlight != reads.cend() && *inFlight == m_requestGeneration) {
+    const auto inFlight = m_notInterestedCapabilityReads.constFind(key);
+    if (inFlight != m_notInterestedCapabilityReads.cend() && *inFlight == m_requestGeneration) {
         return;
     }
     const quint64 generation = m_requestGeneration;
-    reads.insert(key, generation);
-    const auto finish = [&reads, key, generation]() {
-        const auto read = reads.constFind(key);
-        if (read == reads.cend() || *read != generation) {
+    m_notInterestedCapabilityReads.insert(key, generation);
+    const auto finish = [this, key, generation]() {
+        const auto read = m_notInterestedCapabilityReads.constFind(key);
+        if (read == m_notInterestedCapabilityReads.cend() || *read != generation) {
             return false;
         }
-        reads.erase(read);
+        m_notInterestedCapabilityReads.erase(read);
         return true;
     };
     sendCatalogRequest(
-        operationName,
-        operation,
+        QStringLiteral("getNotInterestedCapability"),
+        ProviderCatalogOperation::NotInterestedCapability,
         baseCatalogQuery(),
-        [this, &allowed, key, finish, announce](const ProviderCatalogResponse &response) {
+        [this, key, finish](const ProviderCatalogResponse &response) {
             if (!finish()) {
                 return;
             }
-            allowed.insert(key, response.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
-            emit (this->*announce)();
+            m_notInterestedAllowed.insert(
+                key, response.capabilityMetadata.value(QStringLiteral("allowed")).toBool());
+            emit notInterestedSupportChanged();
         },
-        [&allowed, key, finish](const NetworkError &error) {
+        [this, key, finish](const NetworkError &error) {
             if (!finish()) {
                 return;
             }
             // A server without the route never offers it. Other failures
             // leave the action hidden and ask again on the next page.
             if (error.httpStatus == 404 || error.httpStatus == 405 || error.httpStatus == 501) {
-                allowed.insert(key, false);
+                m_notInterestedAllowed.insert(key, false);
             }
         });
 }
@@ -1640,34 +1630,32 @@ void LibraryService::setItemNotInterested(const QString &itemId, bool notInteres
 
 QString LibraryService::userRatingScale() const
 {
-    if (!m_authService || !m_authService->isAuthenticated()) {
+    if (!m_authService || !m_authService->isAuthenticated()
+        || m_userRatingUnavailable.contains(userRatingKey())) {
         return {};
     }
     if (m_authService->supportsCapability(ProviderCapability::LikeRatings)) {
         return QStringLiteral("likes");
     }
-    if (m_authService->supportsCapability(ProviderCapability::StarRatings)
-        && m_userRatingAllowed.value(activeConnectionId(m_authService) + QLatin1Char('\n')
-                                     + activeProfileId(m_authService))) {
+    if (m_authService->supportsCapability(ProviderCapability::StarRatings)) {
         return QStringLiteral("stars");
     }
     return {};
 }
 
-void LibraryService::loadUserRatingCapability()
+QString LibraryService::userRatingKey() const
 {
-    if (!m_authService || !m_authService->isAuthenticated()
-        || !m_authService->supportsCapability(ProviderCapability::StarRatings)) {
-        return;
-    }
-    readProfileCapability(QStringLiteral("getRatingsCapability"),
-                          ProviderCatalogOperation::UserRatingCapability,
-                          m_userRatingAllowed, m_userRatingCapabilityReads,
-                          &LibraryService::userRatingSupportChanged);
+    return activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
 }
 
 void LibraryService::setUserRating(const QString &itemId, int value)
 {
+    const CatalogRequestIdentity identity = catalogRequestIdentity();
+    const quint64 writeId = ++m_userRatingWriteSequence;
+    m_userRatingWrites.insert(writeId, {identity, itemId, value});
+    // False once the write was answered (or failed as stale).
+    const auto take = [this, writeId]() { return m_userRatingWrites.remove(writeId) > 0; };
+    const QString key = userRatingKey();
     ProviderCatalogQuery query = baseCatalogQuery();
     query.itemId = itemId;
     query.ratingValue = value;
@@ -1675,12 +1663,43 @@ void LibraryService::setUserRating(const QString &itemId, int value)
         value == 0 ? QStringLiteral("clearUserRating") : QStringLiteral("setUserRating"),
         ProviderCatalogOperation::SetUserRating,
         query,
-        [this, itemId, value](const ProviderCatalogResponse &) {
-            emit userRatingChanged(itemId, value);
+        [this, identity, itemId, value, take](const ProviderCatalogResponse &) {
+            if (!take()) {
+                return;
+            }
+            emit userRatingChanged(identity.connectionId, itemId, value);
         },
-        [this, itemId, value](const NetworkError &error) {
-            emit userRatingFailed(itemId, value, error.userMessage);
+        [this, identity, itemId, value, key, take](const NetworkError &error) {
+            if (!take()) {
+                return;
+            }
+            // A server without ratings (Silo answers 503 when its ratings
+            // service is absent; older servers lack the route) never takes
+            // one: hide the control for this connection and profile.
+            if (error.httpStatus == 503 || error.httpStatus == 501
+                || error.httpStatus == 404 || error.httpStatus == 405) {
+                m_userRatingUnavailable.insert(key);
+                emit userRatingSupportChanged();
+            }
+            emit userRatingFailed(identity.connectionId, itemId, value, error.userMessage);
         });
+}
+
+void LibraryService::failStaleUserRatingWrites()
+{
+    QList<PendingUserRatingWrite> stale;
+    for (auto it = m_userRatingWrites.begin(); it != m_userRatingWrites.end();) {
+        if (isCurrent(it->identity)) {
+            ++it;
+            continue;
+        }
+        stale.append(it.value());
+        it = m_userRatingWrites.erase(it);
+    }
+    for (const PendingUserRatingWrite &write : std::as_const(stale)) {
+        emit userRatingFailed(write.identity.connectionId, write.itemId, write.value,
+                              tr("The connection changed before the server answered."));
+    }
 }
 
 bool LibraryService::supportsNextAiring() const

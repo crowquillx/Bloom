@@ -197,6 +197,16 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     m_sleepTimerTickTimer = new QTimer(this);
     m_sleepTimerTickTimer->setInterval(1000);
     connect(m_sleepTimerTickTimer, &QTimer::timeout, this, &PlayerController::onSleepTimerTick);
+
+    m_afterMovieRestoreTimer = new QTimer(this);
+    m_afterMovieRestoreTimer->setSingleShot(true);
+    m_afterMovieRestoreTimer->setInterval(kAfterMovieRestoreTimeoutMs);
+    connect(m_afterMovieRestoreTimer, &QTimer::timeout, this, [this]() {
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] after-movie display restore time limit reached";
+        // Only running while the restore is parked for an after-movie screen.
+        maybeStartDeferredPostPlaybackDisplayRestore();
+    });
     
     // Connect to LibraryService for autoplay next episode
     connect(m_libraryService, &LibraryService::canonicalNextUnplayedEpisodeLoaded,
@@ -754,6 +764,11 @@ void PlayerController::onEnterIdleState()
         m_deferredPostPlaybackDisplayRestorePending = needsHdrRestore || needsRefreshRestore;
         m_deferredPostPlaybackNeedsHdrRestore = needsHdrRestore;
         m_deferredPostPlaybackNeedsRefreshRestore = needsRefreshRestore;
+        releaseAfterMovieRestoreParking();
+        if (!m_pendingAfterMovie.isEmpty()) {
+            m_afterMovieRestoreAttemptId = m_playbackAttemptId;
+            m_afterMovieRestoreTimer->start();
+        }
         qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                 << "] deferred-display-restore parked for post-playback screen"
                                 << "needsHdrRestore=" << needsHdrRestore
@@ -778,6 +793,7 @@ void PlayerController::enterIdleStateImmediate()
         emit currentItemIdChanged();
     }
     m_currentSeriesId.clear();
+    m_currentIsMovie = false;
     m_currentSeasonId.clear();
     m_currentLibraryId.clear();
     m_pendingUrl.clear();
@@ -1528,17 +1544,19 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
     const bool sleepTimerEndedPlayback = applySleepTimerAtTerminal(reason);
 
     m_pendingAfterMovie.clear();
+    PlayerPolicy::PostPlaybackInput postPlayback;
+    postPlayback.contentKind = m_currentContentKind;
+    postPlayback.endedWithError = reason == TerminalReason::Error;
+    postPlayback.endedBySleepTimer = sleepTimerEndedPlayback;
+    postPlayback.alreadyEvaluated = m_hasEvaluatedCompletionForAttempt;
+    postPlayback.itemId = m_currentItemId;
+    postPlayback.isMovie = m_currentIsMovie;
+    postPlayback.seriesId = m_currentSeriesId;
+    postPlayback.positionSeconds = m_currentPosition;
+    postPlayback.durationSeconds = m_duration;
+    postPlayback.thresholdPercent = m_config->getPlaybackCompletionThreshold();
+    const PlayerPolicy::PostPlaybackScreen screen = PlayerPolicy::postPlaybackScreen(postPlayback);
     if (reason != TerminalReason::Error) {
-        const PlayerPolicy::PostPlaybackScreen screen = PlayerPolicy::postPlaybackScreen({
-            m_currentContentKind,
-            false,
-            m_hasEvaluatedCompletionForAttempt,
-            m_currentItemId,
-            m_currentSeriesId,
-            m_currentPosition,
-            m_duration,
-            m_config->getPlaybackCompletionThreshold()
-        });
         const bool thresholdMet = checkCompletionThresholdAndAutoplay();
         if (screen == PlayerPolicy::PostPlaybackScreen::AfterMovie) {
             m_pendingAfterMovie = {
@@ -1547,7 +1565,8 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
                  m_libraryService ? m_libraryService->getActiveConnectionId() : QString()},
                 {QStringLiteral("name"), m_overlayTitle},
                 {QStringLiteral("backdropUrl"), m_overlayBackdropUrl},
-                {QStringLiteral("logoUrl"), m_overlayLogoUrl}
+                {QStringLiteral("logoUrl"), m_overlayLogoUrl},
+                {QStringLiteral("attemptId"), QVariant::fromValue<qulonglong>(m_playbackAttemptId)}
             };
             qCDebug(lcPlayback) << "PlayerController: Movie completed, after-movie screen follows";
         }
@@ -1776,6 +1795,7 @@ bool PlayerController::stashRecoveryContextForCurrentPlayback()
     m_recoveryContext.seasonId = m_currentSeasonId;
     m_recoveryContext.libraryId = m_currentLibraryId;
     m_recoveryContext.contentKind = m_currentContentKind;
+    m_recoveryContext.isMovie = m_currentIsMovie;
     m_recoveryContext.mediaSourceId = m_mediaSourceId;
     m_recoveryContext.playSessionId = QString(); // avoid stale session
     m_recoveryContext.mediaSource = m_activeMediaSource;
@@ -1896,8 +1916,17 @@ void PlayerController::startDeferredDisplayRestore(bool needsHdrRestore, bool ne
                               Qt::QueuedConnection);
 }
 
+void PlayerController::releaseAfterMovieRestoreParking()
+{
+    m_afterMovieRestoreAttemptId = 0;
+    if (m_afterMovieRestoreTimer) {
+        m_afterMovieRestoreTimer->stop();
+    }
+}
+
 void PlayerController::maybeStartDeferredPostPlaybackDisplayRestore()
 {
+    releaseAfterMovieRestoreParking();
     if (!m_deferredPostPlaybackDisplayRestorePending) {
         return;
     }
@@ -1977,6 +2006,7 @@ void PlayerController::cancelPendingDisplayRestore(
         m_deferredPostPlaybackDisplayRestorePending = false;
         m_deferredPostPlaybackNeedsHdrRestore = false;
         m_deferredPostPlaybackNeedsRefreshRestore = false;
+        releaseAfterMovieRestoreParking();
     }
     if (m_displayManager != nullptr) {
         m_displayManager->cancelPendingOperations();
@@ -3294,6 +3324,7 @@ void PlayerController::maybeFinalizePlaybackDescriptors(const QString &requestId
     m_nextPlaybackSegments = segments;
     m_nextContentKind = request.contentKind;
     m_nextCarryTrackPreferencesFromSeasonId = request.carryTrackPreferencesFromSeasonId;
+    m_nextIsMovie = request.isMovie;
     m_nextPlaylistAppendUrls.clear();
     for (int index = 1; index < segments.size(); ++index) {
         const QVariantMap segment = segments.at(index).toMap();
@@ -3488,6 +3519,10 @@ void PlayerController::failPendingPlaybackRequest(const QString &requestId, cons
     m_pendingPlaybackRequests.erase(it);
     setErrorMessage(errorMessage);
     if (m_playbackState == Idle) {
+        // Nothing replaces the playback that parked a display restore (Up
+        // Next's Play, a title started from the after-movie screen's
+        // shelf): give the display back.
+        maybeStartDeferredPostPlaybackDisplayRestore();
         processEvent(Event::ErrorOccurred);
     }
 }
@@ -4090,6 +4125,7 @@ void PlayerController::playTestVideo()
 
     scheduleReplacementPlayback([this]() {
         m_currentSeriesId.clear();
+        m_currentIsMovie = false;
         m_currentSeasonId.clear();
         m_currentLibraryId.clear();
         m_contentFramerate = 0.0;
@@ -4219,6 +4255,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     m_nextContentKind = PlayerPolicy::PlaybackContentKind::Feature;
     const QString requestedCarrySeasonId =
         std::exchange(m_nextCarryTrackPreferencesFromSeasonId, QString());
+    const bool requestedIsMovie = std::exchange(m_nextIsMovie, false);
     m_nextPlaybackMethod.clear();
     m_nextStreamPinsAudioTrack = false;
     m_nextStreamPinsSubtitleTrack = false;
@@ -4233,7 +4270,8 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
                                  requestedPinsSubtitleTrack, requestedPinnedAudioTrack,
                                  requestedPinnedSubtitleTrack, requestedPlaybackAttemptId,
                                  requestedPlaybackSegments, requestedPlaylistAppendUrls,
-                                 requestedContentKind, requestedCarrySeasonId]() {
+                                 requestedContentKind, requestedCarrySeasonId,
+                                 requestedIsMovie]() {
         // Store pending playback info after the previous item has fully stopped.
         if (m_currentItemId != itemId) {
             m_currentItemId = itemId;
@@ -4244,6 +4282,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_currentLibraryId = libraryId;
         m_currentContentKind = requestedContentKind;
         m_carryTrackPreferencesFromSeasonId = requestedCarrySeasonId;
+        m_currentIsMovie = requestedIsMovie;
         emit sleepTimerChanged(); // sleepTimerEndOfItemLabel
         m_pendingUrl = url;
         refreshAdjacentEpisodes();
@@ -4272,7 +4311,9 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_pinnedSubtitleTrack = requestedPinnedSubtitleTrack;
         m_hasReportedStopForAttempt = false;
         m_hasEvaluatedCompletionForAttempt = false;
-        cancelPendingDisplayRestore();
+        // A parked post-playback restore stays parked until startPlayback
+        // takes the display over.
+        cancelPendingDisplayRestore(false);
         clearPlaybackSegments();
         if (!m_mediaSourceId.isEmpty()) {
             m_mediaSourceId.clear();
@@ -4356,6 +4397,8 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         }
 
         processEvent(Event::Play);
+        // A start that never reached startPlayback gives the display back.
+        maybeStartDeferredPostPlaybackDisplayRestore();
     });
 }
 
@@ -4492,7 +4535,7 @@ void PlayerController::retry()
                 {QStringLiteral("overlayLogoUrl"), m_overlayLogoUrl},
                 {QStringLiteral("preferredAudioIndex"), m_selectedAudioTrack},
                 {QStringLiteral("preferredSubtitleIndex"), m_selectedSubtitleTrack},
-                {QStringLiteral("isMovie"), m_currentSeriesId.isEmpty()},
+                {QStringLiteral("isMovie"), m_currentIsMovie},
                 {QStringLiteral("allowVersionPrompt"), false},
                 {QStringLiteral("useAffinityFallback"), true},
                 {QStringLiteral("contentKind"),
@@ -4632,7 +4675,7 @@ void PlayerController::resumeFromRecoveryContext()
         {QStringLiteral("overlayLogoUrl"), m_overlayLogoUrl},
         {QStringLiteral("preferredAudioIndex"), context.audioStreamIndex},
         {QStringLiteral("preferredSubtitleIndex"), context.subtitleStreamIndex},
-        {QStringLiteral("isMovie"), context.seriesId.isEmpty()},
+        {QStringLiteral("isMovie"), context.isMovie},
         {QStringLiteral("allowVersionPrompt"), false},
         {QStringLiteral("useAffinityFallback"), true},
         {QStringLiteral("contentKind"), PlayerPolicy::playbackContentKindName(context.contentKind)},
@@ -5096,7 +5139,7 @@ void PlayerController::switchPlaybackVersion(const QString &mediaSourceId)
         {QStringLiteral("overlaySubtitle"), m_overlaySubtitle},
         {QStringLiteral("overlayBackdropUrl"), m_overlayBackdropUrl},
         {QStringLiteral("overlayLogoUrl"), m_overlayLogoUrl},
-        {QStringLiteral("isMovie"), m_currentSeriesId.isEmpty()},
+        {QStringLiteral("isMovie"), m_currentIsMovie},
         {QStringLiteral("allowVersionPrompt"), false},
         {QStringLiteral("mediaSourceId"), mediaSourceId},
         {QStringLiteral("contentKind"), PlayerPolicy::playbackContentKindName(m_currentContentKind)},
@@ -7037,11 +7080,28 @@ void PlayerController::clearPendingAutoplayContext()
 
 void PlayerController::releaseDeferredPostPlaybackDisplayRestore()
 {
+    if (m_afterMovieRestoreAttemptId != 0) {
+        // Parked for an after-movie screen, which releases it itself.
+        return;
+    }
     // Leaving Up Next without starting the next episode also ends the
     // session a running sleep timer belonged to.
     if (!isPlaybackActive()) {
         clearSleepTimer();
     }
+    maybeStartDeferredPostPlaybackDisplayRestore();
+}
+
+void PlayerController::releaseAfterMovieDisplayRestore(qulonglong attemptId)
+{
+    if (attemptId == 0 || attemptId != m_afterMovieRestoreAttemptId) {
+        qCDebug(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                 << "] stale after-movie display release ignored"
+                                 << "attemptId=" << attemptId
+                                 << "parkedFor=" << m_afterMovieRestoreAttemptId;
+        return;
+    }
+    // The movie's sleep timer already ended with it; leave any other alone.
     maybeStartDeferredPostPlaybackDisplayRestore();
 }
 

@@ -519,6 +519,7 @@ add_executable(SiloCatalogServiceTest
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/UserRatingState.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${TEST_CONFIG_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
@@ -833,6 +834,29 @@ target_link_libraries(ModalFocusGuardTest
 
 add_test(NAME ModalFocusGuardTest COMMAND ModalFocusGuardTest)
 set_tests_properties(ModalFocusGuardTest PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
+
+add_executable(UserRatingControlTest
+    UserRatingControlTest.cpp
+)
+
+target_compile_definitions(UserRatingControlTest PRIVATE
+    BLOOM_UI_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/ui"
+)
+
+target_link_libraries(UserRatingControlTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::QuickControls2
+        Qt6::Test
+)
+
+add_test(NAME UserRatingControlTest COMMAND UserRatingControlTest)
+set_tests_properties(UserRatingControlTest PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
 

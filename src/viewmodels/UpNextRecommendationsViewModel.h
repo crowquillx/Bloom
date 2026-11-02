@@ -64,7 +64,8 @@ public:
                                                const QString &startEpisodeId,
                                                int limit);
     /// The movies and series among @p items, without @p sourceItemId and
-    /// duplicates, in their order, at most @p limit.
+    /// repeats of the same connection, type and item id, in their order, at
+    /// most @p limit.
     static QVariantList selectBecauseWatched(const QVariantList &items,
                                              const QString &sourceItemId,
                                              int limit);

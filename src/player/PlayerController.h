@@ -288,8 +288,14 @@ public:
      */
     Q_INVOKABLE void clearPendingAutoplayContext();
     /// Up Next closed without starting playback: releases a parked display
-    /// restore and ends a running sleep timer.
+    /// restore and ends a running sleep timer. A restore parked for an
+    /// after-movie screen is left to that screen.
     Q_INVOKABLE void releaseDeferredPostPlaybackDisplayRestore();
+    /// The after-movie screen of playback attempt @p attemptId (from
+    /// navigateToAfterMovie) closed, went behind another page, or the
+    /// screensaver started: releases the display restore parked for it.
+    /// A stale screen's call (another attempt) does nothing.
+    Q_INVOKABLE void releaseAfterMovieDisplayRestore(qulonglong attemptId);
 
     /**
      * @brief Resolves the effective startup audio/subtitle selection for a media source.
@@ -493,9 +499,10 @@ signals:
                                const QString &carryTrackPreferencesFromSeasonId, bool autoplay);
     /// Emitted once playback of a movie ended past the completion threshold
     /// (PlayerPolicy::postPlaybackScreen). @p movieData carries `itemId`,
-    /// `connectionId`, `name`, `backdropUrl` and `logoUrl` from playback.
-    /// The display/HDR restore stays parked until the screen calls
-    /// releaseDeferredPostPlaybackDisplayRestore() or the next playback starts.
+    /// `connectionId`, `name`, `backdropUrl` and `logoUrl` from playback,
+    /// and the playback `attemptId`. The display/HDR restore stays parked
+    /// until the screen calls releaseAfterMovieDisplayRestore(attemptId),
+    /// kAfterMovieRestoreTimeoutMs passes, or the next playback starts.
     void navigateToAfterMovie(const QVariantMap &movieData);
     void playbackVersionSelectionRequested(const QString &requestId, const QVariantMap &dialogModel,
                                            QObject *restoreFocusTarget);
@@ -1051,6 +1058,9 @@ private:
     static constexpr int kRemoteMountLoadingTimeoutMs = 300000; // 5 minutes
     static constexpr double kRemoteMountInitialCacheSeconds = 60.0;
     static constexpr int kBufferingTimeoutMs = 60000; // 60 seconds
+    // The after-movie screen holds the display in playback's mode at most
+    // this long; a screen left up (the viewer fell asleep) then lets go.
+    static constexpr int kAfterMovieRestoreTimeoutMs = 5 * 60 * 1000;
     
     // Progress reporting timer
     QTimer *m_progressReportTimer;
@@ -1129,6 +1139,7 @@ private:
         QString libraryId;
         Bloom::PlaybackPolicy::PlaybackContentKind contentKind =
             Bloom::PlaybackPolicy::PlaybackContentKind::Feature;
+        bool isMovie = false;
         QString mediaSourceId;
         QString playSessionId;
         QVariantMap mediaSource;
@@ -1167,6 +1178,9 @@ private:
         Bloom::PlaybackPolicy::PlaybackContentKind::Feature;
     Bloom::PlaybackPolicy::PlaybackContentKind m_nextContentKind =
         Bloom::PlaybackPolicy::PlaybackContentKind::Feature;
+    // The playback request marked the item as a movie (`isMovie`).
+    bool m_currentIsMovie = false;
+    bool m_nextIsMovie = false;
     QString m_currentSeasonId;  // For per-season track preferences
     QString m_currentLibraryId; // For profile resolution
     QString m_pendingUrl;
@@ -1329,6 +1343,12 @@ private:
     // The finished movie while the after-movie screen is due: from a
     // completed movie's terminal transition until it is finalized.
     QVariantMap m_pendingAfterMovie;
+    // The playback attempt whose after-movie screen holds the parked display
+    // restore; 0 when that screen holds none. Only that screen (by the
+    // `attemptId` in navigateToAfterMovie) or the time limit releases it.
+    quint64 m_afterMovieRestoreAttemptId = 0;
+    QTimer *m_afterMovieRestoreTimer = nullptr;
+    void releaseAfterMovieRestoreParking();
     
     // Buffering detection
     QElapsedTimer m_lastPositionUpdateTime;

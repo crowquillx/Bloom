@@ -264,10 +264,15 @@ struct PostPlaybackInput
     PlaybackContentKind contentKind = PlaybackContentKind::Feature;
     /// The session ended with a playback error.
     bool endedWithError = false;
+    /// The sleep timer ended the session (end of the item, or its grace
+    /// countdown stopping playback).
+    bool endedBySleepTimer = false;
     /// Completion was already evaluated for this playback attempt.
     bool alreadyEvaluated = false;
     QString itemId;
-    /// Set for an episode; empty for a movie.
+    /// The playback request marked the item as a movie.
+    bool isMovie = false;
+    /// Set for an episode.
     QString seriesId;
     double positionSeconds = 0.0;
     double durationSeconds = 0.0;
@@ -276,7 +281,9 @@ struct PostPlaybackInput
 
 /// A completed episode leads into Up Next and a completed movie into the
 /// after-movie screen. Completion is the configured threshold, so a session
-/// stopped early, an error, and an extra lead nowhere.
+/// stopped early, an error, an extra, and a session the sleep timer ended
+/// lead nowhere (and so release the display at once). Only an item the
+/// request marked as a movie opens the after-movie screen.
 [[nodiscard]] PostPlaybackScreen postPlaybackScreen(const PostPlaybackInput &input);
 [[nodiscard]] bool shouldPrefetchNextEpisode(const PrefetchInput &input);
 [[nodiscard]] bool isUsablePrefetchedEpisode(const PrefetchedEpisodeInput &input);

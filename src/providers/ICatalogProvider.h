@@ -143,9 +143,6 @@ enum class ProviderCatalogOperation {
     // Other providers report this unsupported; callers then read
     // SimilarItems.
     BecauseWatched,
-    // Personal ratings (Silo): the profile's capability document, read once
-    // per connection and profile. capabilityMetadata carries `allowed`.
-    UserRatingCapability,
     // Sets the viewer's own rating of itemId to ratingValue, or clears it
     // with 0: 1 to 5 stars where ProviderCapability::StarRatings, +1 (like)
     // or -1 (dislike) where ProviderCapability::LikeRatings.

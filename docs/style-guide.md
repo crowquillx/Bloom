@@ -150,8 +150,10 @@ eyebrow, logo or display title, a metadata line, then "How was it?" with a
 `UserRatingControl` (only where the provider has ratings) and one primary
 Done button. It has no countdown. "Because You Watched …" is a poster
 `ShelfList` along the bottom, hidden when empty. Focus starts on Done; Up
-reaches the rating, Down the shelf. Done, Escape and Back return to the page
-playback started from; a card replaces the screen with that title's page.
+reaches the rating, Down the shelf. Done, Escape and Back pop only this
+screen, back to the page playback started from; a card replaces the screen
+with that title's page. The rating buttons stay focusable while a rating is
+being saved; they dim instead of disabling.
 
 Nothing in the hero moves unless the user moves it. Anything that loads after
 the page's details keeps its slot reserved from the start: quality badges

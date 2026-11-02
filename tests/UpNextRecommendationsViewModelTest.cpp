@@ -62,7 +62,6 @@ public:
     }
 
     QString userRatingScale() const override { return ratingScale; }
-    void loadUserRatingCapability() override { ++ratingCapabilityReads; }
 
     void clearItemCacheValidation(const QString &itemId) override
     {
@@ -80,7 +79,6 @@ public:
     QList<int> becauseWatchedLimits;
     bool deferBecauseWatched = false;
     QString ratingScale;
-    int ratingCapabilityReads = 0;
     QVariantMap seriesDetails;
     QVariantMap fallbackItem;
     QStringList similarRequests;
@@ -384,7 +382,7 @@ void UpNextRecommendationsViewModelTest::becauseWatchedKeepsMoviesAndSeriesOnly(
         QVariantMap{{"itemId", "episode-1"}, {"mediaType", "Episode"}, {"name", "Pilot"}},
         QVariantMap{{"itemId", "series-1"}, {"mediaType", "Series"}, {"name", "The Wire"}},
         QVariantMap{{"itemId", "box-1"}, {"mediaType", "BoxSet"}, {"name", "Collection"}},
-        QVariantMap{{"itemId", "movie-3"}, {"mediaType", "Movie"}, {"name", "Ronin (copy)"},
+        QVariantMap{{"itemId", "movie-2"}, {"mediaType", "Movie"}, {"name", "Ronin"},
                     {"providerIds", QVariantMap{{"Tmdb", "8195"}}}},
         QVariantMap{{"itemId", "movie-4"}, {"mediaType", "movie"}, {"name", "Collateral"}}
     };
@@ -400,6 +398,27 @@ void UpNextRecommendationsViewModelTest::becauseWatchedKeepsMoviesAndSeriesOnly(
 
     selected = UpNextRecommendationsViewModel::selectBecauseWatched(items, QStringLiteral("movie-1"), 2);
     QCOMPARE(selected.size(), 2);
+
+    // Only the same title repeats: a movie and a series sharing a TMDB
+    // number, remakes sharing a name, and the same id on another connection
+    // are different titles.
+    const QVariantList distinct{
+        QVariantMap{{"connectionId", "c1"}, {"itemId", "movie-10"}, {"mediaType", "Movie"},
+                    {"name", "Shogun"}, {"providerIds", QVariantMap{{"Tmdb", "126308"}}}},
+        QVariantMap{{"connectionId", "c1"}, {"itemId", "series-10"}, {"mediaType", "Series"},
+                    {"name", "Shogun"}, {"providerIds", QVariantMap{{"Tmdb", "126308"}}}},
+        QVariantMap{{"connectionId", "c1"}, {"itemId", "movie-11"}, {"mediaType", "Movie"},
+                    {"name", "Shogun"}},
+        QVariantMap{{"connectionId", "c2"}, {"itemId", "movie-10"}, {"mediaType", "Movie"},
+                    {"name", "Shogun"}},
+        QVariantMap{{"connectionId", "c1"}, {"itemId", "movie-10"}, {"mediaType", "Movie"},
+                    {"name", "Shogun"}}
+    };
+    selected = UpNextRecommendationsViewModel::selectBecauseWatched(
+        distinct, QStringLiteral("movie-1"), 12);
+    QCOMPARE(selected.size(), 4);
+    QCOMPARE(selected.at(3).toMap().value(QStringLiteral("connectionId")).toString(),
+             QStringLiteral("c2"));
 }
 
 void UpNextRecommendationsViewModelTest::movieLoadReadsBecauseWatchedDetailsAndRating()
@@ -442,7 +461,7 @@ void UpNextRecommendationsViewModelTest::movieLoadReadsBecauseWatchedDetailsAndR
     QCOMPARE(vm.movie().value(QStringLiteral("name")).toString(), QStringLiteral("Heat"));
     UserRatingState *rating = vm.movieRating();
     QCOMPARE(rating->itemId(), QStringLiteral("movie-1"));
-    QCOMPARE(libraryService->ratingCapabilityReads, 1);
+    QCOMPARE(rating->connectionId(), QStringLiteral("connection-1"));
     QVERIFY(rating->supported());
     QCOMPARE(rating->value(), 4);
 

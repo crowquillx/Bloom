@@ -98,7 +98,7 @@ void UpNextRecommendationsViewModel::loadForMovie(const QString &movieId, int li
 
     resetRequestState(movieId, limit);
     m_movieMode = true;
-    m_movieRating->setItem(movieId);
+    m_movieRating->setItem(movieId, m_connectionId);
     setLoading(true);
 
     m_waitingForLibrary = true;
@@ -286,14 +286,15 @@ QVariantList UpNextRecommendationsViewModel::selectBecauseWatched(const QVariant
         if (!isMovieOrSeriesItem(item) || itemId.isEmpty() || itemId == sourceItemId) {
             continue;
         }
-        const QString key = dedupeKey(item);
-        if (seen.contains(itemId) || (!key.isEmpty() && seen.contains(key))) {
+        // The server's own identity, not a TMDB id or title: a movie and a
+        // series share TMDB numbers, and remakes share titles.
+        const QString key = item.value(QStringLiteral("connectionId")).toString()
+            + QLatin1Char('\n') + item.value(QStringLiteral("mediaType")).toString().toLower()
+            + QLatin1Char('\n') + itemId;
+        if (seen.contains(key)) {
             continue;
         }
-        seen.insert(itemId);
-        if (!key.isEmpty()) {
-            seen.insert(key);
-        }
+        seen.insert(key);
         selected.append(item);
     }
     return selected;

@@ -1702,6 +1702,7 @@ FocusScope {
         id: userRatingDialog
         ratingState: MovieDetailsViewModel.userRating
         itemTitle: root.movieName
+        onRatingFailed: (message) => playbackToast.show(message)
     }
 
     Component.onCompleted: {

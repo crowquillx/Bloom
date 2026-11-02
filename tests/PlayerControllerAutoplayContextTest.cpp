@@ -593,6 +593,9 @@ private slots:
     void completedMovieOpensAfterMovieScreen();
     void earlyStopErrorAndExtraSkipAfterMovieScreen();
     void afterMovieIdleParksDisplayRestore();
+    void afterMovieRestoreReleasesOnlyForItsAttempt();
+    void sleepTimerSuppressesAfterMovieScreen();
+    void failedReplacementPlaybackReleasesParkedRestore();
     void replacementPlaybackWaitsForQueuedTerminalFinalization();
     void replacementPlaybackRetainsFinalizedStreamMetadata();
     void explicitStopReportsFinalProgressAndStoppedOnce();
@@ -1767,6 +1770,8 @@ void PlayerControllerAutoplayContextTest::completedMovieOpensAfterMovieScreen()
     QSignalSpy upNext(&controller, &PlayerController::navigateToNextEpisode);
 
     controller.m_currentItemId = QStringLiteral("movie-1");
+    controller.m_currentIsMovie = true;
+    controller.m_playbackAttemptId = 7;
     controller.m_overlayTitle = QStringLiteral("Heat");
     controller.m_overlayBackdropUrl = QStringLiteral("image://cached/backdrop");
     controller.m_overlayLogoUrl = QStringLiteral("image://cached/logo");
@@ -1783,7 +1788,11 @@ void PlayerControllerAutoplayContextTest::completedMovieOpensAfterMovieScreen()
     QCOMPARE(movie.value(QStringLiteral("backdropUrl")).toString(),
              QStringLiteral("image://cached/backdrop"));
     QCOMPARE(movie.value(QStringLiteral("logoUrl")).toString(), QStringLiteral("image://cached/logo"));
+    QCOMPARE(movie.value(QStringLiteral("attemptId")).toULongLong(), 7ULL);
     QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    // The restore is parked for this screen.
+    QCOMPARE(controller.m_afterMovieRestoreAttemptId, 7ULL);
+    QVERIFY(controller.m_afterMovieRestoreTimer->isActive());
     QVERIFY(controller.m_pendingAfterMovie.isEmpty());
     // No series: no Up Next, autoplay, or next-episode lookup.
     QCOMPARE(upNext.count(), 0);
@@ -1813,6 +1822,7 @@ void PlayerControllerAutoplayContextTest::earlyStopErrorAndExtraSkipAfterMovieSc
 
     const auto playMovie = [&controller](double position) {
         controller.m_currentItemId = QStringLiteral("movie-1");
+        controller.m_currentIsMovie = true;
         controller.m_currentSeriesId.clear();
         controller.m_duration = 100.0;
         controller.m_currentPosition = position;
@@ -1848,6 +1858,14 @@ void PlayerControllerAutoplayContextTest::earlyStopErrorAndExtraSkipAfterMovieSc
     controller.cancelPendingTerminalTransition();
     QVERIFY(controller.m_pendingAfterMovie.isEmpty());
 
+    // A finished item without a series that the request did not mark as a
+    // movie (a home video).
+    playMovie(100.0);
+    controller.m_currentIsMovie = false;
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(controller.m_pendingAfterMovie.isEmpty());
+    controller.resetTerminalTransitionState(true);
+
     // A finished extra.
     playMovie(100.0);
     controller.m_currentContentKind = Bloom::PlaybackPolicy::PlaybackContentKind::Extra;
@@ -1881,6 +1899,7 @@ void PlayerControllerAutoplayContextTest::afterMovieIdleParksDisplayRestore()
     // state is recomputed from the display, not started.
     controller.m_playbackState = PlayerController::Playing;
     controller.m_currentItemId = QStringLiteral("movie-1");
+    controller.m_playbackAttemptId = 7;
     controller.m_pendingAfterMovie = {{QStringLiteral("itemId"), QStringLiteral("movie-1")}};
     controller.m_deferredPostPlaybackDisplayRestorePending = true;
     controller.m_deferredPostPlaybackNeedsHdrRestore = true;
@@ -1892,13 +1911,191 @@ void PlayerControllerAutoplayContextTest::afterMovieIdleParksDisplayRestore()
     QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
     QVERIFY(!controller.m_deferredPostPlaybackNeedsHdrRestore);
     QVERIFY(!controller.m_deferredPostPlaybackNeedsRefreshRestore);
+    QCOMPARE(controller.m_afterMovieRestoreAttemptId, 7ULL);
+    QVERIFY(controller.m_afterMovieRestoreTimer->isActive());
+    QCOMPARE(controller.m_afterMovieRestoreTimer->interval(),
+             PlayerController::kAfterMovieRestoreTimeoutMs);
 
     // Leaving the screen releases the parked restore.
     controller.m_deferredPostPlaybackDisplayRestorePending = true;
     controller.m_deferredPostPlaybackNeedsRefreshRestore = true;
-    controller.releaseDeferredPostPlaybackDisplayRestore();
+    controller.releaseAfterMovieDisplayRestore(7);
     QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
     QVERIFY(controller.m_displayRestoreGeneration > generationBeforeIdle + 1);
+    QCOMPARE(controller.m_afterMovieRestoreAttemptId, 0ULL);
+    QVERIFY(!controller.m_afterMovieRestoreTimer->isActive());
+}
+
+void PlayerControllerAutoplayContextTest::afterMovieRestoreReleasesOnlyForItsAttempt()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    const auto parkForAfterMovie = [&controller](quint64 attemptId) {
+        controller.m_playbackState = PlayerController::Playing;
+        controller.m_currentItemId = QStringLiteral("movie-1");
+        controller.m_playbackAttemptId = attemptId;
+        controller.m_pendingAfterMovie = {{QStringLiteral("itemId"), QStringLiteral("movie-1")}};
+        controller.onEnterIdleState();
+        controller.m_pendingAfterMovie.clear();
+        controller.m_deferredPostPlaybackDisplayRestorePending = true;
+        controller.m_deferredPostPlaybackNeedsRefreshRestore = true;
+    };
+
+    parkForAfterMovie(7);
+    // Up Next's release, or a stale after-movie screen (another attempt),
+    // leaves the restore parked.
+    controller.releaseDeferredPostPlaybackDisplayRestore();
+    controller.releaseAfterMovieDisplayRestore(6);
+    controller.releaseAfterMovieDisplayRestore(0);
+    QVERIFY(controller.m_deferredPostPlaybackDisplayRestorePending);
+    QCOMPARE(controller.m_afterMovieRestoreAttemptId, 7ULL);
+
+    // The time limit lets go on its own.
+    controller.m_afterMovieRestoreTimer->start(1);
+    QTRY_COMPARE(controller.m_afterMovieRestoreAttemptId, 0ULL);
+    QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
+
+    // A buried after-movie screen going away later touches neither the
+    // restore parked for Up Next nor the sleep timer carried into it.
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentItemId = QStringLiteral("episode-1");
+    controller.m_playbackAttemptId = 8;
+    controller.m_awaitingNextEpisodeResolution = true;
+    controller.onEnterIdleState();
+    controller.m_playbackState = PlayerController::Idle;
+    QCOMPARE(controller.m_afterMovieRestoreAttemptId, 0ULL);
+    controller.m_deferredPostPlaybackDisplayRestorePending = true;
+    controller.m_deferredPostPlaybackNeedsRefreshRestore = true;
+    controller.setSleepTimer(30);
+    controller.releaseAfterMovieDisplayRestore(7);
+    QVERIFY(controller.m_deferredPostPlaybackDisplayRestorePending);
+    QCOMPARE(controller.sleepTimerChoice(), 30);
+    // Up Next's own release still works.
+    controller.m_awaitingNextEpisodeResolution = false;
+    controller.releaseDeferredPostPlaybackDisplayRestore();
+    QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
+    QCOMPARE(controller.sleepTimerChoice(), 0);
+}
+
+void PlayerControllerAutoplayContextTest::sleepTimerSuppressesAfterMovieScreen()
+{
+    ConfigManager config;
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+    QSignalSpy afterMovie(&controller, &PlayerController::navigateToAfterMovie);
+
+    const auto playMovie = [&controller](double position) {
+        controller.resetTerminalTransitionState(true);
+        controller.m_hasEvaluatedCompletionForAttempt = false;
+        controller.m_currentItemId = QStringLiteral("movie-1");
+        controller.m_currentIsMovie = true;
+        controller.m_currentSeriesId.clear();
+        controller.m_playbackAttemptId += 1;
+        controller.m_duration = 100.0;
+        controller.m_currentPosition = position;
+        controller.m_playbackState = PlayerController::Playing;
+    };
+
+    // "End of this movie": the movie plays to its end, then no screen and
+    // no parked restore.
+    controller.setSleepTimer(Bloom::PlaybackPolicy::kSleepTimerEndOfItem);
+    playMovie(100.0);
+    controller.requestTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QTRY_COMPARE(controller.playbackState(), PlayerController::Idle);
+    QCoreApplication::processEvents();
+    QCOMPARE(afterMovie.count(), 0);
+    QCOMPARE(controller.m_afterMovieRestoreAttemptId, 0ULL);
+    QCOMPARE(controller.sleepTimerChoice(), 0);
+
+    // The grace countdown stopping a movie past the threshold: the same.
+    playMovie(95.0);
+    backend.setRunning(true);
+    controller.setSleepTimer(15);
+    controller.m_sleepTimerRemainingSeconds = 1;
+    controller.onSleepTimerTick();
+    QVERIFY(controller.sleepTimerGraceActive());
+    controller.m_sleepTimerGraceRemainingSeconds = 1;
+    controller.onSleepTimerTick();
+    QTRY_COMPARE(controller.playbackState(), PlayerController::Idle);
+    QCoreApplication::processEvents();
+    QCOMPARE(afterMovie.count(), 0);
+    QCOMPARE(controller.m_afterMovieRestoreAttemptId, 0ULL);
+
+    // Without the timer the same end opens the screen and parks.
+    playMovie(100.0);
+    backend.setRunning(false);
+    controller.requestTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QTRY_COMPARE(afterMovie.count(), 1);
+    QCOMPARE(controller.m_afterMovieRestoreAttemptId, controller.m_playbackAttemptId);
+}
+
+void PlayerControllerAutoplayContextTest::failedReplacementPlaybackReleasesParkedRestore()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    // Up Next's Play (or a title opened from the after-movie shelf) asked
+    // for playback while the restore was parked; the request then fails
+    // before anything starts.
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentItemId = QStringLiteral("movie-1");
+    controller.m_playbackAttemptId = 7;
+    controller.m_pendingAfterMovie = {{QStringLiteral("itemId"), QStringLiteral("movie-1")}};
+    controller.onEnterIdleState();
+    controller.m_pendingAfterMovie.clear();
+    controller.m_deferredPostPlaybackDisplayRestorePending = true;
+    controller.m_deferredPostPlaybackNeedsRefreshRestore = true;
+    controller.m_playbackState = PlayerController::Idle;
+
+    PlayerController::PendingPlaybackRequest pending;
+    pending.requestId = QStringLiteral("request-1");
+    pending.itemId = QStringLiteral("movie-2");
+    controller.m_pendingPlaybackRequests.insert(pending.requestId, pending);
+    controller.failPendingPlaybackRequest(pending.requestId, QStringLiteral("Not Found"));
+
+    QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
+    QCOMPARE(controller.m_afterMovieRestoreAttemptId, 0ULL);
+    QCOMPARE(controller.playbackState(), PlayerController::Error);
 }
 
 void PlayerControllerAutoplayContextTest::upNextIdleParkingInvalidatesQueuedDisplayRestore()

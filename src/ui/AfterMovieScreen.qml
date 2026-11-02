@@ -17,8 +17,13 @@ import BloomUI
  *   - Open a recommended movie or series
  *   - Press Done, Escape, or Back to return where they came from
  *
- * The display/HDR restore stays parked while this screen is up; every way
- * off it releases the restore. All navigation is keyboard/gamepad accessible.
+ * The display/HDR restore stays parked while this screen is up. Leaving it
+ * (Done, a recommendation, the navigation bar pushing a page over it), the
+ * screensaver starting, or PlayerController's five-minute limit releases the
+ * restore. The release names the playback attempt the screen was opened for,
+ * so a stale screen never releases a restore parked for something newer.
+ * Back from a page pushed over it shows the screen again, reloaded.
+ * All navigation is keyboard/gamepad accessible.
  */
 FocusScope {
     id: root
@@ -27,7 +32,8 @@ FocusScope {
     property string ownerConnectionId: ""
 
     // ---- Set by Main.qml from PlayerController::navigateToAfterMovie ----
-    // itemId, connectionId, name, backdropUrl, logoUrl as playback had them.
+    // itemId, connectionId, name, backdropUrl, logoUrl as playback had them,
+    // and the playback attemptId that parked the display restore.
     property var movieData: ({})
 
     // Tell Main.qml's global ESC shortcut to skip this screen
@@ -90,7 +96,7 @@ FocusScope {
 
     function releaseDisplay() {
         if (typeof PlayerController !== "undefined")
-            PlayerController.releaseDeferredPostPlaybackDisplayRestore()
+            PlayerController.releaseAfterMovieDisplayRestore(movieData.attemptId || 0)
     }
 
     function done() {
@@ -120,8 +126,13 @@ FocusScope {
     function loadIfNeeded() {
         if (!root.viewModel || !root.movieId || root.movieId === root.loadedMovieId) return
         root.loadedMovieId = root.movieId
-        root.viewModel.clearUpcomingEpisodes()
-        root.viewModel.loadForMovie(root.movieId, 12)
+        const movieId = root.movieId
+        // Reads (and the rating) go to the movie's own connection.
+        movieRouter.run(movieData.connectionId || "", function() {
+            if (root.loadedMovieId !== movieId || !root.viewModel) return
+            root.viewModel.clearUpcomingEpisodes()
+            root.viewModel.loadForMovie(movieId, 12)
+        })
     }
 
     onMovieIdChanged: loadIfNeeded()
@@ -132,12 +143,24 @@ FocusScope {
         }
     }
 
+    property bool wasActive: false
+
     StackView.onStatusChanged: {
         if (StackView.status === StackView.Active) {
+            wasActive = true
+            // Shown again after a page pushed over it: reload.
+            loadIfNeeded()
             focusPrimaryAction()
-        } else if (StackView.status === StackView.Deactivating && root.viewModel) {
-            root.loadedMovieId = ""
-            root.viewModel.clear()
+        } else if (wasActive && StackView.status !== StackView.Activating) {
+            // Popped, or the navigation bar pushed a page over it: the
+            // display goes back to the desktop mode either way.
+            wasActive = false
+            releaseDisplay()
+            movieRouter.cancel()
+            if (root.viewModel && root.loadedMovieId !== "") {
+                root.loadedMovieId = ""
+                root.viewModel.clear()
+            }
         }
     }
 
@@ -145,6 +168,20 @@ FocusScope {
     // a space switch), the parked display restore must not stay parked.
     StackView.onRemoved: releaseDisplay()
     Component.onDestruction: releaseDisplay()
+
+    // Nobody is looking at the screen any more.
+    Connections {
+        target: typeof ScreensaverController !== "undefined" ? ScreensaverController : null
+        ignoreUnknownSignals: true
+        function onActiveChanged() {
+            if (ScreensaverController.active)
+                root.releaseDisplay()
+        }
+    }
+
+    SourceRouter {
+        id: movieRouter
+    }
 
     Keys.onEscapePressed: function(event) {
         root.done()
@@ -303,6 +340,7 @@ FocusScope {
                 UserRatingControl {
                     id: ratingControl
                     ratingState: root.ratingState
+                    onFailed: (message) => ratingToast.show(message)
                     // Up is left unhandled so it reaches the navigation bar.
                     Keys.onDownPressed: function(event) {
                         doneButton.forceActiveFocus()

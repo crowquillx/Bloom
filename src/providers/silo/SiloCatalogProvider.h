@@ -476,8 +476,6 @@ private:
             request.relativeEndpoint = endpointWithQuery(request.relativeEndpoint, parameters);
             return request;
         }
-        case ProviderCatalogOperation::UserRatingCapability:
-            return get(QStringLiteral("/api/v2/capabilities/ratings"));
         case ProviderCatalogOperation::SetUserRating: {
             // Stars, 1 to 5; 0 forgets the rating. setRating and
             // deleteRating are non_retryable (a replay repeats the rating
@@ -575,15 +573,12 @@ public:
             response.valid = true;
             return response;
         }
-        if (operation == ProviderCatalogOperation::NotInterestedCapability
-            || operation == ProviderCatalogOperation::UserRatingCapability) {
+        if (operation == ProviderCatalogOperation::NotInterestedCapability) {
             ProviderCatalogResponse response;
             const QJsonObject object = QJsonDocument::fromJson(body).object();
             if (!object.value(QStringLiteral("state")).isString()
                 || !object.value(QStringLiteral("allowed")).isBool()) {
-                response.error = operation == ProviderCatalogOperation::UserRatingCapability
-                    ? QStringLiteral("Invalid Silo ratings capability response")
-                    : QStringLiteral("Invalid Silo not interested capability response");
+                response.error = QStringLiteral("Invalid Silo not interested capability response");
                 return response;
             }
             response.capabilityMetadata.insert(

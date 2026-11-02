@@ -25,6 +25,9 @@ Dialog {
     property string itemTitle: ""
     property Item restoreFocusTarget: null
 
+    /// The route to the title's connection failed; nothing was sent.
+    signal ratingFailed(string message)
+
     title: itemTitle ? qsTr("Rate %1").arg(itemTitle) : qsTr("Your Rating")
 
     background: DialogSurface {}
@@ -74,6 +77,7 @@ Dialog {
             id: ratingControl
             Layout.alignment: Qt.AlignLeft
             ratingState: root.ratingState
+            onFailed: (message) => root.ratingFailed(message)
             Keys.onDownPressed: function(event) {
                 doneButton.forceActiveFocus()
                 event.accepted = true

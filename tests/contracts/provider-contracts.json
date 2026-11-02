@@ -1617,13 +1617,9 @@
       },
       {
         "id": "native.state.ratings",
-        "method": "GET/PUT/DELETE",
-        "path": "/api/v2/capabilities/ratings and /api/v2/ratings/{item_id}",
+        "method": "PUT/DELETE",
+        "path": "/api/v2/ratings/{item_id}",
         "operations": [
-          {
-            "method": "GET",
-            "path": "/api/v2/capabilities/ratings"
-          },
           {
             "method": "PUT",
             "path": "/api/v2/ratings/{item_id}"
@@ -1636,7 +1632,7 @@
         "outcome": "supported",
         "capability": {
           "state": "conditional",
-          "discovery": "getRatingsCapability for the selected profile: Bloom offers star ratings only when state is available and allowed holds, read once per connection and profile. Exposed as ProviderCapability::StarRatings on native Silo only."
+          "discovery": "Silo has no personal-ratings capability document (getRatingsCapability describes the external rating sources title pages show), so Bloom offers star ratings on every native Silo connection (ProviderCapability::StarRatings) and hides them for the connection and profile after a write answers 503 (no ratings service), 501, 404 or 405."
         },
         "requestSemantics": [
           "Profile-scoped rating by content identity of a movie or series: setRating sends the JSON body {\"rating\": n} with n from 1 to 5, deleteRating sends no body.",
@@ -1645,7 +1641,7 @@
         "requiredSemantics": [
           "A rating replaces any earlier one and deleting an absent rating succeeds, so the title ends rated or unrated as asked.",
           "Item details carry user_rating, which seeds the rating control; an absent value reads as unrated.",
-          "The control changes at once and returns to the earlier rating when the write fails."
+          "The control changes at once and returns to the earlier rating when the write fails, including a write whose session changed before the answer."
         ],
         "evidenceSources": [
           "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
