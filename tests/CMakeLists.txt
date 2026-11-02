@@ -930,6 +930,7 @@ add_executable(SubtitleSyncTest
     TestConfigIsolation.h
     ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
     ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/ShuffleSession.cpp
     ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SubtitleSyncViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
