@@ -15,7 +15,9 @@
  * Only the record types DNS-SD browsing reads are decoded (PTR, SRV, TXT, A,
  * AAAA); other records are skipped. Parsing is bounded and rejects any
  * malformed packet whole: truncated sections, label or name length overruns,
- * and compression pointers that do not point strictly backwards.
+ * compression pointers that do not point strictly backwards, a name that
+ * follows more than MaxPointerHops pointers, and a packet whose header counts
+ * more than MaxEntriesPerMessage questions and records.
  */
 namespace Bloom::Dns {
 
@@ -41,6 +43,12 @@ inline constexpr quint16 FlagAuthoritative = 0x0400;
 
 inline constexpr int MaxLabelBytes = 63;
 inline constexpr int MaxNameBytes = 255;
+/// Compression pointers one name may follow. Real encoders chain a few at
+/// most; strictly-backward pointers alone would allow thousands per name.
+inline constexpr int MaxPointerHops = 32;
+/// Questions plus records one packet may declare, bounding the parse work
+/// a datagram can cost. DNS-SD answers carry tens.
+inline constexpr int MaxEntriesPerMessage = 256;
 
 /// "_silo._tcp.local" as labels. For fixed names only: no escapes.
 Name nameFromDotted(QByteArrayView dotted);

@@ -83,7 +83,8 @@ std::optional<LanServerAdvert> advert(const QByteArray &reply, const QHostAddres
         add(*endpoint);
     }
     // The address the reply came from reaches the server from here, on the
-    // advertised port when there is one.
+    // advertised port when Address is plain HTTP (an HTTPS port does not
+    // serve HTTP, so 8096 then), always under the advertised base path.
     bool isIPv4 = false;
     const quint32 senderIPv4 = sender.toIPv4Address(&isIPv4);
     const QHostAddress source = isIPv4 ? QHostAddress(senderIPv4) : sender;
@@ -94,7 +95,7 @@ std::optional<LanServerAdvert> advert(const QByteArray &reply, const QHostAddres
         url.setHost(source.toString());
         const bool plainHttp = advertised && advertised->scheme() == QStringLiteral("http");
         url.setPort(plainHttp ? advertised->port(DefaultHttpPort) : DefaultHttpPort);
-        if (plainHttp) {
+        if (advertised) {
             url.setPath(advertised->path());
         }
         add(url);

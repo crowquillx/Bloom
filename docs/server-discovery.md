@@ -21,8 +21,8 @@ transport → providers → discovery) and needs no session.
 
 | Piece | Role |
 | --- | --- |
-| `DnsMessage` | The DNS wire format (RFC 1035, 6762, 6763): queries and responses with name compression; decodes PTR, SRV, TXT, A and AAAA and skips other types. Bounded: a malformed packet (truncated, label or name too long, a compression pointer that does not point strictly backwards) is rejected whole. |
-| `DnsSdResolver` | Assembles responses into resolved instances of one service type (PTR → SRV + TXT → A/AAAA), honors goodbyes (TTL 0) and cache-flush address sets, drops loopback and link-local IPv6 addresses, asks follow-up questions for what is missing, and keeps at most 32 instances and 8 addresses per host. |
+| `DnsMessage` | The DNS wire format (RFC 1035, 6762, 6763): queries and responses with name compression; decodes PTR, SRV, TXT, A and AAAA and skips other types. Bounded: a malformed packet (truncated, label or name too long, a compression pointer that does not point strictly backwards, a name that follows more than 32 pointers, more than 256 questions and records declared) is rejected whole. |
+| `DnsSdResolver` | Assembles responses into resolved instances of one service type (PTR → SRV + TXT → A/AAAA), honors goodbyes (TTL 0) and cache-flush address sets (A and AAAA flushed separately, RFC 6762 §10.2), forgets the addresses of hosts no instance points at any more, drops loopback and link-local IPv6 addresses, asks follow-up questions for what is missing, and keeps at most 32 instances and 8 addresses per host. |
 | `MdnsServerBrowser` | The multicast DNS querier (below). |
 | `JellyfinServerBrowser` | Jellyfin's UDP broadcast. |
 | `SiloLanDiscovery`, `JellyfinLanDiscovery` (`src/providers/…`) | The providers' advert formats and identity parsing; wire fields stay in the provider directories. |
@@ -44,8 +44,9 @@ Each activation is one bounded search:
   start. "Search again" (shown when nothing was found) starts another search.
 - Deactivating closes the sockets at once, cancels running identity reads and
   clears the list; a late answer from an earlier search is ignored.
-- Nothing blocks the UI thread: sockets are read on `readyRead` (at most 64
-  datagrams per event), and identity reads go through `HttpTransport`.
+- Nothing blocks the UI thread: sockets are read on `readyRead` (at most 16
+  mDNS or 64 Jellyfin datagrams per event, the rest on the next pass), and
+  identity reads go through `HttpTransport`.
 - In `--test-mode` the service is inert: no sockets, nothing listed, and the
   section is hidden (`available` is false). It is also hidden when neither
   browser can open a socket.
@@ -86,6 +87,11 @@ system's mDNS daemon in the same way.
   `SO_REUSEADDR` sockets all receive multicast, the arrangement Chromium and
   other mDNS libraries rely on. Windows Firewall may ask to allow Bloom on
   private networks the first time.
+- Only packets from this link are read: an IP hop limit of 255 (RFC 6762
+  §11, where Qt reports it), an IPv6 link-local sender, or a sender inside one
+  of the browsing interfaces' subnets. Silo's responder sends with Go's
+  default multicast TTL of 1, so the subnet test is what admits it; a
+  responder on another subnet of the same link is not read.
 - If 5353 cannot be shared, the mDNS browser reports itself unavailable,
   logs it under `bloom.discovery`, and Silo servers are not listed; Jellyfin
   discovery and manual entry are unaffected. There is no unicast fallback,
@@ -109,9 +115,10 @@ Replies must come from port 7359 and be at most 4 KiB. Candidates, in order:
    a bare `host[:port]` (as a published server URL can be) becomes
    `http://host:port`, port 8096 when absent.
 2. `EndpointAddress`, read the same way when present.
-3. The address the reply came from, on the advertised port and base path when
-   `Address` is plain HTTP, else on 8096. A published `Address` can be
-   unreachable from the LAN while the sender address is not.
+3. The address the reply came from, under the advertised base path, on the
+   advertised port when `Address` is plain HTTP, else on 8096 (an HTTPS port
+   does not serve HTTP). A published `Address` can be unreachable from the
+   LAN while the sender address is not.
 
 ## Validation and dedupe
 
@@ -121,21 +128,35 @@ Each candidate gets the provider's public identity read: Silo
 advertised id; otherwise the candidate is dropped. A Silo entry is then
 labelled from `GET /api/v2/theme/branding` (`getBranding`) `server_name`,
 falling back to the advertised instance name when that read fails; Jellyfin's
-label is `ServerName`. The reads carry no token, profile or device headers,
-follow no redirect (the candidate itself must answer), make one attempt with a
-3-second deadline and buffer at most 64 KiB.
+label is `ServerName`. The reads carry no `Authorization` header (the
+validator removes the MediaBrowser client header Jellyfin's request factory
+adds), no token, profile or device headers, follow no redirect (the candidate
+itself must answer), make one attempt with a 3-second deadline and buffer at
+most 64 KiB; a larger body is never read whole, so the check fails.
 
-Servers are keyed by provider and server id. Several addresses of one server
-(several interfaces, several API processes, the Jellyfin sender fallback) are
-validated in parallel, at most four reads at a time; the first address that
-confirms is listed and the server's other candidates are dropped. An address
-that failed is not tried again within the search. The list holds at most 16
-servers and 64 candidate addresses per search, in the order they confirmed.
+Entries are keyed by provider, server id and the advert's origin: the
+DNS-SD host name (SRV target) for Silo, the reply's sender address for
+Jellyfin. Several addresses from one origin (IPv4 and IPv6, a published
+`Address` and the sender fallback) are validated in parallel, at most four
+reads at a time; the first address that confirms is listed and that origin's
+other candidates are dropped. The same id confirmed from another origin is
+listed as its own entry with its own address, so a host that copies a
+server's id cannot take over that server's card by answering first; the card
+shows the address to tell them apart. An address is checked once per server
+id and search, whichever origin advertised it, and a failed one is not tried
+again. The list holds at most 16 entries and 64 candidate addresses per
+search, in the order they confirmed, and one sending address can queue at
+most 8 candidates, so a single host cannot use up the whole budget.
+
+An entry is marked `saved` (the card reads "Saved") when a saved connection
+has its provider, server id and host. The id alone is the advertiser's claim,
+so the same id at another host is not marked.
 
 ## UI
 
 `LoginScreen` shows **Found on your network** above the address field: a
-horizontal row of cards (server name, provider and address) with the shared
+horizontal row of cards (server name, provider, address and "Saved" for a
+saved server, all plain text since names are untrusted) with the shared
 `FocusRing`, or a compact `StateMessage` while searching ("Looking for servers
 on your network…") or when nothing was found ("No servers found. Enter the
 address below." with **Search again**). Up from the address field reaches the
@@ -160,8 +181,12 @@ under focus, focus returns to the address field with `Qt.callLater`.
 `ServerDiscoveryTest` covers DNS encoding and decoding (PTR, SRV, TXT, A,
 AAAA, compression, a hand-written response as Silo packs it, malformed and
 looping packets), DNS-SD resolution, Silo advert rules, Jellyfin reply parsing
-including a real reply whose `Address` is unreachable, the validator against a
-local HTTP stub (identity match, branding, redirects and errors refused, no
-credential headers), and the service with fake browsers and a fake validator:
-lifetime, bounded re-queries, dedupe, dropped candidates and bounded reads.
+including a real reply whose `Address` is unreachable and the HTTPS base-path
+fallback, the pointer-hop and entry caps, per-family cache flush and host
+cache pruning, the on-link sender test, the validator against a local HTTP
+stub (identity match, branding, redirects and errors refused, no credential
+or Authorization headers, the 64 KiB body limit, the 3-second deadline), and
+the service with fake browsers and a fake validator: lifetime, bounded
+re-queries, dedupe per origin, the per-sender cap, saved marking, dropped
+candidates and bounded reads.
 Live LAN behavior is manual validation ([ledger](manual-validation.md)).

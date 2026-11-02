@@ -39,7 +39,8 @@ public:
  * GetPublicSystemInfo), then the optional ServerBranding route for the live
  * name (Silo getBranding).
  *
- * Requests carry no credentials or device identity, follow no redirect (the
+ * Requests carry no credentials, Authorization header or device identity,
+ * follow no redirect (the
  * candidate itself must answer), make one attempt under a short deadline,
  * and buffer at most a small response: a larger body stalls the read until
  * the deadline drops it.

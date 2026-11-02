@@ -2,6 +2,7 @@
 
 #include "providers/ServerConnection.h"
 
+#include <QHostAddress>
 #include <QList>
 #include <QString>
 #include <QUrl>
@@ -19,8 +20,16 @@ struct LanServerAdvert {
     QString serverId;
     // The advertised name, shown when the identity read carries none.
     QString name;
-    // Candidate base URLs (scheme, host, port; no path), most preferred first.
+    // Candidate base URLs (scheme, host, port, optional base path), most
+    // preferred first.
     QList<QUrl> urls;
+    // Who made the claim, set by the browser: the DNS-SD host name, or the
+    // address a Jellyfin reply came from. URLs of one origin are one server
+    // entry; the same id confirmed from another origin is listed separately.
+    QString origin;
+    // The address of the datagram that carried the advert; discovery caps
+    // the candidates one sender can queue.
+    QHostAddress sender;
 };
 
 /// The public identity a provider reports at a candidate address.

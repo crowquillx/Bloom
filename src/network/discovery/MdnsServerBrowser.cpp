@@ -44,8 +44,8 @@ bool hasAddress(const QNetworkInterface &interface, QAbstractSocket::NetworkLaye
 // One mDNS packet is at most 9000 bytes (RFC 6762 §17).
 constexpr qint64 MaxPacketBytes = 9000;
 // Bounds the datagrams one readyRead drains, so a flood cannot hold the
-// event loop.
-constexpr int MaxDatagramsPerRead = 64;
+// event loop; the rest are read on the next event-loop pass.
+constexpr int MaxDatagramsPerRead = 16;
 
 } // namespace
 
@@ -106,6 +106,7 @@ bool MdnsServerBrowser::start()
     for (const QNetworkInterface &interface : interfaces) {
         if (eligible(interface)) {
             m_memberships.append(Membership{interface});
+            m_localNetworks.append(interface.addressEntries());
         }
     }
     if (m_memberships.isEmpty()) {
@@ -116,6 +117,7 @@ bool MdnsServerBrowser::start()
     m_socket6 = openSocket(QHostAddress(QHostAddress::AnyIPv6), groupIPv6(), true);
     if (!m_socket4 && !m_socket6) {
         m_memberships.clear();
+        m_localNetworks.clear();
         return false;
     }
     return true;
@@ -139,6 +141,7 @@ void MdnsServerBrowser::stop()
     closeSocket(m_socket4);
     closeSocket(m_socket6);
     m_memberships.clear();
+    m_localNetworks.clear();
     m_resolver.clear();
     m_reported.clear();
 }
@@ -182,9 +185,10 @@ void MdnsServerBrowser::readPending(QUdpSocket *socket)
 {
     for (int read = 0; read < MaxDatagramsPerRead && socket->hasPendingDatagrams(); ++read) {
         const QNetworkDatagram datagram = socket->receiveDatagram(MaxPacketBytes);
-        // mDNS responses come from port 5353 (RFC 6762 §6).
-        if (datagram.isValid() && datagram.senderPort() == MdnsPort) {
-            handlePacket(datagram.data());
+        // mDNS responses come from port 5353 (RFC 6762 §6), on this link.
+        if (datagram.isValid() && datagram.senderPort() == MdnsPort
+            && acceptsSender(datagram.senderAddress(), datagram.hopLimit(), m_localNetworks)) {
+            handlePacket(datagram.data(), datagram.senderAddress());
         }
         if (socket != m_socket4 && socket != m_socket6) {
             return; // stopped while handling
@@ -202,7 +206,32 @@ void MdnsServerBrowser::readPending(QUdpSocket *socket)
     }
 }
 
-void MdnsServerBrowser::handlePacket(const QByteArray &packet)
+bool MdnsServerBrowser::acceptsSender(const QHostAddress &sender, int hopLimit,
+                                      const QList<QNetworkAddressEntry> &localNetworks)
+{
+    // A routed packet arrives with less than 255. Silo's responder leaves
+    // the multicast TTL at its default of 1, so a lower hop limit alone does
+    // not reject a sender on a local subnet.
+    if (hopLimit == 255) {
+        return true;
+    }
+    bool isIPv4 = false;
+    const quint32 ipv4 = sender.toIPv4Address(&isIPv4);
+    const QHostAddress address = isIPv4 ? QHostAddress(ipv4) : sender;
+    if (address.isNull()) {
+        return false;
+    }
+    if (address.protocol() == QAbstractSocket::IPv6Protocol && address.isLinkLocal()) {
+        return true;
+    }
+    return std::any_of(localNetworks.cbegin(), localNetworks.cend(),
+                       [&address](const QNetworkAddressEntry &entry) {
+        return entry.ip().protocol() == address.protocol() && entry.prefixLength() > 0
+            && address.isInSubnet(entry.ip(), entry.prefixLength());
+    });
+}
+
+void MdnsServerBrowser::handlePacket(const QByteArray &packet, const QHostAddress &sender)
 {
     const auto message = Bloom::Dns::decode(packet);
     if (!message || !message->isResponse()) {
@@ -211,11 +240,13 @@ void MdnsServerBrowser::handlePacket(const QByteArray &packet)
     m_resolver.absorb(*message);
     const auto services = m_resolver.resolved();
     for (const Bloom::Dns::ServiceInstance &service : services) {
-        const auto advert = m_mapper ? m_mapper(service) : std::nullopt;
+        auto advert = m_mapper ? m_mapper(service) : std::nullopt;
         if (!advert) {
             continue;
         }
-        QByteArray signature = advert->serverId.toUtf8();
+        advert->origin = QString::fromUtf8(service.host.join('.')).toLower();
+        advert->sender = sender;
+        QByteArray signature = advert->origin.toUtf8() + '\n' + advert->serverId.toUtf8();
         for (const QUrl &url : advert->urls) {
             signature += '\n' + url.toEncoded();
         }

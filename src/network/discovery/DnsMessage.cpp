@@ -187,13 +187,14 @@ public:
     // Reads a possibly compressed name at @p position and moves it past the
     // name's bytes at that position. Every pointer must point before the
     // sequence it was found in, so targets strictly decrease and a pointer
-    // loop cannot form.
+    // loop cannot form; at most MaxPointerHops pointers are followed.
     std::optional<Name> name(int &position) const
     {
         Name labels;
         int cursor = position;
         int sequenceStart = position;
         bool jumped = false;
+        int hops = 0;
         int wireBytes = 1;
         while (true) {
             if (cursor >= m_size) {
@@ -211,7 +212,7 @@ public:
                     return std::nullopt;
                 }
                 const int target = ((length & 0x3f) << 8) | m_data[cursor + 1];
-                if (target >= sequenceStart) {
+                if (target >= sequenceStart || ++hops > MaxPointerHops) {
                     return std::nullopt;
                 }
                 if (!jumped) {
@@ -409,10 +410,15 @@ std::optional<Message> decode(const QByteArray &packet)
     if (!reader.u16(position, message.id) || !reader.u16(position, message.flags)) {
         return std::nullopt;
     }
+    int entries = 0;
     for (quint16 &count : counts) {
         if (!reader.u16(position, count)) {
             return std::nullopt;
         }
+        entries += count;
+    }
+    if (entries > MaxEntriesPerMessage) {
+        return std::nullopt;
     }
     for (quint16 index = 0; index < counts[0]; ++index) {
         auto question = reader.question(position);

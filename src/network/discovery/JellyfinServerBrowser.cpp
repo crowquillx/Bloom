@@ -101,11 +101,15 @@ void JellyfinServerBrowser::readPending()
 
 void JellyfinServerBrowser::handleReply(const QByteArray &reply, const QHostAddress &sender)
 {
-    const auto advert = JellyfinLanDiscovery::advert(reply, sender);
+    auto advert = JellyfinLanDiscovery::advert(reply, sender);
     if (!advert) {
         return;
     }
-    QByteArray signature = advert->serverId.toUtf8();
+    bool isIPv4 = false;
+    const quint32 senderIPv4 = sender.toIPv4Address(&isIPv4);
+    advert->sender = isIPv4 ? QHostAddress(senderIPv4) : sender;
+    advert->origin = advert->sender.toString();
+    QByteArray signature = advert->origin.toUtf8() + '\n' + advert->serverId.toUtf8();
     for (const QUrl &url : advert->urls) {
         signature += '\n' + url.toEncoded();
     }

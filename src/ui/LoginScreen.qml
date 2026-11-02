@@ -87,7 +87,8 @@ FocusScope {
                 name: String(server.name),
                 url: String(server.url),
                 address: String(server.address),
-                provider: String(server.provider)
+                provider: String(server.provider),
+                saved: server.saved === true
             })
         }
         if (discoveredList.currentIndex < 0 && discoveredServers.count > 0)
@@ -584,6 +585,9 @@ FocusScope {
                             required property string name
                             required property string address
                             required property string provider
+                            required property bool saved
+                            readonly property string detail: root.providerLabel(provider) + " · " + address
+                                                             + (saved ? " · " + qsTr("Saved") : "")
                             readonly property bool highlighted: discoveredList.activeFocus
                                                                 && discoveredList.currentIndex === index
                             width: Math.round(400 * Theme.layoutScale)
@@ -596,6 +600,7 @@ FocusScope {
                             Accessible.role: Accessible.ListItem
                             Accessible.name: name
                             Accessible.description: root.providerLabel(provider) + ", " + address
+                                                    + (saved ? ", " + qsTr("saved") : "")
 
                             FocusRing {
                                 inset: true
@@ -637,6 +642,7 @@ FocusScope {
 
                                     Text {
                                         text: serverCard.name
+                                        textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.family: Theme.fontPrimary
                                         font.pixelSize: Theme.fontSizeBody
@@ -647,7 +653,8 @@ FocusScope {
                                     }
 
                                     Text {
-                                        text: root.providerLabel(serverCard.provider) + " · " + serverCard.address
+                                        text: serverCard.detail
+                                        textFormat: Text.PlainText
                                         color: Theme.textSecondary
                                         font.family: Theme.fontPrimary
                                         font.pixelSize: Theme.fontSizeSmall

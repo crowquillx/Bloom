@@ -50,6 +50,9 @@ void ProviderServerValidator::get(IProviderAdapter *adapter, const QUrl &baseUrl
         endpoint,
         [this, factory, context, endpoint]() {
             QNetworkRequest request = factory->createRequest(context, endpoint);
+            // Jellyfin's factory always sends a MediaBrowser client header;
+            // the identity read needs none, and a null value removes it.
+            request.setRawHeader("Authorization", QByteArray());
             request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                                  QNetworkRequest::ManualRedirectPolicy);
             QNetworkReply *reply = m_networkManager->get(request);

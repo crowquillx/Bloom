@@ -1,6 +1,7 @@
 #pragma once
 
 #include "providers/LanServerAdvert.h"
+#include "providers/ServerConnection.h"
 
 #include <QHash>
 #include <QList>
@@ -10,6 +11,7 @@
 #include <QTimer>
 #include <QVariantList>
 
+#include <functional>
 #include <memory>
 
 class IProviderAdapter;
@@ -24,15 +26,19 @@ class ServerCandidateValidator;
  * activation is one bounded search: the browsers ask at 0, 1, 3, 7 and 15
  * seconds and close their sockets after 20; refresh() starts another. Every
  * advert is a candidate until its provider's public identity read at one of
- * its addresses answers the advertised server id. Servers are deduplicated by
- * provider and server id, so one server reached at several addresses is one
- * entry with the address that validated first; candidates that fail are
- * dropped. Nothing blocks the UI thread, and deactivating closes the
- * sockets and cancels pending reads at once.
+ * its addresses answers the advertised server id. Entries are keyed by
+ * provider, server id and advert origin (the DNS-SD host name or the
+ * Jellyfin reply's sender): one origin's addresses are one entry with the
+ * address that validated first, while the same id confirmed from another
+ * origin is listed as its own entry, so an advert from another host cannot
+ * take over a server's card. Candidates that fail are dropped. Nothing
+ * blocks the UI thread, and deactivating closes the sockets and cancels
+ * pending reads at once.
  *
  * `servers` entries are camelCase maps: `key`, `name`, `url` (the base URL to
- * sign in to), `address` (host and port for display) and `provider`
- * (`silo` or `jellyfin`).
+ * sign in to), `address` (host and port for display), `provider` (`silo` or
+ * `jellyfin`) and `saved` (a saved connection has this provider, server id
+ * and host).
  */
 class ServerDiscoveryService : public QObject
 {
@@ -50,6 +56,7 @@ public:
 
     static constexpr int MaxServers = 16;
     static constexpr int MaxCandidates = 64;
+    static constexpr int MaxCandidatesPerSender = 8;
     static constexpr int MaxValidationsInFlight = 4;
 
     /// Takes ownership of @p browsers and @p validator. With no browser the
@@ -65,6 +72,13 @@ public:
         const QList<IProviderAdapter *> &adapters, QObject *parent = nullptr);
 
     void setTiming(const Timing &timing) { m_timing = timing; }
+
+    using SavedConnections = std::function<QList<ServerConnection>()>;
+    /// Where `saved` looks up the connections already saved.
+    void setSavedConnections(SavedConnections savedConnections)
+    {
+        m_savedConnections = std::move(savedConnections);
+    }
 
     bool isActive() const { return m_active; }
     void setActive(bool active);
@@ -83,7 +97,8 @@ signals:
 
 private:
     struct Candidate {
-        QString serverKey;
+        QString serverKey; // provider and server id
+        QString entryKey;  // serverKey and advert origin
         LanServerAdvert advert;
         QUrl url;
     };
@@ -101,9 +116,13 @@ private:
     int m_queryIndex = 0;
     int m_inFlight = 0;
     QList<Candidate> m_queue;
-    QSet<QString> m_tried;   // server key + URL already queued this search
-    QSet<QString> m_listed;  // server keys already listed
+    // Server key + URL already queued this search: an address is checked
+    // once per server, whichever origin advertised it.
+    QSet<QString> m_tried;
+    QHash<QString, int> m_queuedPerSender;
+    QSet<QString> m_listed; // entry keys already listed
     QVariantList m_servers;
+    SavedConnections m_savedConnections;
 
     void beginSearch();
     void endSearch();
@@ -113,6 +132,7 @@ private:
     void pump();
     void finishValidation(const Candidate &candidate,
                           const std::optional<ProviderServerIdentity> &identity);
+    bool isSaved(const Candidate &candidate) const;
     void updateSearching();
     void setAvailable(bool available);
 };

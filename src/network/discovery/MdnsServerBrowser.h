@@ -27,6 +27,7 @@ class QUdpSocket;
  * Windows DNS Client) the same way Silo's responder does: SO_REUSEADDR, which
  * Qt sets for ShareAddress | ReuseAddressHint. If 5353 cannot be shared the
  * browser reports itself unavailable instead of falling back to unicast.
+ * Packets are read only from senders on this link (acceptsSender()).
  */
 class MdnsServerBrowser final : public LanServerBrowser
 {
@@ -52,7 +53,13 @@ public:
     /// follow-ups for instances still missing SRV, TXT or an address.
     QByteArray buildQuery() const;
     /// Absorbs one received mDNS packet; emits adverts that became complete.
-    void handlePacket(const QByteArray &packet);
+    void handlePacket(const QByteArray &packet, const QHostAddress &sender = {});
+
+    /// Whether a packet from @p sender is from this link: its IP hop limit
+    /// is 255 (RFC 6762 §11; -1 when the platform does not report it), it
+    /// is IPv6 link-local, or it lies in one of @p localNetworks.
+    static bool acceptsSender(const QHostAddress &sender, int hopLimit,
+                              const QList<QNetworkAddressEntry> &localNetworks);
 
 private:
     struct Membership {
@@ -66,6 +73,7 @@ private:
     QPointer<QUdpSocket> m_socket4;
     QPointer<QUdpSocket> m_socket6;
     QList<Membership> m_memberships;
+    QList<QNetworkAddressEntry> m_localNetworks;
     QSet<QByteArray> m_reported;
 
     QUdpSocket *openSocket(const QHostAddress &any, const QHostAddress &group, bool ipv6);

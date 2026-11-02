@@ -1,6 +1,8 @@
 #include <QtTest/QtTest>
 
+#include <QElapsedTimer>
 #include <QHostAddress>
+#include <QNetworkAddressEntry>
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -181,12 +183,14 @@ public:
 };
 
 LanServerAdvert advert(ProviderKind kind, const QString &serverId, const QString &name,
-                       const QStringList &urls)
+                       const QStringList &urls, const QString &origin = {})
 {
     LanServerAdvert result;
     result.providerKind = kind;
     result.serverId = serverId;
     result.name = name;
+    result.origin = origin;
+    result.sender = QHostAddress(origin);
     for (const QString &url : urls) {
         result.urls.append(QUrl(url));
     }
@@ -215,6 +219,7 @@ class StubHttpServer final : public QObject
     Q_OBJECT
 
 public:
+    // Status 0 accepts the request and never answers.
     struct Response {
         int status = 200;
         QByteArray body;
@@ -240,6 +245,9 @@ public:
                     }
                     const Response response = responses.value(QString::fromLatin1(path),
                                                               Response{404, "{}", {}});
+                    if (response.status == 0) {
+                        return;
+                    }
                     QByteArray reply = "HTTP/1.1 " + QByteArray::number(response.status) + " X\r\n"
                         + "Content-Type: application/json\r\nConnection: close\r\n"
                         + response.extraHeaders
@@ -426,8 +434,13 @@ private slots:
 
         // Counts promising more records than the packet holds.
         Bytes counts;
-        counts.u16(0).u16(0x8400).u16(0).u16(0xffff).u16(0).u16(0);
+        counts.u16(0).u16(0x8400).u16(0).u16(200).u16(0).u16(0);
         QVERIFY(!decode(counts.data));
+
+        // More entries than one message may declare, whatever follows.
+        Bytes tooMany;
+        tooMany.u16(0).u16(0x8400).u16(0).u16(MaxEntriesPerMessage).u16(1).u16(0);
+        QVERIFY(!decode(tooMany.data));
 
         // A name longer than 255 bytes.
         Bytes longName;
@@ -440,6 +453,37 @@ private slots:
 
         // Encoding refuses an over-long label.
         QVERIFY(encodeQuery({Question{Name{QByteArray(64, 'a')}, TypePTR}}).isEmpty());
+    }
+
+    void decodeRejectsLongPointerChains()
+    {
+        // An unread record type holds a name and a chain of pointers, each
+        // to the one before; an A record's name enters at the chain's end.
+        auto packet = [](int chainLength) {
+            Bytes bytes;
+            bytes.u16(0).u16(0x8400).u16(0).u16(2).u16(0).u16(0);
+            bytes.label("h").u8(0).u16(99).u16(1).u32(120);
+            const int lengthAt = bytes.at();
+            bytes.u16(0);
+            const int dataStart = bytes.at();
+            int previous = bytes.at();
+            bytes.label("a").u8(0);
+            for (int i = 0; i < chainLength; ++i) {
+                const int here = bytes.at();
+                bytes.pointer(previous);
+                previous = here;
+            }
+            bytes.patchU16(lengthAt, bytes.at() - dataStart);
+            bytes.pointer(previous).u16(TypeA).u16(1).u32(120).u16(4).u32(0x0a000001);
+            return bytes.data;
+        };
+        // The A record's own pointer is the first hop.
+        const auto atLimit = decode(packet(MaxPointerHops - 1));
+        QVERIFY(atLimit);
+        QCOMPARE(atLimit->answers.size(), 2);
+        QCOMPARE(atLimit->answers.at(1).name, Name{QByteArrayLiteral("a")});
+        QVERIFY(!decode(packet(MaxPointerHops)));
+        QVERIFY(!decode(packet(2000)));
     }
 
     void txtAttributesFollowDnsSdRules()
@@ -521,6 +565,59 @@ private slots:
         QVERIFY(resolver.resolved().isEmpty());
     }
 
+    void resolverFlushesEachAddressFamilySeparately()
+    {
+        DnsSdResolver resolver(silo());
+        resolver.absorb(siloResponse());
+        QCOMPARE(resolver.resolved().at(0).addresses,
+                 QList<QHostAddress>({QHostAddress(QStringLiteral("192.168.1.20")),
+                                      QHostAddress(QStringLiteral("2001:db8::20"))}));
+
+        // A refresh of both families replaces both old sets.
+        Message refresh;
+        refresh.flags = FlagResponse;
+        refresh.answers = {addressRecord(QStringLiteral("192.168.1.30")),
+                           addressRecord(QStringLiteral("2001:db8::30"))};
+        resolver.absorb(refresh);
+        QCOMPARE(resolver.resolved().at(0).addresses,
+                 QList<QHostAddress>({QHostAddress(QStringLiteral("192.168.1.30")),
+                                      QHostAddress(QStringLiteral("2001:db8::30"))}));
+
+        // A flush of one family leaves the other.
+        Message ipv4Only;
+        ipv4Only.flags = FlagResponse;
+        ipv4Only.answers = {addressRecord(QStringLiteral("192.168.1.40")),
+                            addressRecord(QStringLiteral("192.168.1.41"))};
+        resolver.absorb(ipv4Only);
+        QCOMPARE(resolver.resolved().at(0).addresses,
+                 QList<QHostAddress>({QHostAddress(QStringLiteral("192.168.1.40")),
+                                      QHostAddress(QStringLiteral("192.168.1.41")),
+                                      QHostAddress(QStringLiteral("2001:db8::30"))}));
+    }
+
+    void resolverDropsHostsNoInstanceUses()
+    {
+        DnsSdResolver resolver(silo());
+        resolver.absorb(siloResponse());
+        QCOMPARE(resolver.cachedHostCount(), 1);
+        const Name instance = instanceName("Den Silo");
+        // One instance whose SRV target keeps moving, each with an address.
+        for (int i = 0; i < 100; ++i) {
+            const Name host = nameFromDotted("moving-" + QByteArray::number(i) + ".local");
+            Record srv = srvRecord(instance);
+            srv.target = host;
+            Record address = addressRecord(QStringLiteral("192.168.2.%1").arg(1 + i % 200));
+            address.name = host;
+            Message message;
+            message.flags = FlagResponse;
+            message.answers = {srv, address};
+            resolver.absorb(message);
+            QCOMPARE(resolver.cachedHostCount(), 1);
+        }
+        QCOMPARE(resolver.resolved().at(0).addresses,
+                 QList<QHostAddress>({QHostAddress(QStringLiteral("192.168.2.100"))}));
+    }
+
     void resolverBoundsInstances()
     {
         DnsSdResolver resolver(silo());
@@ -571,6 +668,7 @@ private slots:
         QCOMPARE(found.size(), 1);
         QCOMPARE(found.at(0).serverId, kSiloId);
         QCOMPARE(found.at(0).urls.constFirst(), QUrl(QStringLiteral("http://192.168.1.20:8080")));
+        QCOMPARE(found.at(0).origin, QStringLiteral("silo-3f2a9d5e-a1b2c3.local"));
 
         // A query, garbage and another service do not report anything.
         browser.handlePacket(encodeQuery({Question{silo(), TypePTR}}));
@@ -583,6 +681,32 @@ private slots:
         QVERIFY(!query->isResponse());
         QVERIFY(namesEqual(query->questions.at(0).name, silo()));
         QCOMPARE(query->questions.at(0).type, quint16(TypePTR));
+    }
+
+    void mdnsAcceptsOnlySendersOnThisLink()
+    {
+        QNetworkAddressEntry lan;
+        lan.setIp(QHostAddress(QStringLiteral("192.168.1.10")));
+        lan.setPrefixLength(24);
+        QNetworkAddressEntry lan6;
+        lan6.setIp(QHostAddress(QStringLiteral("2001:db8:1::10")));
+        lan6.setPrefixLength(64);
+        const QList<QNetworkAddressEntry> local{lan, lan6};
+        auto accepts = [&local](const QString &sender, int hopLimit) {
+            return MdnsServerBrowser::acceptsSender(QHostAddress(sender), hopLimit, local);
+        };
+        // On a local subnet, whatever the hop limit (Silo sends with 1).
+        QVERIFY(accepts(QStringLiteral("192.168.1.20"), 1));
+        QVERIFY(accepts(QStringLiteral("192.168.1.20"), -1));
+        QVERIFY(accepts(QStringLiteral("::ffff:192.168.1.20"), -1));
+        QVERIFY(accepts(QStringLiteral("2001:db8:1::20"), 64));
+        QVERIFY(accepts(QStringLiteral("fe80::1"), -1));
+        // Off the local subnets only an unrouted packet (hop limit 255).
+        QVERIFY(!accepts(QStringLiteral("10.9.8.7"), 1));
+        QVERIFY(!accepts(QStringLiteral("10.9.8.7"), -1));
+        QVERIFY(!accepts(QStringLiteral("2001:db8:2::20"), 254));
+        QVERIFY(accepts(QStringLiteral("10.9.8.7"), 255));
+        QVERIFY(!accepts(QString(), -1));
     }
 
     // ---------- Jellyfin replies ----------
@@ -615,6 +739,16 @@ private slots:
         QVERIFY(found);
         QCOMPARE(found->urls, QList<QUrl>({QUrl(QStringLiteral("https://media.example.com")),
                                            QUrl(QStringLiteral("http://192.168.1.5:8096"))}));
+
+        // The sender fallback keeps an HTTPS address's base path; only the
+        // port falls back to Jellyfin's plain HTTP one.
+        found = JellyfinLanDiscovery::advert(
+            "{\"Address\":\"https://media.example.com:8920/jellyfin/\",\"Id\":\"abc\",\"Name\":\"Den\"}",
+            QHostAddress(QStringLiteral("192.168.1.5")));
+        QVERIFY(found);
+        QCOMPARE(found->urls,
+                 QList<QUrl>({QUrl(QStringLiteral("https://media.example.com:8920/jellyfin")),
+                              QUrl(QStringLiteral("http://192.168.1.5:8096/jellyfin"))}));
     }
 
     void jellyfinReplyRejectsMalformedReplies()
@@ -639,8 +773,10 @@ private slots:
                 [&found](const LanServerAdvert &advert) { found.append(advert); });
         const QByteArray reply = "{\"Address\":\"http://192.168.1.5:8096\",\"Id\":\"abc\",\"Name\":\"Den\"}";
         browser.handleReply(reply, QHostAddress(QStringLiteral("192.168.1.5")));
-        browser.handleReply(reply, QHostAddress(QStringLiteral("192.168.1.5")));
+        browser.handleReply(reply, QHostAddress(QStringLiteral("::ffff:192.168.1.5")));
         QCOMPARE(found.size(), 1);
+        QCOMPARE(found.at(0).origin, QStringLiteral("192.168.1.5"));
+        QCOMPARE(found.at(0).sender, QHostAddress(QStringLiteral("192.168.1.5")));
     }
 
     // ---------- Provider identity reads ----------
@@ -718,9 +854,49 @@ private slots:
                                             QStringLiteral("abc"));
         QVERIFY(identity);
         QCOMPARE(identity->serverName, QStringLiteral("Den"));
+        // Not even Jellyfin's MediaBrowser client header.
+        QVERIFY(!server.credentialHeaders);
 
         // No adapter for the kind.
         QVERIFY(!runValidation(validator, ProviderKind::Silo, server.baseUrl(), kSiloId));
+    }
+
+    void validatorBuffersAtMostItsLimit()
+    {
+        auto body = [](qsizetype bytes) {
+            const QByteArray head = "{\"Id\":\"abc\",\"ServerName\":\"Den\",\"pad\":\"";
+            const QByteArray tail = "\"}";
+            return head + QByteArray(bytes - head.size() - tail.size(), 'x') + tail;
+        };
+        StubHttpServer server;
+        JellyfinProviderAdapter jellyfin;
+        ProviderServerValidator validator({&jellyfin});
+        server.responses.insert(QStringLiteral("/System/Info/Public"),
+                                {200, body(ProviderServerValidator::MaxResponseBytes - 1024), {}});
+        QVERIFY(runValidation(validator, ProviderKind::Jellyfin, server.baseUrl(),
+                              QStringLiteral("abc")));
+
+        // A larger body is never read whole: the check fails.
+        server.responses.insert(QStringLiteral("/System/Info/Public"),
+                                {200, body(ProviderServerValidator::MaxResponseBytes + 4096), {}});
+        QVERIFY(!runValidation(validator, ProviderKind::Jellyfin, server.baseUrl(),
+                               QStringLiteral("abc")));
+    }
+
+    void validatorGivesUpOnASilentServer()
+    {
+        StubHttpServer server;
+        server.responses.insert(QStringLiteral("/System/Info/Public"), {0, {}, {}});
+        JellyfinProviderAdapter jellyfin;
+        ProviderServerValidator validator({&jellyfin});
+        QElapsedTimer elapsed;
+        elapsed.start();
+        QVERIFY(!runValidation(validator, ProviderKind::Jellyfin, server.baseUrl(),
+                               QStringLiteral("abc")));
+        // The deadline is a coarse timer, which may fire up to 5% early.
+        QVERIFY(elapsed.elapsed() >= ProviderServerValidator::AttemptTimeoutMs * 9 / 10);
+        QVERIFY(elapsed.elapsed() < ProviderServerValidator::AttemptTimeoutMs + 3000);
+        QCOMPARE(server.requests, QStringList({QStringLiteral("/System/Info/Public")}));
     }
 
     // ---------- Discovery service ----------
@@ -811,6 +987,88 @@ private slots:
         fixture.jellyfin->announce(advert(ProviderKind::Jellyfin, kSiloId, QStringLiteral("JF"),
                                           {QStringLiteral("http://192.168.1.9:8096")}));
         QCOMPARE(fixture.validator->pending.size(), 1);
+    }
+
+    void sameIdFromAnotherOriginIsListedSeparately()
+    {
+        ServiceFixture fixture;
+        ServerDiscoveryService &service = fixture.service;
+        service.setActive(true);
+        const QUrl real(QStringLiteral("http://192.168.1.5:8096"));
+        const QUrl other(QStringLiteral("http://192.168.1.66:8096"));
+        // Another host claims the same id first and confirms first.
+        fixture.jellyfin->announce(advert(ProviderKind::Jellyfin, QStringLiteral("abc"),
+                                          QStringLiteral("Spoof"), {other.toString()},
+                                          QStringLiteral("192.168.1.66")));
+        fixture.jellyfin->announce(advert(ProviderKind::Jellyfin, QStringLiteral("abc"),
+                                          QStringLiteral("Den"), {real.toString()},
+                                          QStringLiteral("192.168.1.5")));
+        QVERIFY(fixture.validator->complete(other, ProviderServerIdentity{QStringLiteral("abc"), {}}));
+        QVERIFY(fixture.validator->complete(real, ProviderServerIdentity{QStringLiteral("abc"), {}}));
+        // Both hosts are listed; the first did not take the second's card.
+        QCOMPARE(service.servers().size(), 2);
+        QCOMPARE(service.servers().at(0).toMap().value("url").toString(), other.toString());
+        QCOMPARE(service.servers().at(1).toMap().value("url").toString(), real.toString());
+        QVERIFY(service.servers().at(0).toMap().value("key")
+                != service.servers().at(1).toMap().value("key"));
+
+        // A third origin pointing at an address already checked for this id
+        // gets no second check, so no second card for it.
+        fixture.jellyfin->announce(advert(ProviderKind::Jellyfin, QStringLiteral("abc"),
+                                          QStringLiteral("Echo"),
+                                          {real.toString(), QStringLiteral("http://192.168.1.77:8096")},
+                                          QStringLiteral("192.168.1.77")));
+        QCOMPARE(fixture.validator->pending.size(), 1);
+        QVERIFY(fixture.validator->complete(QUrl(QStringLiteral("http://192.168.1.77:8096")),
+                                            std::nullopt));
+        QCOMPARE(service.servers().size(), 2);
+    }
+
+    void candidatesPerSenderAreCapped()
+    {
+        ServiceFixture fixture;
+        fixture.service.setActive(true);
+        // One sender announcing many servers queues at most its share.
+        for (int i = 0; i < 20; ++i) {
+            fixture.jellyfin->announce(advert(
+                ProviderKind::Jellyfin, QStringLiteral("id-%1").arg(i), QStringLiteral("x"),
+                {QStringLiteral("http://10.0.%1.1:8096").arg(i)}, QStringLiteral("192.168.1.66")));
+        }
+        int checked = 0;
+        while (!fixture.validator->pending.isEmpty()) {
+            fixture.validator->complete(fixture.validator->pending.constFirst().url, std::nullopt);
+            ++checked;
+        }
+        QCOMPARE(checked, ServerDiscoveryService::MaxCandidatesPerSender);
+
+        // Another sender still gets its candidates in.
+        fixture.mdns->announce(advert(ProviderKind::Silo, kSiloId, QStringLiteral("Den"),
+                                      {QStringLiteral("http://192.168.1.20:8080")},
+                                      QStringLiteral("192.168.1.20")));
+        QCOMPARE(fixture.validator->pending.size(), 1);
+    }
+
+    void savedServersAreMarked()
+    {
+        ServiceFixture fixture;
+        ServerConnection saved;
+        saved.providerKind = ProviderKind::Silo;
+        saved.serverId = kSiloId;
+        saved.baseUrl = QStringLiteral("http://192.168.1.20:8080");
+        fixture.service.setSavedConnections([saved]() { return QList<ServerConnection>{saved}; });
+        fixture.service.setActive(true);
+        const QUrl home(QStringLiteral("http://192.168.1.20:8080"));
+        const QUrl elsewhere(QStringLiteral("http://192.168.1.66:8080"));
+        fixture.mdns->announce(advert(ProviderKind::Silo, kSiloId, QStringLiteral("Den"),
+                                      {home.toString()}, QStringLiteral("192.168.1.20")));
+        fixture.mdns->announce(advert(ProviderKind::Silo, kSiloId, QStringLiteral("Den"),
+                                      {elsewhere.toString()}, QStringLiteral("192.168.1.66")));
+        fixture.validator->complete(home, ProviderServerIdentity{kSiloId, {}});
+        fixture.validator->complete(elsewhere, ProviderServerIdentity{kSiloId, {}});
+        QCOMPARE(fixture.service.servers().size(), 2);
+        QVERIFY(fixture.service.servers().at(0).toMap().value("saved").toBool());
+        // The same id at another host is not the saved server.
+        QVERIFY(!fixture.service.servers().at(1).toMap().value("saved").toBool());
     }
 
     void failedCandidatesAreDropped()

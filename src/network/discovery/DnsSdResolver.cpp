@@ -2,6 +2,8 @@
 
 #include <QSet>
 
+#include <iterator>
+
 namespace Bloom::Dns {
 
 namespace {
@@ -31,10 +33,10 @@ void DnsSdResolver::clear()
     m_hostAddresses.clear();
 }
 
-bool DnsSdResolver::knowsHost(const Name &host) const
+bool DnsSdResolver::knowsHostKey(const QByteArray &hostKey) const
 {
     for (const Instance &instance : m_instances) {
-        if (instance.hasSrv && namesEqual(instance.host, host)) {
+        if (instance.hasSrv && nameKey(instance.host) == hostKey) {
             return true;
         }
     }
@@ -91,17 +93,26 @@ void DnsSdResolver::absorb(const Message &message)
                                            : QMap<QByteArray, QByteArray>();
         }
     }
-    QSet<QByteArray> flushedHosts;
+    // Addresses of hosts no instance points at any more go, so an SRV
+    // target that keeps changing cannot grow the cache.
+    for (auto host = m_hostAddresses.begin(); host != m_hostAddresses.end();) {
+        host = knowsHostKey(host.key()) ? std::next(host) : m_hostAddresses.erase(host);
+    }
+    // A cache-flush set replaces the earlier records of its own name and
+    // type only (RFC 6762 §10.2): A and AAAA are flushed separately.
+    QSet<QByteArray> flushedSets;
     for (const Record *record : records) {
-        if ((record->type != TypeA && record->type != TypeAAAA) || !knowsHost(record->name)) {
+        if (record->type != TypeA && record->type != TypeAAAA) {
             continue;
         }
         const QByteArray key = nameKey(record->name);
+        if (!knowsHostKey(key)) {
+            continue;
+        }
         QList<QHostAddress> &addresses = m_hostAddresses[key];
-        if (record->cacheFlush && !flushedHosts.contains(key)) {
-            // A cache-flush set from this message replaces the earlier one
-            // of the same family (RFC 6762 §10.2).
-            flushedHosts.insert(key);
+        const QByteArray setKey = key + '/' + QByteArray::number(record->type);
+        if (record->cacheFlush && !flushedSets.contains(setKey)) {
+            flushedSets.insert(setKey);
             const auto family = record->type == TypeA ? QAbstractSocket::IPv4Protocol
                                                       : QAbstractSocket::IPv6Protocol;
             addresses.removeIf([family](const QHostAddress &address) {

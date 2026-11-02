@@ -328,6 +328,8 @@ void ApplicationInitializer::registerServices()
     } else {
         m_serverDiscoveryService = ServerDiscoveryService::create(
             {m_jellyfinProviderAdapter.get(), m_siloProviderAdapter.get()});
+        m_serverDiscoveryService->setSavedConnections(
+            [config = m_configManager.get()]() { return config->getConnections(); });
     }
     ServiceLocator::registerService<ServerDiscoveryService>(m_serverDiscoveryService.get());
 

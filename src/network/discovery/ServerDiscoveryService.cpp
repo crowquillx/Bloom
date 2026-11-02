@@ -122,6 +122,7 @@ void ServerDiscoveryService::endSearch()
     m_queue.clear();
     m_inFlight = 0;
     m_tried.clear();
+    m_queuedPerSender.clear();
     m_listed.clear();
     if (!m_servers.isEmpty()) {
         m_servers.clear();
@@ -163,16 +164,21 @@ void ServerDiscoveryService::handleAdvert(const LanServerAdvert &advert)
     }
     const QString serverKey = providerName(advert.providerKind) + QLatin1Char(':')
         + advert.serverId;
-    if (m_listed.contains(serverKey)) {
+    const QString entryKey = serverKey + QLatin1Char('\n') + advert.origin;
+    if (m_listed.contains(entryKey)) {
         return;
     }
+    // One sender cannot fill the whole candidate budget.
+    int &queuedBySender = m_queuedPerSender[advert.sender.toString()];
     for (const QUrl &url : advert.urls) {
         const QString triedKey = serverKey + QLatin1Char('\n') + url.toString();
-        if (m_tried.contains(triedKey) || m_tried.size() >= MaxCandidates) {
+        if (m_tried.contains(triedKey) || m_tried.size() >= MaxCandidates
+            || queuedBySender >= MaxCandidatesPerSender) {
             continue;
         }
         m_tried.insert(triedKey);
-        m_queue.append(Candidate{serverKey, advert, url});
+        ++queuedBySender;
+        m_queue.append(Candidate{serverKey, entryKey, advert, url});
     }
     pump();
     updateSearching();
@@ -185,7 +191,7 @@ void ServerDiscoveryService::pump()
     }
     while (m_inFlight < MaxValidationsInFlight && !m_queue.isEmpty()) {
         const Candidate candidate = m_queue.takeFirst();
-        if (m_listed.contains(candidate.serverKey)) {
+        if (m_listed.contains(candidate.entryKey)) {
             continue;
         }
         ++m_inFlight;
@@ -213,26 +219,44 @@ void ServerDiscoveryService::finishValidation(
                              << candidate.url.toString();
         return;
     }
-    if (m_listed.contains(candidate.serverKey) || m_listed.size() >= MaxServers) {
+    if (m_listed.contains(candidate.entryKey) || m_listed.size() >= MaxServers) {
         return;
     }
-    m_listed.insert(candidate.serverKey);
+    m_listed.insert(candidate.entryKey);
     m_queue.removeIf([&candidate](const Candidate &queued) {
-        return queued.serverKey == candidate.serverKey;
+        return queued.entryKey == candidate.entryKey;
     });
     const QString name = !identity->serverName.isEmpty() ? identity->serverName
         : !candidate.advert.name.isEmpty()               ? candidate.advert.name
                                                          : candidate.url.host();
     QVariantMap entry;
-    entry.insert(QStringLiteral("key"), candidate.serverKey);
+    entry.insert(QStringLiteral("key"), candidate.entryKey);
     entry.insert(QStringLiteral("name"), name);
     entry.insert(QStringLiteral("url"), candidate.url.toString(QUrl::StripTrailingSlash));
     entry.insert(QStringLiteral("address"), candidate.url.authority());
     entry.insert(QStringLiteral("provider"), providerName(candidate.advert.providerKind));
+    entry.insert(QStringLiteral("saved"), isSaved(candidate));
     m_servers.append(entry);
     qCInfo(lcDiscovery) << "Found" << providerName(candidate.advert.providerKind)
                         << "server at" << candidate.url.toString();
     emit serversChanged();
+}
+
+bool ServerDiscoveryService::isSaved(const Candidate &candidate) const
+{
+    if (!m_savedConnections) {
+        return false;
+    }
+    // The id alone is the advertiser's claim, so the saved server's host must
+    // match too: another host answering the same id is not marked saved.
+    const QList<ServerConnection> connections = m_savedConnections();
+    return std::any_of(connections.cbegin(), connections.cend(),
+                       [&candidate](const ServerConnection &connection) {
+        return connection.providerKind == candidate.advert.providerKind
+            && connection.serverId == candidate.advert.serverId
+            && QUrl(connection.baseUrl).host().compare(candidate.url.host(),
+                                                       Qt::CaseInsensitive) == 0;
+    });
 }
 
 void ServerDiscoveryService::updateSearching()
