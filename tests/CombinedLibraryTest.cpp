@@ -52,6 +52,7 @@ private slots:
     void sortsByYearDescending();
     void sortsByDateAdded();
     void sortsByLastPlayNewestFirst();
+    void sortsByRuntimeAndKnowsWhatItCanMerge();
     void failedLibraryDoesNotBlockOthers();
     void failedLaterPageShrinksTotal();
     void randomInterleavesWithoutWaiting();
@@ -182,6 +183,54 @@ void CombinedLibraryTest::sortsByLastPlayNewestFirst()
              (QStringList{QStringLiteral("m-new"), QStringLiteral("e-mid"),
                           QStringLiteral("m-old"), QStringLiteral("m-undated")}));
     QVERIFY(cursor.finished());
+}
+
+void CombinedLibraryTest::sortsByRuntimeAndKnowsWhatItCanMerge()
+{
+    const auto timed = [](const QString &id, qint64 durationMs) {
+        QVariantMap value = item(id, id);
+        value.insert(QStringLiteral("durationMs"), durationMs);
+        return value;
+    };
+    CombinedLibraryCursor cursor;
+    cursor.reset({QStringLiteral("a"), QStringLiteral("b")}, QStringLiteral("runtime"),
+                 QStringLiteral("descending"));
+    cursor.librariesNeedingPages();
+    cursor.addPage(QStringLiteral("a"),
+                   items({timed(QStringLiteral("a-long"), 9000000),
+                          timed(QStringLiteral("a-short"), 5400000)}), 2);
+    cursor.addPage(QStringLiteral("b"), items({timed(QStringLiteral("b-mid"), 7200000)}), 1);
+    QCOMPARE(ids(cursor.take(10)),
+             (QStringList{QStringLiteral("a-long"), QStringLiteral("b-mid"),
+                          QStringLiteral("a-short")}));
+
+    // An unknown runtime sorts last in either order, as Silo orders it.
+    for (const QString &order : {QStringLiteral("ascending"), QStringLiteral("descending")}) {
+        CombinedLibraryCursor unknown;
+        unknown.reset({QStringLiteral("a"), QStringLiteral("b")}, QStringLiteral("runtime"),
+                      order);
+        unknown.librariesNeedingPages();
+        unknown.addPage(QStringLiteral("a"),
+                        items({timed(QStringLiteral("a-short"), 5400000),
+                               item(QStringLiteral("a-unknown"), QStringLiteral("a-unknown"))}),
+                        2);
+        unknown.addPage(QStringLiteral("b"),
+                        items({timed(QStringLiteral("b-long"), 9000000)}), 1);
+        const QStringList taken = ids(unknown.take(10));
+        QCOMPARE(taken.size(), 3);
+        QCOMPARE(taken.last(), QStringLiteral("a-unknown"));
+        QCOMPARE(taken.first(), order == QStringLiteral("ascending") ? QStringLiteral("a-short")
+                                                                     : QStringLiteral("b-long"));
+    }
+
+    for (const QString &sort : {QString(), QStringLiteral("title"), QStringLiteral("releaseDate"),
+                                QStringLiteral("dateAdded"), QStringLiteral("rating"),
+                                QStringLiteral("year"), QStringLiteral("random"),
+                                QStringLiteral("datePlayed"), QStringLiteral("runtime")}) {
+        QVERIFY2(CombinedLibraryCursor::canMerge(sort), qPrintable(sort));
+    }
+    // No item field holds when a series last gained an episode.
+    QVERIFY(!CombinedLibraryCursor::canMerge(QStringLiteral("recentlyUpdated")));
 }
 
 void CombinedLibraryTest::failedLibraryDoesNotBlockOthers()

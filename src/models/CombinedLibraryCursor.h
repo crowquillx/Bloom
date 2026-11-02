@@ -19,9 +19,12 @@
  * order never changes as more pages arrive.
  *
  * Sorting mirrors the Bloom sort keys the providers translate (`title`,
- * `releaseDate`, `dateAdded`, `rating`, `year`, and `datePlayed`, which
- * compares `userState.lastPlayedAt`); library order sorts by title and
- * `random` interleaves the libraries. Qt-Core only and free of I/O.
+ * `releaseDate`, `dateAdded`, `rating`, `year`, `runtime`, which compares
+ * `durationMs` with unknown runtimes last, and `datePlayed`, which compares
+ * `userState.lastPlayedAt`); library order sorts by title and `random`
+ * interleaves the libraries.
+ * `recentlyUpdated` has no item field to compare, so it cannot be merged
+ * (canMerge). Qt-Core only and free of I/O.
  */
 class CombinedLibraryCursor
 {
@@ -52,6 +55,10 @@ public:
     /// Every library has delivered and drained all of its items.
     bool finished() const;
     QStringList libraryIds() const { return m_order; }
+
+    /// Whether the combined order can follow @p sortBy: the items carry
+    /// the key it compares, or the sort needs none (library order, random).
+    static bool canMerge(const QString &sortBy);
 
     /// Whether @p a sorts before @p b for a Bloom sort key.
     static bool lessThan(const QVariantMap &a, const QVariantMap &b,

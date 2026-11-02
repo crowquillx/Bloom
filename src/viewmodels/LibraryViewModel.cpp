@@ -67,7 +67,8 @@ LibraryViewModel::LibraryViewModel(QObject *parent)
                 &LibraryViewModel::recountPlaceholders);
         connect(this, &QAbstractItemModel::modelReset, this,
                 &LibraryViewModel::recountPlaceholders);
-        m_queryCapabilities = m_libraryService->libraryQueryCapabilities();
+        m_queryCapabilities =
+            libraryQueryCapabilities(m_libraryService->libraryQueryCapabilities());
     } else {
         qCWarning(lcViewModels) << "LibraryViewModel: LibraryService not available in ServiceLocator";
     }
@@ -140,12 +141,12 @@ void LibraryViewModel::loadLibrary(const QString &parentId, const QString &colle
     }
 
     beginGeneration();
-    refreshQueryCapabilities();
     m_combinedMode = false;
     m_combinedLibraryIds.clear();
     const bool parentChanged = m_currentParentId != parentId;
     m_currentParentId = parentId;
     m_currentCollectionType = collectionType;
+    refreshQueryCapabilities();
     m_pageLimit = limit;
     m_loadingViews = false;
     m_activeConnectionId = requestConnectionId();
@@ -232,7 +233,6 @@ void LibraryViewModel::loadCombinedLibraries(const QStringList &libraryIds,
     }
 
     beginGeneration();
-    refreshQueryCapabilities();
     // Combined pages merge several lists; no single index covers them.
     setLetterIndex({});
     const QString kind = LibraryKinds::kindForCollectionType(collectionType);
@@ -243,6 +243,7 @@ void LibraryViewModel::loadCombinedLibraries(const QStringList &libraryIds,
     m_combinedLibraryIds = libraryIds;
     m_currentParentId = parentId;
     m_currentCollectionType = collectionType;
+    refreshQueryCapabilities();
     m_pageLimit = limit;
     m_loadingViews = false;
     m_activeDatasetKey.clear();
@@ -386,13 +387,13 @@ void LibraryViewModel::loadViews()
     }
 
     beginGeneration();
-    refreshQueryCapabilities();
     setLetterIndex({});
     m_combinedMode = false;
     m_combinedLibraryIds.clear();
     const bool parentChanged = !m_currentParentId.isEmpty();
     m_currentParentId.clear();
     m_currentCollectionType.clear();
+    refreshQueryCapabilities();
     m_activeDatasetKey.clear();
     m_activeConnectionId = requestConnectionId();
     m_pageLimit = 0;
@@ -1211,6 +1212,10 @@ int LibraryViewModel::activeFilterCount() const
         ++count;
     if (m_addedSinceFilter != "any")
         ++count;
+    if (m_seriesStatusFilter != "any")
+        ++count;
+    if (m_resolutionFilter != "any")
+        ++count;
     if (m_minYear > 0 || m_maxYear > 0)
         ++count;
     if (m_minCommunityRating > 0.0)
@@ -1237,6 +1242,19 @@ void LibraryViewModel::setSortBy(const QString &sortBy)
         QStringLiteral("rating"),
         QStringLiteral("year"),
         QStringLiteral("random"),
+        QStringLiteral("datePlayed"),
+        QStringLiteral("runtime"),
+        QStringLiteral("recentlyUpdated"),
+    };
+    // Date and rating sorts read newest or highest first unless an order
+    // was chosen; title and runtime read ascending.
+    static const QStringList newestFirst = {
+        QStringLiteral("releaseDate"),
+        QStringLiteral("dateAdded"),
+        QStringLiteral("rating"),
+        QStringLiteral("year"),
+        QStringLiteral("datePlayed"),
+        QStringLiteral("recentlyUpdated"),
     };
     const QString normalized = allowed.contains(sortBy)
             && (sortBy.isEmpty() || m_queryCapabilities.sorts.contains(sortBy))
@@ -1246,6 +1264,13 @@ void LibraryViewModel::setSortBy(const QString &sortBy)
         return;
     m_sortBy = normalized;
     emit sortByChanged();
+    if (m_sortOrder.isEmpty() && newestFirst.contains(normalized)) {
+        setSortOrder(QStringLiteral("descending"));
+        m_sortOrderAutomatic = true;
+    } else if (m_sortOrderAutomatic && !newestFirst.contains(normalized)) {
+        // The order came with the date or rating sort, not from the viewer.
+        setSortOrder(QString());
+    }
 }
 
 void LibraryViewModel::setSortOrder(const QString &sortOrder)
@@ -1256,6 +1281,7 @@ void LibraryViewModel::setSortOrder(const QString &sortOrder)
         QStringLiteral("descending"),
     };
     const QString normalized = allowed.contains(sortOrder) ? sortOrder : QString();
+    m_sortOrderAutomatic = false;
     if (m_sortOrder == normalized)
         return;
     m_sortOrder = normalized;
@@ -1292,6 +1318,32 @@ void LibraryViewModel::setAddedSinceFilter(const QString &filter)
         return;
     m_addedSinceFilter = normalized;
     emit addedSinceFilterChanged();
+    emitActiveFilterCountChanged();
+}
+
+void LibraryViewModel::setSeriesStatusFilter(const QString &filter)
+{
+    const QString normalized = (filter == "continuing" || filter == "ended")
+            && supportsFilter(QStringLiteral("seriesStatus"))
+        ? filter
+        : QStringLiteral("any");
+    if (m_seriesStatusFilter == normalized)
+        return;
+    m_seriesStatusFilter = normalized;
+    emit seriesStatusFilterChanged();
+    emitActiveFilterCountChanged();
+}
+
+void LibraryViewModel::setResolutionFilter(const QString &filter)
+{
+    const QString normalized = (filter == "4k" || filter == "hd")
+            && supportsFilter(QStringLiteral("resolution"))
+        ? filter
+        : QStringLiteral("any");
+    if (m_resolutionFilter == normalized)
+        return;
+    m_resolutionFilter = normalized;
+    emit resolutionFilterChanged();
     emitActiveFilterCountChanged();
 }
 
@@ -1356,6 +1408,7 @@ void LibraryViewModel::clearQuery()
         m_sortOrder.clear();
         emit sortOrderChanged();
     }
+    m_sortOrderAutomatic = false;
     clearFilters();
 }
 
@@ -1385,6 +1438,14 @@ void LibraryViewModel::clearFilters()
     if (m_addedSinceFilter != "any") {
         m_addedSinceFilter = "any";
         emit addedSinceFilterChanged();
+    }
+    if (m_seriesStatusFilter != "any") {
+        m_seriesStatusFilter = "any";
+        emit seriesStatusFilterChanged();
+    }
+    if (m_resolutionFilter != "any") {
+        m_resolutionFilter = "any";
+        emit resolutionFilterChanged();
     }
     if (m_minYear != 0 || m_maxYear != 0) {
         m_minYear = 0;
@@ -1468,8 +1529,17 @@ LibraryItemQuery LibraryViewModel::buildCurrentQuery(int startIndex, int limit, 
     query.watched = triStateFromFilter(m_watchedFilter);
     query.favorite = triStateFromFilter(m_favoriteFilter);
     query.minCommunityRating = m_minCommunityRating;
+    query.seriesStatus = m_seriesStatusFilter == "any" ? QString() : m_seriesStatusFilter;
+    query.resolution = m_resolutionFilter == "any" ? QString() : m_resolutionFilter;
     query.sortBy = m_sortBy;
-    query.sortOrder = m_sortOrder;
+    // The order combo shows Ascending until one is chosen (date and rating
+    // sorts choose Descending themselves); servers differ on a sort's
+    // default (Silo's runtime runs descending), so a chosen sort always
+    // carries the order shown.
+    query.sortOrder = m_sortOrder.isEmpty() && !m_sortBy.isEmpty()
+            && m_sortBy != QStringLiteral("random")
+        ? QStringLiteral("ascending")
+        : m_sortOrder;
     query.includeHeavyFields = includeHeavyFields;
     query.includeItemTypes = includeItemTypesForCollection(m_currentCollectionType);
 
@@ -1480,6 +1550,8 @@ LibraryItemQuery LibraryViewModel::buildCurrentQuery(int startIndex, int limit, 
         || m_watchedFilter != "any"
         || m_favoriteFilter != "any"
         || m_addedSinceFilter != "any"
+        || m_seriesStatusFilter != "any"
+        || m_resolutionFilter != "any"
         || m_minYear > 0
         || m_maxYear > 0
         || m_minCommunityRating > 0.0
@@ -1538,12 +1610,41 @@ bool LibraryViewModel::supportsFilter(const QString &filter) const
     return m_queryCapabilities.filters.contains(filter);
 }
 
+// The provider's sorts and filters that fit the open library: a new
+// episode date and a series lifecycle only describe series, a resolution
+// only movies, a series library drops the sorts the provider cannot order
+// shows by, and a combined page can only merge sorts its items carry a
+// key for (CombinedLibraryCursor::canMerge).
+ProviderLibraryQueryCapabilities LibraryViewModel::libraryQueryCapabilities(
+    const ProviderLibraryQueryCapabilities &provider) const
+{
+    ProviderLibraryQueryCapabilities capabilities = provider;
+    const QStringList types = includeItemTypesForCollection(m_currentCollectionType);
+    if (types != QStringList{QStringLiteral("Series")}) {
+        capabilities.sorts.removeAll(QStringLiteral("recentlyUpdated"));
+        capabilities.filters.removeAll(QStringLiteral("seriesStatus"));
+    } else {
+        capabilities.sorts.removeIf([&provider](const QString &sort) {
+            return provider.seriesExcludedSorts.contains(sort);
+        });
+    }
+    if (types != QStringList{QStringLiteral("Movie")}) {
+        capabilities.filters.removeAll(QStringLiteral("resolution"));
+    }
+    if (m_combinedMode) {
+        capabilities.sorts.removeIf([](const QString &sort) {
+            return !CombinedLibraryCursor::canMerge(sort);
+        });
+    }
+    return capabilities;
+}
+
 void LibraryViewModel::refreshQueryCapabilities()
 {
     if (!m_libraryService)
         return;
     const ProviderLibraryQueryCapabilities capabilities =
-        m_libraryService->libraryQueryCapabilities();
+        libraryQueryCapabilities(m_libraryService->libraryQueryCapabilities());
     if (capabilities != m_queryCapabilities) {
         m_queryCapabilities = capabilities;
         emit queryCapabilitiesChanged();
@@ -1552,8 +1653,8 @@ void LibraryViewModel::refreshQueryCapabilities()
 }
 
 // A sort or filter kept from another connection (Random from a Jellyfin
-// library, say) falls back to library order or no filter instead of
-// reaching a provider that refuses it.
+// library, say) or another kind of library falls back to library order or
+// no filter instead of reaching a provider that refuses it.
 void LibraryViewModel::dropUnsupportedQuery()
 {
     if (!m_sortBy.isEmpty() && !m_queryCapabilities.sorts.contains(m_sortBy)) {
@@ -1561,6 +1662,11 @@ void LibraryViewModel::dropUnsupportedQuery()
                              << "is not supported here; using library order";
         m_sortBy.clear();
         emit sortByChanged();
+        if (m_sortOrderAutomatic) {
+            m_sortOrderAutomatic = false;
+            m_sortOrder.clear();
+            emit sortOrderChanged();
+        }
     }
     bool dropped = false;
     const auto dropList = [this, &dropped](const QString &filter, QStringList &values,
@@ -1587,6 +1693,16 @@ void LibraryViewModel::dropUnsupportedQuery()
     if (m_addedSinceFilter != "any" && !supportsFilter(QStringLiteral("addedSince"))) {
         m_addedSinceFilter = "any";
         emit addedSinceFilterChanged();
+        dropped = true;
+    }
+    if (m_seriesStatusFilter != "any" && !supportsFilter(QStringLiteral("seriesStatus"))) {
+        m_seriesStatusFilter = "any";
+        emit seriesStatusFilterChanged();
+        dropped = true;
+    }
+    if (m_resolutionFilter != "any" && !supportsFilter(QStringLiteral("resolution"))) {
+        m_resolutionFilter = "any";
+        emit resolutionFilterChanged();
         dropped = true;
     }
     if ((m_minYear > 0 || m_maxYear > 0) && !supportsFilter(QStringLiteral("years"))) {

@@ -83,6 +83,10 @@ class LibraryViewModel : public BaseViewModel
     Q_PROPERTY(QString watchedFilter READ watchedFilter WRITE setWatchedFilter NOTIFY watchedFilterChanged)
     Q_PROPERTY(QString favoriteFilter READ favoriteFilter WRITE setFavoriteFilter NOTIFY favoriteFilterChanged)
     Q_PROPERTY(QString addedSinceFilter READ addedSinceFilter WRITE setAddedSinceFilter NOTIFY addedSinceFilterChanged)
+    // "any", "continuing" or "ended"; series libraries only.
+    Q_PROPERTY(QString seriesStatusFilter READ seriesStatusFilter WRITE setSeriesStatusFilter NOTIFY seriesStatusFilterChanged)
+    // "any", "4k" or "hd" (HD and up); movie libraries only.
+    Q_PROPERTY(QString resolutionFilter READ resolutionFilter WRITE setResolutionFilter NOTIFY resolutionFilterChanged)
     Q_PROPERTY(int minYear READ minYear WRITE setMinYear NOTIFY yearRangeChanged)
     Q_PROPERTY(int maxYear READ maxYear WRITE setMaxYear NOTIFY yearRangeChanged)
     Q_PROPERTY(double minCommunityRating READ minCommunityRating WRITE setMinCommunityRating NOTIFY minCommunityRatingChanged)
@@ -95,7 +99,9 @@ class LibraryViewModel : public BaseViewModel
     Q_PROPERTY(bool filterOptionsLoading READ filterOptionsLoading NOTIFY filterOptionsLoadingChanged)
     Q_PROPERTY(int activeFilterCount READ activeFilterCount NOTIFY activeFilterCountChanged)
     // Canonical sorts (beyond library order) and filters the active
-    // connection serves; see ProviderLibraryQueryCapabilities.
+    // connection serves for the open library (ProviderLibraryQueryCapabilities):
+    // recentlyUpdated and seriesStatus only in series libraries, resolution
+    // only in movie libraries, and no recentlyUpdated on combined pages.
     Q_PROPERTY(QStringList supportedSorts READ supportedSorts NOTIFY queryCapabilitiesChanged)
     Q_PROPERTY(QStringList supportedFilters READ supportedFilters NOTIFY queryCapabilitiesChanged)
     // Where each letter starts in the whole title-ordered library
@@ -154,6 +160,8 @@ public:
     QString watchedFilter() const { return m_watchedFilter; }
     QString favoriteFilter() const { return m_favoriteFilter; }
     QString addedSinceFilter() const { return m_addedSinceFilter; }
+    QString seriesStatusFilter() const { return m_seriesStatusFilter; }
+    QString resolutionFilter() const { return m_resolutionFilter; }
     int minYear() const { return m_minYear; }
     int maxYear() const { return m_maxYear; }
     double minCommunityRating() const { return m_minCommunityRating; }
@@ -197,6 +205,8 @@ public:
     Q_INVOKABLE void setWatchedFilter(const QString &filter);
     Q_INVOKABLE void setFavoriteFilter(const QString &filter);
     Q_INVOKABLE void setAddedSinceFilter(const QString &filter);
+    Q_INVOKABLE void setSeriesStatusFilter(const QString &filter);
+    Q_INVOKABLE void setResolutionFilter(const QString &filter);
     Q_INVOKABLE void setMinYear(int year);
     Q_INVOKABLE void setMaxYear(int year);
     Q_INVOKABLE void setMinCommunityRating(double rating);
@@ -272,6 +282,8 @@ signals:
     void watchedFilterChanged();
     void favoriteFilterChanged();
     void addedSinceFilterChanged();
+    void seriesStatusFilterChanged();
+    void resolutionFilterChanged();
     void yearRangeChanged();
     void minCommunityRatingChanged();
     void selectedGenresChanged();
@@ -350,6 +362,8 @@ private:
     LibraryItemQuery::TriState triStateFromFilter(const QString &filter) const;
     QDate addedSinceDate() const;
     bool supportsFilter(const QString &filter) const;
+    ProviderLibraryQueryCapabilities libraryQueryCapabilities(
+        const ProviderLibraryQueryCapabilities &provider) const;
     void refreshQueryCapabilities();
     void dropUnsupportedQuery();
     void emitActiveFilterCountChanged();
@@ -429,6 +443,10 @@ private:
     QString m_watchedFilter = "any";
     QString m_favoriteFilter = "any";
     QString m_addedSinceFilter = "any";
+    // m_sortOrder was set by a newest-first sort, not chosen by the viewer.
+    bool m_sortOrderAutomatic = false;
+    QString m_seriesStatusFilter = "any";
+    QString m_resolutionFilter = "any";
     int m_minYear = 0;
     int m_maxYear = 0;
     double m_minCommunityRating = 0.0;

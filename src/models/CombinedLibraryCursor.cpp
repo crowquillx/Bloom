@@ -25,6 +25,12 @@ qint64 dateKey(const QVariantMap &item, const QString &field)
     return plain.isValid() ? plain.toMSecsSinceEpoch() : 0;
 }
 
+/// The item's runtime, or 0 when it is unknown.
+qint64 durationKey(const QVariantMap &item)
+{
+    return qMax<qint64>(0, item.value(QStringLiteral("durationMs")).toLongLong());
+}
+
 /// -1, 0 or 1 comparing @p a and @p b on the primary sort key only.
 int compareKey(const QVariantMap &a, const QVariantMap &b, const QString &sortBy)
 {
@@ -53,6 +59,11 @@ int compareKey(const QVariantMap &a, const QVariantMap &b, const QString &sortBy
     if (sortBy == QStringLiteral("year")) {
         const int left = a.value(QStringLiteral("productionYear")).toInt();
         const int right = b.value(QStringLiteral("productionYear")).toInt();
+        return left < right ? -1 : (left > right ? 1 : 0);
+    }
+    if (sortBy == QStringLiteral("runtime")) {
+        const qint64 left = durationKey(a);
+        const qint64 right = durationKey(b);
         return left < right ? -1 : (left > right ? 1 : 0);
     }
     return 0;
@@ -124,9 +135,33 @@ void CombinedLibraryCursor::pageFailed(const QString &libraryId)
     source.total = source.nextOffset;
 }
 
+bool CombinedLibraryCursor::canMerge(const QString &sortBy)
+{
+    static const QStringList mergeable = {
+        QString(),
+        QStringLiteral("title"),
+        QStringLiteral("releaseDate"),
+        QStringLiteral("dateAdded"),
+        QStringLiteral("rating"),
+        QStringLiteral("year"),
+        QStringLiteral("random"),
+        QStringLiteral("datePlayed"),
+        QStringLiteral("runtime"),
+    };
+    return mergeable.contains(sortBy);
+}
+
 bool CombinedLibraryCursor::lessThan(const QVariantMap &a, const QVariantMap &b,
                                      const QString &sortBy, bool descending)
 {
+    // An unknown runtime sorts last either way, as Silo orders it.
+    if (sortBy == QStringLiteral("runtime")) {
+        const bool leftKnown = durationKey(a) > 0;
+        const bool rightKnown = durationKey(b) > 0;
+        if (leftKnown != rightKnown) {
+            return leftKnown;
+        }
+    }
     const int primary = compareKey(a, b, sortBy);
     if (primary != 0) {
         return descending ? primary > 0 : primary < 0;

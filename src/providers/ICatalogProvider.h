@@ -278,6 +278,10 @@ struct ProviderCatalogQuery {
     QDate minDateLastSaved;
     double minCommunityRating = 0.0;
     QList<int> years;
+    // Library filters: a series lifecycle ("continuing" or "ended") and a
+    // video resolution ("4k", or "hd" for HD and up); empty matches any.
+    QString seriesStatus;
+    QString resolution;
     QString sortBy;
     QString sortOrder;
     QStringList includeItemTypes;
@@ -375,17 +379,25 @@ struct ProviderCatalogResponse {
 // rest when a provider leaves them out and drop a saved choice that the
 // active connection cannot serve.
 struct ProviderLibraryQueryCapabilities {
-    // Canonical sortBy values beyond library order.
+    // Canonical sortBy values beyond library order. datePlayed is the
+    // viewer's last watch, runtime the title's length, and recentlyUpdated
+    // when a series last gained an episode.
     QStringList sorts{QStringLiteral("title"), QStringLiteral("releaseDate"),
                       QStringLiteral("dateAdded"), QStringLiteral("rating"),
-                      QStringLiteral("year"), QStringLiteral("random")};
+                      QStringLiteral("year"), QStringLiteral("random"),
+                      QStringLiteral("datePlayed"), QStringLiteral("runtime"),
+                      QStringLiteral("recentlyUpdated")};
     // Canonical filters: genres, tags, studios, watched, favorite,
-    // addedSince (minDateLastSaved), years, and rating
-    // (minCommunityRating).
+    // addedSince (minDateLastSaved), years, rating (minCommunityRating),
+    // seriesStatus, and resolution.
     QStringList filters{QStringLiteral("genres"), QStringLiteral("tags"),
                         QStringLiteral("studios"), QStringLiteral("watched"),
                         QStringLiteral("favorite"), QStringLiteral("addedSince"),
-                        QStringLiteral("years"), QStringLiteral("rating")};
+                        QStringLiteral("years"), QStringLiteral("rating"),
+                        QStringLiteral("seriesStatus"), QStringLiteral("resolution")};
+    // Sorts in sorts that cannot order series rows, so a series library
+    // leaves them out (Silo dates a last watch on the episode, not its show).
+    QStringList seriesExcludedSorts;
 
     bool operator==(const ProviderLibraryQueryCapabilities &) const = default;
 };
