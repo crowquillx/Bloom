@@ -98,10 +98,13 @@ public:
     /// credits, recap and preview fields.
     static QList<MediaSegmentInfo> mediaSegments(const QString &itemId,
                                                  const QJsonObject &wireSegments);
-    /// Series airings from the calendar's days, in order, as canonical
-    /// airing maps with `seriesId`, `itemId` and `watched`. Movie releases
-    /// are left out.
-    static QVariantList calendarAirings(const QJsonArray &wireDays);
+    /// Series airings from the calendar's events (SiloCatalogProvider
+    /// flattens the days), in order, as canonical airing maps
+    /// (docs/canonical-models.md) with `connectionId`, `seriesId`,
+    /// `seriesName`, `itemId`, `watched` and the poster as
+    /// `seriesPrimaryArtwork`. Movie releases are left out.
+    static QVariantList calendarAirings(const QJsonArray &wireEvents,
+                                        const QString &connectionId);
 
     /// The viewer's poster badges from the effective `ui.card_overlays` and
     /// `ui.card_overlays_enabled` settings, falling back to the server-wide

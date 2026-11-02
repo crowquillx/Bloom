@@ -240,9 +240,21 @@ public:
     // keeps itself: shuffleLoaded with `{items, total}` or shuffleFailed.
     virtual void getShuffleItems(const QVariantMap &scope, int limit, const QString &requestKey);
     // True when the provider has an airing calendar
-    // (ProviderCapability::AiringCalendar, Silo), so getNextAiring can
-    // answer something other than an empty map.
+    // (ProviderCapability::AiringCalendar: Silo's calendar, Jellyfin's
+    // upcoming episodes), so getNextAiring can answer something other than
+    // an empty map.
     Q_INVOKABLE virtual bool supportsNextAiring() const;
+    // Whether the live connection can show the Upcoming page (the same
+    // airing calendar).
+    Q_INVOKABLE virtual bool supportsUpcomingAirings() const;
+    // The live connection's upcoming episode airings from today, in the
+    // viewer's zone: canonical airing maps, in the provider's order, with
+    // canonicalUpcomingAiringsLoaded; `filterable` says the provider
+    // honored filter (a Silo calendar preset; empty for every title).
+    // A failed read, or one the session moved past before it was
+    // answered, answers canonicalUpcomingAiringsFailed. requestKey comes
+    // back with the answer.
+    virtual void getUpcomingAirings(const QString &filter, const QString &requestKey);
     // The series' next airing in the viewer's next 30 local days. Answers
     // nextAiringLoaded, with an empty map when none is known or the read
     // fails; an unsupported provider answers at once. The calendar is read
@@ -614,6 +626,13 @@ signals:
     void userRatingFailed(const QString &connectionId, const QString &itemId, int value,
                           const QString &error);
     void nextAiringLoaded(const QString &seriesId, const QVariantMap &airing);
+    void canonicalUpcomingAiringsLoaded(const QString &connectionId,
+                                        const QString &requestKey,
+                                        const QVariantList &airings,
+                                        bool filterable);
+    void canonicalUpcomingAiringsFailed(const QString &connectionId,
+                                        const QString &requestKey,
+                                        const QString &error);
     // markItemPlayed/markItemUnplayed and the favorite writes were refused
     // or never reached the server.
     void itemPlayedStatusFailed(const QString &itemId, bool isPlayed, const QString &error);
@@ -975,6 +994,18 @@ private:
     QHash<QString, AiringCalendarRead> m_airingCalendarReads;
     void readAiringCalendar(const QString &key, const QDate &start,
                             const QString &timeZoneId, bool zoneFallbackAllowed);
+    // Reads the airing calendar from start in timeZoneId; a zone the
+    // server rejects is retried once as the viewer's whole-hour offset
+    // when zoneFallbackAllowed.
+    using AiringsHandler = std::function<void(const QVariantList &airings, bool filterable)>;
+    void sendAiringCalendarRequest(const QString &operationName, const QDate &start,
+                                   const QString &timeZoneId, bool zoneFallbackAllowed,
+                                   const QString &filter, AiringsHandler loaded,
+                                   std::function<void(const NetworkError &)> failed);
+    // Upcoming page reads in flight, by request key: a session change
+    // drops their replies, so they are answered as failed instead.
+    QHash<QString, CatalogRequestIdentity> m_upcomingReads;
+    void failStaleUpcomingReads();
     void finishAiringCalendarRead(const QString &key, quint64 generation,
                                   const QVariantList &airings, bool cache);
     quint64 m_librarySectionsGeneration = 0;

@@ -139,6 +139,8 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         ("GET", "/Shows/NextUp"): {
             "userId", "limit", "fields", "enableUserData", "enableImageTypes",
             "enableResumable", "enableRewatching", "nextUpDateCutoff"},
+        ("GET", "/Shows/Upcoming"): {
+            "userId", "limit", "enableImageTypes", "enableUserData"},
         ("GET", "/UserItems/Resume"): {
             "userId", "limit", "fields", "enableUserData", "enableImageTypes",
             "includeItemTypes", "mediaTypes"},

@@ -56,6 +56,12 @@ public:
                                   const QString &connectionId);
     static QVariantList collections(const QJsonArray &wireBoxSets,
                                     const QString &connectionId);
+    // /Shows/Upcoming episodes as canonical airing maps
+    // (docs/canonical-models.md), in the server's order. A PremiereDate at
+    // midnight UTC is a calendar date (Jellyfin's metadata keeps no air
+    // time), so only other times become an `airAt` instant.
+    static QVariantList upcomingAirings(const QJsonArray &wireEpisodes,
+                                        const QString &connectionId);
     static Bloom::Chapter chapter(const QJsonObject &wireChapter,
                                   const QString &connectionId,
                                   const QString &itemId,

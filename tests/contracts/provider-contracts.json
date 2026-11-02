@@ -277,6 +277,19 @@
       }
     },
     {
+      "id": "catalog.upcoming",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getUpcomingAirings, LibraryService::getNextAiring and UpcomingViewModel",
+      "method": "GET",
+      "path": "/Shows/Upcoming",
+      "requestSemantics": ["UserId, Limit=300, EnableImageTypes=Primary and EnableUserData=false are requested; no ParentId, so every library's series count", "Jellyfin takes no end date, preset or zone: UpcomingViewModel keeps today through 30 days later in the viewer's zone, and the series page's next-airing chip reads the same list"],
+      "requiredSemantics": ["Items are episodes premiering from yesterday (UTC) on, soonest first, with SeriesId, SeriesName, ParentIndexNumber, IndexNumber, Name and PremiereDate", "A PremiereDate at midnight UTC is a calendar date; only other times are instants", "Items exist only when the server keeps metadata for missing episodes, so an empty list is nothing scheduled, not a failure"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard GetUpcomingEpisodes contract; userId, limit, enableImageTypes and enableUserData are current, non-obsolete parameters in the pinned OpenAPI."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "internal/jellycompat/router.go at the compatibility revision routes GET /Shows/Upcoming to HandleUpcoming (scoped episodes dated from yesterday in UTC onward, with paging); its episodes carry no series artwork, so cards fall back to the placeholder. Bloom reads native Silo's calendar instead."}
+      }
+    },
+    {
       "id": "catalog.home-favorites",
       "journey": "catalog",
       "bloomCaller": "LibraryService::getHomeSections",
@@ -1810,15 +1823,18 @@
         "outcome": "supported",
         "capability": {
           "state": "available",
-          "discovery": "Pinned v2 operation; Bloom exposes it as ProviderCapability::AiringCalendar on native Silo only."
+          "discovery": "Pinned v2 operation; Bloom exposes it as ProviderCapability::AiringCalendar on native Silo (Jellyfin's calendar is catalog.upcoming)."
         },
         "requestSemantics": [
-          "Profile-scoped read of the viewer's local days from today through 30 days later, with the viewer's IANA timezone and no filter.",
-          "Series detail asks only when the details carry no upcoming_event and the series has not ended."
+          "Profile-scoped read of the viewer's local days from today through 30 days later, with the viewer's IANA timezone; library_id is never sent.",
+          "Series detail asks with no filter (all titles), only when the details carry no upcoming_event and the series has not ended.",
+          "The Upcoming page sends filter=following by default, or trending or everything as the viewer picks; the other pinned presets (all, favorites, watchlist, popular) are accepted but not offered."
         ],
         "requiredSemantics": [
-          "Days arrive in order with items; an episode item carries series_id, season and episode numbers, local_air_date in the viewer's zone, and air_at when the network's time and zone are known.",
-          "The next airing is the earliest item of the series still ahead: by air_at when present, else by its local day."
+          "Days arrive in order with items; an episode item carries series_id, title (the series), season and episode numbers, episode_title, local_air_date in the viewer's zone, air_at when the network's time and zone are known, badges (series_premiere, season_premiere, finale), watched and poster_url.",
+          "A season_premiere item carries a season number and no episode number; movie items carry no series_id and are left out.",
+          "The next airing is the earliest item of the series still ahead: by air_at when present, else by its local day.",
+          "following is the profile's favorites, watchlist and every title with watch progress; a restricting preset with no titles is an empty calendar, not an error."
         ],
         "evidenceSources": [
           "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json"
@@ -1826,7 +1842,8 @@
         "implementationEvidence": [
           "src/providers/silo/SiloCatalogProvider.h",
           "src/providers/silo/SiloModelMapper.cpp",
-          "src/network/LibraryService.cpp"
+          "src/network/LibraryService.cpp",
+          "src/viewmodels/UpcomingViewModel.cpp"
         ]
       },
       {

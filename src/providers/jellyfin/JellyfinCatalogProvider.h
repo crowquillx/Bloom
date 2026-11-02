@@ -16,6 +16,10 @@
 class JellyfinCatalogProvider final : public ICatalogProvider
 {
 public:
+    // Upcoming episodes read at once: Jellyfin has no end date, and a
+    // month of airings across a household's series fits well within it.
+    static constexpr int kUpcomingAiringsLimit = 300;
+
     using ICatalogProvider::parseResponse;
     ProviderCatalogRequest createRequest(
         ProviderCatalogOperation operation,
@@ -84,7 +88,7 @@ public:
         case ProviderCatalogOperation::SetNotInterested:
             return unsupported(QStringLiteral("Jellyfin has no Not interested state"));
         case ProviderCatalogOperation::UpcomingAirings:
-            return unsupported(QStringLiteral("Bloom reads no Jellyfin airing calendar"));
+            return upcomingAiringsRequest(query);
         case ProviderCatalogOperation::MediaRequestStatus:
         case ProviderCatalogOperation::MediaRequestSearch:
         case ProviderCatalogOperation::MediaRequestDetail:
@@ -763,6 +767,24 @@ private:
                 query.nextUpCutoff.startOfDay(QTimeZone::UTC).toString(Qt::ISODate));
         }
         return supportedRequest(endpointWithQuery(QStringLiteral("/Shows/NextUp"), parameters));
+    }
+
+    // Episodes premiering from yesterday (UTC) on, soonest first. Jellyfin
+    // knows them only when its libraries keep missing episodes' metadata;
+    // it takes no end date, preset or zone, so Bloom trims the window.
+    static ProviderCatalogRequest upcomingAiringsRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, false, QStringLiteral("upcoming airings"));
+        if (!validation.supported) {
+            return validation;
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
+        parameters.addQueryItem(QStringLiteral("Limit"), QString::number(kUpcomingAiringsLimit));
+        parameters.addQueryItem(QStringLiteral("EnableImageTypes"), QStringLiteral("Primary"));
+        parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("false"));
+        return supportedRequest(endpointWithQuery(QStringLiteral("/Shows/Upcoming"), parameters));
     }
 
     static ProviderCatalogRequest resumeItemsRequest(const ProviderCatalogQuery &query)

@@ -1297,6 +1297,30 @@ target_link_libraries(CollectionViewModelsTest
 
 add_test(NAME CollectionViewModelsTest COMMAND CollectionViewModelsTest)
 
+# No production target holds view models, so the view model's own sources
+# are compiled here; the services come from Bloom::Network.
+add_executable(UpcomingViewModelTest
+    UpcomingViewModelTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/UpcomingViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
+)
+
+target_include_directories(UpcomingViewModelTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(UpcomingViewModelTest
+    PRIVATE
+        Bloom::Network
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME UpcomingViewModelTest COMMAND UpcomingViewModelTest)
+
 add_executable(LibrarySectionsViewModelTest
     LibrarySectionsViewModelTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/LibrarySectionsViewModel.cpp
@@ -1463,6 +1487,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     PersonViewModelTest
     WatchHistoryViewModelTest
     CollectionViewModelsTest
+    UpcomingViewModelTest
     LibrarySectionsViewModelTest
     ContinueWatchingViewModelTest
     MediaRequestServiceTest

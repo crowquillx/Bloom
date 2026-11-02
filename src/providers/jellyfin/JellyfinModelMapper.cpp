@@ -786,6 +786,64 @@ QVariantList JellyfinModelMapper::collections(const QJsonArray &wireBoxSets,
     return result;
 }
 
+QVariantList JellyfinModelMapper::upcomingAirings(const QJsonArray &wireEpisodes,
+                                                  const QString &connectionId)
+{
+    QVariantList result;
+    for (const QJsonValue &value : wireEpisodes) {
+        const QJsonObject wire = value.toObject();
+        const QString seriesId = wire.value(QStringLiteral("SeriesId")).toString();
+        const QString itemId = wire.value(QStringLiteral("Id")).toString();
+        if (wire.value(QStringLiteral("Type")).toString() != QStringLiteral("Episode")
+            || seriesId.isEmpty() || itemId.isEmpty()) {
+            continue;
+        }
+        const QString premiere = wire.value(QStringLiteral("PremiereDate")).toString();
+        QDateTime instant = QDateTime::fromString(premiere, Qt::ISODateWithMs);
+        if (!instant.isValid()) {
+            instant = QDateTime::fromString(premiere, Qt::ISODate);
+        }
+        if (!instant.isValid()) {
+            continue;
+        }
+        instant = instant.toUTC();
+        const int seasonNumber = wire.value(QStringLiteral("ParentIndexNumber")).toInt(-1);
+        const int episodeNumber = wire.value(QStringLiteral("IndexNumber")).toInt(-1);
+        QStringList badges;
+        if (episodeNumber == 1) {
+            badges.append(seasonNumber == 1 ? QStringLiteral("series_premiere")
+                                            : QStringLiteral("season_premiere"));
+        }
+        QVariantMap airing{
+            {QStringLiteral("type"), QStringLiteral("episode")},
+            {QStringLiteral("connectionId"), connectionId},
+            {QStringLiteral("itemId"), itemId},
+            {QStringLiteral("seriesId"), seriesId},
+            {QStringLiteral("seriesName"), wire.value(QStringLiteral("SeriesName")).toString()},
+            {QStringLiteral("seasonNumber"), seasonNumber},
+            {QStringLiteral("episodeNumber"), episodeNumber},
+            {QStringLiteral("episodeTitle"), wire.value(QStringLiteral("Name")).toString()},
+            {QStringLiteral("badges"), badges},
+            {QStringLiteral("watched"), false}};
+        if (instant.time() == QTime(0, 0)) {
+            airing.insert(QStringLiteral("airDate"), instant.date().toString(Qt::ISODate));
+        } else {
+            airing.insert(QStringLiteral("airDate"),
+                          instant.toLocalTime().date().toString(Qt::ISODate));
+            airing.insert(QStringLiteral("airAt"), instant.toString(Qt::ISODate));
+        }
+        // The series poster, owned by the series, as on episode cards.
+        const QVariantMap item = mediaItem(wire, connectionId);
+        const QVariantMap poster = item.value(QStringLiteral("seriesPrimaryArtwork")).toMap();
+        if (!poster.isEmpty()) {
+            airing.insert(QStringLiteral("seriesPrimaryArtwork"), poster);
+            airing.insert(QStringLiteral("artwork"), QVariantList{poster});
+        }
+        result.append(airing);
+    }
+    return result;
+}
+
 QVariantList JellyfinModelMapper::mediaItems(const QJsonArray &wireItems,
                                              const QString &connectionId)
 {

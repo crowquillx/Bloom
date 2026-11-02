@@ -54,8 +54,12 @@ enum class ProviderCatalogOperation {
     // or unmarking one movie or series (stateValue marks).
     NotInterestedCapability,
     SetNotInterested,
-    // Upcoming airings in the viewer's local days from calendarStart
-    // (Silo). capabilityMetadata carries canonical `airings` maps.
+    // Upcoming episode airings: on Silo the viewer's local days from
+    // calendarStart through 30 days later, narrowed by calendarFilter; on
+    // Jellyfin the episodes premiering from yesterday on (no window, no
+    // filter). rawItems holds one wire airing per entry; the adapter maps
+    // them (IProviderAdapter::mapAirings). Providers that honor
+    // calendarFilter set capabilityMetadata `filterable`.
     UpcomingAirings,
     // Server-side media requests (Silo): the viewer's request capability,
     // a title search, one title's request detail, submitting a request,
@@ -291,10 +295,13 @@ struct ProviderCatalogQuery {
     QString browseKind;
     QString browseId;
     QString browseSort;
-    // Upcoming airings: the first local day of the window and the viewer's
-    // IANA time zone the days are reckoned in.
+    // Upcoming airings: the first local day of the window, the viewer's
+    // IANA time zone the days are reckoned in, and the provider's preset
+    // (Silo: "following", "trending", "everything", ...; empty for its
+    // default, every title).
     QDate calendarStart;
     QString timeZoneId;
+    QString calendarFilter;
     // Home dismissals: the surface ("continue_watching" or "next_up") and
     // the card's progress stamp, as the server sent it.
     QString homeSurface;

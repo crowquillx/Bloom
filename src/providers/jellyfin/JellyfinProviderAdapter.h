@@ -23,14 +23,16 @@ public:
         // resume list is a separate read, it recommends movies per library,
         // its personal rating is a like or a dislike, its played items are
         // read one library at a time, Bloom shuffles from its random item
-        // reads, and box sets are its collections.
+        // reads, box sets are its collections, and its upcoming episodes
+        // (/Shows/Upcoming) are its airing calendar.
         return capability == ProviderCapability::NextUpOptions
             || capability == ProviderCapability::ResumeItems
             || capability == ProviderCapability::MovieRecommendations
             || capability == ProviderCapability::LikeRatings
             || capability == ProviderCapability::LibraryScopedHistory
             || capability == ProviderCapability::LocalShuffle
-            || capability == ProviderCapability::Collections;
+            || capability == ProviderCapability::Collections
+            || capability == ProviderCapability::AiringCalendar;
     }
     std::optional<QString> endpointFor(
         ProviderRoute route, const ProviderRouteContext &context) const override
@@ -115,6 +117,11 @@ public:
                                 const QString &connectionId) const override
     {
         return JellyfinModelMapper::collections(wireCollections, connectionId);
+    }
+    QVariantList mapAirings(const QJsonArray &wireAirings,
+                            const QString &connectionId) const override
+    {
+        return JellyfinModelMapper::upcomingAirings(wireAirings, connectionId);
     }
     QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
                                      const QString &connectionId,

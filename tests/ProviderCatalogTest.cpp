@@ -47,6 +47,7 @@ private slots:
     void jellyfinRecommendationLibraryAndServerReads();
     void jellyfinPersonRequestsAndMapping();
     void jellyfinWatchHistoryReadsOneLibraryByLastPlay();
+    void jellyfinUpcomingAiringsReadUpcomingEpisodes();
     void siloPersonRequestsAndMapping();
     void jellyfinCollectionRequestsAndMapping();
     void siloCollectionRequestsAndMapping();
@@ -975,6 +976,118 @@ void ProviderCatalogTest::jellyfinWatchHistoryReadsOneLibraryByLastPlay()
     query.itemId = QStringLiteral("m1");
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::RemoveFromWatchHistory, query).supported);
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::WatchTonight, query).supported);
+}
+
+void ProviderCatalogTest::jellyfinUpcomingAiringsReadUpcomingEpisodes()
+{
+    JellyfinProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+    QVERIFY(adapter.supportsCapability(ProviderCapability::AiringCalendar));
+
+    ProviderCatalogQuery query;
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::UpcomingAirings, query).supported);
+    query.userId = QStringLiteral("user-1");
+    // Jellyfin takes no window, preset or zone; they are not sent.
+    query.calendarStart = QDate(2026, 11, 1);
+    query.timeZoneId = QStringLiteral("America/New_York");
+    query.calendarFilter = QStringLiteral("following");
+    const ProviderCatalogRequest request =
+        catalog->createRequest(ProviderCatalogOperation::UpcomingAirings, query);
+    QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    const QUrl url(request.relativeEndpoint);
+    QCOMPARE(url.path(), QStringLiteral("/Shows/Upcoming"));
+    const QUrlQuery parameters(url);
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("Limit")),
+             QString::number(JellyfinCatalogProvider::kUpcomingAiringsLimit));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableImageTypes")), QStringLiteral("Primary"));
+    QCOMPARE(parameters.queryItems().size(), 4);
+
+    // Every query parameter is a current, non-obsolete GetUpcomingEpisodes
+    // parameter.
+    QFile openApiManifest(QStringLiteral(BLOOM_JELLYFIN_OPENAPI_MANIFEST));
+    QVERIFY(openApiManifest.open(QIODevice::ReadOnly));
+    const QJsonObject manifest = QJsonDocument::fromJson(openApiManifest.readAll()).object();
+    QHash<QString, bool> upcomingParameters;
+    for (const QJsonValue &value : manifest.value(QStringLiteral("operations")).toArray()) {
+        const QJsonObject operation = value.toObject();
+        if (operation.value(QStringLiteral("method")).toString() != QStringLiteral("GET")
+            || operation.value(QStringLiteral("path")).toString() != QStringLiteral("/Shows/Upcoming")) {
+            continue;
+        }
+        QVERIFY(!operation.value(QStringLiteral("deprecated")).toBool());
+        for (const QJsonValue &parameter : operation.value(QStringLiteral("parameters")).toArray()) {
+            upcomingParameters.insert(
+                parameter.toObject().value(QStringLiteral("name")).toString().toLower(),
+                parameter.toObject().value(QStringLiteral("deprecated")).toBool());
+        }
+    }
+    QVERIFY(!upcomingParameters.isEmpty());
+    for (const auto &item : parameters.queryItems()) {
+        const QString name = item.first.toLower();
+        QVERIFY2(upcomingParameters.contains(name), qPrintable(item.first));
+        QVERIFY2(!upcomingParameters.value(name), qPrintable(item.first));
+    }
+
+    // An empty answer (no missing-episode metadata) is a valid, empty page.
+    const ProviderCatalogResponse empty = catalog->parseResponse(
+        ProviderCatalogOperation::UpcomingAirings,
+        QByteArrayLiteral(R"({"Items":[],"TotalRecordCount":0,"StartIndex":0})"));
+    QVERIFY(empty.valid);
+    QVERIFY(empty.rawItems.isEmpty());
+    QVERIFY(!empty.capabilityMetadata.value(QStringLiteral("filterable")).toBool());
+    QVERIFY(adapter.mapAirings(empty.rawItems, QStringLiteral("connection-1")).isEmpty());
+
+    const ProviderCatalogResponse page = catalog->parseResponse(
+        ProviderCatalogOperation::UpcomingAirings,
+        QByteArrayLiteral(
+            R"({"Items":[)"
+            R"({"Id":"ep-1","Name":"Pilot","Type":"Episode","SeriesId":"series-a","SeriesName":"Andor",)"
+            R"("ParentIndexNumber":1,"IndexNumber":1,"PremiereDate":"2026-11-05T00:00:00.0000000Z",)"
+            R"("SeriesPrimaryImageTag":"tag-a"},)"
+            R"({"Id":"ep-2","Name":"Live","Type":"Episode","SeriesId":"series-b","SeriesName":"News",)"
+            R"("ParentIndexNumber":4,"IndexNumber":7,"PremiereDate":"2026-11-06T02:30:00.0000000Z"},)"
+            R"({"Id":"ep-3","Name":"Untitled","Type":"Episode","SeriesId":"series-c",)"
+            R"("ParentIndexNumber":2,"IndexNumber":1,"PremiereDate":"2026-11-08T00:00:00Z"},)"
+            R"({"Id":"m1","Name":"Heat","Type":"Movie","PremiereDate":"2026-11-05T00:00:00Z"},)"
+            R"({"Id":"ep-4","Name":"No date","Type":"Episode","SeriesId":"series-d"},)"
+            R"({"Id":"ep-5","Name":"Orphan","Type":"Episode","PremiereDate":"2026-11-05T00:00:00Z"}],)"
+            R"("TotalRecordCount":6,"StartIndex":0})"));
+    QVERIFY(page.valid);
+    const QVariantList airings = adapter.mapAirings(page.rawItems, QStringLiteral("connection-1"));
+    // Only dated episodes of a series.
+    QCOMPARE(airings.size(), 3);
+
+    // Midnight UTC is a calendar date, not an instant.
+    const QVariantMap pilot = airings.at(0).toMap();
+    QCOMPARE(pilot.value(QStringLiteral("connectionId")).toString(), QStringLiteral("connection-1"));
+    QCOMPARE(pilot.value(QStringLiteral("itemId")).toString(), QStringLiteral("ep-1"));
+    QCOMPARE(pilot.value(QStringLiteral("seriesId")).toString(), QStringLiteral("series-a"));
+    QCOMPARE(pilot.value(QStringLiteral("seriesName")).toString(), QStringLiteral("Andor"));
+    QCOMPARE(pilot.value(QStringLiteral("episodeTitle")).toString(), QStringLiteral("Pilot"));
+    QCOMPARE(pilot.value(QStringLiteral("seasonNumber")).toInt(), 1);
+    QCOMPARE(pilot.value(QStringLiteral("episodeNumber")).toInt(), 1);
+    QCOMPARE(pilot.value(QStringLiteral("type")).toString(), QStringLiteral("episode"));
+    QCOMPARE(pilot.value(QStringLiteral("airDate")).toString(), QStringLiteral("2026-11-05"));
+    QVERIFY(!pilot.contains(QStringLiteral("airAt")));
+    QCOMPARE(pilot.value(QStringLiteral("badges")).toStringList(),
+             QStringList{QStringLiteral("series_premiere")});
+    const QVariantMap poster = pilot.value(QStringLiteral("seriesPrimaryArtwork")).toMap();
+    QCOMPARE(poster.value(QStringLiteral("itemId")).toString(), QStringLiteral("series-a"));
+    QCOMPARE(poster.value(QStringLiteral("tag")).toString(), QStringLiteral("tag-a"));
+
+    // Any other time is an instant.
+    const QVariantMap live = airings.at(1).toMap();
+    QCOMPARE(live.value(QStringLiteral("airAt")).toString(), QStringLiteral("2026-11-06T02:30:00Z"));
+    QVERIFY(live.value(QStringLiteral("badges")).toStringList().isEmpty());
+    QVERIFY(!live.contains(QStringLiteral("seriesPrimaryArtwork")));
+
+    // Episode 1 of a later season is a season premiere.
+    QCOMPARE(airings.at(2).toMap().value(QStringLiteral("badges")).toStringList(),
+             QStringList{QStringLiteral("season_premiere")});
 }
 
 void ProviderCatalogTest::jellyfinCollectionRequestsAndMapping()

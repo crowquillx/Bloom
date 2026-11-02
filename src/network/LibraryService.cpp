@@ -266,6 +266,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         }
         m_airingCalendarReads.clear();
         m_airingCalendars.clear();
+        failStaleUpcomingReads();
         // A reconnect may reach an upgraded server: read its version and
         // its collection support again.
         m_serverVersions.clear();
@@ -300,6 +301,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
             failStaleSubtitleAppearanceRequests();
             failStaleUserRatingWrites();
             failStaleShuffleRequests();
+            failStaleUpcomingReads();
         });
     }
 }
@@ -1973,33 +1975,109 @@ void LibraryService::readAiringCalendar(const QString &key,
                                         bool zoneFallbackAllowed)
 {
     const quint64 generation = m_requestGeneration;
+    // The chip reads every title, whatever the Upcoming page's preset.
+    sendAiringCalendarRequest(
+        QStringLiteral("getNextAiring"), start, timeZoneId, zoneFallbackAllowed, QString(),
+        [this, key, generation](const QVariantList &airings, bool) {
+            finishAiringCalendarRead(key, generation, airings, true);
+        },
+        [this, key, generation](const NetworkError &) {
+            // No chip, and nothing else on the page depends on it.
+            finishAiringCalendarRead(key, generation, {}, false);
+        });
+}
+
+void LibraryService::sendAiringCalendarRequest(const QString &operationName,
+                                               const QDate &start,
+                                               const QString &timeZoneId,
+                                               bool zoneFallbackAllowed,
+                                               const QString &filter,
+                                               AiringsHandler loaded,
+                                               std::function<void(const NetworkError &)> failed)
+{
+    const QString connectionId = activeConnectionId(m_authService);
     ProviderCatalogQuery query = baseCatalogQuery();
     query.calendarStart = start;
     query.timeZoneId = timeZoneId;
+    query.calendarFilter = filter;
     sendCatalogRequest(
-        QStringLiteral("getNextAiring"),
+        operationName,
         ProviderCatalogOperation::UpcomingAirings,
         query,
-        [this, key, generation](const ProviderCatalogResponse &response) {
-            finishAiringCalendarRead(
-                key, generation,
-                response.capabilityMetadata.value(QStringLiteral("airings")).toList(), true);
+        [this, connectionId, loaded](const ProviderCatalogResponse &response) {
+            loaded(m_authService->mapAirings(response.rawItems, connectionId),
+                   response.capabilityMetadata.value(QStringLiteral("filterable")).toBool());
         },
-        [this, key, generation, start, zoneFallbackAllowed](const NetworkError &error) {
+        [this, operationName, start, filter, zoneFallbackAllowed, loaded,
+         failed](const NetworkError &error) {
             // A zone the server does not know is retried once as the
             // viewer's whole-hour offset.
             if (zoneFallbackAllowed && rejectsTimeZone(error)) {
                 const QString fallback = offsetTimeZoneId(QDateTime::currentDateTime());
-                const auto read = m_airingCalendarReads.constFind(key);
-                if (!fallback.isEmpty() && read != m_airingCalendarReads.cend()
-                    && read->generation == generation) {
-                    readAiringCalendar(key, start, fallback, false);
+                if (!fallback.isEmpty()) {
+                    sendAiringCalendarRequest(operationName, start, fallback, false, filter,
+                                              loaded, failed);
                     return;
                 }
             }
-            // No chip, and nothing else on the page depends on it.
-            finishAiringCalendarRead(key, generation, {}, false);
+            failed(error);
         });
+}
+
+bool LibraryService::supportsUpcomingAirings() const
+{
+    return supportsNextAiring();
+}
+
+void LibraryService::getUpcomingAirings(const QString &filter, const QString &requestKey)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    if (!supportsUpcomingAirings()) {
+        emit canonicalUpcomingAiringsFailed(connectionId, requestKey,
+                                            tr("This server has no airing calendar."));
+        return;
+    }
+    // Today and the next 30 days in the viewer's zone, as for the chip.
+    const QDate today = QDate::currentDate();
+    QString timeZoneId = viewerTimeZoneId();
+    const bool zoneFallbackAllowed = !timeZoneId.isEmpty();
+    if (timeZoneId.isEmpty()) {
+        timeZoneId = offsetTimeZoneId(QDateTime::currentDateTime());
+    }
+    m_upcomingReads.insert(requestKey, catalogRequestIdentity());
+    sendAiringCalendarRequest(
+        QStringLiteral("getUpcomingAirings"), today, timeZoneId, zoneFallbackAllowed, filter,
+        [this, connectionId, requestKey](const QVariantList &airings, bool filterable) {
+            if (m_upcomingReads.remove(requestKey) > 0) {
+                emit canonicalUpcomingAiringsLoaded(connectionId, requestKey, airings,
+                                                    filterable);
+            }
+        },
+        [this, connectionId, requestKey](const NetworkError &error) {
+            if (m_upcomingReads.remove(requestKey) > 0) {
+                emit canonicalUpcomingAiringsFailed(connectionId, requestKey,
+                                                    error.userMessage);
+            }
+        });
+}
+
+void LibraryService::failStaleUpcomingReads()
+{
+    QList<std::pair<QString, QString>> stale;
+    for (auto it = m_upcomingReads.begin(); it != m_upcomingReads.end();) {
+        if (isCurrent(it.value())) {
+            ++it;
+            continue;
+        }
+        stale.append({it.value().connectionId, it.key()});
+        it = m_upcomingReads.erase(it);
+    }
+    // Answered after the loop: a page may read again from the signal.
+    for (const auto &[connectionId, requestKey] : std::as_const(stale)) {
+        emit canonicalUpcomingAiringsFailed(
+            connectionId, requestKey,
+            tr("The connection changed before the calendar arrived."));
+    }
 }
 
 void LibraryService::finishAiringCalendarRead(const QString &key,
