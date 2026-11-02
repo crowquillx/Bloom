@@ -21,11 +21,13 @@ public:
     {
         // Jellyfin's Next Up takes rewatching and a last-watched cutoff, its
         // resume list is a separate read, it recommends movies per library,
-        // and its personal rating is a like or a dislike.
+        // and its personal rating is a like or a dislike; its played items
+        // are read one library at a time.
         return capability == ProviderCapability::NextUpOptions
             || capability == ProviderCapability::ResumeItems
             || capability == ProviderCapability::MovieRecommendations
-            || capability == ProviderCapability::LikeRatings;
+            || capability == ProviderCapability::LikeRatings
+            || capability == ProviderCapability::LibraryScopedHistory;
     }
     std::optional<QString> endpointFor(
         ProviderRoute route, const ProviderRouteContext &context) const override

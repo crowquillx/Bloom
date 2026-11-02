@@ -51,6 +51,7 @@ private slots:
     void pagesUntilEveryLibraryIsDrained();
     void sortsByYearDescending();
     void sortsByDateAdded();
+    void sortsByLastPlayNewestFirst();
     void failedLibraryDoesNotBlockOthers();
     void failedLaterPageShrinksTotal();
     void randomInterleavesWithoutWaiting();
@@ -152,6 +153,35 @@ void CombinedLibraryTest::sortsByDateAdded()
                           item("a2", "Y", 0, "2026-09-01T16:32:40.5943954Z")}), 2);
     cursor.addPage(QStringLiteral("b"), items({item("b1", "Z", 0, "2026-09-01T16:32:40.7Z")}), 1);
     QCOMPARE(ids(cursor.take(10)), QStringList({"a1", "b1", "a2"}));
+}
+
+void CombinedLibraryTest::sortsByLastPlayNewestFirst()
+{
+    const auto played = [](const QString &id, const QString &lastPlayedAt) {
+        QVariantMap value = item(id, id);
+        value.insert(QStringLiteral("userState"),
+                     QVariantMap{{QStringLiteral("lastPlayedAt"), lastPlayedAt}});
+        return value;
+    };
+    CombinedLibraryCursor cursor;
+    cursor.reset({QStringLiteral("movies"), QStringLiteral("shows")},
+                 QStringLiteral("datePlayed"), QStringLiteral("descending"));
+    QCOMPARE(cursor.librariesNeedingPages(),
+             (QStringList{QStringLiteral("movies"), QStringLiteral("shows")}));
+    // Jellyfin dates carry seven fractional digits; a title played without
+    // a date sorts last.
+    cursor.addPage(QStringLiteral("movies"),
+                   items({played(QStringLiteral("m-new"), QStringLiteral("2026-10-31T20:00:00.0000000Z")),
+                          played(QStringLiteral("m-old"), QStringLiteral("2026-10-01T20:00:00.0000000Z")),
+                          played(QStringLiteral("m-undated"), QString())}),
+                   3);
+    cursor.addPage(QStringLiteral("shows"),
+                   items({played(QStringLiteral("e-mid"), QStringLiteral("2026-10-15T08:30:00.5000000Z"))}),
+                   1);
+    QCOMPARE(ids(cursor.take(10)),
+             (QStringList{QStringLiteral("m-new"), QStringLiteral("e-mid"),
+                          QStringLiteral("m-old"), QStringLiteral("m-undated")}));
+    QVERIFY(cursor.finished());
 }
 
 void CombinedLibraryTest::failedLibraryDoesNotBlockOthers()

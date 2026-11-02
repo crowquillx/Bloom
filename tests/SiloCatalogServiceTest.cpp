@@ -16,7 +16,9 @@
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
+#include <algorithm>
 #include <cstring>
+#include <memory>
 #include <optional>
 
 #include "network/AuthenticationService.h"
@@ -136,6 +138,9 @@ class ControlledNetworkAccessManager final : public QNetworkAccessManager
 {
 public:
     QList<ResponsePlan> responses;
+    // Answers by URL path, ahead of the queue and never used up: for reads
+    // that run side by side in no fixed order.
+    QHash<QString, ResponsePlan> responsesByPath;
     QList<RecordedRequest> requests;
     QList<QPointer<ControlledReply>> replies;
 
@@ -146,7 +151,9 @@ protected:
     {
         requests.append(
             {operation, request, outgoingData ? outgoingData->readAll() : QByteArray()});
-        const ResponsePlan plan = responses.isEmpty()
+        const auto byPath = responsesByPath.constFind(request.url().path());
+        const ResponsePlan plan = byPath != responsesByPath.cend() ? *byPath
+            : responses.isEmpty()
             ? ResponsePlan{500, QByteArrayLiteral(R"({"error":"queue_empty"})"), false}
             : responses.takeFirst();
         auto *reply = new ControlledReply(
@@ -219,6 +226,9 @@ private slots:
     void homeCardCapabilitiesFollowTheCardsProvider();
     void homeCardWriteAnswersWhenTheSessionChanges();
     void jellyfinHasNoWatchlistOrCuratedRows();
+    void watchHistoryAndWatchTonightRequests();
+    void watchHistoryServiceReadsPagesAndRemoves();
+    void homeShowsWatchTonightFirstUnlessColdOrOff();
     void jellyfinItemExtrasPutTrailersFirstAndFlagPartialAnswers();
     void siloItemExtrasAnswerEmptyWithoutRequests();
     void personReadsMapCanonicalPeopleAndTitles();
@@ -1587,6 +1597,34 @@ QByteArray homeCapabilities(bool withItemLimit, int itemLimitMax = 100)
     return QJsonDocument(capabilities).toJson(QJsonDocument::Compact);
 }
 
+const QString kWatchTonightCardsPath = QStringLiteral("/api/v2/recommendations/watch-tonight/cards");
+
+// One Watch Tonight pick, movie:pick.
+QByteArray watchTonightPicks()
+{
+    return QByteArrayLiteral(
+        R"({"items":[{"content_id":"movie:pick","type":"movie","title":"Pick","genres":[],"keywords":[],"status":"matched","cast":[],"watch_tonight_source":"recommendation"}],)"
+        R"("has_more":false,"paging_limited":false,"is_cold":false})");
+}
+
+// The requests from `from` on, without the Watch Tonight reads, which run
+// beside the layout in no fixed order.
+QList<RecordedRequest> withoutWatchTonight(const QList<RecordedRequest> &requests, qsizetype from)
+{
+    QList<RecordedRequest> kept;
+    for (qsizetype index = from; index < requests.size(); ++index) {
+        if (requests.at(index).request.url().path() != kWatchTonightCardsPath) {
+            kept.append(requests.at(index));
+        }
+    }
+    return kept;
+}
+
+int watchTonightReads(const QList<RecordedRequest> &requests, qsizetype from)
+{
+    return static_cast<int>(requests.size() - from - withoutWatchTonight(requests, from).size());
+}
+
 QByteArray curatedHomeLayout(bool withWatchlistRow)
 {
     QByteArray body = QByteArrayLiteral(
@@ -1868,13 +1906,24 @@ void SiloCatalogServiceTest::homeSectionsServiceAddsWatchlistRowOnlyWithoutOne()
     SiloProviderAdapter adapter;
     ExposedAuthenticationService auth(&transport, &adapter);
     QVERIFY(signInToSilo(manager, auth, config));
+    // The production default: the Watch Tonight row is read beside the
+    // layout (answered by path), once.
+    QVERIFY(config.getHomeWatchTonightEnabled());
+    manager.responsesByPath.insert(kWatchTonightCardsPath, {200, watchTonightPicks(), false, {}});
     const QString connectionId = config.getActiveConnection().value_or(ServerConnection{}).connectionId;
     QVERIFY(!connectionId.isEmpty());
 
     LibraryService service(&auth);
     QVERIFY(service.supportsWatchlist());
     QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+    QSignalSpy updated(&service, &LibraryService::canonicalHomeSectionsUpdated);
     QVERIFY(loaded.isValid());
+    // The rows last published, loaded or updated.
+    QVariantList shown;
+    connect(&service, &LibraryService::canonicalHomeSectionsLoaded, this,
+            [&shown](const QString &, const QVariantList &rows) { shown = rows; });
+    connect(&service, &LibraryService::canonicalHomeSectionsUpdated, this,
+            [&shown](const QString &, const QVariantList &rows) { shown = rows; });
 
     // Without a Watchlist row in the layout, Bloom adds one first.
     manager.responses = {
@@ -1889,25 +1938,33 @@ void SiloCatalogServiceTest::homeSectionsServiceAddsWatchlistRowOnlyWithoutOne()
     const qsizetype firstRequest = manager.requests.size();
     service.getHomeSections();
     QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
-    QCOMPARE(manager.requests.size(), firstRequest + 3);
-    QCOMPARE(manager.requests.at(firstRequest).request.url().path(),
-             QStringLiteral("/api/v2/home/capabilities"));
-    const RecordedRequest layoutRequest = manager.requests.at(firstRequest + 1);
+    QTRY_VERIFY_WITH_TIMEOUT(!shown.isEmpty()
+                                 && rowIds(shown).first() == LibraryService::WatchTonightRowId,
+                             1000);
+    QCOMPARE(watchTonightReads(manager.requests, firstRequest), 1);
+    const QList<RecordedRequest> homeReads = withoutWatchTonight(manager.requests, firstRequest);
+    QCOMPARE(homeReads.size(), 3);
+    QCOMPARE(homeReads.at(0).request.url().path(), QStringLiteral("/api/v2/home/capabilities"));
+    const RecordedRequest layoutRequest = homeReads.at(1);
     QCOMPARE(layoutRequest.operation, QNetworkAccessManager::GetOperation);
     QCOMPARE(layoutRequest.request.url().path(), QStringLiteral("/api/v2/home/sections"));
     QCOMPARE(QUrlQuery(layoutRequest.request.url()).queryItemValue(QStringLiteral("item_limit")),
              QStringLiteral("20"));
     QCOMPARE(layoutRequest.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
-    const RecordedRequest watchlistRequest = manager.requests.at(firstRequest + 2);
+    const RecordedRequest watchlistRequest = homeReads.at(2);
     QCOMPARE(watchlistRequest.request.url().path(), QStringLiteral("/api/v2/watchlist"));
     QCOMPARE(QUrlQuery(watchlistRequest.request.url()).queryItemValue(QStringLiteral("limit")),
              QStringLiteral("20"));
     QCOMPARE(watchlistRequest.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
 
     QCOMPARE(loaded.first().at(0).toString(), connectionId);
-    QVariantList rows = loaded.first().at(1).toList();
-    QCOMPARE(rowIds(rows), (QStringList{QStringLiteral("bloom:watchlist"), QStringLiteral("for-you"),
+    // Watch Tonight first, then Bloom's Watchlist row and the profile's.
+    QVariantList rows = shown;
+    QCOMPARE(rowIds(rows), (QStringList{LibraryService::WatchTonightRowId,
+                                        QStringLiteral("bloom:watchlist"), QStringLiteral("for-you"),
                                         QStringLiteral("spotlight"), QStringLiteral("classics")}));
+    QCOMPARE(itemIds(rows.at(0)), QStringList{QStringLiteral("movie:pick")});
+    rows.removeFirst();
     QCOMPARE(rows.first().toMap().value(QStringLiteral("title")).toString(), QStringLiteral("Watchlist"));
     QCOMPARE(itemIds(rows.at(0)), QStringList{QStringLiteral("movie:w")});
     QCOMPARE(itemIds(rows.at(1)), (QStringList{QStringLiteral("movie:a"), QStringLiteral("series:b")}));
@@ -1922,16 +1979,20 @@ void SiloCatalogServiceTest::homeSectionsServiceAddsWatchlistRowOnlyWithoutOne()
     QCOMPARE(pilot.value(QStringLiteral("seriesName")).toString(), QStringLiteral("Show"));
 
     // The profile's own Watchlist row stays where the layout puts it, and
-    // no second watchlist read is made.
+    // no second watchlist read is made. A refresh that is not a new Home
+    // (a favorite or watchlist change) reuses the Watch Tonight row.
     manager.responses = { { 200, curatedHomeLayout(true), false } };
     const qsizetype secondRequest = manager.requests.size();
+    const qsizetype updatesBefore = updated.count();
     service.getHomeSections();
     QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
     QCOMPARE(manager.requests.size(), secondRequest + 1);
     rows = loaded.at(1).at(1).toList();
-    QCOMPARE(rowIds(rows), (QStringList{QStringLiteral("for-you"), QStringLiteral("spotlight"),
-                                        QStringLiteral("classics"), QStringLiteral("my-list")}));
+    QCOMPARE(rowIds(rows), (QStringList{LibraryService::WatchTonightRowId, QStringLiteral("for-you"),
+                                        QStringLiteral("spotlight"), QStringLiteral("classics"),
+                                        QStringLiteral("my-list")}));
     QCOMPARE(rows.last().toMap().value(QStringLiteral("title")).toString(), QStringLiteral("My List"));
+    QCOMPARE(updated.count(), updatesBefore);
 
     // An empty watchlist adds no row, and a failed watchlist read keeps the
     // profile's rows.
@@ -1943,10 +2004,11 @@ void SiloCatalogServiceTest::homeSectionsServiceAddsWatchlistRowOnlyWithoutOne()
     };
     service.getHomeSections();
     QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 3, 1000);
-    QCOMPARE(rowIds(loaded.at(2).at(1).toList()).first(), QStringLiteral("for-you"));
+    QCOMPARE(rowIds(loaded.at(2).at(1).toList()).at(1), QStringLiteral("for-you"));
     service.getHomeSections();
     QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 4, 1000);
-    QCOMPARE(rowIds(loaded.at(3).at(1).toList()).size(), 3);
+    QCOMPARE(rowIds(loaded.at(3).at(1).toList()).size(), 4);
+    QCOMPARE(watchTonightReads(manager.requests, secondRequest), 0);
 }
 
 void SiloCatalogServiceTest::seasonPosterRefreshReadsItsOwnField()
@@ -2017,11 +2079,15 @@ void SiloCatalogServiceTest::homeSectionsCapRowsOnlyWhenTheServerAcceptsIt()
     SiloProviderAdapter adapter;
     ExposedAuthenticationService auth(&transport, &adapter);
     QVERIFY(signInToSilo(manager, auth, config));
+    // The production default: each service reads the Watch Tonight row
+    // (answered by path) once, beside the layout reads below.
+    QVERIFY(config.getHomeWatchTonightEnabled());
+    manager.responsesByPath.insert(kWatchTonightCardsPath, {200, watchTonightPicks(), false, {}});
 
     const auto layoutReads = [&manager](qsizetype from) {
         QStringList reads;
-        for (qsizetype index = from; index < manager.requests.size(); ++index) {
-            const QUrl url = manager.requests.at(index).request.url();
+        for (const RecordedRequest &read : withoutWatchTonight(manager.requests, from)) {
+            const QUrl url = read.request.url();
             const QString limit = QUrlQuery(url).queryItemValue(QStringLiteral("item_limit"));
             reads.append(url.path() + (limit.isEmpty() ? QString() : QLatin1Char('=') + limit));
         }
@@ -2108,10 +2174,37 @@ void SiloCatalogServiceTest::homeSectionsCapRowsOnlyWhenTheServerAcceptsIt()
         service.getHomeSections();
         QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
         QCOMPARE(failed.count(), 0);
+        // The retried layout still comes with the Watch Tonight row.
+        QCOMPARE(rowIds(loaded.first().at(1).toList()).first(), LibraryService::WatchTonightRowId);
+        QCOMPARE(rowIds(loaded.first().at(1).toList()).last(), QStringLiteral("my-list"));
         service.getHomeSections();
         QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
         QCOMPARE(layoutReads(first), (QStringList{capabilities, layout + QStringLiteral("=20"),
                                                   layout, layout}));
+        QCOMPARE(watchTonightReads(manager.requests, first), 1);
+    }
+
+    // A 422 is answered the same way, and a new Home reads Watch Tonight
+    // again.
+    {
+        LibraryService service(&auth);
+        QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
+        QSignalSpy failed(&service, &LibraryService::canonicalHomeSectionsFailed);
+        manager.responses = {
+            {200, homeCapabilities(true), false},
+            {422, QByteArrayLiteral(R"({"type":"about:blank","title":"Unprocessable","status":422})"), false},
+            {200, curatedHomeLayout(true), false},
+            {200, curatedHomeLayout(true), false}};
+        const qsizetype first = manager.requests.size();
+        service.getHomeSections({}, true);
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+        QCOMPARE(failed.count(), 0);
+        service.getHomeSections({}, true);
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 2, 1000);
+        QCOMPARE(layoutReads(first), (QStringList{capabilities, layout + QStringLiteral("=20"),
+                                                  layout, layout}));
+        QCOMPARE(watchTonightReads(manager.requests, first), 2);
+        QCOMPARE(rowIds(loaded.last().at(1).toList()).first(), LibraryService::WatchTonightRowId);
     }
 }
 
@@ -2126,6 +2219,9 @@ void SiloCatalogServiceTest::homeSectionsServiceReportsFailure()
     SiloProviderAdapter adapter;
     ExposedAuthenticationService auth(&transport, &adapter);
     QVERIFY(signInToSilo(manager, auth, config));
+    // These reads answer in queue order; the Watch Tonight read beside
+    // the layout has its own test.
+    config.setHomeWatchTonightEnabled(false);
 
     LibraryService service(&auth);
     QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
@@ -2442,6 +2538,12 @@ void SiloCatalogServiceTest::homeCardWriteAnswersWhenTheSessionChanges()
 
     LibraryService service(&auth);
     QSignalSpy finished(&service, &LibraryService::homeCardWriteFinished);
+    QSignalSpy unconfirmed(&service, &LibraryService::homeCardWriteUnconfirmed);
+    QStringList order;
+    connect(&service, &LibraryService::homeCardWriteUnconfirmed, this,
+            [&order]() { order.append(QStringLiteral("unconfirmed")); });
+    connect(&service, &LibraryService::homeCardWriteFinished, this,
+            [&order]() { order.append(QStringLiteral("finished")); });
     const QString connectionId = auth.activeConnectionId();
 
     // The write never answers before the account changes.
@@ -2461,6 +2563,11 @@ void SiloCatalogServiceTest::homeCardWriteAnswersWhenTheSessionChanges()
     QCOMPARE(finished.first().at(1).toString(), QStringLiteral("key-1"));
     QVERIFY(!finished.first().at(2).toBool());
     QVERIFY(!finished.first().at(3).toString().isEmpty());
+    // It may have landed: said first, for callers that cannot just undo.
+    QCOMPARE(unconfirmed.count(), 1);
+    QCOMPARE(unconfirmed.first().at(0).toString(), connectionId);
+    QCOMPARE(unconfirmed.first().at(1).toString(), QStringLiteral("key-1"));
+    QCOMPARE(order, (QStringList{QStringLiteral("unconfirmed"), QStringLiteral("finished")}));
 
     // A reply that still lands changes nothing.
     staleReply->complete();
@@ -3701,6 +3808,9 @@ void SiloCatalogServiceTest::librarySectionsShareTheHomeRowCap()
     SiloProviderAdapter adapter;
     ExposedAuthenticationService auth(&transport, &adapter);
     QVERIFY(signInToSilo(manager, auth, config));
+    // These reads answer in queue order; the Watch Tonight read beside
+    // the layout has its own test.
+    config.setHomeWatchTonightEnabled(false);
 
     LibraryService service(&auth);
     QVERIFY(service.supportsLibrarySections());
@@ -3955,6 +4065,382 @@ void SiloCatalogServiceTest::jellyfinHasNoLibraryRowsAndIndexesItsOwnList()
     QCOMPARE(lettersLoaded.first().at(1).toString(), QStringLiteral("small"));
     QCOMPARE(lettersLoaded.first().at(2).toMap().value(QStringLiteral("letters")).toList().size(), 2);
     QCOMPARE(manager.requests.size(), 5);
+}
+
+void SiloCatalogServiceTest::watchHistoryAndWatchTonightRequests()
+{
+    SiloCatalogProvider provider;
+
+    // listHistory: the profile's whole history by cursor, with the artwork
+    // widths; no library or offset.
+    ProviderCatalogQuery query;
+    query.limit = 60;
+    ProviderCatalogRequest request = provider.createRequest(ProviderCatalogOperation::WatchHistory, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint, withArtworkWidths(QStringLiteral("/api/v2/history?limit=60")));
+    query.cursor = QStringLiteral("eyJvIjo1MH0");
+    request = provider.createRequest(ProviderCatalogOperation::WatchHistory, query);
+    QCOMPARE(request.relativeEndpoint,
+             withArtworkWidths(QStringLiteral("/api/v2/history?limit=60&cursor=eyJvIjo1MH0")));
+    query.startIndex = 60;
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::WatchHistory, query).supported);
+    query.startIndex = 0;
+    query.parentId = QStringLiteral("lib-1");
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::WatchHistory, query).supported);
+
+    // HistoryCard pages keep movie, series and episode cards once each;
+    // the cursor says whether there is more.
+    ProviderCatalogResponse page = provider.parseResponse(
+        ProviderCatalogOperation::WatchHistory,
+        QByteArrayLiteral(
+            R"({"items":[)"
+            R"({"content_id":"series:sev","type":"series","title":"Severance","genres":[],"keywords":[],"status":"matched",)"
+            R"("watch":{"media_item_id":"episode:sev-s1e2","watched_at":"2026-10-31T20:00:00.000Z","duration_seconds":3000,"completed":true}},)"
+            R"({"content_id":"audiobook:x","type":"audiobook","title":"Book","genres":[],"keywords":[],"status":"matched",)"
+            R"("watch":{"media_item_id":"audiobook:x","watched_at":"2026-10-31T19:00:00.000Z","duration_seconds":0,"completed":false}},)"
+            R"({"content_id":"movie:heat","type":"movie","title":"Heat","genres":[],"keywords":[],"status":"matched",)"
+            R"("watch":{"media_item_id":"movie:heat","watched_at":"2026-10-30T19:00:00.000Z","duration_seconds":10200,"completed":true}},)"
+            R"({"content_id":"movie:heat","type":"movie","title":"Heat","genres":[],"keywords":[],"status":"matched",)"
+            R"("watch":{"media_item_id":"movie:heat","watched_at":"2026-10-29T19:00:00.000Z","duration_seconds":10200,"completed":true}}],)"
+            R"("page":{"has_more":true,"next_cursor":"next-1"}})"));
+    QVERIFY(page.valid);
+    QCOMPARE(page.rawItems.size(), 2);
+    QCOMPARE(page.rawItems.at(0).toObject().value(QStringLiteral("content_id")).toString(),
+             QStringLiteral("series:sev"));
+    QCOMPARE(page.rawItems.at(1).toObject().value(QStringLiteral("content_id")).toString(),
+             QStringLiteral("movie:heat"));
+    QVERIFY(page.hasMore);
+    QCOMPARE(page.nextCursor, QStringLiteral("next-1"));
+    // An empty page may still have more.
+    page = provider.parseResponse(
+        ProviderCatalogOperation::WatchHistory,
+        QByteArrayLiteral(R"({"items":[],"page":{"has_more":true,"next_cursor":"next-2"}})"));
+    QVERIFY(page.valid);
+    QVERIFY(page.rawItems.isEmpty());
+    QVERIFY(page.hasMore);
+
+    // removeHistoryEntries: one target by content identity, never
+    // replayed, no artwork widths.
+    query = {};
+    query.itemId = QStringLiteral("series:sev");
+    request = provider.createRequest(ProviderCatalogOperation::RemoveFromWatchHistory, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Never);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/history/remove"));
+    QCOMPARE(QJsonDocument::fromJson(request.body).object(),
+             QJsonObject({{QStringLiteral("targets"),
+                           QJsonArray{QJsonObject{{QStringLiteral("content_id"),
+                                                   QStringLiteral("series:sev")}}}}}));
+    QVERIFY(provider.parseResponse(ProviderCatalogOperation::RemoveFromWatchHistory, {}).valid);
+    query.itemId.clear();
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::RemoveFromWatchHistory, query).supported);
+
+    // listWatchTonightCards in discover mode, at most 20 cards.
+    query = {};
+    query.limit = 50;
+    request = provider.createRequest(ProviderCatalogOperation::WatchTonight, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint,
+             withArtworkWidths(QStringLiteral(
+                 "/api/v2/recommendations/watch-tonight/cards?mode=discover&limit=20")));
+    ProviderCatalogResponse picks = provider.parseResponse(
+        ProviderCatalogOperation::WatchTonight,
+        QByteArrayLiteral(
+            R"({"items":[)"
+            R"({"content_id":"movie:a","type":"movie","title":"Alpha","genres":[],"keywords":[],"status":"matched","cast":[],"watch_tonight_source":"recommendation"},)"
+            R"({"content_id":"podcast:p","type":"podcast","title":"Pod","genres":[],"keywords":[],"status":"matched","cast":[],"watch_tonight_source":"recommendation"},)"
+            R"({"content_id":"series:b","type":"series","title":"Bravo","genres":[],"keywords":[],"status":"matched","cast":[],"watch_tonight_source":"recommendation"}],)"
+            R"("has_more":true,"paging_limited":false,"is_cold":false})"));
+    QVERIFY(picks.valid);
+    QCOMPARE(picks.rawItems.size(), 2);
+    QVERIFY(!picks.capabilityMetadata.value(QStringLiteral("isCold")).toBool());
+    QVERIFY(picks.hasMore);
+    picks = provider.parseResponse(
+        ProviderCatalogOperation::WatchTonight,
+        QByteArrayLiteral(R"({"items":[],"has_more":false,"paging_limited":false,"is_cold":true})"));
+    QVERIFY(picks.valid);
+    QVERIFY(picks.capabilityMetadata.value(QStringLiteral("isCold")).toBool());
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::WatchTonight,
+                                    QByteArrayLiteral(R"({"cards":[]})")).valid);
+
+    // The adapter offers both, and pages history for the whole profile.
+    SiloProviderAdapter adapter;
+    QVERIFY(adapter.supportsCapability(ProviderCapability::WatchHistoryRemoval));
+    QVERIFY(adapter.supportsCapability(ProviderCapability::WatchTonight));
+    QVERIFY(!adapter.supportsCapability(ProviderCapability::LibraryScopedHistory));
+}
+
+void SiloCatalogServiceTest::watchHistoryServiceReadsPagesAndRemoves()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+    const QString connectionId = config.getActiveConnection().value_or(ServerConnection{}).connectionId;
+
+    LibraryService service(&auth);
+    QVERIFY(!service.watchHistoryByLibrary());
+    QVERIFY(service.supportsWatchHistoryRemoval());
+    QSignalSpy loaded(&service, &LibraryService::canonicalWatchHistoryLoaded);
+    QSignalSpy failed(&service, &LibraryService::canonicalWatchHistoryFailed);
+
+    manager.responses = {
+        { 200,
+            QByteArrayLiteral(
+                R"({"items":[{"content_id":"movie:heat","type":"movie","title":"Heat","genres":[],"keywords":[],"status":"matched",)"
+                R"("watch":{"media_item_id":"movie:heat","watched_at":"2026-10-30T19:00:00.000Z","duration_seconds":10200,"completed":true}}],)"
+                R"("page":{"has_more":true,"next_cursor":"next-1"}})"),
+            false },
+        { 400, QByteArrayLiteral(R"({"type":"invalid_cursor","title":"Invalid cursor","status":400})"), false }
+    };
+    qsizetype first = manager.requests.size();
+    // The library is ignored: Silo has one list for the profile.
+    service.getWatchHistory(QStringLiteral("lib-1"), 0, QStringLiteral("cursor-0"), 60,
+                            QStringLiteral("key-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    const RecordedRequest read = manager.requests.at(first);
+    QCOMPARE(read.request.url().path(), QStringLiteral("/api/v2/history"));
+    QCOMPARE(QUrlQuery(read.request.url()).queryItemValue(QStringLiteral("cursor")),
+             QStringLiteral("cursor-0"));
+    QCOMPARE(read.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
+    QCOMPARE(loaded.first().at(0).toString(), connectionId);
+    QCOMPARE(loaded.first().at(1).toString(), QStringLiteral("key-1"));
+    const QVariantList items = loaded.first().at(2).toList();
+    QCOMPARE(items.size(), 1);
+    QCOMPARE(items.first().toMap().value(QStringLiteral("mediaType")).toString(), QStringLiteral("Movie"));
+    QCOMPARE(items.first().toMap().value(QStringLiteral("connectionId")).toString(), connectionId);
+    QVERIFY(loaded.first().at(4).toBool());
+    QCOMPARE(loaded.first().at(5).toString(), QStringLiteral("next-1"));
+
+    service.getWatchHistory(QString(), 0, QStringLiteral("next-1"), 60, QStringLiteral("key-2"));
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 10000);
+    QCOMPARE(failed.first().at(1).toString(), QStringLiteral("key-2"));
+    // The status reaches the page, which starts over on a rejected cursor.
+    QCOMPARE(failed.first().at(3).toInt(), 400);
+
+    // Removal: one non_retryable POST, answered as a card write; the
+    // server also clears the watched state.
+    QSignalSpy finished(&service, &LibraryService::homeCardWriteFinished);
+    QSignalSpy played(&service, &LibraryService::itemPlayedStatusChanged);
+    QSignalSpy removed(&service, &LibraryService::watchHistoryItemRemoved);
+    manager.responses = {
+        { 204, QByteArray(), false },
+        { 500, QByteArrayLiteral(R"({"type":"about:blank","title":"Error","status":500})"), false }
+    };
+    first = manager.requests.size();
+    service.removeFromWatchHistory(QStringLiteral("remove-1"), QStringLiteral("series:sev"));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 1000);
+    QVERIFY(finished.first().at(2).toBool());
+    const RecordedRequest remove = manager.requests.at(first);
+    QCOMPARE(remove.operation, QNetworkAccessManager::PostOperation);
+    QCOMPARE(remove.request.url().path(), QStringLiteral("/api/v2/history/remove"));
+    QCOMPARE(remove.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
+    QCOMPARE(QJsonDocument::fromJson(remove.body).object()
+                 .value(QStringLiteral("targets")).toArray().first().toObject()
+                 .value(QStringLiteral("content_id")).toString(),
+             QStringLiteral("series:sev"));
+    QCOMPARE(played.count(), 1);
+    QCOMPARE(played.first().at(0).toString(), QStringLiteral("series:sev"));
+    QVERIFY(!played.first().at(1).toBool());
+    // Home reads Continue Watching and Next Up again on this.
+    QCOMPARE(removed.count(), 1);
+    QCOMPARE(removed.first().at(0).toString(), connectionId);
+    QCOMPARE(removed.first().at(1).toString(), QStringLiteral("series:sev"));
+
+    service.removeFromWatchHistory(QStringLiteral("remove-2"), QStringLiteral("movie:heat"));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 2, 10000);
+    QVERIFY(!finished.at(1).at(2).toBool());
+    QCOMPARE(played.count(), 1);
+    QCOMPARE(removed.count(), 1);
+    // A refused removal is never replayed.
+    QCOMPARE(manager.requests.size(), first + 2);
+}
+
+void SiloCatalogServiceTest::homeShowsWatchTonightFirstUnlessColdOrOff()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    auto service = std::make_unique<LibraryService>(&auth);
+    QVERIFY(service->supportsWatchTonight());
+    QVERIFY(config.getHomeWatchTonightEnabled());
+    // The rows last published, loaded or updated, and how often each was.
+    QVariantList shown;
+    int loads = 0;
+    int updates = 0;
+    int failures = 0;
+    const auto watch = [&](LibraryService *library) {
+        connect(library, &LibraryService::canonicalHomeSectionsLoaded, this,
+                [&](const QString &, const QVariantList &rows) { shown = rows; ++loads; });
+        connect(library, &LibraryService::canonicalHomeSectionsUpdated, this,
+                [&](const QString &, const QVariantList &rows) { shown = rows; ++updates; });
+        connect(library, &LibraryService::canonicalHomeSectionsFailed, this,
+                [&](const QString &, const QString &) { ++failures; });
+    };
+    watch(service.get());
+
+    const QString cardsPath = kWatchTonightCardsPath;
+    const QByteArray picks = QByteArrayLiteral(
+        R"({"items":[)"
+        R"({"content_id":"movie:pick","type":"movie","title":"Pick","genres":[],"keywords":[],"status":"matched","cast":[],"watch_tonight_source":"recommendation"},)"
+        R"({"content_id":"ebook:e","type":"ebook","title":"Echo","genres":[],"keywords":[],"status":"matched","cast":[],"watch_tonight_source":"recommendation"}],)"
+        R"("has_more":false,"paging_limited":false,"is_cold":false})");
+    manager.responsesByPath = {
+        {QStringLiteral("/api/v2/home/capabilities"), {200, homeCapabilities(true), false, {}}},
+        {QStringLiteral("/api/v2/home/sections"), {200, curatedHomeLayout(true), false, {}}},
+        {cardsPath, {200, picks, false, {}}}
+    };
+    const auto cardsReads = [&manager, &cardsPath](qsizetype from) {
+        int count = 0;
+        for (qsizetype index = from; index < manager.requests.size(); ++index) {
+            const QUrl url = manager.requests.at(index).request.url();
+            if (url.path() == cardsPath) {
+                ++count;
+                if (QUrlQuery(url).queryItemValue(QStringLiteral("mode")) != QStringLiteral("discover")
+                    || QUrlQuery(url).queryItemValue(QStringLiteral("limit")) != QStringLiteral("20")
+                    || manager.requests.at(index).request.rawHeader("X-Profile-Id") != "profile-1") {
+                    return -1;
+                }
+            }
+        }
+        return count;
+    };
+    const auto shownFirst = [&shown]() {
+        return shown.isEmpty() ? QString() : rowIds(shown).first();
+    };
+
+    // The Watch Tonight row comes first, right after Bloom's own shelves.
+    qsizetype first = manager.requests.size();
+    service->getHomeSections();
+    QTRY_COMPARE_WITH_TIMEOUT(shownFirst(), LibraryService::WatchTonightRowId, 1000);
+    QCOMPARE(cardsReads(first), 1);
+    QCOMPARE(rowIds(shown), (QStringList{LibraryService::WatchTonightRowId, QStringLiteral("for-you"),
+                                         QStringLiteral("spotlight"), QStringLiteral("classics"),
+                                         QStringLiteral("my-list")}));
+    QCOMPARE(shown.first().toMap().value(QStringLiteral("title")).toString(), QStringLiteral("Watch Tonight"));
+    QCOMPARE(itemIds(shown.first()), QStringList{QStringLiteral("movie:pick")});
+
+    // A refresh that is not a new Home reuses the row; a new Home (or the
+    // end of playback) reads it again.
+    first = manager.requests.size();
+    int before = loads;
+    service->getHomeSections();
+    QTRY_COMPARE_WITH_TIMEOUT(loads, before + 1, 1000);
+    QCOMPARE(cardsReads(first), 0);
+    QCOMPARE(shownFirst(), LibraryService::WatchTonightRowId);
+
+    // A generic fallback (is_cold) or no picks take the row away.
+    const QList<ResponsePlan> noRow = {
+        {200, QByteArrayLiteral(R"({"items":[{"content_id":"movie:pick","type":"movie","title":"Pick","genres":[],"keywords":[],"status":"matched","cast":[],"watch_tonight_source":"recommendation"}],"has_more":false,"paging_limited":false,"is_cold":true})"), false, {}},
+        {200, QByteArrayLiteral(R"({"items":[],"has_more":false,"paging_limited":false,"is_cold":false})"), false, {}}
+    };
+    for (const ResponsePlan &plan : noRow) {
+        manager.responsesByPath.insert(cardsPath, {200, picks, false, {}});
+        service->getHomeSections({}, true);
+        QTRY_COMPARE_WITH_TIMEOUT(shownFirst(), LibraryService::WatchTonightRowId, 1000);
+        manager.responsesByPath.insert(cardsPath, plan);
+        first = manager.requests.size();
+        service->getHomeSections({}, true);
+        QTRY_COMPARE_WITH_TIMEOUT(shownFirst(), QStringLiteral("for-you"), 1000);
+        QCOMPARE(cardsReads(first), 1);
+    }
+
+    // The layout never waits for Watch Tonight: it publishes at once, and
+    // the row is inserted when it lands.
+    manager.responsesByPath.insert(cardsPath, {200, picks, true, {}});
+    before = loads;
+    int updatesBefore = updates;
+    service->getHomeSections({}, true);
+    QTRY_COMPARE_WITH_TIMEOUT(loads, before + 1, 1000);
+    QCOMPARE(shownFirst(), QStringLiteral("for-you"));
+    QPointer<ControlledReply> pending;
+    for (const QPointer<ControlledReply> &reply : std::as_const(manager.replies)) {
+        if (reply && reply->request().url().path() == cardsPath && !reply->isFinished()
+            && !reply->wasAborted()) {
+            pending = reply;
+        }
+    }
+    QVERIFY(pending);
+    pending->complete();
+    QTRY_COMPARE_WITH_TIMEOUT(updates, updatesBefore + 1, 1000);
+    QCOMPARE(rowIds(shown), (QStringList{LibraryService::WatchTonightRowId, QStringLiteral("for-you"),
+                                         QStringLiteral("spotlight"), QStringLiteral("classics"),
+                                         QStringLiteral("my-list")}));
+
+    // A failed read keeps the row shown before.
+    manager.responsesByPath.insert(
+        cardsPath, {500, QByteArrayLiteral(R"({"type":"about:blank","title":"Error","status":500})"), false, {}});
+    first = manager.requests.size();
+    service->getHomeSections({}, true);
+    QTRY_VERIFY_WITH_TIMEOUT(cardsReads(first) >= 1, 1000);
+    QTest::qWait(50);
+    QCOMPARE(shownFirst(), LibraryService::WatchTonightRowId);
+
+    // A failed layout read still shows the Watch Tonight row: it waits for
+    // the read in flight.
+    service = std::make_unique<LibraryService>(&auth);
+    watch(service.get());
+    manager.responsesByPath.insert(cardsPath, {200, picks, true, {}});
+    manager.responsesByPath.insert(
+        QStringLiteral("/api/v2/home/sections"),
+        {404, QByteArrayLiteral(R"({"type":"about:blank","title":"Not Found","status":404})"), false, {}});
+    before = loads;
+    service->getHomeSections();
+    QTRY_VERIFY_WITH_TIMEOUT(
+        std::any_of(manager.replies.cbegin(), manager.replies.cend(),
+                    [&cardsPath](const QPointer<ControlledReply> &reply) {
+                        return reply && reply->request().url().path() == cardsPath
+                            && !reply->isFinished() && !reply->wasAborted();
+                    }),
+        1000);
+    QTest::qWait(50);
+    QCOMPARE(loads, before);
+    for (const QPointer<ControlledReply> &reply : std::as_const(manager.replies)) {
+        if (reply && reply->request().url().path() == cardsPath && !reply->isFinished()
+            && !reply->wasAborted()) {
+            reply->complete();
+        }
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(loads, before + 1, 1000);
+    QCOMPARE(rowIds(shown), QStringList{LibraryService::WatchTonightRowId});
+    const int failuresBefore = failures;
+
+    // Both failing, with no row known, fails the read.
+    service = std::make_unique<LibraryService>(&auth);
+    watch(service.get());
+    manager.responsesByPath.insert(
+        cardsPath, {500, QByteArrayLiteral(R"({"type":"about:blank","title":"Error","status":500})"), false, {}});
+    service->getHomeSections();
+    QTRY_COMPARE_WITH_TIMEOUT(failures, failuresBefore + 1, 10000);
+
+    // With the setting off, no Watch Tonight read is sent.
+    config.setHomeWatchTonightEnabled(false);
+    manager.responsesByPath.insert(QStringLiteral("/api/v2/home/sections"),
+                                   {200, curatedHomeLayout(true), false, {}});
+    manager.responsesByPath.insert(cardsPath, {200, picks, false, {}});
+    first = manager.requests.size();
+    before = loads;
+    service->getHomeSections({}, true);
+    QTRY_COMPARE_WITH_TIMEOUT(loads, before + 1, 1000);
+    QCOMPARE(cardsReads(first), 0);
+    QCOMPARE(shownFirst(), QStringLiteral("for-you"));
 }
 
 QTEST_MAIN(SiloCatalogServiceTest)

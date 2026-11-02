@@ -1796,12 +1796,7 @@ FocusScope {
     property bool serverRowFocusLost: false
 
     function serverRowHasFocus() {
-        for (var i = 0; i < serverRowsRepeater.count; i++) {
-            var row = serverRowMeta(serverRowsRepeater.itemAt(i))
-            if (row.list && row.list.activeFocus)
-                return true
-        }
-        return false
+        return focusedServerRowIndex() >= 0
     }
 
     Connections {
@@ -1817,6 +1812,42 @@ FocusScope {
                 Qt.callLater(root.restoreFocusState)
             root.serverRowFocusLost = false
         }
+        // A row inserted or removed (the Watch Tonight row landing after
+        // the others) keeps the focused shelf; it may have moved, so it is
+        // scrolled back into view. A removed focused row hands focus to the
+        // row now in its place.
+        function onRowsAboutToBeRemoved(parent, first, last) {
+            var focused = root.focusedServerRowIndex()
+            root.serverRowFocusLost = root.StackView.status === StackView.Active
+                    && focused >= first && focused <= last
+            if (root.serverRowFocusLost)
+                root.saveFocusState()
+        }
+        function onRowsRemoved() {
+            if (root.serverRowFocusLost)
+                Qt.callLater(root.restoreFocusState)
+            else
+                Qt.callLater(root.keepFocusedServerRowInView)
+            root.serverRowFocusLost = false
+        }
+        function onRowsInserted() {
+            Qt.callLater(root.keepFocusedServerRowInView)
+        }
+    }
+
+    function focusedServerRowIndex() {
+        for (var i = 0; i < serverRowsRepeater.count; i++) {
+            var row = serverRowMeta(serverRowsRepeater.itemAt(i))
+            if (row.list && row.list.activeFocus)
+                return i
+        }
+        return -1
+    }
+
+    function keepFocusedServerRowInView() {
+        var focused = focusedServerRowIndex()
+        if (focused >= 0 && root.StackView.status === StackView.Active)
+            scrollToSection(serverRowsRepeater.itemAt(focused))
     }
 
     // A single space changed which libraries it shows. Merged spaces reload
@@ -1838,6 +1869,13 @@ FocusScope {
             if (root.mergedMode || !root.acceptsConnectionResponse(connectionId)) return
             // Drop libraries the space hides (MergedCatalog filters merged views).
             root.applyViews(typeof Workspaces !== "undefined" ? Workspaces.visibleLibraries(views) : views)
+        }
+
+        // A title left the watch history: the server also cleared its
+        // watched state and resume points (a series' episodes too).
+        function onWatchHistoryItemRemoved(connectionId, itemId) {
+            if (AuthenticationService.authenticated)
+                root.refreshNextUp()
         }
 
         function onCanonicalNextUpLoaded(connectionId, items) {
@@ -1919,6 +1957,15 @@ FocusScope {
             if (!ConfigManager.homeRecommendationsEnabled)
                 HomeSectionsViewModel.removeRecommendationRows()
             HomeSectionsViewModel.refresh(ConfigManager.homeRecommendationsEnabled)
+        }
+        function onHomeWatchTonightEnabledChanged() {
+            if (root.mergedMode || !AuthenticationService.authenticated)
+                return
+            // Off: the row goes at once, whatever the refresh answers. On:
+            // read it from the server.
+            if (!ConfigManager.homeWatchTonightEnabled)
+                HomeSectionsViewModel.removeWatchTonightRow()
+            HomeSectionsViewModel.refresh(ConfigManager.homeWatchTonightEnabled)
         }
     }
 

@@ -1913,6 +1913,9 @@ void LibraryService::failStaleHomeCardWrites()
         it = m_homeCardWrites.erase(it);
     }
     for (const auto &[requestKey, connectionId] : std::as_const(stale)) {
+        // The write may still have landed; callers that cannot simply undo
+        // tell the viewer so.
+        emit homeCardWriteUnconfirmed(connectionId, requestKey);
         emit homeCardWriteFinished(connectionId, requestKey, false,
                                    tr("The connection changed before the server answered."));
     }
@@ -2216,17 +2219,154 @@ void LibraryService::getHomeSections(const QStringList &movieLibraryIds,
         return;
     }
 
+    // The layout publishes as soon as it is read, with the Watch Tonight
+    // row first when one is known: it follows Bloom's own shelves. The row
+    // is read again only when Home asks for it (a new Home, after
+    // playback) or none is known yet; a Watch Tonight answer that lands
+    // after the layout publishes the rows again (canonicalHomeSectionsUpdated).
+    // A failed layout read still shows the Watch Tonight row.
+    m_siloHomeLayout = SiloHomeLayout{connectionId, generation, request, {}, {}, false, false};
+    if (homeWatchTonightEnabled()) {
+        const QString key = homeCacheKey(connectionId);
+        const bool inFlight = m_watchTonightRead.key == key
+            && m_watchTonightRead.requestGeneration == m_requestGeneration;
+        if (request.reloadRecommendations || (!m_watchTonightRows.contains(key) && !inFlight)) {
+            readWatchTonightRow(connectionId);
+        }
+    }
+
     // Silo caps each row's cards only when its Home capabilities report the
     // largest cap it accepts; older servers reject item_limit. Next Up reads
     // the layout separately and uncapped, so no resume card is dropped.
+    const HomeRowsDone rowsDone = [this, generation](const QVariantList &rows,
+                                                     const QString &error, bool failed) {
+        if (generation != m_homeSectionsGeneration) {
+            return;
+        }
+        m_siloHomeLayout.rows = rows;
+        m_siloHomeLayout.error = error;
+        m_siloHomeLayout.failed = failed;
+        m_siloHomeLayout.done = true;
+        publishSiloHomeRows();
+    };
     withSectionItemLimit(
         connectionId,
         [this, connectionId, generation] {
             return generation == m_homeSectionsGeneration
                 && activeConnectionId(m_authService) == connectionId;
         },
-        [this, connectionId, generation, request](int itemLimitMax) {
-            readHomeSections(connectionId, generation, itemLimitMax, request);
+        [this, connectionId, generation, request, rowsDone](int itemLimitMax) {
+            readHomeSections(connectionId, generation, itemLimitMax, request, rowsDone);
+        });
+}
+
+QString LibraryService::homeCacheKey(const QString &connectionId) const
+{
+    return connectionId + QLatin1Char('\n') + (m_authService ? m_authService->getUserId() : QString());
+}
+
+bool LibraryService::homeWatchTonightEnabled() const
+{
+    const ConfigManager *config = m_authService ? m_authService->configManager() : nullptr;
+    return supportsWatchTonight() && config && config->getHomeWatchTonightEnabled();
+}
+
+void LibraryService::emitHomeRows(const QString &connectionId, quint64 generation,
+                                  const QVariantList &rows)
+{
+    // The first publish answers getHomeSections; a later one for the same
+    // request (a late Watch Tonight answer) updates the rows in place.
+    if (m_homeRowsPublishedGeneration == generation) {
+        emit canonicalHomeSectionsUpdated(connectionId, rows);
+        return;
+    }
+    m_homeRowsPublishedGeneration = generation;
+    emit canonicalHomeSectionsLoaded(connectionId, rows);
+}
+
+void LibraryService::publishSiloHomeRows()
+{
+    const SiloHomeLayout layout = m_siloHomeLayout;
+    if (!layout.done || layout.generation != m_homeSectionsGeneration
+        || activeConnectionId(m_authService) != layout.connectionId) {
+        return;
+    }
+    const QString key = homeCacheKey(layout.connectionId);
+    const bool watchTonight = homeWatchTonightEnabled();
+    const QVariantMap watchTonightRow = watchTonight ? m_watchTonightRows.value(key) : QVariantMap();
+    if (layout.failed && watchTonightRow.isEmpty()) {
+        if (watchTonight && m_watchTonightRead.key == key
+            && m_watchTonightRead.requestGeneration == m_requestGeneration) {
+            // The Watch Tonight row may still show.
+            return;
+        }
+        if (m_homeRowsPublishedGeneration == layout.generation) {
+            emit canonicalHomeSectionsUpdated(layout.connectionId, {});
+        } else {
+            m_homeRowsPublishedGeneration = layout.generation;
+            emit canonicalHomeSectionsFailed(layout.connectionId, layout.error);
+        }
+        return;
+    }
+    QVariantList rows;
+    if (!watchTonightRow.isEmpty()) {
+        rows.append(watchTonightRow);
+    }
+    rows.append(layout.rows);
+    if (!m_authService->supportsCapability(ProviderCapability::Watchlist)) {
+        publishHomeSectionsWithBloomRows(layout.connectionId, layout.generation, rows,
+                                         layout.request);
+        return;
+    }
+    emitHomeRows(layout.connectionId, layout.generation, rows);
+}
+
+void LibraryService::readWatchTonightRow(const QString &connectionId)
+{
+    const QString key = homeCacheKey(connectionId);
+    const quint64 readGeneration = ++m_watchTonightReadGeneration;
+    m_watchTonightRead = {key, m_requestGeneration};
+    // Only the newest read for the live session lands; then the rows
+    // publish again if the layout is already out.
+    const auto land = [this, key, readGeneration](const std::optional<QVariantMap> &row) {
+        if (readGeneration != m_watchTonightReadGeneration) {
+            return;
+        }
+        m_watchTonightRead = {};
+        if (row) {
+            m_watchTonightRows.insert(key, *row);
+        } else if (!m_watchTonightRows.contains(key)) {
+            // A failed first read shows no row; a failed later one keeps
+            // the row shown.
+            m_watchTonightRows.insert(key, {});
+        }
+        publishSiloHomeRows();
+    };
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.limit = kHomeRowCardLimit;
+    sendCatalogRequest(
+        QStringLiteral("getWatchTonight"),
+        ProviderCatalogOperation::WatchTonight,
+        query,
+        [this, connectionId, land](const ProviderCatalogResponse &response) {
+            // A cold answer is the server's generic fallback, not picks
+            // for this profile: no row, as when there are none.
+            const bool cold = response.capabilityMetadata.value(QStringLiteral("isCold")).toBool();
+            const QVariantList items = cold
+                ? QVariantList()
+                : m_authService->mapMediaItems(response.rawItems, connectionId);
+            if (items.isEmpty()) {
+                land(QVariantMap());
+                return;
+            }
+            land(QVariantMap{
+                {QStringLiteral("sectionId"), WatchTonightRowId},
+                {QStringLiteral("title"), tr("Watch Tonight")},
+                {QStringLiteral("items"), items}});
+        },
+        [land](const NetworkError &error) {
+            qCWarning(lcLibrary) << "Watch Tonight read failed:" << error.userMessage;
+            land(std::nullopt);
         });
 }
 
@@ -2269,7 +2409,8 @@ void LibraryService::withSectionItemLimit(const QString &connectionId,
 void LibraryService::readHomeSections(const QString &connectionId,
                                       quint64 generation,
                                       int itemLimitMax,
-                                      const HomeRowsRequest &request)
+                                      const HomeRowsRequest &request,
+                                      HomeRowsDone done)
 {
     const auto mapRows = [this, connectionId](const QJsonArray &wireRows) {
         QVariantList rows;
@@ -2297,20 +2438,17 @@ void LibraryService::readHomeSections(const QString &connectionId,
         QStringLiteral("getHomeSections"),
         ProviderCatalogOperation::HomeSections,
         layoutQuery,
-        [this, connectionId, generation, mapRows, request](
+        [this, connectionId, generation, mapRows, done](
             const ProviderCatalogResponse &response) {
             if (generation != m_homeSectionsGeneration) {
                 return;
             }
             const QVariantList rows = mapRows(response.rawItems);
-            if (!m_authService->supportsCapability(ProviderCapability::Watchlist)) {
-                publishHomeSectionsWithBloomRows(connectionId, generation, rows, request);
-                return;
-            }
             const bool layoutHasWatchlist = response.capabilityMetadata
                 .value(QStringLiteral("layoutHasWatchlist")).toBool();
-            if (layoutHasWatchlist) {
-                emit canonicalHomeSectionsLoaded(connectionId, rows);
+            if (layoutHasWatchlist
+                || !m_authService->supportsCapability(ProviderCapability::Watchlist)) {
+                done(rows, QString(), false);
                 return;
             }
 
@@ -2322,7 +2460,8 @@ void LibraryService::readHomeSections(const QString &connectionId,
                 QStringLiteral("getWatchlist"),
                 ProviderCatalogOperation::Watchlist,
                 watchlistQuery,
-                [this, connectionId, generation, rows](const ProviderCatalogResponse &watchlist) {
+                [this, connectionId, generation, rows, done](
+                    const ProviderCatalogResponse &watchlist) {
                     if (generation != m_homeSectionsGeneration) {
                         return;
                     }
@@ -2335,16 +2474,16 @@ void LibraryService::readHomeSections(const QString &connectionId,
                             {QStringLiteral("title"), tr("Watchlist")},
                             {QStringLiteral("items"), items}});
                     }
-                    emit canonicalHomeSectionsLoaded(connectionId, withWatchlist);
+                    done(withWatchlist, QString(), false);
                 },
-                [this, connectionId, generation, rows](const NetworkError &) {
+                [this, generation, rows, done](const NetworkError &) {
                     // The profile's rows still show without the watchlist.
                     if (generation == m_homeSectionsGeneration) {
-                        emit canonicalHomeSectionsLoaded(connectionId, rows);
+                        done(rows, QString(), false);
                     }
                 });
         },
-        [this, connectionId, generation, itemLimitMax, request](const NetworkError &error) {
+        [this, connectionId, generation, itemLimitMax, request, done](const NetworkError &error) {
             if (generation != m_homeSectionsGeneration) {
                 return;
             }
@@ -2354,11 +2493,11 @@ void LibraryService::readHomeSections(const QString &connectionId,
             if (itemLimitMax > 0 && (error.httpStatus == 400 || error.httpStatus == 422)) {
                 m_homeSectionItemLimitMax.insert(connectionId, 0);
                 if (activeConnectionId(m_authService) == connectionId) {
-                    readHomeSections(connectionId, generation, 0, request);
+                    readHomeSections(connectionId, generation, 0, request, done);
                     return;
                 }
             }
-            emit canonicalHomeSectionsFailed(connectionId, error.userMessage);
+            done({}, error.userMessage, true);
         });
 }
 
@@ -2391,7 +2530,7 @@ void LibraryService::publishHomeSectionsWithBloomRows(const QString &connectionI
         }
     }
     if (!readFavorites && recommendationLibraries.isEmpty()) {
-        emit canonicalHomeSectionsLoaded(connectionId, rows);
+        emitHomeRows(connectionId, generation, rows);
         return;
     }
 
@@ -2439,6 +2578,7 @@ void LibraryService::publishHomeSectionsWithBloomRows(const QString &connectionI
             return;
         }
         if (read->succeeded == 0 && rows.isEmpty()) {
+            m_homeRowsPublishedGeneration = generation;
             emit canonicalHomeSectionsFailed(connectionId, read->error);
             return;
         }
@@ -2447,7 +2587,7 @@ void LibraryService::publishHomeSectionsWithBloomRows(const QString &connectionI
         QVariantList published = read->favoritesRow;
         published.append(rows);
         published.append(homeRecommendationRows(cacheKey, recommendationLibraries));
-        emit canonicalHomeSectionsLoaded(connectionId, published);
+        emitHomeRows(connectionId, generation, published);
     };
     const auto finish = [read, publish]() {
         if (--read->pending == 0) {
@@ -3248,6 +3388,72 @@ void LibraryService::getPersonItems(const QString &personId, int startIndex,
             emit canonicalPersonItemsFailed(connectionId, personId, requestKey,
                                             error.userMessage);
         });
+}
+
+bool LibraryService::watchHistoryByLibrary() const
+{
+    return m_authService
+        && m_authService->supportsCapability(ProviderCapability::LibraryScopedHistory);
+}
+
+void LibraryService::getWatchHistory(const QString &libraryId, int startIndex,
+                                     const QString &cursor, int limit,
+                                     const QString &requestKey)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    if (watchHistoryByLibrary()) {
+        query.parentId = libraryId;
+        query.startIndex = qMax(0, startIndex);
+    } else {
+        query.cursor = cursor;
+    }
+    query.limit = qMax(1, limit);
+    sendCatalogRequest(
+        QStringLiteral("getWatchHistory"),
+        ProviderCatalogOperation::WatchHistory,
+        query,
+        [this, connectionId, requestKey](const ProviderCatalogResponse &response) {
+            emit canonicalWatchHistoryLoaded(
+                connectionId, requestKey,
+                m_authService->mapMediaItems(response.rawItems, connectionId),
+                response.total, response.hasMore, response.nextCursor);
+        },
+        [this, connectionId, requestKey](const NetworkError &error) {
+            emit canonicalWatchHistoryFailed(connectionId, requestKey, error.userMessage,
+                                             error.httpStatus);
+        });
+}
+
+bool LibraryService::supportsWatchHistoryRemoval() const
+{
+    return m_authService && m_authService->isAuthenticated()
+        && m_authService->supportsCapability(ProviderCapability::WatchHistoryRemoval);
+}
+
+void LibraryService::removeFromWatchHistory(const QString &requestKey, const QString &itemId)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    sendHomeCardWrite(
+        requestKey,
+        QStringLiteral("removeHistoryEntries"),
+        ProviderCatalogOperation::RemoveFromWatchHistory,
+        query,
+        // The server also clears the watched state and resume points, which
+        // reach past itemId (a series takes its episodes): Home's Continue
+        // Watching and Next Up read again.
+        [this, connectionId = activeConnectionId(m_authService), itemId]() {
+            emit itemPlayedStatusChanged(itemId, false);
+            emit watchHistoryItemRemoved(connectionId, itemId);
+        },
+        {});
+}
+
+bool LibraryService::supportsWatchTonight() const
+{
+    return m_authService && m_authService->isAuthenticated()
+        && m_authService->supportsCapability(ProviderCapability::WatchTonight);
 }
 
 void LibraryService::searchPeople(const QString &searchTerm, int limit)

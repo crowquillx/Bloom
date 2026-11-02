@@ -3133,6 +3133,20 @@ bool ConfigManager::getHomeRecommendationsEnabled() const
     return readHomeObject().value(QStringLiteral("recommendations_enabled")).toBool(true);
 }
 
+void ConfigManager::setHomeWatchTonightEnabled(bool enabled)
+{
+    if (enabled == getHomeWatchTonightEnabled()) return;
+    QJsonObject home = readHomeObject();
+    home[QStringLiteral("watch_tonight_enabled")] = enabled;
+    writeHomeObject(home);
+    emit homeWatchTonightEnabledChanged();
+}
+
+bool ConfigManager::getHomeWatchTonightEnabled() const
+{
+    return readHomeObject().value(QStringLiteral("watch_tonight_enabled")).toBool(true);
+}
+
 void ConfigManager::setHeroBannerEnabled(bool enabled)
 {
     if (enabled == getHeroBannerEnabled()) return;

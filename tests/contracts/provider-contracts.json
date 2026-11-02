@@ -75,6 +75,7 @@
     "catalog.next-up",
     "catalog.resume",
     "catalog.home-favorites",
+    "catalog.watch-history",
     "catalog.search",
     "catalog.filters",
     "catalog.letters",
@@ -258,6 +259,19 @@
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Standard GetResumeItems contract in the pinned OpenAPI."},
         "silo-8044eb8-compat": {"outcome": "supported", "evidence": "GET /UserItems/Resume is registered beside /Users/{userId}/Items/Resume (internal/jellycompat/router.go) and served by the resume handler."}
+      }
+    },
+    {
+      "id": "catalog.watch-history",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getWatchHistory and WatchHistoryViewModel",
+      "method": "GET",
+      "path": "/Items",
+      "requestSemantics": ["One library at a time (ParentId) with IsPlayed=true, IncludeItemTypes=Movie,Episode, Recursive=true, SortBy=DatePlayed,SortName, SortOrder=Descending,Ascending (one order per key), StartIndex and Limit", "WatchHistoryViewModel merges the movie and series libraries the space shows by UserData.LastPlayedDate"],
+      "requiredSemantics": ["Items are the viewer's played movies and episodes in that library", "The most recently played come first; a title appears once, at its last play"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard item query with the IsPlayed filter and the DatePlayed sort; Jellyfin keeps no per-watch history, so there is nothing to remove."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "handlePlayedItems in internal/jellycompat/handlers_items.go at the compatibility revision serves IsPlayed=True from completed progress entries per library with paging; the DatePlayed sort keys are not verified against its order."}
       }
     },
     {
@@ -911,6 +925,8 @@
       "native.library.sections",
       "native.home.dismissals",
       "native.settings.subtitle-appearance",
+      "native.history",
+      "native.home.watch-tonight",
       "native.artwork.refetch",
       "native.playback.capability",
       "native.playback.start-v3",
@@ -1889,6 +1905,81 @@
           "src/providers/silo/SiloSubtitleAppearanceMapper.cpp",
           "src/network/LibraryService.cpp",
           "src/network/SubtitleAppearanceSync.cpp"
+        ]
+      },
+      {
+        "id": "native.history",
+        "method": "GET/POST",
+        "path": "/api/v2/history and /api/v2/history/remove",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/history"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/history/remove"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operations; Bloom reads listHistory on every native Silo connection and exposes removal as ProviderCapability::WatchHistoryRemoval."
+        },
+        "requestSemantics": [
+          "listHistory is profile-scoped and paged by page.next_cursor only (limit 60, at most 200), with the artwork widths; it takes no library or type filter.",
+          "removeHistoryEntries sends one target {content_id} with the default item scope, so a series card takes its episodes with it.",
+          "removeHistoryEntries is non_retryable: the server picks the cutoff when the request runs, so Bloom never replays it."
+        ],
+        "requiredSemantics": [
+          "Cards come most recent watch first; an episode watch is shown as its series card, and each title appears once.",
+          "A page may be short or empty while next_cursor says more remain; Bloom reads up to five such pages in a row, then waits for the viewer.",
+          "Only movie, series and episode cards reach the History page.",
+          "A removal also counts the watches as unwatched and drops their resume points, so Bloom asks first and has no undo."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/apiv2/history.go",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/userstore/pgstore/progress.go"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/network/LibraryService.cpp",
+          "src/viewmodels/WatchHistoryViewModel.cpp"
+        ]
+      },
+      {
+        "id": "native.home.watch-tonight",
+        "method": "GET",
+        "path": "/api/v2/recommendations/watch-tonight/cards",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/recommendations/watch-tonight/cards"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operation; Bloom exposes it as ProviderCapability::WatchTonight on native Silo only, behind ConfigManager::homeWatchTonightEnabled."
+        },
+        "requestSemantics": [
+          "Profile-scoped read with mode=discover and limit=20 (the maximum), with the artwork widths, beside the Home layout read.",
+          "No genres or exclude_ids: Home shows the first page as one row."
+        ],
+        "requiredSemantics": [
+          "is_cold marks a generic fallback rather than picks from the profile's taste; Bloom then shows no row, as for an empty answer or a failed read.",
+          "Only movie, series and episode cards reach the row, which comes first among the rows below Bloom's own shelves.",
+          "Discover mode answers taste candidates only, so the row does not repeat Continue Watching or Up Next."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/api/handlers/watch_tonight_cards.go"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/network/LibraryService.cpp",
+          "src/viewmodels/HomeSectionsViewModel.cpp"
         ]
       },
       {

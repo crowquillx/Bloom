@@ -157,6 +157,22 @@ enum class ProviderCatalogOperation {
     // with 0: 1 to 5 stars where ProviderCapability::StarRatings, +1 (like)
     // or -1 (dislike) where ProviderCapability::LikeRatings.
     SetUserRating,
+    // One page of what the viewer watched, most recent first. Silo pages
+    // its own history by cursor (a page may be short or empty while more
+    // remain; nextCursor says so) and rolls episode watches up into series
+    // cards. Jellyfin reads played movies and episodes of one library
+    // (parentId) by DatePlayed, by startIndex
+    // (ProviderCapability::LibraryScopedHistory). rawItems holds movie,
+    // series and episode cards only.
+    WatchHistory,
+    // Hides itemId's watches from the viewer's history (Silo). A series
+    // takes its episodes with it. Never replayed.
+    RemoveFromWatchHistory,
+    // Up to `limit` Watch Tonight taste picks for the viewer (Silo,
+    // discover mode). rawItems holds movie, series and episode cards;
+    // capabilityMetadata carries `isCold` (a generic fallback rather than
+    // picks from the viewer's taste) and `hasMore`.
+    WatchTonight,
 };
 
 enum class ProviderHttpMethod {

@@ -1181,6 +1181,34 @@ target_link_libraries(PersonViewModelTest
 
 add_test(NAME PersonViewModelTest COMMAND PersonViewModelTest)
 
+add_executable(WatchHistoryViewModelTest
+    WatchHistoryViewModelTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/WatchHistoryViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(WatchHistoryViewModelTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(WatchHistoryViewModelTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME WatchHistoryViewModelTest COMMAND WatchHistoryViewModelTest)
+
 add_executable(LibrarySectionsViewModelTest
     LibrarySectionsViewModelTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/LibrarySectionsViewModel.cpp
@@ -1343,6 +1371,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     SimilarItemsRetryTest
     HomeRowsAndWatchlistTest
     PersonViewModelTest
+    WatchHistoryViewModelTest
     LibrarySectionsViewModelTest
     ContinueWatchingViewModelTest
     MediaRequestServiceTest

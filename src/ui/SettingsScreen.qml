@@ -142,12 +142,15 @@ FocusScope {
         function onNextUpCutoffDaysChanged() { root.scheduleSettingsSavedToast() }
         function onHomeFavoritesRowEnabledChanged() { root.scheduleSettingsSavedToast() }
         function onHomeRecommendationsEnabledChanged() { root.scheduleSettingsSavedToast() }
+        function onHomeWatchTonightEnabledChanged() { root.scheduleSettingsSavedToast() }
         function onScreensaverEnabledChanged() { root.scheduleSettingsSavedToast() }
         function onScreensaverModeChanged() { root.scheduleSettingsSavedToast() }
         function onScreensaverTimeoutSecondsChanged() { root.scheduleSettingsSavedToast() }
     }
 
     signal signOutRequested()
+    // The History page, from About & Account; Main pushes it.
+    signal historyRequested()
     property bool activeSessionsVisible: false
 
     function openActiveSessions() {
@@ -438,6 +441,7 @@ FocusScope {
                     onRequestReturnToRail: root.returnToRail()
                     onSignOutRequested: root.signOutRequested()
                     onSessionsRequested: root.openActiveSessions()
+                    onHistoryRequested: root.historyRequested()
                 }
             }
         }

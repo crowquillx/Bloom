@@ -42,6 +42,8 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.library.sections",
     "native.home.dismissals",
     "native.settings.subtitle-appearance",
+    "native.history",
+    "native.home.watch-tonight",
     "native.artwork.refetch",
     "native.playback.capability",
     "native.playback.start-v3",
@@ -124,7 +126,8 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         ("GET", "/Items"): {"userId", "fields", "ids", "personIds", "includeItemTypes",
                             "sortBy", "sortOrder", "startIndex", "limit", "parentId",
                             "recursive", "enableImages", "enableUserData",
-                            "enableTotalRecordCount"},
+                            "enableTotalRecordCount", "isPlayed", "isFavorite",
+                            "enableImageTypes"},
         ("GET", "/System/Info/Public"): set(),
         ("GET", "/Items/{itemId}"): {"itemId", "userId"},
         ("GET", "/Persons"): {"userId", "searchTerm", "limit", "enableImages",
@@ -202,6 +205,10 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         )
 
     schemas = manifest.get("schemas", {})
+    _require(
+        "DatePlayed" in schemas.get("ItemSortBy", {}).get("enum", []),
+        "Jellyfin ItemSortBy must include DatePlayed (watch history and the Favorites row)",
+    )
     item_fields = schemas.get("ItemFields", {}).get("enum", [])
     _require(
         "SpecialEpisodeNumbers" in item_fields,
