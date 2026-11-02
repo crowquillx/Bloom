@@ -484,5 +484,5 @@ void UpcomingViewModel::scheduleDayCheck()
     const QDateTime current = now().toTimeZone(m_zone);
     const QDateTime midnight = current.date().addDays(1).startOfDay(m_zone);
     m_dayCheck.start(static_cast<int>(
-        qBound<qint64>(1000, current.msecsTo(midnight) + 1000, kDayCheckMs)));
+        std::clamp(current.msecsTo(midnight) + 1000, qint64{1000}, qint64{kDayCheckMs})));
 }
