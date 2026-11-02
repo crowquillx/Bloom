@@ -2029,7 +2029,9 @@ Window {
         // whichever way it is left.
         function onNavigateToAfterMovie(movieData) {
             const attemptId = movieData ? (movieData.attemptId || 0) : 0
-            if (!movieData || !movieData.itemId) {
+            // A session that expired at the end of playback has already
+            // shown the login screen; nothing goes above it.
+            if (!movieData || !movieData.itemId || !window.isLoggedIn) {
                 PlayerController.releaseAfterMovieDisplayRestore(attemptId)
                 return
             }
@@ -2057,7 +2059,7 @@ Window {
                 if (stackView.currentItem !== afterMovieScreen)
                     return
                 stackView.popCurrentItem(StackView.Immediate)
-                if (itemData.mediaType === "Series")
+                if (String(itemData.mediaType || "").toLowerCase() === "series")
                     window.pushSeriesDetails(itemData.itemId, StackView.Immediate)
                 else
                     window.pushMovieDetails(itemData, StackView.Immediate)

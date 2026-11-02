@@ -391,7 +391,10 @@ FocusScope {
             spacing: Theme.sectionTitleSpacing
             visible: hasCards
             opacity: hasCards ? 1.0 : 0.0
-            Behavior on opacity { NumberAnimation { duration: Theme.durationLong } }
+            Behavior on opacity {
+                enabled: Theme.uiAnimationsEnabled
+                NumberAnimation { duration: Theme.durationLong }
+            }
 
             function focusRow() {
                 if (!hasCards) return false

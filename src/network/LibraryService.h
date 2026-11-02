@@ -704,7 +704,9 @@ private:
     QHash<QString, quint64> m_notInterestedCapabilityReads;
     // Connection and profile keys whose server refused a rating as
     // unsupported (userRatingScale is then empty).
-    QSet<QString> m_userRatingUnavailable;
+    // Connections and profiles whose rating writes were refused as
+    // unsupported, hidden until the back-off runs out.
+    QHash<QString, QDeadlineTimer> m_userRatingUnavailable;
     QString userRatingKey() const;
     // Home card writes in flight, by request key. A write whose session is
     // gone is answered with a failure (failStaleHomeCardWrites).
@@ -749,6 +751,9 @@ private:
         std::function<void(const SearchCapabilities &, const NetworkError *)>;
     QHash<QString, SearchCapabilities> m_searchCapabilities;
     static constexpr int SearchCapabilityRetryMs = 5 * 60 * 1000;
+    // A refused rating write (503 during a restart, 404 for a removed
+    // title) hides ratings only for a while.
+    static constexpr int UserRatingRetryMs = 10 * 60 * 1000;
     /// Answers @p handler with the active connection's search capabilities:
     /// at once when known or a failed read is still backed off, else after
     /// one shared read.
