@@ -229,6 +229,7 @@ private:
         capabilities |= ProviderCapability::NotInterested;
         capabilities |= ProviderCapability::AiringCalendar;
         capabilities |= ProviderCapability::HomeDismissals;
+        capabilities |= ProviderCapability::SubtitleAppearance;
         return capabilities;
     }
 

@@ -32,6 +32,7 @@ Key services
 - `PlaybackService` — Millisecond-based playback reporting transport, stream info, media segments, trickplay URLs and info.
 - `MediaSegmentProviderService` — Fetches and normalizes external intro/recap/credits/preview markers from configured providers; used by `PlaybackService` after server segment lookup.
 - `SeerrService` — Seerr/Jellyseerr search integration, request-option loading, request submission, and similar-title provider endpoints.
+- `SubtitleAppearanceSync` — Not exposed to QML. On a live connection with `ProviderCapability::SubtitleAppearance` (Silo), reads the profile's subtitle appearance on this device through `LibraryService`, adopts it into `ConfigManager` while the user has not changed it (a profile with none gives the defaults), and writes user changes as this device's override (debounced, best effort, one request at a time, retried from marks `ConfigManager` keeps). `ApplicationInitializer` connects `QCoreApplication::aboutToQuit` to `flushPendingWrite`, so a debounced change is sent on quit; its mark makes the next start retry it if that request is lost. See [playback](playback.md#subtitle-appearance).
 - `MediaRequestService` — QML `MediaRequests`: routes search, similar titles, request preparation, submission and withdrawal, the request list, Discover rows, and browsing to Seerr when a Seerr key is configured, otherwise to the active Silo server's requests when its capability document allows the profile; Silo adds following and watchlist titles. See [media requests](seerr.md).
 - `PlayerController` — Orchestrates playback using `IPlayerBackend` and services; owns `TrickplayProcessor`.
 - `TrickplayProcessor` — Uses `AuthenticationService` (network) + `PlaybackService` (tile URLs) to build trickplay binaries.
@@ -56,6 +57,7 @@ Key services
 7. PlaybackService — depends on AuthenticationService + ConfigManager + MediaSegmentProviderService.
 8. SeerrService — depends on AuthenticationService + ConfigManager.
 8.1. MediaRequestService — depends on AuthenticationService, LibraryService, and SeerrService; registered right after SeerrService in production and test mode.
+8.2. SubtitleAppearanceSync — depends on ConfigManager, LibraryService, and AuthenticationService; created right after MediaRequestService in production only (test mode keeps the appearance local).
 9. TrackPreferencesManager — depends on ConfigManager for the active connection scope and loads versioned track preference state.
 10. PlayerController — depends on IPlayerBackend, ConfigManager, TrackPreferencesManager, DisplayManager, PlaybackService, LibraryService, AuthenticationService; provider-aware recovery refreshes through the selected `IPlaybackProvider` rather than assuming Jellyfin endpoints.
 11. TrickplayProcessor — created by PlayerController; uses AuthenticationService + PlaybackService. Native Silo has no trickplay contract at the pinned revision, so the capability remains unavailable.

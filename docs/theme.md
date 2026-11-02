@@ -172,6 +172,7 @@ Focus behavior: Up that no page item accepts reaches `Main.qml`, which calls `Na
 - `playbackChromeSurface`, `playbackChromeTray`, `playbackChromeDivider` (unified control bar, transport tray, group dividers)
 - `playbackHeroBackground`, `playbackHeroIcon` (play/pause button)
 - `playbackSkipBackground`, `playbackSkipText` (Skip Intro/Credits control)
+- `subtitlePreviewBackdropTop`, `subtitlePreviewBackdropBottom` (the stand-in video frame behind the Settings › Playback subtitle preview)
 
 Use these instead of hardcoded playback overlay colors so built-in themes remain consistent. `playbackOverlayShadowTint` resolves to black for light themes and the theme background base for dark themes.
 

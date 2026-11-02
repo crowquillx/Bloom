@@ -26,6 +26,7 @@ add_library(BloomModels STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/models/MediaExtras.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/models/MediaModels.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/models/PosterBadges.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/models/SubtitleAppearance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/Types.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/BloomLogging.cpp
 )
@@ -171,6 +172,8 @@ add_library(BloomPlayerPolicy STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/player/AudioPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/player/PlaybackPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/player/PlaybackPolicy.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/SubtitleAppearancePolicy.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/SubtitleAppearancePolicy.h
 )
 add_library(Bloom::PlayerPolicy ALIAS BloomPlayerPolicy)
 target_include_directories(BloomPlayerPolicy
@@ -262,6 +265,7 @@ add_library(BloomProviders STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloModelMapper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloMediaRequestMapper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloPlaybackProvider.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloSubtitleAppearanceMapper.cpp
 )
 add_library(Bloom::Providers ALIAS BloomProviders)
 target_include_directories(BloomProviders
@@ -305,6 +309,7 @@ add_library(BloomNetwork STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/network/MediaRequestService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/SeerrService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/network/SessionService.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/SubtitleAppearanceSync.cpp
 )
 add_library(Bloom::Network ALIAS BloomNetwork)
 target_include_directories(BloomNetwork

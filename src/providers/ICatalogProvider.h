@@ -138,6 +138,16 @@ enum class ProviderCatalogOperation {
     // Zeroes the viewer's resume position for itemId without changing
     // its played state, so it leaves the resume list (Jellyfin).
     ClearResumePosition,
+    // The subtitle appearance that applies to the acting profile on this
+    // device, and writing (stateValue true, subtitleAppearance) or removing
+    // (false) this device's override (Silo). capabilityMetadata carries the
+    // canonical `appearance` map (only the fields the server's value sets),
+    // `hasValue`, `hasDeviceOverride`, and an opaque `document` that
+    // LibraryService keeps per scope and passes back on a later write as
+    // subtitleAppearanceDocument, so fields Bloom does not map survive. The
+    // document never leaves LibraryService.
+    SubtitleAppearance,
+    SetSubtitleAppearance,
 };
 
 enum class ProviderHttpMethod {
@@ -219,6 +229,10 @@ struct ProviderCatalogQuery {
     // the card's progress stamp, as the server sent it.
     QString homeSurface;
     QString progressUpdatedAt;
+    // Subtitle appearance writes: the canonical appearance map and the
+    // opaque document the last read answered.
+    QVariantMap subtitleAppearance;
+    QString subtitleAppearanceDocument;
 
     ProviderCatalogTriState watched = ProviderCatalogTriState::Any;
     ProviderCatalogTriState favorite = ProviderCatalogTriState::Any;

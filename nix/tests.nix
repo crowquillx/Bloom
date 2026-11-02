@@ -86,6 +86,8 @@ stdenv.mkDerivation {
       ScreensaverFocusMemoryTest \
       DiscoveryListModelTest \
       PosterBadgesTest \
+      SubtitleAppearanceTest \
+      SubtitleAppearancePolicyTest \
       CombinedLibraryTest \
       AudioPolicyTest \
       AudioOutputServiceTest \

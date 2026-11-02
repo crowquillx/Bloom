@@ -57,7 +57,15 @@ Keyboard defaults
   Ctrl+z script-message bloom-sleep-timer off    # or: end, 15, 30, 45, 60, 90
   ```
 
-  `bloom-skip-intro` and `bloom-skip-outro` work the same way (see [media segments](media-segments.md)).
+  `bloom-skip-intro` and `bloom-skip-outro` work the same way (see [media segments](media-segments.md)), and so does the subtitle size, which embedded playback changes on the Subtitles page of the playback settings pop-out:
+
+  ```
+  G      script-message bloom-subtitle-size +      # 5 % larger (no argument too)
+  F      script-message bloom-subtitle-size -      # 5 % smaller
+  Alt+g  script-message bloom-subtitle-size reset  # back to 100 %
+  ```
+
+  `G` and `F` are mpv's own subtitle size keys (`add sub-scale ±0.1`), so this example replaces them: mpv's size keys then go through Bloom and Settings stays in step with what mpv shows. `Alt+g` has no mpv default binding. Each step is saved as Settings › Playback › Subtitle Appearance › Size, applies at once and shows on mpv's OSD, which also says when the size is already the largest (200 %) or smallest (75 %).
 - Fixed playback keys that are not actions: Esc dismisses the playback overlay or stops playback, Return/Enter triggers an active skip prompt or brings up the controls, Left/Right seek 10 seconds (or move overlay focus), Up/Down move overlay focus, and 0-9 open mpv stats pages. Each of these yields to a user binding of the same key in the playback context.
 - F11 and Alt+Enter toggle fullscreen everywhere.
 

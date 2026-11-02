@@ -432,6 +432,7 @@ FocusScope {
             var subtitles = subtitleTrackOptions
             for (i = 0; i < subtitles.length; i++) rows.push({ kind: "subtitle", track: subtitles[i] })
             rows.push({ kind: "delay" })
+            rows.push({ kind: "size" })
         } else if (settingsPage === "audio") {
             var audioTracks = PlayerController.availableAudioTracks
             for (i = 0; i < audioTracks.length; i++) rows.push({ kind: "audio", track: audioTracks[i] })
@@ -577,6 +578,8 @@ FocusScope {
             closeSettingsMenu()
         } else if (row.kind === "delay") {
             PlayerController.resetSubtitleDelay()
+        } else if (row.kind === "size") {
+            PlayerController.resetSubtitleSize()
         }
     }
 
@@ -589,12 +592,16 @@ FocusScope {
         } else if (direction === "left") {
             if (row && row.kind === "delay") {
                 adjustSubtitleDelayBy(-PlayerController.subtitleDelayStepMs)
+            } else if (row && row.kind === "size") {
+                adjustSubtitleSizeBy(-1)
             } else if (settingsPage !== "root") {
                 showSettingsRoot()
             }
         } else if (direction === "right") {
             if (row && row.kind === "delay") {
                 adjustSubtitleDelayBy(PlayerController.subtitleDelayStepMs)
+            } else if (row && row.kind === "size") {
+                adjustSubtitleSizeBy(1)
             } else if (row && row.kind === "page") {
                 openSettingsPage(row.page)
             }
@@ -752,6 +759,17 @@ FocusScope {
     function adjustSubtitleDelayBy(delta) {
         PlayerController.adjustSubtitleDelayMs(delta)
         showControls()
+    }
+
+    // Subtitle size applies to mpv at once and is saved for every playback.
+    function adjustSubtitleSizeBy(steps) {
+        PlayerController.adjustSubtitleSize(steps)
+        showControls()
+    }
+
+    // Rows adjusted with Left/Right and reset with Select.
+    function isStepperRow(kind) {
+        return kind === "delay" || kind === "size"
     }
 
     function stopPlaybackFromBackAction() {
@@ -2843,7 +2861,7 @@ FocusScope {
         }
     }
 
-    // Settings pop-out: subtitles (with delay), audio track, quality and
+    // Settings pop-out: subtitles (with delay and size), audio track, quality and
     // audio output, opened from the bar's settings control or the direct
     // audio/subtitle shortcuts.
     Rectangle {
@@ -2856,7 +2874,7 @@ FocusScope {
             var rows = root.settingsRows
             var total = 0
             for (var i = 0; i < rows.length; i++) {
-                total += rows[i].kind === "delay" ? delayRowHeight : rowHeight
+                total += root.isStepperRow(rows[i].kind) ? delayRowHeight : rowHeight
             }
             return total + Math.max(0, rows.length - 1) * rowSpacing
         }
@@ -2961,8 +2979,9 @@ FocusScope {
                 readonly property bool isCurrent: index === root.settingsCursor
                 readonly property bool isSelected: root.isSettingsRowSelected(modelData)
                 width: settingsList.width
-                height: kind === "delay" ? settingsMenu.delayRowHeight : settingsMenu.rowHeight
-                Accessible.role: kind === "page" ? Accessible.Button : (kind === "delay" ? Accessible.Slider : Accessible.ListItem)
+                readonly property bool isStepper: root.isStepperRow(kind)
+                height: isStepper ? settingsMenu.delayRowHeight : settingsMenu.rowHeight
+                Accessible.role: kind === "page" ? Accessible.Button : (isStepper ? Accessible.Slider : Accessible.ListItem)
                 Accessible.name: rowPrimary.text
                 Accessible.description: rowSecondary.text
 
@@ -3003,7 +3022,7 @@ FocusScope {
                     }
                     onClicked: {
                         settingsList.forceActiveFocus()
-                        if (settingsRow.kind !== "delay") root.activateSettingsRow(settingsRow.index)
+                        if (!settingsRow.isStepper) root.activateSettingsRow(settingsRow.index)
                         else root.settingsCursor = settingsRow.index
                     }
                 }
@@ -3038,6 +3057,7 @@ FocusScope {
                                 if (row.kind === "version") return row.version.title || row.version.subtitle || qsTr("Version")
                                 if (row.kind === "output") return root.audioOutputPrimaryLabel(row.entry)
                                 if (row.kind === "delay") return qsTr("Subtitle Delay")
+                                if (row.kind === "size") return qsTr("Subtitle Size")
                                 if (row.kind === "sleep") return root.sleepTimerChoiceLabel(row.choice)
                                 return ""
                             }
@@ -3066,6 +3086,9 @@ FocusScope {
                                 if (row.kind === "delay") return InputModeManager.pointerActive
                                                                 ? qsTr("%1 ms steps").arg(PlayerController.subtitleDelayStepMs)
                                                                 : qsTr("Left/Right to adjust")
+                                if (row.kind === "size") return InputModeManager.pointerActive
+                                                               ? qsTr("Text subtitles, %1% steps").arg(PlayerController.subtitleSizeStepPercent)
+                                                               : qsTr("Text subtitles; Left/Right to adjust")
                                 return ""
                             }
                             visible: text.length > 0
@@ -3099,7 +3122,9 @@ FocusScope {
                     }
 
                     Row {
-                        visible: settingsRow.kind === "delay"
+                        id: stepperControls
+                        readonly property bool sizeRow: settingsRow.kind === "size"
+                        visible: settingsRow.isStepper
                         spacing: Math.round(8 * Theme.layoutScale)
                         Layout.alignment: Qt.AlignVCenter
 
@@ -3111,16 +3136,20 @@ FocusScope {
                             filled: true
                             focusPolicy: Qt.NoFocus
                             glyph: Icons.remove
-                            text: qsTr("Earlier")
+                            text: stepperControls.sizeRow ? qsTr("Smaller") : qsTr("Earlier")
                             autoRepeat: true
                             autoRepeatDelay: 260
-                            autoRepeatInterval: 35
-                            onClicked: root.adjustSubtitleDelayBy(-PlayerController.subtitleDelayStepMs)
+                            autoRepeatInterval: stepperControls.sizeRow ? 160 : 35
+                            onClicked: stepperControls.sizeRow
+                                       ? root.adjustSubtitleSizeBy(-1)
+                                       : root.adjustSubtitleDelayBy(-PlayerController.subtitleDelayStepMs)
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             width: Math.round(104 * Theme.layoutScale)
-                            text: root.formatSubtitleDelay(PlayerController.subtitleDelayMs)
+                            text: stepperControls.sizeRow
+                                  ? qsTr("%1%").arg(PlayerController.subtitleSizePercent)
+                                  : root.formatSubtitleDelay(PlayerController.subtitleDelayMs)
                             color: Theme.playbackTimePrimary
                             font.family: Theme.fontPrimary
                             font.pixelSize: Math.round(21 * Theme.layoutScale)
@@ -3136,11 +3165,13 @@ FocusScope {
                             filled: true
                             focusPolicy: Qt.NoFocus
                             glyph: Icons.add
-                            text: qsTr("Later")
+                            text: stepperControls.sizeRow ? qsTr("Larger") : qsTr("Later")
                             autoRepeat: true
                             autoRepeatDelay: 260
-                            autoRepeatInterval: 35
-                            onClicked: root.adjustSubtitleDelayBy(PlayerController.subtitleDelayStepMs)
+                            autoRepeatInterval: stepperControls.sizeRow ? 160 : 35
+                            onClicked: stepperControls.sizeRow
+                                       ? root.adjustSubtitleSizeBy(1)
+                                       : root.adjustSubtitleDelayBy(PlayerController.subtitleDelayStepMs)
                         }
                         ChromeIconButton {
                             id: subtitleDelayResetButton
@@ -3149,10 +3180,14 @@ FocusScope {
                             iconSize: Math.round(22 * Theme.layoutScale)
                             filled: true
                             focusPolicy: Qt.NoFocus
-                            enabled: PlayerController.subtitleDelayMs !== 0
+                            enabled: stepperControls.sizeRow
+                                     ? PlayerController.subtitleSizePercent !== 100
+                                     : PlayerController.subtitleDelayMs !== 0
                             glyph: Icons.replay
                             text: qsTr("Reset")
-                            onClicked: PlayerController.resetSubtitleDelay()
+                            onClicked: stepperControls.sizeRow
+                                       ? PlayerController.resetSubtitleSize()
+                                       : PlayerController.resetSubtitleDelay()
                         }
                     }
                 }

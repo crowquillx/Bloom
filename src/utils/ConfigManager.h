@@ -11,6 +11,7 @@
 
 #include <optional>
 
+#include "models/SubtitleAppearance.h"
 #include "providers/ServerConnection.h"
 #include "utils/ConfigStorage.h"
 
@@ -107,6 +108,11 @@ class ConfigManager : public QObject
     Q_PROPERTY(QString playbackVersionPreference READ getPlaybackVersionPreference WRITE setPlaybackVersionPreference NOTIFY playbackVersionPreferenceChanged)
     Q_PROPERTY(int stillWatchingEpisodeThreshold READ getStillWatchingEpisodeThreshold WRITE setStillWatchingEpisodeThreshold NOTIFY stillWatchingEpisodeThresholdChanged)
     Q_PROPERTY(int sleepTimerDefault READ getSleepTimerDefault WRITE setSleepTimerDefault NOTIFY sleepTimerDefaultChanged)
+    // Text subtitle appearance (Bloom::SubtitleAppearance::toVariantMap) and
+    // whether the user changed it in Bloom; a server's appearance is adopted
+    // only until then.
+    Q_PROPERTY(QVariantMap subtitleAppearance READ getSubtitleAppearanceMap NOTIFY subtitleAppearanceChanged)
+    Q_PROPERTY(bool subtitleAppearanceUserModified READ isSubtitleAppearanceUserModified NOTIFY subtitleAppearanceChanged)
     Q_PROPERTY(bool serverTrickplayEnabled READ getServerTrickplayEnabled WRITE setServerTrickplayEnabled NOTIFY serverTrickplayEnabledChanged)
     Q_PROPERTY(bool localSeekPreviewsEnabled READ getLocalSeekPreviewsEnabled WRITE setLocalSeekPreviewsEnabled NOTIFY localSeekPreviewsEnabledChanged)
     Q_PROPERTY(int backdropRotationInterval READ getBackdropRotationInterval WRITE setBackdropRotationInterval NOTIFY backdropRotationIntervalChanged)
@@ -345,6 +351,33 @@ public:
     // of the episode or movie), or 15/30/45/60/90 minutes.
     void setSleepTimerDefault(int choice);
     int getSleepTimerDefault() const;
+    // Subtitle appearance, stored at settings.playback.subtitle_appearance.
+    Bloom::SubtitleAppearance getSubtitleAppearance() const;
+    QVariantMap getSubtitleAppearanceMap() const;
+    bool isSubtitleAppearanceUserModified() const;
+    // A user change of one field (a camelCase toVariantMap key). Unknown keys
+    // and invalid values change nothing; a change marks the appearance as
+    // the user's and emits subtitleAppearanceEdited.
+    Q_INVOKABLE void setSubtitleAppearanceValue(const QString &key, const QVariant &value);
+    // Restores the defaults, forgets the user change, and emits
+    // subtitleAppearanceReset.
+    Q_INVOKABLE void resetSubtitleAppearance();
+    // Takes a server's appearance as the starting point while the user has
+    // not changed the appearance in Bloom, remembering the sync scope it came
+    // from (subtitleAppearanceSourceScope). Returns whether it was taken.
+    bool adoptSubtitleAppearance(const Bloom::SubtitleAppearance &appearance,
+                                 const QString &sourceScope = QString());
+    // The scope ("<connection>\n<profile>") the appearance was adopted from;
+    // empty after a user change or reset.
+    QString subtitleAppearanceSourceScope() const;
+    // SubtitleAppearanceSync's per-scope state, kept across restarts at
+    // settings.playback.subtitle_appearance_sync: a user change not yet
+    // written as that scope's device override, and a reset whose override
+    // removal has not reached the server yet.
+    bool isSubtitleAppearanceWritePending(const QString &scope) const;
+    void setSubtitleAppearanceWritePending(const QString &scope, bool pending);
+    bool isSubtitleAppearanceDeletePending(const QString &scope) const;
+    void setSubtitleAppearanceDeletePending(const QString &scope, bool pending);
     void setServerTrickplayEnabled(bool enabled);
     bool getServerTrickplayEnabled() const;
     void setLocalSeekPreviewsEnabled(bool enabled);
@@ -640,6 +673,10 @@ signals:
     void playbackVersionPreferenceChanged();
     void stillWatchingEpisodeThresholdChanged();
     void sleepTimerDefaultChanged();
+    void subtitleAppearanceChanged();
+    // The user changed or reset the appearance (never on adoption).
+    void subtitleAppearanceEdited();
+    void subtitleAppearanceReset();
     void serverTrickplayEnabledChanged();
     void localSeekPreviewsEnabledChanged();
     void libraryStartupBufferingModesChanged();

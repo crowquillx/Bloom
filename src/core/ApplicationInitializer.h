@@ -20,6 +20,7 @@ class PlaybackService;
 class MediaSegmentProviderService;
 class SeerrService;
 class MediaRequestService;
+class SubtitleAppearanceSync;
 class PlayerController;
 class ThemeSongManager;
 class InputModeManager;
@@ -125,6 +126,7 @@ private:
     std::unique_ptr<MediaSegmentProviderService> m_mediaSegmentProviderService;
     std::unique_ptr<SeerrService> m_seerrService;
     std::unique_ptr<MediaRequestService> m_mediaRequestService;
+    std::unique_ptr<SubtitleAppearanceSync> m_subtitleAppearanceSync;
     std::unique_ptr<PlayerController> m_playerController;
     std::unique_ptr<ThemeSongManager> m_themeSongManager;
     std::unique_ptr<MergedCatalogService> m_mergedCatalogService;

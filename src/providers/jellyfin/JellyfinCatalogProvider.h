@@ -123,6 +123,10 @@ public:
             return unsupported(QStringLiteral("Jellyfin has no Home dismissals"));
         case ProviderCatalogOperation::ClearResumePosition:
             return clearResumePositionRequest(query);
+        case ProviderCatalogOperation::SubtitleAppearance:
+        case ProviderCatalogOperation::SetSubtitleAppearance:
+            return unsupported(QStringLiteral(
+                "Jellyfin keeps no subtitle appearance Bloom can apply"));
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -1313,6 +1317,8 @@ private:
         case ProviderCatalogOperation::ServerInfo: return QStringLiteral("server info");
         case ProviderCatalogOperation::SetHomeDismissal: return QStringLiteral("home dismissal");
         case ProviderCatalogOperation::ClearResumePosition: return QStringLiteral("resume position");
+        case ProviderCatalogOperation::SubtitleAppearance: return QStringLiteral("subtitle appearance");
+        case ProviderCatalogOperation::SetSubtitleAppearance: return QStringLiteral("subtitle appearance override");
         }
         return QStringLiteral("catalog");
     }

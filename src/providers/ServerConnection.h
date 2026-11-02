@@ -63,7 +63,11 @@ enum class ProviderCapability {
     MovieRecommendations = 1 << 19,
     // ProviderCatalogOperation::SetHomeDismissal hides a card from
     // Continue Watching or Next Up and can undo it (Silo).
-    HomeDismissals = 1 << 20
+    HomeDismissals = 1 << 20,
+    // ProviderCatalogOperation::SubtitleAppearance reads the acting
+    // profile's subtitle appearance on this device, and
+    // SetSubtitleAppearance writes or removes this device's override (Silo).
+    SubtitleAppearance = 1 << 21
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

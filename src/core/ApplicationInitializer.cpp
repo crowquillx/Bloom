@@ -20,6 +20,7 @@
 #include "network/PlaybackService.h"
 #include "network/MediaSegmentProviderService.h"
 #include "network/MediaRequestService.h"
+#include "network/SubtitleAppearanceSync.h"
 #include "network/SeerrService.h"
 #include "utils/InputModeManager.h"
 #include "utils/InputBindingManager.h"
@@ -265,6 +266,17 @@ void ApplicationInitializer::registerServices()
         m_mediaRequestService = std::make_unique<MediaRequestService>(
             m_authService.get(), m_libraryService.get(), m_seerrService.get(), m_configManager.get());
         ServiceLocator::registerService<MediaRequestService>(m_mediaRequestService.get());
+
+        // 3.6 SubtitleAppearanceSync - Silo subtitle appearance read/adopt/write
+        m_subtitleAppearanceSync = std::make_unique<SubtitleAppearanceSync>(
+            m_configManager.get(), m_libraryService.get(), m_authService.get());
+        // A change still debounced is sent on quit; its write mark is saved
+        // either way, so the next start retries it if the request is lost.
+        if (QCoreApplication *app = QCoreApplication::instance()) {
+            QObject::connect(app, &QCoreApplication::aboutToQuit,
+                             m_subtitleAppearanceSync.get(),
+                             &SubtitleAppearanceSync::flushPendingWrite);
+        }
         
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(

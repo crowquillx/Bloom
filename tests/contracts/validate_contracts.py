@@ -39,6 +39,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.home.calendar",
     "native.library.sections",
     "native.home.dismissals",
+    "native.settings.subtitle-appearance",
     "native.artwork.refetch",
     "native.playback.capability",
     "native.playback.start-v3",
