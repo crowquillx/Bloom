@@ -4850,6 +4850,9 @@ void SiloCatalogServiceTest::collectionShuffleFollowsTheProviderScopeKinds()
         QCOMPARE(parameters.queryItemValue(QStringLiteral("IncludeItemTypes")),
                  QStringLiteral("Movie,Episode"));
         QCOMPARE(parameters.queryItemValue(QStringLiteral("SortBy")), QStringLiteral("Random"));
+        // A box set of series shuffles their episodes, never missing ones.
+        QCOMPARE(parameters.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
+        QCOMPARE(parameters.queryItemValue(QStringLiteral("IsMissing")), QStringLiteral("false"));
     }
 }
 

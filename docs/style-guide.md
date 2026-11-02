@@ -336,17 +336,18 @@ reached from inside a movie or series library and from detail pages.
   the title count) with a **Sort** button whose `BloomMenu` offers
   Collection order (the server's), Release date (oldest first) and Title,
   then a secondary **Shuffle** where the provider can shuffle the
-  collection (see "Shuffle" under Detail pages). The description follows, two lines at most, then a poster grid of the
-  titles with the usual year or run subtitle. Sort and Shuffle are the
-  top-most row (Left/Right between them): Up reaches the navigation bar,
-  Down enters the grid, and Up from the grid's first row comes back to Sort. The header collapses and the bar recedes
-  once the grid scrolls past its first row. Enter opens a title through
-  Main's details navigation; Back returns to the same card, and Back from
-  the page to the card that opened it. Focus starts on the first title; when
-  the titles arrive after the page opens, Sort holds focus only until they
-  do, unless focus has moved on. The grid reads the next page as focus or
-  wheel scrolling nears its end; new titles are added without moving the
-  focused card.
+  collection (see "Shuffle" under Detail pages). The description follows,
+  two lines at most, then a poster grid of the titles with the usual year
+  or run subtitle. Sort and Shuffle are the top-most row (Left/Right
+  between them): Up reaches the navigation bar, Down enters the grid, and
+  Up from the grid's first row comes back to Sort. The header collapses
+  and the bar recedes once the grid scrolls past its first row. Enter
+  opens a title through Main's details navigation; Back returns to the
+  same card, and Back from the page to the card that opened it. Focus
+  starts on the first title; when the titles arrive after the page opens,
+  Sort holds focus only until they do, unless focus has moved on. The grid
+  reads the next page as focus or wheel scrolling nears its end; new titles
+  are added without moving the focused card.
 - **"Part of" shelf.** Movie and series pages show the collections that hold
   the title as a poster shelf (`CollectionsShelf.qml`) after Cast & Crew:
   "Part of Alien Collection" for one, "Collections" with a count for more.

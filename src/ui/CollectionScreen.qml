@@ -110,6 +110,10 @@ FocusScope {
 
     SourceRouter {
         id: sourceRouter
+        onFailed: function(message) {
+            toast.show(qsTr("Couldn't switch to that title's server. %1")
+                       .arg(message || qsTr("The server isn't reachable.")))
+        }
     }
 
     // ========================================
@@ -197,7 +201,7 @@ FocusScope {
                                                  collectionKind: data.collectionKind,
                                                  title: root.collection.name || data.name || "",
                                                  connectionId: data.connectionId || "" }))
-                shuffleToast.show(qsTr("Shuffle isn't available for this collection."))
+                toast.show(qsTr("Shuffle isn't available for this collection."))
         })
     }
 
@@ -579,7 +583,7 @@ FocusScope {
     }
 
     ToastNotification {
-        id: shuffleToast
+        id: toast
         z: 300
     }
 }
