@@ -116,7 +116,8 @@
     "optional.downloads",
     "optional.audiobooks",
     "optional.ebooks",
-    "catalog.people"
+    "catalog.people",
+    "catalog.collections"
   ],
   "contracts": [
     {
@@ -882,6 +883,19 @@
         "jellyfin-supported": {"outcome": "supported", "evidence": "GetItem, GetItems with PersonIds, and GetPersons are non-obsolete operations in the pinned Jellyfin 12 OpenAPI document."},
         "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Not verified on the 8044eb8 compatibility build, so Bloom makes no claim there; native Silo serves person pages through its v2 people routes (native.catalog.people)."}
       }
+    },
+    {
+      "id": "catalog.collections",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getLibraryCollections, getCollectionItems and getItemCollections",
+      "method": "GET",
+      "path": "/System/Info/Public, /Items and /Items/{itemId}/Collections",
+      "requestSemantics": ["The server version is read once per connection from GetPublicSystemInfo (GET /System/Info/Public)", "On API 12 a library's collections use GetItems with ParentId (the movie or series library), IncludeItemTypes=BoxSet, Recursive=true, SortBy=SortName, Fields=Overview,ChildCount,PrimaryImageAspectRatio, StartIndex and Limit; API 12 keeps a BoxSet-only query under a library to the box sets with a title in it", "Before API 12 (10.11 clears ParentId for a BoxSet-only query), or with an unknown version, the library is scanned with GetItems ParentId (the library), IncludeItemTypes=Movie,Series, Recursive=true, CollapseBoxSetItems=true, EnableImages=false, EnableUserData=false, no Fields, StartIndex and Limit=1000; the BoxSet rows found are read with GetItems Ids, IncludeItemTypes=BoxSet and the fields above, and kept per connection and library for 15 minutes", "A scan that finds no box set, or a library with more than 8,000 titles, lists every box set with GetItems IncludeItemTypes=BoxSet and no ParentId, shown as the server's collections", "A collection's titles use GetItems with ParentId (the box set), IncludeItemTypes=Movie,Series, StartIndex and Limit, and no SortBy for the box set's own order; release date sends SortBy=PremiereDate,ProductionYear,SortName and title SortBy=SortName, both Ascending", "\"Part of\" uses GetItemCollections (GET /Items/{itemId}/Collections) with userId, fields and limit, only when the server reports API 12 or its version is unknown"],
+      "requiredSemantics": ["Box sets carry Id, Name, Type, Overview, ChildCount and Primary and backdrop image tags; other item types are not collections", "A CollapseBoxSetItems scan answers a title in a box set as its BoxSet row only when the server groups movies or shows into collections (EnableGroupingMoviesIntoCollections, EnableGroupingShowsIntoCollections)", "Collection pages carry TotalRecordCount and StartIndex so Bloom knows whether another page exists; only Movie and Series items are shown", "A 404 from GetItemCollections concerns that title and never turns the shelf off for the connection"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "partial", "evidence": "GetPublicSystemInfo, and GetItems with BoxSet, ParentId, Ids and CollapseBoxSetItems, are current in the pinned Jellyfin 12 OpenAPI document. The 10.11.10 control's ItemsController.GetItems sets parentId to null when includeItemTypes is exactly BoxSet, so there Bloom scopes a library's collections by scanning its titles, which works only when the server groups titles into collections; otherwise it shows the server's list and says so. GetItemCollections is new in API 12 and absent from the 10.11.10 control, so the \"Part of\" shelf appears only on Jellyfin 12."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Not verified on the 8044eb8 compatibility build, so Bloom makes no claim there; native Silo serves collections through its v2 library and catalog routes (native.library.collections)."}
+      }
     }
   ],
   "nativeSiloContract": {
@@ -950,6 +964,7 @@
       "native.home.sections",
       "native.home.calendar",
       "native.library.sections",
+      "native.library.collections",
       "native.home.dismissals",
       "native.settings.subtitle-appearance",
       "native.history",
@@ -1850,6 +1865,52 @@
           "src/providers/silo/SiloCatalogProvider.h",
           "src/network/LibraryService.cpp",
           "src/viewmodels/LibrarySectionsViewModel.cpp"
+        ]
+      },
+      {
+        "id": "native.library.collections",
+        "method": "GET",
+        "path": "/api/v2/library/{id}/collections and /api/v2/catalog and /api/v2/collections",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/library/{id}/collections"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/catalog"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/collections"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operations; Bloom exposes them as ProviderCapability::Collections. contains_item is accepted when getCollectionCapabilities reports it; a server that rejects it (404, 405, 422 or 501) gets no \"Part of\" read again for that connection."
+        },
+        "requestSemantics": [
+          "getLibraryCollections reads one library's Collections tab whole; the library ID is an opaque string path segment and the route takes no artwork widths.",
+          "A collection's titles page through listCatalogItems with source=library_collection (curated) or source=user_collection (personal), collection_id, type=video, limit 100, the artwork widths and page.next_cursor; no sort keeps the collection's own order, sort=release_date and sort=title choose another.",
+          "\"Part of\" sends listCollections with contains_item set to the title's content ID."
+        ],
+        "requiredSemantics": [
+          "The tab's collections arrive in display order: groups by sort_order with the ungrouped block among them, then curated collections no group listed; group cards take the curated record's description and backdrop.",
+          "A card with creator_profile_id, or in a user_collections group, is a personal collection and pages through source=user_collection.",
+          "Only movie and series cards are kept; a collection without an ID or a title is dropped.",
+          "listCollections marks contains only on the acting profile's own manual collections; only those with contains=true are shown, so curated collections have no \"Part of\" shelf on Silo."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/apiv2/library_views.go",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/catalog/catalog_resolver.go"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/providers/silo/SiloModelMapper.cpp",
+          "src/network/LibraryService.cpp",
+          "src/viewmodels/CollectionViewModels.cpp"
         ]
       },
       {

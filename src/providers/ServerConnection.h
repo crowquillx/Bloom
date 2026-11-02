@@ -89,7 +89,12 @@ enum class ProviderCapability {
     ServerShuffle = 1 << 28,
     // Shuffles Bloom keeps itself from random reads under a scope
     // (ProviderCatalogOperation::ShuffleItems, Jellyfin).
-    LocalShuffle = 1 << 29
+    LocalShuffle = 1 << 29,
+    // Collections as a browse view over a library's movies and series
+    // (ProviderCatalogOperation::LibraryCollections, CollectionItems and
+    // ItemCollections; Jellyfin box sets, Silo library and personal
+    // collections).
+    Collections = 1 << 24
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

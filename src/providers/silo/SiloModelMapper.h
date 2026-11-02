@@ -60,6 +60,14 @@ public:
     /// names the stored size variant and its content.
     static QString artworkTag(const QString &url);
 
+    // Collections in SiloCatalogProvider's normalized wire shape (`id`,
+    // `title`, `description`, `poster_url`, `backdrop_url`, `item_count`,
+    // `kind`) as canonical collections (models/MediaCollections.h). Their
+    // artwork is owned by the collection (ArtworkOwnerKind::Collection),
+    // which has no refetch: LibraryCollectionsViewModel reads stale lists
+    // again.
+    static QVariantList collections(const QJsonArray &wireCollections,
+                                    const QString &connectionId);
     // ItemExtraInfo entries of a catalog item detail as canonical extras
     // (models/MediaExtras.h) of `parentId`. The still is owned by the parent
     // (ArtworkOwnerKind::Extra), since an extra has no catalog route.

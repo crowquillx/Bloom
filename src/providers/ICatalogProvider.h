@@ -191,6 +191,20 @@ enum class ProviderCatalogOperation {
     // shuffleScopeKind) for a shuffle Bloom keeps itself (Jellyfin).
     // rawItems holds the wire items, total the scope's size.
     ShuffleItems,
+    // Collections, a browse view over movies and series
+    // (ProviderCapability::Collections). LibraryCollections lists the
+    // collections of one library (parentId), one page at a time
+    // (startIndex, limit; a provider that answers the whole list sets no
+    // hasMore). CollectionItems pages one collection's titles (itemId,
+    // collectionKind) in canonical sortBy order (empty: the collection's
+    // own order), by startIndex or cursor. ItemCollections lists the
+    // collections that hold one title (itemId). Collection responses carry
+    // wire collections in rawItems; the adapter maps them
+    // (IProviderAdapter::mapCollections). CollectionItems carries wire
+    // movie and series cards.
+    LibraryCollections,
+    CollectionItems,
+    ItemCollections,
 };
 
 enum class ProviderHttpMethod {
@@ -203,6 +217,19 @@ enum class ProviderHttpMethod {
 enum class ProviderCatalogRetrySafety {
     Never,
     Idempotent
+};
+
+// What a LibraryCollections read covers. Library: the collections that hold
+// titles of query.parentId, as the server scopes them (Silo; Jellyfin
+// API 12+). LibraryScan: one page of query.parentId's titles collapsed into
+// their box sets, which the caller filters to box sets (Jellyfin before
+// API 12, whose BoxSet query ignores ParentId). Ids: the collections listed
+// in query.itemIds. Server: every collection on the server.
+enum class ProviderCollectionScope {
+    Library,
+    LibraryScan,
+    Ids,
+    Server
 };
 
 enum class ProviderCatalogTriState {
@@ -283,6 +310,11 @@ struct ProviderCatalogQuery {
     QString shuffleCollectionKind;
     QString shuffleId;
     QString shuffleContentId;
+    // Collections: the canonical collectionKind of the collection itemId
+    // names ("library" or "user" on Silo, "boxSet" on Jellyfin), and what
+    // a LibraryCollections read covers.
+    QString collectionKind;
+    ProviderCollectionScope collectionScope = ProviderCollectionScope::Library;
 
     ProviderCatalogTriState watched = ProviderCatalogTriState::Any;
     ProviderCatalogTriState favorite = ProviderCatalogTriState::Any;

@@ -84,6 +84,9 @@ qt_add_executable(Bloom
     viewmodels/WatchHistoryViewModel.h
     viewmodels/WatchHistoryViewModel.cpp
     ui/WatchHistoryViewModelRegistration.h
+    viewmodels/CollectionViewModels.h
+    viewmodels/CollectionViewModels.cpp
+    ui/CollectionViewModelRegistration.h
     viewmodels/LibrarySectionsViewModel.h
     viewmodels/LibrarySectionsViewModel.cpp
     viewmodels/SubtitleSearchViewModel.h
@@ -217,6 +220,8 @@ qt_add_qml_module(Bloom
         ui/SearchScreen.qml
         ui/PersonScreen.qml
         ui/HistoryScreen.qml
+        ui/CollectionScreen.qml
+        ui/CollectionsShelf.qml
         ui/DiscoverScreen.qml
         ui/BrowseScreen.qml
         ui/DiscoveryCard.qml

@@ -327,6 +327,8 @@ QString refreshedSource(const QByteArray &payload,
             ? extras.at(artwork.index).toObject().value(QStringLiteral("still_url")).toString()
             : QString();
     }
+    case Bloom::ArtworkOwnerKind::Collection:
+        return {};
     case Bloom::ArtworkOwnerKind::MediaItem: {
         if (!document.isObject()) {
             return {};
@@ -370,6 +372,10 @@ QString refreshEndpoint(const Bloom::ArtworkRef &artwork)
             ? SiloArtworkSizes::withWidths(
                   QStringLiteral("/api/v2/catalog/items/%1").arg(encodedIdentity(artwork.itemId)))
             : QString();
+    case Bloom::ArtworkOwnerKind::Collection:
+        // No route reads one collection at the pin. A stale list is read
+        // again instead (LibraryCollectionsViewModel::refreshIfStale).
+        return {};
     case Bloom::ArtworkOwnerKind::MediaItem:
         switch (artwork.kind) {
         case Bloom::ArtworkKind::Primary:
