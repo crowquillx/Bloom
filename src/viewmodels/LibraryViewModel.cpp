@@ -1259,8 +1259,13 @@ void LibraryViewModel::setSortBy(const QString &sortBy)
         return;
     m_sortBy = normalized;
     emit sortByChanged();
-    if (m_sortOrder.isEmpty() && newestFirst.contains(normalized))
+    if (m_sortOrder.isEmpty() && newestFirst.contains(normalized)) {
         setSortOrder(QStringLiteral("descending"));
+        m_sortOrderAutomatic = true;
+    } else if (m_sortOrderAutomatic && !newestFirst.contains(normalized)) {
+        // The order came with the date sort, not from the viewer.
+        setSortOrder(QString());
+    }
 }
 
 void LibraryViewModel::setSortOrder(const QString &sortOrder)
@@ -1271,6 +1276,7 @@ void LibraryViewModel::setSortOrder(const QString &sortOrder)
         QStringLiteral("descending"),
     };
     const QString normalized = allowed.contains(sortOrder) ? sortOrder : QString();
+    m_sortOrderAutomatic = false;
     if (m_sortOrder == normalized)
         return;
     m_sortOrder = normalized;
@@ -1397,6 +1403,7 @@ void LibraryViewModel::clearQuery()
         m_sortOrder.clear();
         emit sortOrderChanged();
     }
+    m_sortOrderAutomatic = false;
     clearFilters();
 }
 
@@ -1520,7 +1527,13 @@ LibraryItemQuery LibraryViewModel::buildCurrentQuery(int startIndex, int limit, 
     query.seriesStatus = m_seriesStatusFilter == "any" ? QString() : m_seriesStatusFilter;
     query.resolution = m_resolutionFilter == "any" ? QString() : m_resolutionFilter;
     query.sortBy = m_sortBy;
-    query.sortOrder = m_sortOrder;
+    // The order combo shows Ascending until one is chosen; servers differ
+    // on a sort's default (Silo's runtime and dates run descending), so a
+    // chosen sort always carries the order shown.
+    query.sortOrder = m_sortOrder.isEmpty() && !m_sortBy.isEmpty()
+            && m_sortBy != QStringLiteral("random")
+        ? QStringLiteral("ascending")
+        : m_sortOrder;
     query.includeHeavyFields = includeHeavyFields;
     query.includeItemTypes = includeItemTypesForCollection(m_currentCollectionType);
 
@@ -1593,7 +1606,8 @@ bool LibraryViewModel::supportsFilter(const QString &filter) const
 
 // The provider's sorts and filters that fit the open library: a new
 // episode date and a series lifecycle only describe series, a resolution
-// only movies, and a combined page can only merge sorts its items carry a
+// only movies, a series library drops the sorts the provider cannot order
+// shows by, and a combined page can only merge sorts its items carry a
 // key for (CombinedLibraryCursor::canMerge).
 ProviderLibraryQueryCapabilities LibraryViewModel::libraryQueryCapabilities(
     const ProviderLibraryQueryCapabilities &provider) const
@@ -1603,6 +1617,10 @@ ProviderLibraryQueryCapabilities LibraryViewModel::libraryQueryCapabilities(
     if (types != QStringList{QStringLiteral("Series")}) {
         capabilities.sorts.removeAll(QStringLiteral("recentlyUpdated"));
         capabilities.filters.removeAll(QStringLiteral("seriesStatus"));
+    } else {
+        capabilities.sorts.removeIf([&provider](const QString &sort) {
+            return provider.seriesExcludedSorts.contains(sort);
+        });
     }
     if (types != QStringList{QStringLiteral("Movie")}) {
         capabilities.filters.removeAll(QStringLiteral("resolution"));
@@ -1638,6 +1656,11 @@ void LibraryViewModel::dropUnsupportedQuery()
                              << "is not supported here; using library order";
         m_sortBy.clear();
         emit sortByChanged();
+        if (m_sortOrderAutomatic) {
+            m_sortOrderAutomatic = false;
+            m_sortOrder.clear();
+            emit sortOrderChanged();
+        }
     }
     bool dropped = false;
     const auto dropList = [this, &dropped](const QString &filter, QStringList &values,

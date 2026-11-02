@@ -388,6 +388,9 @@ struct ProviderLibraryQueryCapabilities {
                         QStringLiteral("favorite"), QStringLiteral("addedSince"),
                         QStringLiteral("years"), QStringLiteral("rating"),
                         QStringLiteral("seriesStatus"), QStringLiteral("resolution")};
+    // Sorts in sorts that cannot order series rows, so a series library
+    // leaves them out (Silo dates a last watch on the episode, not its show).
+    QStringList seriesExcludedSorts;
 
     bool operator==(const ProviderLibraryQueryCapabilities &) const = default;
 };

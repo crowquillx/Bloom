@@ -204,6 +204,25 @@ void CombinedLibraryTest::sortsByRuntimeAndKnowsWhatItCanMerge()
              (QStringList{QStringLiteral("a-long"), QStringLiteral("b-mid"),
                           QStringLiteral("a-short")}));
 
+    // An unknown runtime sorts last in either order, as Silo orders it.
+    for (const QString &order : {QStringLiteral("ascending"), QStringLiteral("descending")}) {
+        CombinedLibraryCursor unknown;
+        unknown.reset({QStringLiteral("a"), QStringLiteral("b")}, QStringLiteral("runtime"),
+                      order);
+        unknown.librariesNeedingPages();
+        unknown.addPage(QStringLiteral("a"),
+                        items({timed(QStringLiteral("a-short"), 5400000),
+                               item(QStringLiteral("a-unknown"), QStringLiteral("a-unknown"))}),
+                        2);
+        unknown.addPage(QStringLiteral("b"),
+                        items({timed(QStringLiteral("b-long"), 9000000)}), 1);
+        const QStringList taken = ids(unknown.take(10));
+        QCOMPARE(taken.size(), 3);
+        QCOMPARE(taken.last(), QStringLiteral("a-unknown"));
+        QCOMPARE(taken.first(), order == QStringLiteral("ascending") ? QStringLiteral("a-short")
+                                                                     : QStringLiteral("b-long"));
+    }
+
     for (const QString &sort : {QString(), QStringLiteral("title"), QStringLiteral("releaseDate"),
                                 QStringLiteral("dateAdded"), QStringLiteral("rating"),
                                 QStringLiteral("year"), QStringLiteral("random"),

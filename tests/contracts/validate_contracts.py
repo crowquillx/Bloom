@@ -218,8 +218,9 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
     )
     item_sort_by = set(schemas.get("ItemSortBy", {}).get("enum", []))
     _require(
-        {"Runtime", "DateLastContentAdded"} <= item_sort_by,
-        "Jellyfin ItemSortBy must include Runtime and DateLastContentAdded (library sorts)",
+        {"Runtime", "DateLastContentAdded", "SeriesDatePlayed"} <= item_sort_by,
+        "Jellyfin ItemSortBy must include Runtime, DateLastContentAdded and SeriesDatePlayed"
+        " (library sorts)",
     )
     _require(
         {"Continuing", "Ended"} <= set(schemas.get("SeriesStatus", {}).get("enum", [])),

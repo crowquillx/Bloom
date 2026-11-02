@@ -211,6 +211,7 @@ private slots:
     void sortStateUsesCanonicalKeys();
     void unsupportedSavedQueryFallsBack();
     void libraryKindGatesSortsAndFilters();
+    void sortOrderFollowsTheChosenSort();
     void swrIdentityUsesCanonicalItemId();
     void swrMetadataRefreshUpdatesRowsWithoutReset();
     void failedLoadMoreRecovers();
@@ -501,6 +502,58 @@ void LibraryViewModelCanonicalTest::libraryKindGatesSortsAndFilters()
     QVERIFY(viewModel.supportedSorts().contains(QStringLiteral("recentlyUpdated")));
     QCOMPARE(viewModel.seriesStatusFilter(), QStringLiteral("any"));
     QVERIFY(m_libraryService->itemRequests.last().seriesStatus.isEmpty());
+}
+
+void LibraryViewModelCanonicalTest::sortOrderFollowsTheChosenSort()
+{
+    LibraryViewModel viewModel;
+    viewModel.loadLibrary(QStringLiteral("movies-1"), QStringLiteral("movies"), 0, 20);
+
+    // Newest first came with Last watched, so it leaves with it.
+    viewModel.setSortBy(QStringLiteral("datePlayed"));
+    QCOMPARE(viewModel.sortOrder(), QStringLiteral("descending"));
+    viewModel.setSortBy(QStringLiteral("title"));
+    QVERIFY(viewModel.sortOrder().isEmpty());
+
+    // A chosen sort always sends the order the combo shows (Ascending
+    // until one is picked): Silo's runtime default would run descending.
+    viewModel.setSortBy(QStringLiteral("datePlayed"));
+    viewModel.setSortBy(QStringLiteral("runtime"));
+    QVERIFY(viewModel.sortOrder().isEmpty());
+    viewModel.reloadWithCurrentQuery();
+    QCOMPARE(m_libraryService->itemRequests.last().sortBy, QStringLiteral("runtime"));
+    QCOMPARE(m_libraryService->itemRequests.last().sortOrder, QStringLiteral("ascending"));
+
+    // Library order and random need no order.
+    viewModel.setSortBy(QString());
+    viewModel.reloadWithCurrentQuery();
+    QVERIFY(m_libraryService->itemRequests.last().sortOrder.isEmpty());
+    viewModel.setSortBy(QStringLiteral("random"));
+    viewModel.reloadWithCurrentQuery();
+    QVERIFY(m_libraryService->itemRequests.last().sortOrder.isEmpty());
+
+    // An order the viewer picked stays, even the one the sort chose.
+    viewModel.setSortBy(QStringLiteral("datePlayed"));
+    viewModel.setSortOrder(QStringLiteral("descending"));
+    viewModel.setSortBy(QStringLiteral("year"));
+    QCOMPARE(viewModel.sortOrder(), QStringLiteral("descending"));
+    viewModel.setSortOrder(QString());
+
+    // Silo cannot order shows by last watch: a series library drops the
+    // sort, and the order that came with it.
+    viewModel.setSortBy(QStringLiteral("datePlayed"));
+    QCOMPARE(viewModel.sortOrder(), QStringLiteral("descending"));
+    ProviderLibraryQueryCapabilities silo;
+    silo.sorts.removeAll(QStringLiteral("random"));
+    silo.seriesExcludedSorts = {QStringLiteral("datePlayed")};
+    m_libraryService->queryCapabilities = silo;
+    viewModel.loadLibrary(QStringLiteral("series-1"), QStringLiteral("tvshows"), 0, 20);
+    QVERIFY(!viewModel.supportedSorts().contains(QStringLiteral("datePlayed")));
+    QVERIFY(viewModel.sortBy().isEmpty());
+    QVERIFY(viewModel.sortOrder().isEmpty());
+    QVERIFY(m_libraryService->itemRequests.last().sortOrder.isEmpty());
+    viewModel.loadLibrary(QStringLiteral("movies-1"), QStringLiteral("movies"), 0, 20);
+    QVERIFY(viewModel.supportedSorts().contains(QStringLiteral("datePlayed")));
 }
 
 void LibraryViewModelCanonicalTest::swrIdentityUsesCanonicalItemId()

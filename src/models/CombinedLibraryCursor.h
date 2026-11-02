@@ -20,8 +20,9 @@
  *
  * Sorting mirrors the Bloom sort keys the providers translate (`title`,
  * `releaseDate`, `dateAdded`, `rating`, `year`, `runtime`, which compares
- * `durationMs`, and `datePlayed`, which compares `userState.lastPlayedAt`);
- * library order sorts by title and `random` interleaves the libraries.
+ * `durationMs` with unknown runtimes last, and `datePlayed`, which compares
+ * `userState.lastPlayedAt`); library order sorts by title and `random`
+ * interleaves the libraries.
  * `recentlyUpdated` has no item field to compare, so it cannot be merged
  * (canMerge). Qt-Core only and free of I/O.
  */

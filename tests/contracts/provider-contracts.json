@@ -204,7 +204,7 @@
       "bloomCaller": "LibraryService::getItems",
       "method": "GET",
       "path": "/Items",
-      "requestSemantics": ["Bloom sends paging, sort, item type, recursive, field, image and optional filter parameters", "Library sorts include SortBy=DatePlayed,SortName, Runtime and DateLastContentAdded; library filters include SeriesStatus=Continuing or Ended, Is4K=true and IsHd=true"],
+      "requestSemantics": ["Bloom sends paging, sort, item type, recursive, field, image and optional filter parameters", "Library sorts include SortBy=DatePlayed,SortName (SeriesDatePlayed,SortName when IncludeItemTypes is Series), Runtime and DateLastContentAdded; library filters include SeriesStatus=Continuing or Ended, Is4K=true, and IsHd=true with Is4K=true for HD and up (HD, 4K and SD are separate buckets matched with OR)"],
       "requiredSemantics": ["Response has Items and TotalRecordCount", "StartIndex and Limit produce stable non-overlapping pages", "Requested sort order is honored"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Control deployment for the current query contract."},
@@ -1400,7 +1400,7 @@
           "A read-only POST query is explicitly idempotent; limit at most 100.",
           "library_id is a string; groups and cursor are JSON fields.",
           "Rule groups use the base vocabulary: added_at takes between with the local start of the minimum date as a UTC instant and a fixed far bound; there is no tag rule field and the query-source sort allowlist has no random order.",
-          "Library sorts date_viewed, runtime and latest_episode_added come from the same allowlist. A resolution filter is one match-any group of resolution is rules (2160p and 4320p for 4K; 720p, 1080p, 2160p and 4320p for HD). The status rule field is the metadata match state, so Bloom sends no series lifecycle filter."
+          "Library sorts date_viewed, runtime and latest_episode_added come from the same allowlist. A resolution filter is one match-any group of resolution is rules (2160p and 4320p for 4K; 720p, 1080p, 2160p and 4320p for HD). The status rule field is the metadata match state, so Bloom sends no series lifecycle filter. date_viewed joins watch history on the row's own content_id while history names episodes, so series libraries offer no last-watched sort."
         ],
         "requiredSemantics": [
           "items, total, total_exact, page.has_more, page.next_cursor and window_cursor; no offset or snapshot request."

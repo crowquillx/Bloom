@@ -436,7 +436,8 @@ private:
         }
     }
 
-    static std::optional<QString> nativeSort(const QString &canonicalSort)
+    static std::optional<QString> nativeSort(const QString &canonicalSort,
+                                             const QStringList &includeItemTypes = {})
     {
         if (canonicalSort.isEmpty() || canonicalSort == QStringLiteral("libraryOrder")) {
             return QStringLiteral("ParentIndexNumber,IndexNumber,SortName");
@@ -460,7 +461,13 @@ private:
             return QStringLiteral("Random");
         }
         if (canonicalSort == QStringLiteral("datePlayed")) {
-            // Never-played titles share an empty date; the name orders them.
+            // A series row's own DatePlayed is set only when the whole show
+            // is marked played; SeriesDatePlayed is its newest played
+            // episode. Never-played titles share an empty date; the name
+            // orders them.
+            if (includeItemTypes == QStringList{QStringLiteral("Series")}) {
+                return QStringLiteral("SeriesDatePlayed,SortName");
+            }
             return QStringLiteral("DatePlayed,SortName");
         }
         if (canonicalSort == QStringLiteral("runtime")) {
@@ -588,7 +595,7 @@ private:
         if (!validation.supported) {
             return validation;
         }
-        const std::optional<QString> sort = nativeSort(query.sortBy);
+        const std::optional<QString> sort = nativeSort(query.sortBy, query.includeItemTypes);
         const std::optional<QString> sortOrder = nativeSortOrder(query.sortBy, query.sortOrder);
         if (!sort || !sortOrder) {
             return unsupported(QStringLiteral("Unsupported Jellyfin catalog sort"));
@@ -670,11 +677,14 @@ private:
         if (!seriesStatus->isEmpty()) {
             urlQuery.addQueryItem(QStringLiteral("SeriesStatus"), *seriesStatus);
         }
-        // Jellyfin's HD covers every width from 1200 up, 4K included.
+        // Jellyfin's HD, 4K and SD are separate width buckets that match
+        // any of the ones asked for: HD is a width from 1200 up that is not
+        // 4K, so "HD and up" asks for both.
         if (query.resolution == QStringLiteral("4k")) {
             urlQuery.addQueryItem(QStringLiteral("Is4K"), QStringLiteral("true"));
         } else if (query.resolution == QStringLiteral("hd")) {
             urlQuery.addQueryItem(QStringLiteral("IsHd"), QStringLiteral("true"));
+            urlQuery.addQueryItem(QStringLiteral("Is4K"), QStringLiteral("true"));
         }
         addJoined(
             urlQuery,

@@ -107,6 +107,27 @@ void ProviderCatalogTest::jellyfinCanonicalSortKeysMapAtProviderBoundary()
                      : QStringLiteral("Descending"));
     }
 
+    // A series row's own DatePlayed is set only when the whole show is
+    // marked played; a series library orders by its newest played episode.
+    ProviderCatalogQuery series;
+    series.userId = QStringLiteral("user-1");
+    series.sortBy = QStringLiteral("datePlayed");
+    series.sortOrder = QStringLiteral("descending");
+    series.includeItemTypes = {QStringLiteral("Series")};
+    const ProviderCatalogRequest seriesRequest = catalog->createRequest(
+        ProviderCatalogOperation::Items, series);
+    QVERIFY2(seriesRequest.supported, qPrintable(seriesRequest.unsupportedReason));
+    const QUrlQuery seriesParameters{QUrl(seriesRequest.relativeEndpoint)};
+    QCOMPARE(seriesParameters.queryItemValue(QStringLiteral("SortBy")),
+             QStringLiteral("SeriesDatePlayed,SortName"));
+    QCOMPARE(seriesParameters.queryItemValue(QStringLiteral("SortOrder")),
+             QStringLiteral("Descending,Ascending"));
+    series.includeItemTypes = {QStringLiteral("Movie"), QStringLiteral("Series")};
+    QCOMPARE(QUrlQuery(QUrl(catalog->createRequest(ProviderCatalogOperation::Items, series)
+                                 .relativeEndpoint))
+                 .queryItemValue(QStringLiteral("SortBy")),
+             QStringLiteral("DatePlayed,SortName"));
+
     ProviderCatalogQuery invalid;
     invalid.userId = QStringLiteral("user-1");
     invalid.sortBy = QStringLiteral("PremiereDate");
@@ -159,8 +180,9 @@ void ProviderCatalogTest::jellyfinLibraryFiltersMapToNativeParameters()
 
     auto [hd, hdParameters] = parametersFor(QString(), QStringLiteral("hd"));
     QVERIFY2(hd.supported, qPrintable(hd.unsupportedReason));
+    // Jellyfin's HD bucket leaves 4K out; the buckets match any asked for.
     QCOMPARE(hdParameters.queryItemValue(QStringLiteral("IsHd")), QStringLiteral("true"));
-    QVERIFY(!hdParameters.hasQueryItem(QStringLiteral("Is4K")));
+    QCOMPARE(hdParameters.queryItemValue(QStringLiteral("Is4K")), QStringLiteral("true"));
 
     // Values outside the canonical vocabulary are refused, not dropped.
     QVERIFY(!parametersFor(QStringLiteral("Continuing"), QString()).first.supported);

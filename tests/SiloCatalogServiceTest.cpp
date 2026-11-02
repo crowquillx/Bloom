@@ -829,6 +829,9 @@ void SiloCatalogServiceTest::libraryQueryCapabilitiesFollowProvider()
     QVERIFY(siloCapabilities.sorts.contains(QStringLiteral("datePlayed")));
     QVERIFY(siloCapabilities.sorts.contains(QStringLiteral("runtime")));
     QVERIFY(siloCapabilities.sorts.contains(QStringLiteral("recentlyUpdated")));
+    // date_viewed joins history on the row's own id and history names
+    // episodes, so a show row has no last-watched date.
+    QCOMPARE(siloCapabilities.seriesExcludedSorts, QStringList{QStringLiteral("datePlayed")});
 
     // Every sort and filter Silo reports is one its catalog request accepts.
     SiloCatalogProvider provider;

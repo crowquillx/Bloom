@@ -443,6 +443,8 @@ private:
     QString m_watchedFilter = "any";
     QString m_favoriteFilter = "any";
     QString m_addedSinceFilter = "any";
+    // m_sortOrder was set by a newest-first sort, not chosen by the viewer.
+    bool m_sortOrderAutomatic = false;
     QString m_seriesStatusFilter = "any";
     QString m_resolutionFilter = "any";
     int m_minYear = 0;

@@ -41,11 +41,14 @@ public:
     // Silo's catalog rules have no tag or keyword field and no series
     // lifecycle field (its status rule is the metadata match state), and
     // the query source sorts only by the query sort vocabulary, which has
-    // no random order.
+    // no random order. Its date_viewed sort joins watch history on the
+    // row's own id, while history names episodes, so a show row never has
+    // a last-watched date and series libraries get no Last watched sort.
     ProviderLibraryQueryCapabilities libraryQueryCapabilities() const override
     {
         ProviderLibraryQueryCapabilities capabilities;
         capabilities.sorts.removeAll(QStringLiteral("random"));
+        capabilities.seriesExcludedSorts = {QStringLiteral("datePlayed")};
         capabilities.filters.removeAll(QStringLiteral("tags"));
         capabilities.filters.removeAll(QStringLiteral("seriesStatus"));
         return capabilities;
@@ -53,7 +56,7 @@ public:
 
     // The resolution classes a canonical resolution filter matches. Silo's
     // resolution rule compares a file's class exactly; "hd" is 720p and
-    // up, like Jellyfin's HD, which includes 4K.
+    // up, 4K included, as Bloom asks Jellyfin for IsHd and Is4K together.
     static QStringList resolutionClasses(const QString &canonicalResolution)
     {
         if (canonicalResolution == QStringLiteral("4k")) {
