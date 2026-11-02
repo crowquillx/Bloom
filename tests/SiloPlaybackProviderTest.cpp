@@ -145,6 +145,9 @@ private slots:
     void acceptsTranscodeWithSubtitleRendition();
     void anchorsRemuxTimelineAndRoutesSubtitles();
     void replansSeeksAndTrackChanges();
+    void mapsSubtitleSyncKeys();
+    void buildsSubtitleSyncRequests();
+    void parsesSubtitleSyncState();
 };
 
 void SiloPlaybackProviderTest::gatesStartOnCapabilitiesAndProfile()
@@ -1119,6 +1122,153 @@ void SiloPlaybackProviderTest::replansSeeksAndTrackChanges()
     const auto refused = provider.parseReplanResponse(context(), terminal);
     QVERIFY(!refused.valid);
     QCOMPARE(refused.error, QStringLiteral("No route remains."));
+}
+
+void SiloPlaybackProviderTest::mapsSubtitleSyncKeys()
+{
+    SiloPlaybackProvider provider;
+    QVERIFY(provider.acceptCapabilities(context(), capability()));
+    const QString externalKey = QStringLiteral("external-") + QString(64, QLatin1Char('a'));
+    auto withKey = [](QJsonObject entry, const QString &key) {
+        entry["sync_key"] = key;
+        return entry;
+    };
+    auto wire = decision();
+    auto plan = wire.value("playback_plan").toObject();
+    plan["subtitle"] = QJsonObject { { "mode", "off" },
+        { "inventory",
+            QJsonArray { withKey(inventoryEntry(0, "external", "eng"), externalKey),
+                withKey(inventoryEntry(1, "external", "ger"), "external-NOTHEX"),
+                withKey(inventoryEntry(2, "embedded", "eng"), "stored-9"),
+                inventoryEntry(3, "embedded", "spa"), inventoryEntry(4, "embedded", "fre"),
+                withKey(inventoryEntry(5, "downloaded", "ita"), "stored-17"),
+                withKey(inventoryEntry(6, "downloaded", "por"), "stored-0") } } };
+    wire["playback_plan"] = plan;
+    const auto parsed
+        = provider.parsePlaybackStartResponse(context(), media(), wire, sourceWithSubtitles());
+    QVERIFY(parsed.valid);
+    const auto tracks = parsed.descriptor.subtitleTracks;
+    QCOMPARE(tracks.size(), 4);
+    QCOMPARE(tracks.at(0).syncKey, externalKey);
+    // A key the path pattern refuses is dropped; embedded tracks never get one.
+    QVERIFY(tracks.at(1).syncKey.isEmpty());
+    QCOMPARE(tracks.at(2).syncKey, QStringLiteral("stored-17"));
+    QVERIFY(tracks.at(3).syncKey.isEmpty());
+    QCOMPARE(tracks.at(0).toVariantMap().value("syncKey").toString(), externalKey);
+}
+
+void SiloPlaybackProviderTest::buildsSubtitleSyncRequests()
+{
+    SiloPlaybackProvider provider;
+    QVERIFY(provider.supportsSubtitleSync());
+
+    const SubtitleSyncRequest status = provider.createSubtitleSyncStatusRequest();
+    QCOMPARE(status.endpoint, QStringLiteral("/api/v2/subtitles/sync/status"));
+    QCOMPARE(status.method, QStringLiteral("GET"));
+    QVERIFY(status.replaySafe);
+    Bloom::SubtitleSyncCapability capability = provider.parseSubtitleSyncStatus(
+        R"({"auto_sync":false,"external":true,"revision":"r1","state":"available","allowed":true})");
+    QVERIFY(capability.available);
+    QVERIFY(!capability.autoSync);
+    QVERIFY(capability.external);
+    capability = provider.parseSubtitleSyncStatus(
+        R"({"auto_sync":true,"external":false,"revision":"r1","state":"available","allowed":true})");
+    QVERIFY(capability.available);
+    QVERIFY(capability.autoSync);
+    QVERIFY(!capability.external);
+    capability = provider.parseSubtitleSyncStatus(
+        R"({"auto_sync":true,"external":true,"revision":"r1","state":"available","allowed":false})");
+    QVERIFY(!capability.available);
+    QVERIFY(!capability.autoSync);
+    QVERIFY(!capability.external);
+    QVERIFY(!provider.parseSubtitleSyncStatus(
+        R"({"auto_sync":false,"external":true,"revision":"r1","state":"not_configured","allowed":true})").available);
+    QVERIFY(!provider.parseSubtitleSyncStatus("not json").available);
+
+    const SubtitleSyncRequest read = provider.createSubtitleSyncReadRequest(
+        QStringLiteral("opaque/file-42"), QStringLiteral("stored-17"));
+    QCOMPARE(read.endpoint, QStringLiteral("/api/v2/subtitles/opaque%2Ffile-42/sync/stored-17"));
+    QCOMPARE(read.method, QStringLiteral("GET"));
+    QVERIFY(read.replaySafe);
+    QVERIFY(read.ifMatch.isEmpty());
+
+    // startSubtitleSync is coalescing: a replay joins the active job.
+    const SubtitleSyncRequest start = provider.createSubtitleSyncStartRequest(
+        QStringLiteral("42"), QStringLiteral("stored-17"));
+    QCOMPARE(start.endpoint, QStringLiteral("/api/v2/subtitles/42/sync/stored-17"));
+    QCOMPARE(start.method, QStringLiteral("POST"));
+    QVERIFY(start.replaySafe);
+    QVERIFY(start.body.isEmpty());
+
+    const SubtitleSyncRequest reset = provider.createSubtitleTimingResetRequest(
+        QStringLiteral("42"), QStringLiteral("stored-17"), QByteArrayLiteral("\"etag-1\""));
+    QCOMPARE(reset.endpoint, QStringLiteral("/api/v2/subtitles/42/sync/stored-17/timing"));
+    QCOMPARE(reset.method, QStringLiteral("PUT"));
+    QCOMPARE(reset.ifMatch, QByteArrayLiteral("\"etag-1\""));
+    QCOMPARE(reset.body, (QJsonObject { { "offset_ms", 0 }, { "scale", 1 } }));
+    QVERIFY(reset.replaySafe);
+
+    // No validator, no file, or a key outside the path pattern: no request.
+    QVERIFY(!provider.createSubtitleTimingResetRequest(
+        QStringLiteral("42"), QStringLiteral("stored-17"), {}).isValid());
+    QVERIFY(!provider.createSubtitleSyncReadRequest({}, QStringLiteral("stored-17")).isValid());
+    QVERIFY(!provider.createSubtitleSyncStartRequest(
+        QStringLiteral("42"), QStringLiteral("stored-17/../x")).isValid());
+    QVERIFY(!provider.createSubtitleSyncStartRequest(QStringLiteral("42"), {}).isValid());
+}
+
+void SiloPlaybackProviderTest::parsesSubtitleSyncState()
+{
+    SiloPlaybackProvider provider;
+    const auto running = provider.parseSubtitleSyncState(R"({"subtitle":{
+        "key":"stored-17","media_file_id":"42","source":"downloaded","language":"it",
+        "format":"srt","label":"Release","stored_subtitle_id":"17",
+        "timing":{"offset_ms":0,"scale":1},
+        "sync":{"id":"9","status":"running","trigger":"manual","phase":"analyzing",
+                "progress":0.42,"confidence":null,"created_at":"2026-11-01T10:00:00.000Z",
+                "finished_at":null}}})");
+    QVERIFY(running.valid);
+    QCOMPARE(running.state.key, QStringLiteral("stored-17"));
+    QCOMPARE(running.state.mediaFileId, QStringLiteral("42"));
+    QVERIFY(running.state.timing.isIdentity());
+    QCOMPARE(running.state.job.id, QStringLiteral("9"));
+    QCOMPARE(running.state.job.status, Bloom::SubtitleSyncStatus::Running);
+    QCOMPARE(running.state.job.phase, QStringLiteral("analyzing"));
+    QCOMPARE(running.state.job.progress, 0.42);
+    QVERIFY(running.state.isActive());
+    QCOMPARE(running.state.toVariantMap().value("job").toMap().value("status").toString(),
+             QStringLiteral("running"));
+
+    const auto synced = provider.parseSubtitleSyncState(R"({"subtitle":{
+        "key":"stored-17","media_file_id":"42","source":"downloaded","language":"it",
+        "format":"srt","label":"Release","timing":{"offset_ms":-2300,"scale":1.0427},
+        "sync":{"id":"9","status":"synced","trigger":"manual","confidence":0.93,
+                "created_at":"2026-11-01T10:00:00.000Z","finished_at":"2026-11-01T10:00:30.000Z",
+                "result":{"offset_ms":-2300,"scale":1.0427}}}})");
+    QVERIFY(synced.valid);
+    QCOMPARE(synced.state.timing.offsetMs, -2300);
+    QCOMPARE(synced.state.timing.scale, 1.0427);
+    QCOMPARE(synced.state.job.status, Bloom::SubtitleSyncStatus::Synced);
+    QVERIFY(!synced.state.isActive());
+
+    const auto failed = provider.parseSubtitleSyncState(R"({"subtitle":{
+        "key":"stored-17","media_file_id":"42","source":"downloaded","language":"","format":"srt",
+        "label":"","timing":{"offset_ms":0,"scale":1},
+        "sync":{"id":"10","status":"failed","failure":"no_audio","trigger":"manual",
+                "confidence":null,"created_at":"2026-11-01T10:00:00.000Z","finished_at":null}}})");
+    QVERIFY(failed.valid);
+    QCOMPARE(failed.state.job.status, Bloom::SubtitleSyncStatus::Failed);
+    QCOMPARE(failed.state.job.failure, QStringLiteral("noAudio"));
+
+    // Never synced: no job.
+    const auto fresh = provider.parseSubtitleSyncState(R"({"subtitle":{
+        "key":"stored-17","media_file_id":"42","source":"downloaded","language":"",
+        "format":"srt","label":"","timing":{"offset_ms":0,"scale":1}}})");
+    QVERIFY(fresh.valid);
+    QCOMPARE(fresh.state.job.status, Bloom::SubtitleSyncStatus::None);
+
+    QVERIFY(!provider.parseSubtitleSyncState(R"({"subtitle":{"key":"stored-17"}})").valid);
+    QVERIFY(!provider.parseSubtitleSyncState(R"({"subtitle":{"key":"bogus","timing":{}}})").valid);
 }
 
 QTEST_GUILESS_MAIN(SiloPlaybackProviderTest)

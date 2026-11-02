@@ -28,6 +28,7 @@
 #include "viewmodels/SeriesDetailsViewModel.h"
 #include "viewmodels/MovieDetailsViewModel.h"
 #include "viewmodels/UpNextRecommendationsViewModel.h"
+#include "viewmodels/SubtitleSyncViewModel.h"
 #include "viewmodels/HomeSectionsViewModel.h"
 #include "viewmodels/LibrarySectionsViewModel.h"
 #include "viewmodels/SubtitleSearchViewModel.h"
@@ -367,6 +368,11 @@ void ApplicationInitializer::registerServices()
     // 7.6 UpNextRecommendationsViewModel
     m_upNextRecommendationsViewModel = std::make_unique<UpNextRecommendationsViewModel>();
     ServiceLocator::registerService<UpNextRecommendationsViewModel>(m_upNextRecommendationsViewModel.get());
+
+    // 7.6.1 SubtitleSyncViewModel - Depends on PlaybackService and PlayerController
+    m_subtitleSyncViewModel = std::make_unique<SubtitleSyncViewModel>(
+        m_playbackService.get(), m_playerController.get());
+    ServiceLocator::registerService<SubtitleSyncViewModel>(m_subtitleSyncViewModel.get());
 
     // 7.7 HomeSectionsViewModel - Depends on LibraryService
     m_homeSectionsViewModel = std::make_unique<HomeSectionsViewModel>();

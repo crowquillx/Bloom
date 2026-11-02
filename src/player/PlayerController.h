@@ -231,7 +231,9 @@ public:
     // Track selection getters
     int selectedAudioTrack() const { return m_selectedAudioTrack; }
     int selectedSubtitleTrack() const { return m_selectedSubtitleTrack; }
-    int subtitleDelayMs() const { return m_subtitleDelayMs; }
+    // The delay of the selected subtitle: its override when the server
+    // re-timed it (subtitle sync), otherwise the season/movie delay.
+    int subtitleDelayMs() const;
     int subtitleDelayStepMs() const;
     int subtitleSizePercent() const;
     int subtitleSizeStepPercent() const { return Bloom::SubtitleAppearance::kSizeStepPercent; }
@@ -412,6 +414,33 @@ public:
     // when a new stream is needed first.
     static constexpr int kDownloadedSubtitleLoadTimeoutMs = 15000;
     static constexpr int kDownloadedSubtitleReplanTimeoutMs = 45000;
+    enum class SubtitleReload {
+        Started,    // a new copy is loading; externalSubtitleReloadFinished follows
+        FreshLoad,  // mpv has not loaded it yet (or loads it again): it fetches the URL then
+        Deferred,   // loaded, but playback cannot take a reload now; ask again later
+        Unavailable // no reloadable external subtitle is selected
+    };
+    // Loads the selected external subtitle again from its URL and keeps it
+    // selected, after the server changed its timing (subtitle sync). The old
+    // copy stays selected until mpv reports the new one; a reload that is
+    // not reported within the deadline keeps the old copy.
+    SubtitleReload reloadSelectedExternalSubtitle();
+    bool isReloadingExternalSubtitle() const { return m_subtitleReload.active; }
+    // mpv has reported the selected external subtitle's sid.
+    bool isSelectedExternalSubtitleLoaded() const
+    {
+        return m_externalSubtitleTrackMap.value(m_selectedSubtitleTrack, -1) > 0;
+    }
+
+    // A delay that replaces the season/movie delay while the external
+    // subtitle with this sync key is selected, persisted in the same scope.
+    // Nudging the delay while it plays edits the override.
+    bool hasSubtitleDelayOverride(const QString &syncKey) const
+    {
+        return m_subtitleDelayOverrides.contains(syncKey);
+    }
+    void setSubtitleDelayOverride(const QString &syncKey, int delayMs);
+    void clearSubtitleDelayOverride(const QString &syncKey);
     Q_INVOKABLE void cycleAudioTrack();
     Q_INVOKABLE void cycleSubtitleTrack();
     Q_INVOKABLE void previousChapter();
@@ -525,6 +554,11 @@ signals:
     void downloadedSubtitleLoadFailed(int index, const QString &message);
     void subtitleDelayChanged();
     void subtitleDelayStepChanged();
+    // A reload that returned Started ended: loaded is true when the new copy
+    // replaced the old one, or when the subtitle is being loaded afresh.
+    void externalSubtitleReloadFinished(bool loaded);
+    // mpv reported the sid of an external subtitle Bloom added.
+    void externalSubtitleLoaded(int index);
     void subtitleSizeChanged();
     void mediaSourceIdChanged();
     void playSessionIdChanged();
@@ -663,6 +697,7 @@ private:
 #ifdef BLOOM_TESTING
     friend class PlayerControllerAutoplayContextTest;
     friend class SubtitleSearchTest;
+    friend class SubtitleSyncTest;
 #endif
     enum class TerminalReason {
         Stop,
@@ -1012,6 +1047,18 @@ private:
     bool canSeekLocally(double playerSeconds) const;
     bool subtitleOptionRequiresReplan(int index) const;
     bool selectedSubtitleIsSidecar() const;
+    QVariantMap subtitleOption(int index) const;
+    QString selectedSubtitleSyncKey() const;
+    // A sidecar from another origin would receive the stream's credentials.
+    bool sidecarUrlAllowed(const QString &url) const;
+    void startExternalSubtitleReload(int index, int loadedSid, const QVariantMap &option);
+    void finishExternalSubtitleReload(int newSid);
+    // Settles a reload when the sidecars are dropped; freshLoad when they
+    // are added again from their URLs.
+    void dropExternalSubtitleReload(bool freshLoad);
+    void clearExternalSubtitleTracks(bool freshLoad);
+    void effectiveSubtitleDelayMayHaveChanged(int previousDelayMs);
+    void persistSubtitleDelayOverride(const QString &syncKey, std::optional<int> delayMs);
     void appendDescriptorExternalSubtitleTracks(QVariantList &availableSubtitleTracks,
                                                 const Bloom::PlaybackDescriptor &descriptor,
                                                 int *selectedSubtitleIndex) const;
@@ -1380,6 +1427,20 @@ private:
     QTimer *m_downloadedSubtitleTimer = nullptr;
     // Set while a downloaded subtitle is selected: its pick waits for mpv.
     bool m_deferSubtitlePickPersistence = false;
+    // A reload of an external subtitle: the old copy (oldSid) stays mapped
+    // and selected until mpv reports the new one. An abandoned reload's copy
+    // may still arrive; it is removed then.
+    struct ExternalSubtitleReloadState {
+        bool active = false;
+        int index = 0;
+        int oldSid = -1;
+    };
+    ExternalSubtitleReloadState m_subtitleReload;
+    ExternalSubtitleReloadState m_abandonedSubtitleReload;
+    QTimer *m_subtitleReloadTimer = nullptr;
+    int m_subtitleReloadTimeoutMs = 10000;
+    // Sync key -> delay, loaded with the season/movie delay.
+    QHash<QString, int> m_subtitleDelayOverrides;
     QHash<int, int> m_audioTrackReverseMap;    // mpv aid track ID (1-based) -> provider source index
     QHash<int, int> m_subtitleTrackReverseMap; // mpv sid track ID (1-based) -> provider source index
     QString m_mediaSourceId;            // Current media source ID

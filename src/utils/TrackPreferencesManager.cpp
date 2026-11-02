@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QSet>
@@ -21,6 +22,9 @@ constexpr auto kMoviesKey = "movies";
 constexpr auto kAudioKey = "audio";
 constexpr auto kSubtitleKey = "subtitle";
 constexpr auto kSubtitleDelayMsKey = "subtitleDelayMs";
+constexpr auto kSubtitleDelayOverridesKey = "subtitleDelayOverrides";
+constexpr auto kSyncKeyKey = "syncKey";
+constexpr auto kDelayMsKey = "delayMs";
 constexpr auto kModeKey = "mode";
 constexpr auto kStreamIndexKey = "streamIndex";
 constexpr auto kPreferredLanguageKey = "preferredLanguage";
@@ -131,6 +135,13 @@ QJsonObject scopedPreferencesToJson(const ScopedTrackPreferences &preferences)
     if (preferences.subtitleDelayMs != 0) {
         json[kSubtitleDelayMsKey] = preferences.subtitleDelayMs;
     }
+    if (!preferences.subtitleDelayOverrides.isEmpty()) {
+        QJsonArray overrides;
+        for (const SubtitleDelayOverride &entry : preferences.subtitleDelayOverrides) {
+            overrides.append(QJsonObject{{kSyncKeyKey, entry.syncKey}, {kDelayMsKey, entry.delayMs}});
+        }
+        json[kSubtitleDelayOverridesKey] = overrides;
+    }
     return json;
 }
 
@@ -145,6 +156,14 @@ ScopedTrackPreferences scopedPreferencesFromJson(const QJsonValue &value)
     preferences.audio = preferenceFromJson(object.value(kAudioKey));
     preferences.subtitle = preferenceFromJson(object.value(kSubtitleKey));
     preferences.subtitleDelayMs = object.value(kSubtitleDelayMsKey).toInt(0);
+    for (const QJsonValue &entry : object.value(kSubtitleDelayOverridesKey).toArray()) {
+        const QJsonObject override = entry.toObject();
+        const QJsonValue delay = override.value(kDelayMsKey);
+        if (delay.isDouble()) {
+            preferences.setSubtitleDelayOverride(override.value(kSyncKeyKey).toString(),
+                                                 delay.toInt());
+        }
+    }
     return preferences;
 }
 

@@ -56,6 +56,9 @@ struct DownloadedSubtitle
     QString format;
     int sourceIndex = -1;
     QString storedId;
+    // The provider's key for the server's subtitle sync (Silo
+    // `stored-<id>`); empty when the server cannot re-time it.
+    QString syncKey;
     // The stream's own title and codec as the media source lists them
     // (Jellyfin); empty when the subtitle is no stream of the source.
     QString streamTitle;

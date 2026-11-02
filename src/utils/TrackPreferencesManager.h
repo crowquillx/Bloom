@@ -4,6 +4,9 @@
 #include <QJsonObject>
 #include <QString>
 #include <QHash>
+#include <QList>
+
+#include <optional>
 
 class ConfigManager;
 
@@ -51,15 +54,51 @@ inline bool operator==(const TrackSelectionPreference &lhs, const TrackSelection
         && lhs.channels == rhs.channels;
 }
 
+// The subtitle delay of one external subtitle the server re-timed, which
+// replaces the scope's delay while that subtitle plays (docs/playback.md,
+// "Syncing subtitles to the audio"). syncKey is the provider's key; the
+// connection is the preference file's scope.
+struct SubtitleDelayOverride
+{
+    QString syncKey;
+    int delayMs = 0;
+};
+
+inline bool operator==(const SubtitleDelayOverride &lhs, const SubtitleDelayOverride &rhs)
+{
+    return lhs.syncKey == rhs.syncKey && lhs.delayMs == rhs.delayMs;
+}
+
 struct ScopedTrackPreferences
 {
+    // Overrides kept per season or movie; the oldest goes first.
+    static constexpr qsizetype kMaxSubtitleDelayOverrides = 64;
+
     TrackSelectionPreference audio;
     TrackSelectionPreference subtitle;
     int subtitleDelayMs = 0;
+    // Most recently set last.
+    QList<SubtitleDelayOverride> subtitleDelayOverrides;
 
     [[nodiscard]] bool isEmpty() const
     {
-        return !audio.isMeaningful() && !subtitle.isMeaningful() && subtitleDelayMs == 0;
+        return !audio.isMeaningful() && !subtitle.isMeaningful() && subtitleDelayMs == 0
+            && subtitleDelayOverrides.isEmpty();
+    }
+
+    /// Sets syncKey's override, or removes it when delayMs is empty.
+    void setSubtitleDelayOverride(const QString &syncKey, std::optional<int> delayMs)
+    {
+        subtitleDelayOverrides.removeIf([&syncKey](const SubtitleDelayOverride &entry) {
+            return entry.syncKey == syncKey;
+        });
+        if (syncKey.isEmpty() || !delayMs.has_value()) {
+            return;
+        }
+        subtitleDelayOverrides.append({syncKey, *delayMs});
+        while (subtitleDelayOverrides.size() > kMaxSubtitleDelayOverrides) {
+            subtitleDelayOverrides.removeFirst();
+        }
     }
 };
 
@@ -67,7 +106,8 @@ inline bool operator==(const ScopedTrackPreferences &lhs, const ScopedTrackPrefe
 {
     return lhs.audio == rhs.audio
         && lhs.subtitle == rhs.subtitle
-        && lhs.subtitleDelayMs == rhs.subtitleDelayMs;
+        && lhs.subtitleDelayMs == rhs.subtitleDelayMs
+        && lhs.subtitleDelayOverrides == rhs.subtitleDelayOverrides;
 }
 
 /**

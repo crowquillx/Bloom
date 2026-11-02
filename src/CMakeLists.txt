@@ -74,6 +74,8 @@ qt_add_executable(Bloom
     viewmodels/UpNextRecommendationsViewModel.cpp
     viewmodels/UserRatingState.h
     viewmodels/UserRatingState.cpp
+    viewmodels/SubtitleSyncViewModel.h
+    viewmodels/SubtitleSyncViewModel.cpp
     viewmodels/HomeSectionsViewModel.h
     viewmodels/HomeSectionsViewModel.cpp
     viewmodels/PersonViewModel.h

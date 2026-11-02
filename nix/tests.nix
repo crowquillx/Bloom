@@ -94,6 +94,7 @@ stdenv.mkDerivation {
       AudioOutputServiceTest \
       LocalSeekPreviewTest \
       DisplayManagerTest \
+      SubtitleSyncTest \
       PlayerControllerAutoplayContextTest \
       SubtitleSearchTest \
       ShuffleSessionTest \

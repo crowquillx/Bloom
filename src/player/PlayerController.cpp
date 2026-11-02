@@ -199,6 +199,33 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     m_sleepTimerTickTimer->setInterval(1000);
     connect(m_sleepTimerTickTimer, &QTimer::timeout, this, &PlayerController::onSleepTimerTick);
 
+    m_subtitleReloadTimer = new QTimer(this);
+    m_subtitleReloadTimer->setSingleShot(true);
+    connect(m_subtitleReloadTimer, &QTimer::timeout, this, [this]() {
+        if (!m_subtitleReload.active) {
+            return;
+        }
+        // The fetch failed or mpv never reported the copy: the old one is
+        // still loaded, so keep it selected. A copy arriving later goes.
+        qCWarning(lcPlayback) << "External subtitle reload was not reported in time; keeping the"
+                              << "loaded copy";
+        const ExternalSubtitleReloadState reload = m_subtitleReload;
+        m_subtitleReload = {};
+        m_abandonedSubtitleReload = reload;
+        if (m_selectedSubtitleTrack == reload.index
+            && m_externalSubtitleTrackMap.value(reload.index, -1) == reload.oldSid) {
+            m_playerBackend->sendVariantCommand({QStringLiteral("set_property"),
+                                                 QStringLiteral("sid"), reload.oldSid});
+        }
+        // A downloaded subtitle waiting on this reload fails now, not when
+        // its own (longer) timer runs out.
+        if (reload.index == m_pendingDownloadedSubtitleIndex) {
+            resolvePendingDownloadedSubtitle(
+                false, tr("The downloaded subtitle could not be loaded."));
+        }
+        emit externalSubtitleReloadFinished(false);
+    });
+
     m_afterMovieRestoreTimer = new QTimer(this);
     m_afterMovieRestoreTimer->setSingleShot(true);
     m_afterMovieRestoreTimer->setInterval(kAfterMovieRestoreTimeoutMs);
@@ -832,6 +859,7 @@ void PlayerController::enterIdleStateImmediate()
     m_duration = 0;
     m_cacheEndSeconds = 0;
     m_subtitleDelayMs = 0;
+    m_subtitleDelayOverrides.clear();
     m_hasReportedStart = false;
     m_seekTargetWhileBuffering = -1;
     m_reportProgressOnNextPositionUpdate = false;
@@ -879,7 +907,7 @@ void PlayerController::enterIdleStateImmediate()
     m_mpvSubtitleTrack = -1;
     m_audioTrackMap.clear();
     m_subtitleTrackMap.clear();
-    m_externalSubtitleTrackMap.clear();
+    clearExternalSubtitleTracks(false);
     m_audioTrackReverseMap.clear();
     m_subtitleTrackReverseMap.clear();
     m_mediaSourceId.clear();
@@ -2127,7 +2155,7 @@ void PlayerController::finalizeReplacementPlaybackStop()
         m_bufferingTimeoutTimer->stop();
         m_progressReportTimer->stop();
         m_startDelayTimer->stop();
-        m_externalSubtitleTrackMap.clear();
+        clearExternalSubtitleTracks(false);
         m_pendingExternalSubtitleIndex = -1;
         setPlaybackState(Idle);
         setBufferingProgress(0);
@@ -2465,7 +2493,7 @@ void PlayerController::onPlaybackReplannedForRequest(const QString &sessionId,
     m_mpvSubtitleTrack = mpvSubtitleTrackForSourceIndex(m_selectedSubtitleTrack);
     // loadfile drops every sidecar mpv added; they are added again once the
     // new stream has loaded.
-    m_externalSubtitleTrackMap.clear();
+    clearExternalSubtitleTracks(true);
     m_pendingExternalSubtitleIndex = -1;
     m_pendingExternalSubtitleTracks.clear();
     if (m_useLocalTrickplay) {
@@ -3290,6 +3318,11 @@ void PlayerController::appendDescriptorExternalSubtitleTracks(
         if (!track.storedSubtitleId.isEmpty()) {
             option[QStringLiteral("storedSubtitleId")] = track.storedSubtitleId;
         }
+        if (!track.syncKey.isEmpty()) {
+            option[QStringLiteral("syncKey")] = track.syncKey;
+        } else {
+            option.remove(QStringLiteral("syncKey"));
+        }
         if (existingPosition >= 0) {
             availableSubtitleTracks[existingPosition] = option;
         } else {
@@ -3855,7 +3888,7 @@ void PlayerController::applyPlaybackSegment(int index, bool reportSegmentStart)
     m_selectedSubtitleTrack = segment.value(QStringLiteral("subtitleIndex"), -1).toInt();
     // A playlist position switch changes the external subtitle namespace as well as
     // the embedded stream maps. Drop stale mpv ids before queuing this segment's URLs.
-    m_externalSubtitleTrackMap.clear();
+    clearExternalSubtitleTracks(false);
     m_pendingExternalSubtitleIndex = -1;
     m_mpvSubtitleTrack = -1;
     loadActiveStreamLayout(segment);
@@ -4239,11 +4272,12 @@ void PlayerController::playTestVideo()
         m_selectedAudioTrack = -1;
         m_selectedSubtitleTrack = -1;
         m_subtitleDelayMs = 0;
+        m_subtitleDelayOverrides.clear();
         m_mpvAudioTrack = -1;
         m_mpvSubtitleTrack = -1;
         m_audioTrackMap.clear();
         m_subtitleTrackMap.clear();
-        m_externalSubtitleTrackMap.clear();
+        clearExternalSubtitleTracks(false);
         m_audioTrackReverseMap.clear();
         m_subtitleTrackReverseMap.clear();
         m_pendingExternalSubtitleIndex = -1;
@@ -4392,6 +4426,17 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         if (m_subtitleDelayMs != scopedSubtitleDelayMs) {
             m_subtitleDelayMs = scopedSubtitleDelayMs;
             emit subtitleDelayChanged();
+        }
+        m_subtitleDelayOverrides.clear();
+        if (PlayerPolicy::playbackContentRules(requestedContentKind).persistsSubtitleDelay) {
+            const ScopedTrackPreferences scope = !seasonId.isEmpty()
+                ? m_trackPrefs->getSeasonPreferences(seasonId)
+                : (seriesId.isEmpty() && !itemId.isEmpty()
+                       ? m_trackPrefs->getMoviePreferences(itemId)
+                       : ScopedTrackPreferences{});
+            for (const SubtitleDelayOverride &entry : scope.subtitleDelayOverrides) {
+                m_subtitleDelayOverrides.insert(entry.syncKey, entry.delayMs);
+            }
         }
         m_mpvDisplayFpsOverride = 0.0;
         m_contentIsHDR = isHDR;
@@ -4875,9 +4920,36 @@ void PlayerController::setAudioDelay(int ms)
     m_config->setAudioDelay(ms);
 }
 
+int PlayerController::subtitleDelayMs() const
+{
+    const QString syncKey = selectedSubtitleSyncKey();
+    if (!syncKey.isEmpty()) {
+        const auto override = m_subtitleDelayOverrides.constFind(syncKey);
+        if (override != m_subtitleDelayOverrides.constEnd()) {
+            return override.value();
+        }
+    }
+    return m_subtitleDelayMs;
+}
+
 void PlayerController::setSubtitleDelayMs(int delayMs)
 {
     const int clamped = qBound(-kMaxSubtitleDelayMs, delayMs, kMaxSubtitleDelayMs);
+    const bool active = m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused;
+    // A re-timed subtitle keeps its own delay; the season's stays.
+    const QString syncKey = selectedSubtitleSyncKey();
+    if (!syncKey.isEmpty() && m_subtitleDelayOverrides.contains(syncKey)) {
+        if (m_subtitleDelayOverrides.value(syncKey) != clamped) {
+            m_subtitleDelayOverrides.insert(syncKey, clamped);
+            emit subtitleDelayChanged();
+            persistSubtitleDelayOverride(syncKey, clamped);
+        }
+        if (active) {
+            applySubtitleDelay();
+        }
+        return;
+    }
     if (m_subtitleDelayMs == clamped) {
         if (m_playbackState == Loading || m_playbackState == Buffering
             || m_playbackState == Playing || m_playbackState == Paused) {
@@ -4902,12 +4974,51 @@ void PlayerController::adjustSubtitleDelayMs(int deltaMs)
     if (deltaMs == 0) {
         return;
     }
-    setSubtitleDelayMs(m_subtitleDelayMs + deltaMs);
+    setSubtitleDelayMs(subtitleDelayMs() + deltaMs);
 }
 
 void PlayerController::resetSubtitleDelay()
 {
     setSubtitleDelayMs(0);
+}
+
+void PlayerController::setSubtitleDelayOverride(const QString &syncKey, int delayMs)
+{
+    if (syncKey.isEmpty()) {
+        return;
+    }
+    const int clamped = qBound(-kMaxSubtitleDelayMs, delayMs, kMaxSubtitleDelayMs);
+    if (m_subtitleDelayOverrides.contains(syncKey)
+        && m_subtitleDelayOverrides.value(syncKey) == clamped) {
+        return;
+    }
+    const int previous = subtitleDelayMs();
+    m_subtitleDelayOverrides.insert(syncKey, clamped);
+    persistSubtitleDelayOverride(syncKey, clamped);
+    effectiveSubtitleDelayMayHaveChanged(previous);
+}
+
+void PlayerController::clearSubtitleDelayOverride(const QString &syncKey)
+{
+    if (!m_subtitleDelayOverrides.contains(syncKey)) {
+        return;
+    }
+    const int previous = subtitleDelayMs();
+    m_subtitleDelayOverrides.remove(syncKey);
+    persistSubtitleDelayOverride(syncKey, std::nullopt);
+    effectiveSubtitleDelayMayHaveChanged(previous);
+}
+
+void PlayerController::effectiveSubtitleDelayMayHaveChanged(int previousDelayMs)
+{
+    if (subtitleDelayMs() == previousDelayMs) {
+        return;
+    }
+    emit subtitleDelayChanged();
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        applySubtitleDelay();
+    }
 }
 
 void PlayerController::setSelectedSubtitleTrack(int index)
@@ -4917,6 +5028,13 @@ void PlayerController::setSelectedSubtitleTrack(int index)
     }
 
     const int previousSubtitleTrack = m_selectedSubtitleTrack;
+    const int previousDelayMs = subtitleDelayMs();
+    if (m_subtitleReload.active) {
+        // The selection moves on; a copy that still arrives is removed.
+        m_abandonedSubtitleReload = m_subtitleReload;
+        m_subtitleReload = {};
+        m_subtitleReloadTimer->stop();
+    }
     m_selectedSubtitleTrack = index;
     if (!m_deferSubtitlePickPersistence) {
         // Another pick replaces a download still loading.
@@ -4950,6 +5068,7 @@ void PlayerController::setSelectedSubtitleTrack(int index)
                     index;
             }
             if (m_selectedSubtitleTrack == index) {
+                effectiveSubtitleDelayMayHaveChanged(previousDelayMs);
                 emit selectedSubtitleTrackChanged();
             }
             return;
@@ -5016,6 +5135,7 @@ void PlayerController::setSelectedSubtitleTrack(int index)
         && (m_playbackState == Playing || m_playbackState == Paused)) {
         applySubtitleDelay();
     }
+    effectiveSubtitleDelayMayHaveChanged(previousDelayMs);
     emit selectedSubtitleTrackChanged();
 }
 
@@ -5045,22 +5165,9 @@ int PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleUr
         return kNoSubtitleTrackIndex;
     }
 
-    // mpv sends http-header-fields with every request, so while the stream
-    // carries credentials a sidecar from another origin would receive them.
-    const QVariantMap activeSegment = activePlaybackSegment();
-    if (!activeSegment.value(QStringLiteral("streamHeaders")).toMap().isEmpty()) {
-        const QUrl sidecar(normalizedSubtitleUrl);
-        const QUrl stream(activeSegment.value(QStringLiteral("url")).toString());
-        const auto port = [](const QUrl &url) {
-            return url.port(url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0
-                                ? 443 : 80);
-        };
-        if (sidecar.scheme().compare(stream.scheme(), Qt::CaseInsensitive) != 0
-            || sidecar.host().compare(stream.host(), Qt::CaseInsensitive) != 0
-            || port(sidecar) != port(stream)) {
-            qCWarning(lcPlayback) << "Skipping a cross-origin subtitle while stream headers are active";
-            return kNoSubtitleTrackIndex;
-        }
+    if (!sidecarUrlAllowed(normalizedSubtitleUrl)) {
+        qCWarning(lcPlayback) << "Skipping a cross-origin subtitle while stream headers are active";
+        return kNoSubtitleTrackIndex;
     }
 
     int syntheticIndex = -1000 - m_externalSubtitleTrackMap.size();
@@ -5144,9 +5251,13 @@ int PlayerController::addDownloadedSubtitleTrack(const QVariantMap &subtitleMap,
     const int index = subtitle.sourceIndex >= 0 ? subtitle.sourceIndex : nextDownloadedSubtitleIndex();
 
     // A copy mpv already holds under this index is stale (the server saved
-    // the download over it): load it again.
+    // the download over it): load it again. A selected copy is reloaded like
+    // a re-timed one, so the selection never passes through "off" and the
+    // old copy goes only once the new one is reported.
     const int loadedTrack = m_externalSubtitleTrackMap.value(index, -1);
-    if (loadedTrack > 0) {
+    const bool reloadSelected = loadedTrack > 0 && index == m_selectedSubtitleTrack
+        && !m_subtitleReload.active && sidecarUrlAllowed(url);
+    if (loadedTrack > 0 && !reloadSelected) {
         m_playerBackend->sendVariantCommand({QStringLiteral("sub-remove"), loadedTrack});
         m_externalSubtitleTrackMap.remove(index);
     }
@@ -5170,6 +5281,9 @@ int PlayerController::addDownloadedSubtitleTrack(const QVariantMap &subtitleMap,
     option[QStringLiteral("downloaded")] = true;
     if (!subtitle.storedId.isEmpty()) {
         option[QStringLiteral("storedSubtitleId")] = subtitle.storedId;
+    }
+    if (!subtitle.syncKey.isEmpty()) {
+        option[QStringLiteral("syncKey")] = subtitle.syncKey;
     }
     upsertSubtitleOption(m_availableSubtitleTracks, option);
 
@@ -5224,6 +5338,9 @@ int PlayerController::addDownloadedSubtitleTrack(const QVariantMap &subtitleMap,
         upsertSubtitleOption(downloads, option);
         (*segment)[QStringLiteral("downloadedSubtitleTracks")] = downloads;
     }
+    if (reloadSelected) {
+        startExternalSubtitleReload(index, loadedTrack, option);
+    }
     emit availableTracksChanged();
     if (!select) {
         return index;
@@ -5247,8 +5364,10 @@ int PlayerController::addDownloadedSubtitleTrack(const QVariantMap &subtitleMap,
     m_downloadedSubtitleTimer->stop();
     m_deferSubtitlePickPersistence = true;
     if (m_selectedSubtitleTrack == index) {
-        m_pendingExternalSubtitleIndex = index;
-        addExternalSubtitleTrackInternal(url, title, subtitle.language, index, true);
+        if (!reloadSelected) {
+            m_pendingExternalSubtitleIndex = index;
+            addExternalSubtitleTrackInternal(url, title, subtitle.language, index, true);
+        }
     } else {
         setSelectedSubtitleTrack(index);
     }
@@ -5421,6 +5540,128 @@ void PlayerController::checkPendingDownloadedSubtitleSelection()
         resolvePendingDownloadedSubtitle(
             false, tr("The server could not switch to the downloaded subtitle."));
     }
+}
+
+bool PlayerController::sidecarUrlAllowed(const QString &url) const
+{
+    // mpv sends http-header-fields with every request, so while the stream
+    // carries credentials a sidecar from another origin would receive them.
+    const QVariantMap activeSegment = activePlaybackSegment();
+    if (activeSegment.value(QStringLiteral("streamHeaders")).toMap().isEmpty()) {
+        return true;
+    }
+    const QUrl sidecar(url);
+    const QUrl stream(activeSegment.value(QStringLiteral("url")).toString());
+    const auto port = [](const QUrl &candidate) {
+        return candidate.port(
+            candidate.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0 ? 443 : 80);
+    };
+    return sidecar.scheme().compare(stream.scheme(), Qt::CaseInsensitive) == 0
+        && sidecar.host().compare(stream.host(), Qt::CaseInsensitive) == 0
+        && port(sidecar) == port(stream);
+}
+
+QVariantMap PlayerController::subtitleOption(int index) const
+{
+    for (const QVariant &trackVariant : m_availableSubtitleTracks) {
+        const QVariantMap candidate = trackVariant.toMap();
+        if (candidate.value(QStringLiteral("index"), -1).toInt() == index) {
+            return candidate;
+        }
+    }
+    return {};
+}
+
+QString PlayerController::selectedSubtitleSyncKey() const
+{
+    if (m_subtitleDelayOverrides.isEmpty() || m_selectedSubtitleTrack == -1) {
+        return {};
+    }
+    const QVariantMap option = subtitleOption(m_selectedSubtitleTrack);
+    return option.value(QStringLiteral("isExternal")).toBool()
+        ? option.value(QStringLiteral("syncKey")).toString()
+        : QString();
+}
+
+PlayerController::SubtitleReload PlayerController::reloadSelectedExternalSubtitle()
+{
+    const int index = m_selectedSubtitleTrack;
+    const QVariantMap option = index == -1 ? QVariantMap() : subtitleOption(index);
+    const QString url = option.value(QStringLiteral("externalUrl")).toString().trimmed();
+    if (!option.value(QStringLiteral("isExternal")).toBool() || url.isEmpty()) {
+        return SubtitleReload::Unavailable;
+    }
+    if (m_subtitleReload.active) {
+        return SubtitleReload::Deferred;
+    }
+    const int loadedSid = m_externalSubtitleTrackMap.value(index, -1);
+    if (loadedSid <= 0) {
+        // Not loaded yet, or dropped by a new stream and added again once it
+        // loads: mpv fetches the URL then.
+        return SubtitleReload::FreshLoad;
+    }
+    if (!(m_playbackState == Playing || m_playbackState == Paused)) {
+        return SubtitleReload::Deferred;
+    }
+    if (!sidecarUrlAllowed(url)) {
+        return SubtitleReload::Unavailable;
+    }
+    startExternalSubtitleReload(index, loadedSid, option);
+    return SubtitleReload::Started;
+}
+
+void PlayerController::startExternalSubtitleReload(int index, int loadedSid,
+                                                   const QVariantMap &option)
+{
+    // The new copy is added selected, so the selection never passes through
+    // "off". The old copy stays mapped until mpv reports the new sid, and is
+    // removed only then. sub-delay (the user's delay and any timeline
+    // offset) stays.
+    m_subtitleReload = {true, index, loadedSid};
+    m_abandonedSubtitleReload = {};
+    m_subtitleReloadTimer->start(m_subtitleReloadTimeoutMs);
+    m_playerBackend->sendVariantCommand({
+        QStringLiteral("sub-add"),
+        option.value(QStringLiteral("externalUrl")).toString().trimmed(),
+        QStringLiteral("select"),
+        option.value(QStringLiteral("displayTitle")).toString(),
+        option.value(QStringLiteral("language")).toString()
+    });
+}
+
+void PlayerController::finishExternalSubtitleReload(int newSid)
+{
+    const ExternalSubtitleReloadState reload = m_subtitleReload;
+    m_subtitleReload = {};
+    m_subtitleReloadTimer->stop();
+    m_externalSubtitleTrackMap.insert(reload.index, newSid);
+    m_mpvSubtitleTrack = newSid;
+    m_playerBackend->sendVariantCommand({QStringLiteral("sub-remove"), reload.oldSid});
+    if (reload.index == m_pendingDownloadedSubtitleIndex) {
+        resolvePendingDownloadedSubtitle(true);
+    }
+    emit externalSubtitleReloadFinished(true);
+}
+
+void PlayerController::dropExternalSubtitleReload(bool freshLoad)
+{
+    m_abandonedSubtitleReload = {};
+    if (!m_subtitleReload.active) {
+        return;
+    }
+    m_subtitleReload = {};
+    m_subtitleReloadTimer->stop();
+    // A stop or another part ends the subtitle's state anyway; only a new
+    // stream of the same file loads it again.
+    if (freshLoad) {
+        emit externalSubtitleReloadFinished(true);
+    }
+}
+
+void PlayerController::clearExternalSubtitleTracks(bool freshLoad)
+{
+    dropExternalSubtitleReload(freshLoad);
+    m_externalSubtitleTrackMap.clear();
 }
 
 void PlayerController::cycleAudioTrack()
@@ -6318,8 +6559,51 @@ void PlayerController::syncBackendSubtitleTrack(int mpvTrackId)
         return;
     }
 
+    const auto unknownSid = [this](int sid) {
+        return sid > 0 && std::find(m_externalSubtitleTrackMap.cbegin(),
+                                    m_externalSubtitleTrackMap.cend(), sid)
+                              == m_externalSubtitleTrackMap.cend()
+            && sourceSubtitleTrackForMpvTrack(sid) < 0;
+    };
+    if (m_subtitleReload.active) {
+        if (mpvTrackId < 0 || mpvTrackId == m_subtitleReload.oldSid) {
+            // The old copy stays mapped and selected until the new one is
+            // reported; a passing "no" does not end the selection.
+            return;
+        }
+        if (unknownSid(mpvTrackId)) {
+            finishExternalSubtitleReload(mpvTrackId);
+            return;
+        }
+        // mpv selected another known track: that selection wins.
+        m_abandonedSubtitleReload = m_subtitleReload;
+        m_subtitleReload = {};
+        m_subtitleReloadTimer->stop();
+    } else if (m_abandonedSubtitleReload.active && unknownSid(mpvTrackId)
+               && m_externalSubtitleTrackMap.value(m_pendingExternalSubtitleIndex, 0) >= 0) {
+        // The copy of a reload given up on arrived after all: remove it and
+        // keep the current selection.
+        m_abandonedSubtitleReload = {};
+        m_playerBackend->sendVariantCommand({QStringLiteral("sub-remove"), mpvTrackId});
+        const int selectedSid = m_externalSubtitleTrackMap.contains(m_selectedSubtitleTrack)
+            ? m_externalSubtitleTrackMap.value(m_selectedSubtitleTrack)
+            : mpvSubtitleTrackForSourceIndex(m_selectedSubtitleTrack);
+        if (m_selectedSubtitleTrack == -1 || selectedSid <= 0) {
+            m_mpvSubtitleTrack = -1;
+            m_playerBackend->sendVariantCommand({QStringLiteral("set_property"),
+                                                 QStringLiteral("sid"), QStringLiteral("no")});
+        } else {
+            m_mpvSubtitleTrack = selectedSid;
+            m_playerBackend->sendVariantCommand({QStringLiteral("set_property"),
+                                                 QStringLiteral("sid"), selectedSid});
+        }
+        return;
+    }
+
+    const int previousDelayMs = subtitleDelayMs();
     m_mpvSubtitleTrack = mpvTrackId;
     if (mpvTrackId >= 0) {
+        bool newlyLoaded = false;
         auto externalTrackIt = std::find_if(m_externalSubtitleTrackMap.begin(),
                                             m_externalSubtitleTrackMap.end(),
                                             [mpvTrackId](int mappedTrackId) { return mappedTrackId == mpvTrackId; });
@@ -6328,6 +6612,7 @@ void PlayerController::syncBackendSubtitleTrack(int mpvTrackId)
             if (pendingIt != m_externalSubtitleTrackMap.end() && pendingIt.value() < 0) {
                 pendingIt.value() = mpvTrackId;
                 externalTrackIt = pendingIt;
+                newlyLoaded = true;
             }
         }
         if (externalTrackIt != m_externalSubtitleTrackMap.end()) {
@@ -6349,6 +6634,10 @@ void PlayerController::syncBackendSubtitleTrack(int mpvTrackId)
             }
             if (externalIndex == m_pendingDownloadedSubtitleIndex) {
                 resolvePendingDownloadedSubtitle(true);
+            }
+            effectiveSubtitleDelayMayHaveChanged(previousDelayMs);
+            if (newlyLoaded) {
+                emit externalSubtitleLoaded(externalIndex);
             }
             return;
         }
@@ -6373,6 +6662,7 @@ void PlayerController::syncBackendSubtitleTrack(int mpvTrackId)
     if (m_streamTimelineOffsetSeconds != 0.0) {
         applySubtitleDelay();
     }
+    effectiveSubtitleDelayMayHaveChanged(previousDelayMs);
 }
 
 void PlayerController::onAudioDeviceListChanged(const QVariantList &devices)
@@ -6630,7 +6920,7 @@ void PlayerController::applySubtitleDelay()
         return;
     }
 
-    double delaySeconds = static_cast<double>(m_subtitleDelayMs) / 1000.0;
+    double delaySeconds = static_cast<double>(subtitleDelayMs()) / 1000.0;
     if (selectedSubtitleIsSidecar()) {
         // Sidecar cues are on the source clock; a server stream that starts
         // its clock later shows them that much earlier.
@@ -6653,6 +6943,22 @@ void PlayerController::persistSubtitleDelayForCurrentScope(int delayMs)
         updateMoviePreference(m_currentItemId, [delayMs](ScopedTrackPreferences &preferences) {
             preferences.subtitleDelayMs = delayMs;
         });
+    }
+}
+
+void PlayerController::persistSubtitleDelayOverride(const QString &syncKey,
+                                                    std::optional<int> delayMs)
+{
+    if (!PlayerPolicy::playbackContentRules(m_currentContentKind).persistsSubtitleDelay) {
+        return;
+    }
+    const auto update = [&syncKey, delayMs](ScopedTrackPreferences &preferences) {
+        preferences.setSubtitleDelayOverride(syncKey, delayMs);
+    };
+    if (!m_currentSeasonId.isEmpty()) {
+        updateSeasonPreference(m_currentSeasonId, update);
+    } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
+        updateMoviePreference(m_currentItemId, update);
     }
 }
 

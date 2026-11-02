@@ -224,6 +224,50 @@ QString selectedIndex(const QJsonObject &tracks, const QString &kind)
     return index >= 0 ? QString::number(index) : QString();
 }
 
+// The sync key of an external or downloaded subtitle, as getSubtitleSync's
+// path pattern accepts it; anything else is dropped.
+QString subtitleSyncKey(const QJsonValue &value)
+{
+    static const QRegularExpression pattern(
+        QStringLiteral("^(stored-[1-9][0-9]*|external-[0-9a-f]{64})$"));
+    const QString key = value.toString();
+    return pattern.match(key).hasMatch() ? key : QString();
+}
+
+QString subtitleSyncEndpoint(const QString &mediaFileId, const QString &syncKey)
+{
+    if (mediaFileId.trimmed().isEmpty() || subtitleSyncKey(syncKey).isEmpty())
+        return {};
+    return QStringLiteral("/api/v2/subtitles/%1/sync/%2")
+        .arg(QString::fromLatin1(QUrl::toPercentEncoding(mediaFileId)), syncKey);
+}
+
+Bloom::SubtitleSyncStatus subtitleSyncStatus(const QString &status)
+{
+    if (status == QStringLiteral("pending"))
+        return Bloom::SubtitleSyncStatus::Pending;
+    if (status == QStringLiteral("running"))
+        return Bloom::SubtitleSyncStatus::Running;
+    if (status == QStringLiteral("synced"))
+        return Bloom::SubtitleSyncStatus::Synced;
+    if (status == QStringLiteral("already_synced"))
+        return Bloom::SubtitleSyncStatus::AlreadySynced;
+    if (status == QStringLiteral("no_match"))
+        return Bloom::SubtitleSyncStatus::NoMatch;
+    if (status == QStringLiteral("failed"))
+        return Bloom::SubtitleSyncStatus::Failed;
+    return Bloom::SubtitleSyncStatus::None;
+}
+
+Bloom::SubtitleTiming subtitleTiming(const QJsonObject &wire)
+{
+    Bloom::SubtitleTiming timing;
+    timing.offsetMs = wire.value(QStringLiteral("offset_ms")).toVariant().toLongLong();
+    const double scale = wire.value(QStringLiteral("scale")).toDouble(1.0);
+    timing.scale = std::isfinite(scale) && scale > 0.0 ? scale : 1.0;
+    return timing;
+}
+
 Bloom::PlaybackTrack subtitleTrack(const QJsonObject &item, int sourceIndex)
 {
     Bloom::PlaybackTrack track;
@@ -416,6 +460,10 @@ Bloom::PlaybackDescriptor descriptorFromDecision(const PlaybackProviderContext &
             track.storedSubtitleId = QUrlQuery(QUrl(item.value("url").toString()))
                                          .queryItemValue(QStringLiteral("downloaded_subtitle_id"));
         }
+        // Only external files and downloads carry a sync key; the server
+        // never retimes an embedded stream.
+        if (track.isExternal && !embedded)
+            track.syncKey = subtitleSyncKey(item.value("sync_key"));
         descriptor.subtitleTracks.append(track);
     }
     descriptor.reporting = { false, true, true, true };
@@ -880,6 +928,106 @@ void SiloPlaybackProvider::applyTrackPreferenceRead(
     }
 }
 
+SubtitleSyncRequest SiloPlaybackProvider::createSubtitleSyncStatusRequest() const
+{
+    // getSubtitleSyncStatus: a profile-scoped read.
+    SubtitleSyncRequest request;
+    request.endpoint = QStringLiteral("/api/v2/subtitles/sync/status");
+    request.replaySafe = true;
+    return request;
+}
+
+Bloom::SubtitleSyncCapability SiloPlaybackProvider::parseSubtitleSyncStatus(
+    const QByteArray &body) const
+{
+    // SubtitleSyncStatus: the capability, auto_sync, and external (sidecars
+    // beside the media can be synced too).
+    const QJsonObject status = QJsonDocument::fromJson(body).object();
+    Bloom::SubtitleSyncCapability capability;
+    capability.available =
+        status.value(QStringLiteral("state")).toString() == QStringLiteral("available")
+        && status.value(QStringLiteral("allowed")).toBool();
+    capability.autoSync = capability.available && status.value(QStringLiteral("auto_sync")).toBool();
+    capability.external = capability.available && status.value(QStringLiteral("external")).toBool();
+    return capability;
+}
+
+SubtitleSyncRequest SiloPlaybackProvider::createSubtitleSyncReadRequest(
+    const QString &mediaFileId, const QString &syncKey) const
+{
+    // getSubtitleSync: a read; its ETag guards setSubtitleTiming.
+    SubtitleSyncRequest request;
+    request.endpoint = subtitleSyncEndpoint(mediaFileId, syncKey);
+    request.replaySafe = true;
+    return request;
+}
+
+SubtitleSyncRequest SiloPlaybackProvider::createSubtitleSyncStartRequest(
+    const QString &mediaFileId, const QString &syncKey) const
+{
+    // startSubtitleSync is coalescing: a repeat returns the subtitle's active
+    // job, or starts another that reaches the same timing, so a lost
+    // response may be replayed.
+    SubtitleSyncRequest request;
+    request.endpoint = subtitleSyncEndpoint(mediaFileId, syncKey);
+    request.method = QStringLiteral("POST");
+    request.replaySafe = true;
+    return request;
+}
+
+SubtitleSyncRequest SiloPlaybackProvider::createSubtitleTimingResetRequest(
+    const QString &mediaFileId, const QString &syncKey, const QByteArray &etag) const
+{
+    // setSubtitleTiming with the identity restores the original timing. It is
+    // natural_idempotent; a replay after a lost response is refused with 412
+    // because the ETag moved on, which the caller settles with a read.
+    SubtitleSyncRequest request;
+    const QString endpoint = subtitleSyncEndpoint(mediaFileId, syncKey);
+    if (endpoint.isEmpty() || etag.isEmpty())
+        return request;
+    request.endpoint = endpoint + QStringLiteral("/timing");
+    request.method = QStringLiteral("PUT");
+    request.body = QJsonObject { { "offset_ms", 0 }, { "scale", 1 } };
+    request.ifMatch = etag;
+    request.replaySafe = true;
+    return request;
+}
+
+SubtitleSyncStateParseResult SiloPlaybackProvider::parseSubtitleSyncState(
+    const QByteArray &body) const
+{
+    // SubtitleSyncStateOutputBody and SubtitleSyncStartOutputBody.
+    SubtitleSyncStateParseResult result;
+    const QJsonObject subtitle =
+        QJsonDocument::fromJson(body).object().value(QStringLiteral("subtitle")).toObject();
+    const QString key = subtitleSyncKey(subtitle.value(QStringLiteral("key")));
+    if (key.isEmpty() || !subtitle.value(QStringLiteral("timing")).isObject())
+        return result;
+    Bloom::SubtitleSyncState &state = result.state;
+    state.key = key;
+    state.mediaFileId = identityString(subtitle.value(QStringLiteral("media_file_id")));
+    state.timing = subtitleTiming(subtitle.value(QStringLiteral("timing")).toObject());
+    const QJsonObject job = subtitle.value(QStringLiteral("sync")).toObject();
+    if (!job.isEmpty())
+    {
+        state.job.id = identityString(job.value(QStringLiteral("id")));
+        state.job.status = subtitleSyncStatus(job.value(QStringLiteral("status")).toString());
+        state.job.phase = job.value(QStringLiteral("phase")).toString();
+        state.job.progress = std::clamp(job.value(QStringLiteral("progress")).toDouble(), 0.0, 1.0);
+        const QString failure = job.value(QStringLiteral("failure")).toString();
+        if (failure == QStringLiteral("subtitle_changed"))
+            state.job.failure = QStringLiteral("subtitleChanged");
+        else if (failure == QStringLiteral("no_audio"))
+            state.job.failure = QStringLiteral("noAudio");
+        else if (failure == QStringLiteral("unavailable"))
+            state.job.failure = QStringLiteral("unavailable");
+        else if (!failure.isEmpty())
+            state.job.failure = QStringLiteral("error");
+    }
+    result.valid = true;
+    return result;
+}
+
 TrackPreferenceWriteRequest SiloPlaybackProvider::createTrackPreferenceWriteRequest(
     const TrackPreferenceWrite &write) const
 {
@@ -1181,6 +1329,8 @@ SubtitleDownloadParseResult SiloPlaybackProvider::parseSubtitleDownloadResponse(
     parsed.subtitle.language = stored.value(QStringLiteral("language")).toString(result.language);
     parsed.subtitle.title = stored.value(QStringLiteral("release_name")).toString(result.title);
     parsed.subtitle.storedId = storedId;
+    // The sync routes name a stored subtitle as the inventory does.
+    parsed.subtitle.syncKey = subtitleSyncKey(QJsonValue(QStringLiteral("stored-") + storedId));
     parsed.subtitle.isHearingImpaired =
         stored.value(QStringLiteral("hearing_impaired")).toBool(result.hearingImpaired);
     // The session's sidecar route serves a stored subtitle of its file when

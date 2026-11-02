@@ -185,6 +185,10 @@ struct PlaybackTrack {
     // search (Silo), so a download the player added keeps its menu entry
     // when a new stream lists it.
     QString storedSubtitleId;
+    // Provider key that names this external subtitle to the server's
+    // subtitle sync (docs/playback.md, "Syncing subtitles to the audio");
+    // empty for tracks the server cannot retime, including every embedded one.
+    QString syncKey;
 
     QVariantMap toVariantMap() const;
 };

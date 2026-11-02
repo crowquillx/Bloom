@@ -33,6 +33,17 @@ public:
         int width,
         int tileIndex) const override;
 
+    bool supportsSubtitleSync() const override { return true; }
+    SubtitleSyncRequest createSubtitleSyncStatusRequest() const override;
+    Bloom::SubtitleSyncCapability parseSubtitleSyncStatus(const QByteArray &body) const override;
+    SubtitleSyncRequest createSubtitleSyncReadRequest(
+        const QString &mediaFileId, const QString &syncKey) const override;
+    SubtitleSyncRequest createSubtitleSyncStartRequest(
+        const QString &mediaFileId, const QString &syncKey) const override;
+    SubtitleSyncRequest createSubtitleTimingResetRequest(
+        const QString &mediaFileId, const QString &syncKey, const QByteArray &etag) const override;
+    SubtitleSyncStateParseResult parseSubtitleSyncState(const QByteArray &body) const override;
+
     PlaybackReportRequest createReportRequest(const PlaybackReport &report) const override;
     TrackPreferenceWriteRequest createTrackPreferenceWriteRequest(
         const TrackPreferenceWrite &write) const override;
