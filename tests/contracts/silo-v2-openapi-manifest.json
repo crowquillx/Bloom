@@ -5726,6 +5726,213 @@
     },
     {
       "method": "GET",
+      "path": "/api/v2/favorites",
+      "operationId": "listFavorites",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "image_size",
+          "schema": {
+            "enum": [
+              "small",
+              "medium",
+              "large",
+              "original"
+            ],
+            "type": "string"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "poster_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "backdrop_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "logo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "still_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "photo_width",
+          "schema": {
+            "format": "int64",
+            "maximum": 7680,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "limit",
+          "schema": {
+            "default": 50,
+            "format": "int64",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "explode": false,
+          "in": "query",
+          "name": "cursor",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FavoriteCollection"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
       "path": "/api/v2/history",
       "operationId": "listHistory",
       "parameters": [
@@ -8581,124 +8788,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CatalogItemCollection"
-              }
-            }
-          }
-        },
-        "400": {
-          "content": {
-            "application/problem+json": {
-              "schema": {
-                "$ref": "#/components/schemas/Problem"
-              }
-            }
-          }
-        },
-        "401": {
-          "content": {
-            "application/problem+json": {
-              "schema": {
-                "$ref": "#/components/schemas/Problem"
-              }
-            }
-          }
-        },
-        "403": {
-          "content": {
-            "application/problem+json": {
-              "schema": {
-                "$ref": "#/components/schemas/Problem"
-              }
-            }
-          }
-        },
-        "404": {
-          "content": {
-            "application/problem+json": {
-              "schema": {
-                "$ref": "#/components/schemas/Problem"
-              }
-            }
-          }
-        },
-        "406": {
-          "content": {
-            "application/problem+json": {
-              "schema": {
-                "$ref": "#/components/schemas/Problem"
-              }
-            }
-          }
-        },
-        "422": {
-          "content": {
-            "application/problem+json": {
-              "schema": {
-                "$ref": "#/components/schemas/Problem"
-              }
-            }
-          }
-        },
-        "429": {
-          "content": {
-            "application/problem+json": {
-              "schema": {
-                "$ref": "#/components/schemas/Problem"
-              }
-            }
-          }
-        },
-        "500": {
-          "content": {
-            "application/problem+json": {
-              "schema": {
-                "$ref": "#/components/schemas/Problem"
-              }
-            }
-          }
-        },
-        "503": {
-          "content": {
-            "application/problem+json": {
-              "schema": {
-                "$ref": "#/components/schemas/Problem"
-              }
-            }
-          }
-        }
-      },
-      "conditional": false,
-      "class": "profile_scoped",
-      "deprecated": false
-    },
-    {
-      "method": "GET",
-      "path": "/api/v2/recommendations/taste-profile",
-      "operationId": "getTasteProfile",
-      "parameters": [
-        {
-          "in": "header",
-          "name": "X-Profile-Id",
-          "required": true,
-          "schema": {
-            "type": "string"
-          }
-        },
-        {
-          "in": "header",
-          "name": "X-Profile-Token",
-          "schema": {
-            "type": "string"
-          }
-        }
-      ],
-      "requestBody": {},
-      "responses": {
-        "200": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TasteProfile"
               }
             }
           }
@@ -23397,6 +23486,24 @@
       ],
       "type": "object"
     },
+    "FavoriteCollection": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/components/schemas/CatalogItem"
+          },
+          "type": "array"
+        },
+        "page": {
+          "$ref": "#/components/schemas/PageInfo"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
     "FeatureStatus": {
       "additionalProperties": false,
       "properties": {
@@ -28107,41 +28214,6 @@
         "openapi",
         "capabilities",
         "identity"
-      ],
-      "type": "object"
-    },
-    "TasteProfile": {
-      "additionalProperties": false,
-      "properties": {
-        "favorite_directors": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "signal_counts": {
-          "additionalProperties": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "type": "object"
-        },
-        "top_genres": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "updated_at": {
-          "format": "date-time",
-          "pattern": "^(?:[1-9][0-9]{3}|0[1-9][0-9]{2}|00[1-9][0-9]|000[2-9])-",
-          "type": "string"
-        }
-      },
-      "required": [
-        "top_genres",
-        "favorite_directors",
-        "signal_counts"
       ],
       "type": "object"
     },

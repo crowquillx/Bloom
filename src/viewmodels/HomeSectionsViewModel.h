@@ -3,6 +3,7 @@
 #include "BaseViewModel.h"
 
 #include <QString>
+#include <QTimer>
 #include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
@@ -40,7 +41,9 @@ class LibraryService;
  *   is then inserted above them.
  * - A taste seed recorded for the live connection
  *   (LibraryService::tasteSeedSubmitted) reads the rows again with their
- *   recommendations and Watch Tonight.
+ *   recommendations and Watch Tonight, at once and once more
+ *   TasteSeedFollowUpMs later: the server may still be refreshing the
+ *   profile's taste. A session change or `clear()` cancels the second read.
  *
  * Merged spaces show no curated rows: Home calls `clear()` instead.
  */
@@ -55,6 +58,9 @@ public:
         ItemsRole
     };
     Q_ENUM(Roles)
+
+    /// Delay of the second read after a taste seed.
+    static constexpr int TasteSeedFollowUpMs = 18000;
 
     explicit HomeSectionsViewModel(QObject *parent = nullptr);
     explicit HomeSectionsViewModel(LibraryService *libraryService, QObject *parent = nullptr);
@@ -83,6 +89,8 @@ public:
     /// Drops every row and the libraries, and forgets the pending request.
     Q_INVOKABLE void clear();
     Q_INVOKABLE void reload() override;
+    /// Tests shorten the second read's delay after a taste seed.
+    void setTasteSeedFollowUpDelay(int milliseconds) { m_tasteSeedFollowUp.setInterval(milliseconds); }
 
 private slots:
     void onSectionsLoaded(const QString &connectionId, const QVariantList &sections);
@@ -100,6 +108,7 @@ private:
     void removeRowsWithPrefix(const QString &prefix);
     /// Refreshes rows loaded or loading for the live connection.
     void refreshLoadedRows(bool reloadRecommendations = false);
+    void onTasteSeedFollowUp();
     static QString sectionIdOf(const QVariant &row);
 
     LibraryService *m_libraryService = nullptr;
@@ -112,4 +121,8 @@ private:
     QStringList m_movieLibraryIds;
     QString m_librariesConnectionId;
     bool m_requestPending = false;
+    /// The second read after a taste seed, and the session it belongs to.
+    QTimer m_tasteSeedFollowUp;
+    QString m_tasteSeedFollowUpConnectionId;
+    QString m_tasteSeedFollowUpScope;
 };

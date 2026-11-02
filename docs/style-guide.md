@@ -362,9 +362,9 @@ without moving focus off the focused shelf.
 
 ## Taste seeding
 
-A Silo profile nothing has fed yet (no ratings, favorites, watchlist or
-watches) gets a quiet offer to pick a few titles it likes, so Watch Tonight
-and the recommendation rows start from its taste. It is never a modal on
+A Silo profile with no favorites yet (the rule Silo's own web client
+uses) gets a quiet offer to pick a few titles it likes, so Watch Tonight and
+the recommendation rows start from its taste. It is never a modal on
 startup.
 
 - **Home prompt** (`TasteSeedPrompt.qml`): a shelf-shaped block after
@@ -373,10 +373,11 @@ startup.
   "Pick titles" (primary, `Icons.favorite`) and "Not now" (secondary). It sits
   on the stage like any shelf, with no glass panel, and joins Home's shelf
   focus order: Up and Down move to the neighbouring shelves, Left and Right
-  between the two buttons. "Not now" removes it for that connection and
+  between the two buttons. When it is the first shelf, Down from the hero
+  reaches it and the page scrolls to the top like for any first shelf. "Not now" removes it for that connection and
   profile for good (a toast points to Settings) and focus moves to the next
-  shelf. It is absent on Jellyfin, in merged spaces, once the profile is
-  warm, and after the picker was finished or skipped there.
+  shelf. It is absent on Jellyfin, in merged spaces, once the profile has a
+  favorite, and after the picker was finished or skipped there.
 - **Settings**: About & Account > Personalize Recommendations (below Watch
   History, Silo only) always opens the picker, also after "Not now".
 - **Picker page** (`TasteSeedScreen.qml`): a browse page with no hero. Below
@@ -385,8 +386,11 @@ startup.
   titles you like", "2 picked — pick at least 3", "5 picked"), and the
   trailing actions Skip (Cancel when opened from Settings) and Done. Below it,
   a poster grid of candidates, most recognizable first, that reads the next
-  page as focus nears its end; the stage picks up the focused title's
-  backdrop. Titles the profile already favorited start picked.
+  page as focus nears its end. The candidates carry posters only, so the
+  stage stays ambient with no art. Titles the profile already favorited
+  start picked, read "Already a favorite" as their caption, and stay
+  picked: Enter on one shows a toast instead (they count toward the
+  minimum).
 - **Selected state**: a picked poster gets a `selectionBackground` tint over
   its art, a `selectionIndicator` bar along the art's lower edge and a round
   `selectionIndicator` check badge in the top-right corner, all lifted with
@@ -394,15 +398,22 @@ startup.
   card can be focused, picked, or both, and the two never look alike.
 - **Keys**: Enter (or a click) picks or unpicks the focused poster. Up from
   the first row reaches Done (Skip while Done is unavailable), Up again the
-  navigation bar; Down from the actions returns to the grid. Done with too
-  few picks shows a toast with the minimum. Back leaves without saving and
-  without marking anything; Skip also stops the Home prompt.
+  navigation bar; Down from the actions returns to the grid, and Down from
+  the navigation bar returns to the grid's last focused poster, not to
+  Done. Done with too few picks shows a toast with the minimum. Back leaves
+  without saving and without marking anything, except while "Saving…" shows:
+  Back then waits for the answer. Skip also stops the Home prompt.
 - **States**: `StateMessage` for loading, error (with Try again, which takes
   focus) and empty ("Nothing to pick from yet"; "Not available on this
-  server" off Silo). Done shows "Saving…" with a busy icon while the picks
+  server" off Silo). When the first pages held only titles Bloom doesn't
+  show but more follow, the empty state says so and offers "Look further"
+  (it takes focus; Up reaches the header actions). Done shows "Saving…" with a busy icon while the picks
   are sent; a failure keeps the picks and shows a toast. On success the page
   closes and Main's toast says the recommendations will update shortly;
-  Home's rows are read again.
+  Home's rows are read again at once and once more about 18 seconds later.
+  If the server or profile changed since the titles loaded, Done sends
+  nothing, the page loads the new session's titles and a toast asks to pick
+  again.
 
 ## Collections
 

@@ -18,12 +18,16 @@ class LibraryService;
  *
  * `shown` holds when the live connection has taste seeding
  * (LibraryService::supportsTasteSeed, Silo), Home is not a merged space
- * (`merged`), the viewer has not finished or skipped it for this connection
- * and profile (ConfigManager::isTasteSeedDone), and the profile's taste
- * summary is still cold. `check()` reads the summary once per scope;
- * `check(true)` reads it again (after playback). A failed read shows
- * nothing. `dismiss()` remembers the scope as done, so the prompt never
- * comes back there; Settings still opens the picker.
+ * (`merged`), the scope is not done (ConfigManager::isTasteSeedDone) and the
+ * profile has no favorite yet, the rule Silo's own web client follows.
+ * `check()` asks the server once per scope; `check(true)` asks again (after
+ * playback). A failed read shows nothing. A profile found warm (some
+ * favorite) is remembered as done, so later sessions skip the read; only a
+ * cold answer is asked again. A favorite set for the live connection hides
+ * the prompt at once, and a taste seed recorded there marks the scope done,
+ * also when the picker page is gone before the answer. `dismiss()` marks the
+ * scope done, so the prompt never comes back there; Settings still opens
+ * the picker.
  */
 class TasteSeedPromptViewModel : public QObject
 {
@@ -51,6 +55,8 @@ private:
     void onStateLoaded(const QString &connectionId, const QString &requestKey, bool cold);
     void onStateFailed(const QString &connectionId, const QString &requestKey,
                        const QString &error);
+    void onFavoriteStatusChanged(const QString &itemId, bool isFavorite);
+    void onTasteSeedSubmitted(const QString &connectionId);
     QString liveScope() const;
     void update();
 
@@ -71,7 +77,8 @@ private:
  * favorites from (QML type `TasteSeedViewModel`, one per picker page).
  *
  * Rows are canonical movie and series maps (LibraryKinds), each title once,
- * most recognizable first. Roles: `itemData`, `itemId`, `name`, `selected`.
+ * most recognizable first. Roles: `itemData`, `itemId`, `name`, `selected`,
+ * `favorite`.
  *
  * - `load()` starts over on the live connection; without taste seeding
  *   (`available` false) nothing is read. `loadMore()` reads the next page
@@ -79,11 +86,15 @@ private:
  *   remain, so up to MaxEmptyPages such pages are read in a row.
  * - `isLoading` covers the first page; a failed first page sets `hasError`,
  *   a failed later page keeps the cards and emits `pageFailed`.
- * - Titles the profile already favorited start selected. `toggle(row)`
- *   flips one; new picks stop at MaximumPicks (`toggle` answers false).
+ * - Titles the profile already favorited start selected and stay so (the
+ *   picker never removes a favorite; `toggle` answers false for them).
+ *   `toggle(row)` flips another; new picks stop at MaximumPicks (`toggle`
+ *   answers false).
  *   `canSubmit` needs MinimumPicks selected (Silo's own picker asks for
  *   three; the server takes one or more).
- * - `submit()` sends the new picks only (never replayed). A success, or a
+ * - `submit()` sends the new picks only (never replayed). After a session
+ *   change it sends nothing, loads the new session's titles and answers
+ *   false. A success, or a
  *   selection of favorites alone (no request), marks the scope done and
  *   emits `submitted`; a refusal or a session change before the answer
  *   emits `submitFailed` and keeps the selection. `skip()` marks the scope
@@ -109,7 +120,8 @@ public:
         ItemDataRole = Qt::UserRole + 1,
         ItemIdRole,
         NameRole,
-        SelectedRole
+        SelectedRole,
+        FavoriteRole
     };
     Q_ENUM(Roles)
 
@@ -146,11 +158,15 @@ public:
     Q_INVOKABLE void reload() override;
     /// The canonical map at `row`, or an empty map.
     Q_INVOKABLE QVariantMap get(int row) const;
-    /// Selects or unselects the title at `row`; false when nothing changed.
+    /// Selects or unselects the title at `row`; false when nothing changed
+    /// (a favorite already, busy, or the maximum).
     Q_INVOKABLE bool toggle(int row);
+    /// Whether the title at `row` is one of the profile's favorites.
+    Q_INVOKABLE bool favoriteAt(int row) const;
     /// The picks submit() would send (selected, not favorites already).
     Q_INVOKABLE QStringList newPicks() const;
-    /// Sends the new picks; false when it cannot (too few, or busy).
+    /// Sends the new picks; false when it cannot (too few, busy, or the
+    /// session changed since load()).
     Q_INVOKABLE bool submit();
     Q_INVOKABLE void skip();
 
@@ -180,7 +196,7 @@ private:
     void setLoadingMore(bool loadingMore);
     void setSubmitting(bool submitting);
     void finish(int added);
-    static bool isFavorite(const QVariantMap &item);
+    static bool isFavoriteItem(const QVariantMap &item);
 
     LibraryService *m_libraryService = nullptr;
     ConfigManager *m_config = nullptr;

@@ -649,8 +649,10 @@ private:
             // Profile scoped when a profile is selected (the request factory
             // adds it).
             return get(QStringLiteral("/api/v2/images/capabilities"));
-        case ProviderCatalogOperation::TasteProfile:
-            return get(QStringLiteral("/api/v2/recommendations/taste-profile"));
+        case ProviderCatalogOperation::TasteSeedFavorites:
+            // One favorite is enough to know the profile has some, as
+            // Silo's own taste-seed gate asks.
+            return get(QStringLiteral("/api/v2/favorites?limit=1"));
         case ProviderCatalogOperation::TasteSeedItems: {
             if (query.limit < 0 || query.startIndex != 0) {
                 return unsupported(QStringLiteral("Silo's taste seed picks page by cursor"));
@@ -948,8 +950,8 @@ public:
             }
             return response;
         }
-        if (operation == ProviderCatalogOperation::TasteProfile) {
-            return tasteProfileResponse(body);
+        if (operation == ProviderCatalogOperation::TasteSeedFavorites) {
+            return tasteSeedFavoritesResponse(body);
         }
         if (operation == ProviderCatalogOperation::TasteSeedItems) {
             // A catalog page; only movie and series cards are titles here.
@@ -1179,25 +1181,22 @@ private:
         return request;
     }
 
-    // The taste summary is empty, not an error, until the engine computed
-    // one; a profile no signal (rating, favorite, watch...) has fed yet is
-    // cold.
-    static ProviderCatalogResponse tasteProfileResponse(const QByteArray &body)
+    // A favorites page of one: the profile has favorites when it holds a
+    // card, or when a hidden newest favorite leaves the page empty while
+    // has_more says more follow (Silo's own gate reads it the same way).
+    static ProviderCatalogResponse tasteSeedFavoritesResponse(const QByteArray &body)
     {
         ProviderCatalogResponse response;
         const QJsonObject object = QJsonDocument::fromJson(body).object();
-        const QJsonValue counts = object.value(QStringLiteral("signal_counts"));
-        if (!counts.isObject()) {
-            response.error = QStringLiteral("Invalid Silo taste profile response");
+        const QJsonValue items = object.value(QStringLiteral("items"));
+        if (!items.isArray()) {
+            response.error = QStringLiteral("Invalid Silo favorites response");
             return response;
         }
-        qint64 signalCount = 0;
-        const QJsonObject countsObject = counts.toObject();
-        for (auto it = countsObject.constBegin(); it != countsObject.constEnd(); ++it) {
-            signalCount += qMax<qint64>(0, static_cast<qint64>(it.value().toDouble()));
-        }
-        response.capabilityMetadata.insert(QStringLiteral("isCold"), signalCount == 0);
-        response.capabilityMetadata.insert(QStringLiteral("signalCount"), signalCount);
+        const bool hasFavorites = !items.toArray().isEmpty()
+            || object.value(QStringLiteral("page")).toObject()
+                   .value(QStringLiteral("has_more")).toBool();
+        response.capabilityMetadata.insert(QStringLiteral("hasFavorites"), hasFavorites);
         response.valid = true;
         return response;
     }

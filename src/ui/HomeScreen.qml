@@ -1159,7 +1159,8 @@ FocusScope {
             return
         var first = firstShelfList()
         var y
-        if (heroBanner.visible && first && first.parent === section)
+        // A shelf list sits in its section; the taste seed prompt is both.
+        if (heroBanner.visible && first && (first === section || first.parent === section))
             y = 0
         else
             y = section.mapToItem(mainFlickable.contentItem, 0, 0).y - root.shelfScrollOffset

@@ -1068,7 +1068,7 @@ void ProviderCatalogTest::jellyfinWatchHistoryReadsOneLibraryByLastPlay()
     // Nor taste seeding: LibraryService::supportsTasteSeed hides the entry
     // points.
     query.itemIds = {QStringLiteral("m1")};
-    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::TasteProfile, query).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::TasteSeedFavorites, query).supported);
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::TasteSeedItems, query).supported);
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::SubmitTasteSeed, query).supported);
 }

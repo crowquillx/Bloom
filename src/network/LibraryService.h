@@ -461,9 +461,10 @@ public:
     // The scope a taste seed belongs to, "<connection>\n<profile>", or
     // empty when the live connection has no taste seeding.
     Q_INVOKABLE virtual QString tasteSeedScope() const;
-    // Whether the acting profile's taste summary is still cold (no signal
-    // has fed it): tasteProfileStateLoaded or tasteProfileStateFailed.
-    virtual void getTasteProfileState(const QString &requestKey);
+    // Whether the acting profile is still cold, that is has no favorite
+    // (Silo's own taste-seed gate; one-card listFavorites read):
+    // tasteSeedStateLoaded or tasteSeedStateFailed.
+    virtual void getTasteSeedState(const QString &requestKey);
     // One page of candidate titles, most recognizable first, from the
     // previous page's nextCursor: canonicalTasteSeedItemsLoaded or
     // canonicalTasteSeedItemsFailed. A page may be short or empty while
@@ -761,10 +762,10 @@ signals:
     // A removal from the history succeeded; watched state and resume
     // points under itemId changed with it.
     void watchHistoryItemRemoved(const QString &connectionId, const QString &itemId);
-    void tasteProfileStateLoaded(const QString &connectionId, const QString &requestKey,
-                                 bool cold);
-    void tasteProfileStateFailed(const QString &connectionId, const QString &requestKey,
-                                 const QString &error);
+    void tasteSeedStateLoaded(const QString &connectionId, const QString &requestKey,
+                              bool cold);
+    void tasteSeedStateFailed(const QString &connectionId, const QString &requestKey,
+                              const QString &error);
     void canonicalTasteSeedItemsLoaded(const QString &connectionId,
                                        const QString &requestKey,
                                        const QVariantList &items,

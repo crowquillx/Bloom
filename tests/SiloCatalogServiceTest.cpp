@@ -4946,34 +4946,38 @@ void SiloCatalogServiceTest::tasteSeedRequests()
 {
     SiloCatalogProvider provider;
 
-    // getTasteProfile: profile scoped, no artwork.
+    // listFavorites, one card: profile scoped, no artwork, as Silo's own
+    // taste-seed gate asks.
     ProviderCatalogRequest request
-        = provider.createRequest(ProviderCatalogOperation::TasteProfile, {});
+        = provider.createRequest(ProviderCatalogOperation::TasteSeedFavorites, {});
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
     QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/recommendations/taste-profile"));
-    // Cold: no signal of any kind fed the summary (empty until computed).
-    ProviderCatalogResponse profile = provider.parseResponse(
-        ProviderCatalogOperation::TasteProfile,
-        QByteArrayLiteral(R"({"top_genres":[],"favorite_directors":[],"signal_counts":{}})"));
-    QVERIFY(profile.valid);
-    QVERIFY(profile.capabilityMetadata.value(QStringLiteral("isCold")).toBool());
-    profile = provider.parseResponse(
-        ProviderCatalogOperation::TasteProfile,
-        QByteArrayLiteral(R"({"top_genres":[],"favorite_directors":[],"signal_counts":{"rated":0,"watched":0},)"
-                          R"("updated_at":"2026-11-01T10:00:00Z"})"));
-    QVERIFY(profile.valid);
-    QVERIFY(profile.capabilityMetadata.value(QStringLiteral("isCold")).toBool());
-    profile = provider.parseResponse(
-        ProviderCatalogOperation::TasteProfile,
-        QByteArrayLiteral(R"({"top_genres":["Drama"],"favorite_directors":[],"signal_counts":{"favorited":2,"watched":5},)"
-                          R"("updated_at":"2026-11-01T10:00:00Z"})"));
-    QVERIFY(profile.valid);
-    QVERIFY(!profile.capabilityMetadata.value(QStringLiteral("isCold")).toBool());
-    QCOMPARE(profile.capabilityMetadata.value(QStringLiteral("signalCount")).toLongLong(), 7);
-    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::TasteProfile,
-                                    QByteArrayLiteral(R"({"top_genres":[]})")).valid);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/favorites?limit=1"));
+    // Cold: no favorite.
+    ProviderCatalogResponse favorites = provider.parseResponse(
+        ProviderCatalogOperation::TasteSeedFavorites, QByteArrayLiteral(R"({"items":[]})"));
+    QVERIFY(favorites.valid);
+    QVERIFY(!favorites.capabilityMetadata.value(QStringLiteral("hasFavorites")).toBool());
+    favorites = provider.parseResponse(
+        ProviderCatalogOperation::TasteSeedFavorites,
+        QByteArrayLiteral(R"({"items":[],"page":{"has_more":false,"next_cursor":""}})"));
+    QVERIFY(favorites.valid);
+    QVERIFY(!favorites.capabilityMetadata.value(QStringLiteral("hasFavorites")).toBool());
+    // Warm: a favorite, or a hidden newest one while more follow.
+    favorites = provider.parseResponse(
+        ProviderCatalogOperation::TasteSeedFavorites,
+        QByteArrayLiteral(R"({"items":[{"content_id":"movie:heat-1995","type":"movie","title":"Heat",)"
+                          R"("genres":[],"keywords":[],"status":"matched"}]})"));
+    QVERIFY(favorites.valid);
+    QVERIFY(favorites.capabilityMetadata.value(QStringLiteral("hasFavorites")).toBool());
+    favorites = provider.parseResponse(
+        ProviderCatalogOperation::TasteSeedFavorites,
+        QByteArrayLiteral(R"({"items":[],"page":{"has_more":true,"next_cursor":"cursor-1"}})"));
+    QVERIFY(favorites.valid);
+    QVERIFY(favorites.capabilityMetadata.value(QStringLiteral("hasFavorites")).toBool());
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::TasteSeedFavorites,
+                                    QByteArrayLiteral(R"({"page":{"has_more":true}})")).valid);
 
     // listTasteSeedItems: by cursor, at most 60 a page, with the artwork
     // widths; only movie and series cards, each once.
@@ -5061,16 +5065,17 @@ void SiloCatalogServiceTest::tasteSeedServiceReadsAndSubmits()
     QVERIFY(service.supportsTasteSeed());
     QCOMPARE(service.tasteSeedScope(), connectionId + QStringLiteral("\nprofile-1"));
 
-    // The taste summary.
-    QSignalSpy state(&service, &LibraryService::tasteProfileStateLoaded);
+    // Whether the profile is cold: one favorites card.
+    QSignalSpy state(&service, &LibraryService::tasteSeedStateLoaded);
     manager.responses = {
-        { 200, QByteArrayLiteral(R"({"top_genres":[],"favorite_directors":[],"signal_counts":{}})"), false }
+        { 200, QByteArrayLiteral(R"({"items":[]})"), false }
     };
     qsizetype first = manager.requests.size();
-    service.getTasteProfileState(QStringLiteral("state-1"));
+    service.getTasteSeedState(QStringLiteral("state-1"));
     QTRY_COMPARE_WITH_TIMEOUT(state.count(), 1, 1000);
-    QCOMPARE(manager.requests.at(first).request.url().path(),
-             QStringLiteral("/api/v2/recommendations/taste-profile"));
+    const QUrl stateUrl = manager.requests.at(first).request.url();
+    QCOMPARE(stateUrl.path(), QStringLiteral("/api/v2/favorites"));
+    QCOMPARE(QUrlQuery(stateUrl).queryItemValue(QStringLiteral("limit")), QStringLiteral("1"));
     QCOMPARE(manager.requests.at(first).request.rawHeader("X-Profile-Id"),
              QByteArrayLiteral("profile-1"));
     QCOMPARE(state.first().at(0).toString(), connectionId);

@@ -43,13 +43,14 @@ TasteSeedPromptViewModel::TasteSeedPromptViewModel(LibraryService *libraryServic
         qCWarning(lcViewModels) << "TasteSeedPromptViewModel: LibraryService not available";
         return;
     }
-    connect(m_libraryService, &LibraryService::tasteProfileStateLoaded,
+    connect(m_libraryService, &LibraryService::tasteSeedStateLoaded,
             this, &TasteSeedPromptViewModel::onStateLoaded);
-    connect(m_libraryService, &LibraryService::tasteProfileStateFailed,
+    connect(m_libraryService, &LibraryService::tasteSeedStateFailed,
             this, &TasteSeedPromptViewModel::onStateFailed);
-    // A submitted seed marks its scope done first; this hides the prompt.
+    connect(m_libraryService, &LibraryService::favoriteStatusChanged,
+            this, &TasteSeedPromptViewModel::onFavoriteStatusChanged);
     connect(m_libraryService, &LibraryService::tasteSeedSubmitted,
-            this, &TasteSeedPromptViewModel::update);
+            this, &TasteSeedPromptViewModel::onTasteSeedSubmitted);
     if (m_config) {
         connect(m_config, &ConfigManager::tasteSeedDoneChanged,
                 this, &TasteSeedPromptViewModel::update);
@@ -88,7 +89,7 @@ void TasteSeedPromptViewModel::check(bool force)
     m_requestScope = scope;
     update();
     // May answer synchronously.
-    m_libraryService->getTasteProfileState(m_requestKey);
+    m_libraryService->getTasteSeedState(m_requestKey);
 }
 
 void TasteSeedPromptViewModel::dismiss()
@@ -115,6 +116,10 @@ void TasteSeedPromptViewModel::onStateLoaded(const QString &connectionId,
     }
     m_scope = m_requestScope;
     m_cold = cold;
+    // A warm profile stays warm: later sessions skip the read.
+    if (!cold && m_config) {
+        m_config->setTasteSeedDone(m_scope, true);
+    }
     update();
 }
 
@@ -127,6 +132,29 @@ void TasteSeedPromptViewModel::onStateFailed(const QString &connectionId,
     }
     m_requestKey.clear();
     qCDebug(lcViewModels) << "TasteSeedPromptViewModel: taste profile read failed:" << error;
+    update();
+}
+
+void TasteSeedPromptViewModel::onFavoriteStatusChanged(const QString &itemId, bool isFavorite)
+{
+    Q_UNUSED(itemId)
+    // The live profile has a favorite now; the next session's read
+    // remembers it as warm.
+    if (isFavorite && !m_scope.isEmpty() && m_scope == liveScope()) {
+        m_cold = false;
+        update();
+    }
+}
+
+void TasteSeedPromptViewModel::onTasteSeedSubmitted(const QString &connectionId)
+{
+    // The picker may be gone before the answer (Back while saving); the
+    // seed still finishes taste seeding for the live scope.
+    const QString scope = liveScope();
+    if (m_config && !scope.isEmpty()
+        && scope.section(QLatin1Char('\n'), 0, 0) == connectionId) {
+        m_config->setTasteSeedDone(scope, true);
+    }
     update();
 }
 
@@ -194,6 +222,8 @@ QVariant TasteSeedViewModel::data(const QModelIndex &index, int role) const
         return item.value(QStringLiteral("name"));
     case SelectedRole:
         return m_selected.contains(item.value(QStringLiteral("itemId")).toString());
+    case FavoriteRole:
+        return m_favorites.contains(item.value(QStringLiteral("itemId")).toString());
     default:
         return {};
     }
@@ -205,7 +235,8 @@ QHash<int, QByteArray> TasteSeedViewModel::roleNames() const
         {ItemDataRole, "itemData"},
         {ItemIdRole, "itemId"},
         {NameRole, "name"},
-        {SelectedRole, "selected"}
+        {SelectedRole, "selected"},
+        {FavoriteRole, "favorite"}
     };
 }
 
@@ -214,7 +245,7 @@ bool TasteSeedViewModel::canSubmit() const
     return !m_submitting && selectedCount() >= MinimumPicks;
 }
 
-bool TasteSeedViewModel::isFavorite(const QVariantMap &item)
+bool TasteSeedViewModel::isFavoriteItem(const QVariantMap &item)
 {
     return item.value(QStringLiteral("userState")).toMap()
         .value(QStringLiteral("favorite")).toBool();
@@ -296,10 +327,14 @@ bool TasteSeedViewModel::toggle(int row)
         return false;
     }
     const QString itemId = m_items.at(row).toMap().value(QStringLiteral("itemId")).toString();
+    // Unpicking a favorite would not remove it on the server.
+    if (m_favorites.contains(itemId)) {
+        return false;
+    }
     if (m_selected.contains(itemId)) {
         m_selected.remove(itemId);
     } else {
-        if (!m_favorites.contains(itemId) && newPicks().size() >= MaximumPicks) {
+        if (newPicks().size() >= MaximumPicks) {
             return false;
         }
         m_selected.insert(itemId);
@@ -308,6 +343,12 @@ bool TasteSeedViewModel::toggle(int row)
     emit dataChanged(changed, changed, {SelectedRole});
     emit selectionChanged();
     return true;
+}
+
+bool TasteSeedViewModel::favoriteAt(int row) const
+{
+    return row >= 0 && row < m_items.size()
+        && m_favorites.contains(m_items.at(row).toMap().value(QStringLiteral("itemId")).toString());
 }
 
 QStringList TasteSeedViewModel::newPicks() const
@@ -326,6 +367,12 @@ QStringList TasteSeedViewModel::newPicks() const
 bool TasteSeedViewModel::submit()
 {
     if (!m_available || !canSubmit() || !m_libraryService) {
+        return false;
+    }
+    // The picks belong to the session they were made in.
+    if (m_libraryService->getActiveConnectionId() != m_connectionId
+        || m_libraryService->tasteSeedScope() != m_scope) {
+        reload();
         return false;
     }
     const QStringList picks = newPicks();
@@ -382,7 +429,7 @@ void TasteSeedViewModel::onItemsLoaded(const QString &connectionId, const QStrin
             continue;
         }
         m_itemIds.insert(itemId);
-        if (isFavorite(item)) {
+        if (isFavoriteItem(item)) {
             m_favorites.insert(itemId);
             m_selected.insert(itemId);
             selectionGrew = true;

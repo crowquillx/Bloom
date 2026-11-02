@@ -4032,20 +4032,20 @@ QString LibraryService::tasteSeedScope() const
     return activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
 }
 
-void LibraryService::getTasteProfileState(const QString &requestKey)
+void LibraryService::getTasteSeedState(const QString &requestKey)
 {
     const QString connectionId = activeConnectionId(m_authService);
     sendCatalogRequest(
-        QStringLiteral("getTasteProfile"),
-        ProviderCatalogOperation::TasteProfile,
+        QStringLiteral("listFavorites"),
+        ProviderCatalogOperation::TasteSeedFavorites,
         baseCatalogQuery(),
         [this, connectionId, requestKey](const ProviderCatalogResponse &response) {
-            emit tasteProfileStateLoaded(
+            emit tasteSeedStateLoaded(
                 connectionId, requestKey,
-                response.capabilityMetadata.value(QStringLiteral("isCold")).toBool());
+                !response.capabilityMetadata.value(QStringLiteral("hasFavorites")).toBool());
         },
         [this, connectionId, requestKey](const NetworkError &error) {
-            emit tasteProfileStateFailed(connectionId, requestKey, error.userMessage);
+            emit tasteSeedStateFailed(connectionId, requestKey, error.userMessage);
         });
 }
 

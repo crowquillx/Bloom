@@ -13,10 +13,12 @@ import BloomUI
  * A browse page with no hero, opened from Home's Personalize Home prompt or
  * Settings > About & Account. TasteSeedViewModel reads the candidates and
  * owns the selection: Enter (or a click) picks or unpicks the focused
- * poster, and the header counts the picks against the minimum. Done sends
- * them; Skip (Cancel from Settings) leaves without sending. Up from the
- * first row reaches Done and Skip, Up again the navigation bar. On success
- * the page asks Main to close it with a toast (`finished`).
+ * poster, and the header counts the picks against the minimum. Titles the
+ * profile already favorited stay picked. Done sends them; Skip (Cancel from
+ * Settings) leaves without sending. Up from the first row reaches Done and
+ * Skip, Up again the navigation bar. Back is ignored while the picks are
+ * saved. On success the page asks Main to close it with a toast
+ * (`finished`).
  */
 FocusScope {
     id: root
@@ -32,18 +34,22 @@ FocusScope {
     /// Main closes the page and shows `message` when it is not empty.
     signal finished(string message)
 
+    // Main's Back shortcut waits while the picks are saved.
+    readonly property bool handlesOwnBackNavigation: picker.submitting
+    Keys.onEscapePressed: function(event) { event.accepted = picker.submitting }
+    Keys.onBackPressed: function(event) { event.accepted = picker.submitting }
+
     readonly property bool navigationRecessed: grid.contentY > Theme.spacingLarge
     // Same request width as Home and Search posters (shared cache entries).
     readonly property int posterRequestWidth: 640
 
-    property string stageSource: ""
-    property string pendingStageSource: ""
     property int lastIndex: 0
 
     TasteSeedViewModel {
         id: picker
         onCountChanged: Qt.callLater(root.focusGridIfIdle)
         onIsLoadingChanged: if (!picker.isLoading) Qt.callLater(root.focusGridIfIdle)
+        onLoadingMoreChanged: if (!picker.loadingMore) Qt.callLater(root.focusGridIfIdle)
         onHasErrorChanged: Qt.callLater(root.focusGridIfIdle)
         onPageFailed: function(message) { toast.show(message) }
         onSubmitFailed: function(message) {
@@ -107,17 +113,6 @@ FocusScope {
         return qsTr("%1 picked").arg(picked)
     }
 
-    function showBackdropFor(item) {
-        pendingStageSource = item ? artworkUrlFromRef(item.backdropArtwork, 1920) : ""
-        stageDebounce.restart()
-    }
-
-    Timer {
-        id: stageDebounce
-        interval: 280
-        onTriggered: root.stageSource = root.pendingStageSource
-    }
-
     // ========================================
     // Actions
     // ========================================
@@ -125,6 +120,10 @@ FocusScope {
     function togglePick(index) {
         if (index < 0 || index >= picker.count)
             return
+        if (picker.favoriteAt(index)) {
+            toast.show(qsTr("Already a favorite. It counts toward your picks."))
+            return
+        }
         if (!picker.toggle(index) && !picker.submitting)
             toast.show(qsTr("That's plenty: up to %1 new picks at a time.").arg(picker.maximumPicks))
     }
@@ -134,7 +133,9 @@ FocusScope {
             toast.show(qsTr("Pick at least %1 titles first.").arg(picker.minimumPicks))
             return
         }
-        picker.submit()
+        // False after a session change: the page starts over on the new one.
+        if (!picker.submit())
+            toast.show(qsTr("The server or profile changed. Pick again."))
     }
 
     function leave() {
@@ -156,6 +157,10 @@ FocusScope {
         }
         if (errorState.visible) {
             errorState.focusAction()
+            return true
+        }
+        if (emptyState.visible && emptyState.actionText !== "") {
+            emptyState.focusAction()
             return true
         }
         return false
@@ -180,7 +185,7 @@ FocusScope {
         if (root.StackView.status !== StackView.Active)
             return
         if (root.activeFocus && !grid.activeFocus && !errorState.activeFocus
-                && !doneButton.activeFocus && !skipButton.activeFocus) {
+                && !emptyState.activeFocus && !doneButton.activeFocus && !skipButton.activeFocus) {
             if (!focusGrid())
                 focusActions()
         }
@@ -203,10 +208,10 @@ FocusScope {
     // Stage
     // ========================================
 
+    // Taste-seed cards carry posters only, so the stage has no art.
     StageBackdrop {
         anchors.fill: parent
         mode: "ambient"
-        source: root.stageSource
     }
 
     // ========================================
@@ -262,7 +267,7 @@ FocusScope {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.pageMarginX
             Layout.rightMargin: Theme.pageMarginX
-            visible: picker.isLoading && picker.count === 0
+            visible: (picker.isLoading || picker.loadingMore) && picker.count === 0
             kind: "loading"
             message: qsTr("Loading…")
         }
@@ -278,20 +283,28 @@ FocusScope {
             message: picker.errorMessage
             actionText: qsTr("Try again")
             onActionTriggered: picker.reload()
+            Keys.onUpPressed: function(event) { event.accepted = true; root.focusActions() }
         }
 
         StateMessage {
+            id: emptyState
             Layout.fillWidth: true
             Layout.leftMargin: Theme.pageMarginX
             Layout.rightMargin: Theme.pageMarginX
-            visible: !picker.isLoading && !picker.hasError && picker.count === 0
+            visible: !picker.isLoading && !picker.loadingMore && !picker.hasError && picker.count === 0
             kind: "empty"
             iconGlyph: Icons.favoriteBorder
-            title: picker.available ? qsTr("Nothing to pick from yet")
-                                    : qsTr("Not available on this server")
-            message: picker.available
-                     ? qsTr("Once your libraries have matched titles, popular ones show up here.")
-                     : qsTr("Picking titles you like needs a Silo server.")
+            title: !picker.available ? qsTr("Not available on this server")
+                 : picker.hasMore ? qsTr("Nothing to pick from here")
+                 : qsTr("Nothing to pick from yet")
+            message: !picker.available ? qsTr("Picking titles you like needs a Silo server.")
+                   : picker.hasMore ? qsTr("The first titles were ones Bloom doesn't show. More may follow.")
+                   : qsTr("Once your libraries have matched titles, popular ones show up here.")
+            // Pages of titles Bloom doesn't show stop the reading; more
+            // may still follow.
+            actionText: picker.available && picker.hasMore ? qsTr("Look further") : ""
+            onActionTriggered: picker.loadMore()
+            Keys.onUpPressed: function(event) { event.accepted = true; root.focusActions() }
         }
 
         GridView {
@@ -327,6 +340,7 @@ FocusScope {
                 id: cell
                 required property var itemData
                 required property bool selected
+                required property bool favorite
                 required property int index
                 width: card.width
                 height: card.height
@@ -338,18 +352,18 @@ FocusScope {
                     artworkWidth: grid.cardWidth
                     artworkSources: [root.artworkUrlFromRef(cell.itemData.primaryArtwork, root.posterRequestWidth)]
                     title: cell.itemData.name || ""
-                    subtitle: root.posterSubtitle(cell.itemData)
+                    subtitle: cell.favorite ? qsTr("Already a favorite") : root.posterSubtitle(cell.itemData)
                     placeholderIcon: cell.itemData.mediaType === "Movie" ? Icons.movie : Icons.tvShows
                     focused: cell.GridView.isCurrentItem && grid.activeFocus
-                    onFocusedChanged: if (focused) root.showBackdropFor(cell.itemData)
                     onClicked: {
                         grid.currentIndex = cell.index
                         grid.forceActiveFocus()
                         root.togglePick(cell.index)
                     }
                     Accessible.name: (cell.selected ? qsTr("Picked: %1") : "%1").arg(title)
-                    Accessible.description: cell.selected ? qsTr("Press Enter to unpick")
-                                                          : qsTr("Press Enter to pick")
+                    Accessible.description: cell.favorite ? qsTr("Already a favorite")
+                                          : cell.selected ? qsTr("Press Enter to unpick")
+                                          : qsTr("Press Enter to pick")
                 }
 
                 // Selection, never a ring: a tinted fill and an accent

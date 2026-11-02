@@ -144,7 +144,7 @@ public:
             return unsupported(QStringLiteral("Jellyfin keeps no watch history apart from played state"));
         case ProviderCatalogOperation::WatchTonight:
             return unsupported(QStringLiteral("Jellyfin has no Watch Tonight picks"));
-        case ProviderCatalogOperation::TasteProfile:
+        case ProviderCatalogOperation::TasteSeedFavorites:
         case ProviderCatalogOperation::TasteSeedItems:
         case ProviderCatalogOperation::SubmitTasteSeed:
             return unsupported(QStringLiteral("Jellyfin has no taste seeding"));
@@ -1664,7 +1664,7 @@ private:
         case ProviderCatalogOperation::WatchHistory: return QStringLiteral("watch history");
         case ProviderCatalogOperation::RemoveFromWatchHistory: return QStringLiteral("history removal");
         case ProviderCatalogOperation::WatchTonight: return QStringLiteral("watch tonight");
-        case ProviderCatalogOperation::TasteProfile: return QStringLiteral("taste profile");
+        case ProviderCatalogOperation::TasteSeedFavorites: return QStringLiteral("taste seed favorites");
         case ProviderCatalogOperation::TasteSeedItems: return QStringLiteral("taste seed items");
         case ProviderCatalogOperation::SubmitTasteSeed: return QStringLiteral("taste seed");
         case ProviderCatalogOperation::ShuffleItems: return QStringLiteral("shuffle items");

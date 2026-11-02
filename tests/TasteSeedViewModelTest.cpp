@@ -40,7 +40,7 @@ public:
     {
         return supportsTasteSeed() ? connectionId + QLatin1Char('\n') + profileId : QString();
     }
-    void getTasteProfileState(const QString &requestKey) override
+    void getTasteSeedState(const QString &requestKey) override
     {
         stateRequests.append(requestKey);
     }
@@ -56,12 +56,12 @@ public:
     void answerState(bool cold, int request = -1, const QString &forConnection = QString())
     {
         const QString key = request < 0 ? stateRequests.last() : stateRequests.at(request);
-        emit tasteProfileStateLoaded(forConnection.isEmpty() ? connectionId : forConnection, key,
+        emit tasteSeedStateLoaded(forConnection.isEmpty() ? connectionId : forConnection, key,
                                      cold);
     }
     void failState()
     {
-        emit tasteProfileStateFailed(connectionId, stateRequests.last(),
+        emit tasteSeedStateFailed(connectionId, stateRequests.last(),
                                      QStringLiteral("Server error"));
     }
     void answerPage(const QVariantList &items, bool hasMore, const QString &nextCursor = QString(),
@@ -131,6 +131,7 @@ private slots:
     void promptReadsOncePerScopeUnlessForced();
     void promptIgnoresStaleAndFailedReads();
     void promptDismissRemembersTheScope();
+    void promptHidesOnAFavoriteAndASeedMarksTheScopeDone();
 
     // TasteSeedViewModel
     void pickerUnavailableReadsNothing();
@@ -143,6 +144,7 @@ private slots:
     void pickerFavoritesAloneFinishWithoutARequest();
     void pickerSubmitFailureAndSessionChangeKeepTheSelection();
     void pickerSkipMarksTheScopeDone();
+    void pickerSubmitAfterASessionChangeStartsOver();
 
 private:
     std::unique_ptr<QTemporaryDir> m_directory;
@@ -186,11 +188,18 @@ void TasteSeedViewModelTest::promptShowsForColdProfilesOnly()
     QVERIFY(prompt.shown());
     QCOMPARE(shown.count(), 1);
 
-    // A warm profile hides it.
+    // A warm profile hides it, and stays warm: no read in later sessions.
     prompt.check(true);
     m_service->answerState(false);
     QVERIFY(!prompt.shown());
     QCOMPARE(shown.count(), 2);
+    QVERIFY(m_config->isTasteSeedDone(scopeOf(*m_service)));
+    const qsizetype reads = m_service->stateRequests.size();
+    TasteSeedPromptViewModel next(m_service.get(), m_config.get());
+    next.check();
+    next.check(true);
+    QCOMPARE(m_service->stateRequests.size(), reads);
+    QVERIFY(!next.shown());
 }
 
 void TasteSeedViewModelTest::promptHiddenWithoutSupportInMergedSpacesAndWhenDone()
@@ -302,6 +311,37 @@ void TasteSeedViewModelTest::promptDismissRemembersTheScope()
     QVERIFY(next.shown());
     m_config->setTasteSeedDone(scopeOf(*m_service), true);
     QVERIFY(!next.shown());
+}
+
+void TasteSeedViewModelTest::promptHidesOnAFavoriteAndASeedMarksTheScopeDone()
+{
+    TasteSeedPromptViewModel prompt(m_service.get(), m_config.get());
+    prompt.check();
+    m_service->answerState(true);
+    QVERIFY(prompt.shown());
+
+    // Unfavoriting tells nothing; a favorite hides the prompt at once,
+    // without marking the scope (the next read finds the profile warm).
+    emit m_service->favoriteStatusChanged(QStringLiteral("movie:a"), false);
+    QVERIFY(prompt.shown());
+    emit m_service->favoriteStatusChanged(QStringLiteral("movie:a"), true);
+    QVERIFY(!prompt.shown());
+    QVERIFY(!m_config->isTasteSeedDone(scopeOf(*m_service)));
+
+    // A seed recorded for another connection changes nothing.
+    m_service->profileId = QStringLiteral("profile-2");
+    prompt.check();
+    m_service->answerState(true);
+    QVERIFY(prompt.shown());
+    emit m_service->tasteSeedSubmitted(QStringLiteral("connection-2"), {QStringLiteral("movie:a")});
+    QVERIFY(prompt.shown());
+    QVERIFY(!m_config->isTasteSeedDone(scopeOf(*m_service)));
+
+    // The live connection's seed marks the scope done, also when no picker
+    // is left to do it (Back while saving).
+    emit m_service->tasteSeedSubmitted(QStringLiteral("connection-1"), {QStringLiteral("movie:a")});
+    QVERIFY(!prompt.shown());
+    QVERIFY(m_config->isTasteSeedDone(scopeOf(*m_service)));
 }
 
 // ============================================================================
@@ -480,10 +520,14 @@ void TasteSeedViewModelTest::pickerSelectionNeedsTheMinimumAndStopsAtTheMaximum(
     }
     QCOMPARE(picker.newPicks().size(), TasteSeedViewModel::MaximumPicks);
     QVERIFY(!picker.toggle(TasteSeedViewModel::MaximumPicks));
-    // The favorite can still be unpicked and picked again.
+    // A favorite stays picked: unpicking would not remove it on the server.
     const int favorite = picker.count() - 1;
-    QVERIFY(picker.toggle(favorite));
-    QVERIFY(picker.toggle(favorite));
+    QVERIFY(picker.favoriteAt(favorite));
+    QVERIFY(picker.data(picker.index(favorite), TasteSeedViewModel::FavoriteRole).toBool());
+    QVERIFY(!picker.favoriteAt(0));
+    QVERIFY(!picker.data(picker.index(0), TasteSeedViewModel::FavoriteRole).toBool());
+    QVERIFY(!picker.toggle(favorite));
+    QVERIFY(picker.data(picker.index(favorite), TasteSeedViewModel::SelectedRole).toBool());
 }
 
 void TasteSeedViewModelTest::pickerSubmitsNewPicksAndMarksTheScopeDone()
@@ -589,6 +633,44 @@ void TasteSeedViewModelTest::pickerSkipMarksTheScopeDone()
     QVERIFY(!m_config->isTasteSeedDone(QString()));
     m_config->setTasteSeedDone(scopeOf(*m_service), false);
     QVERIFY(!m_config->isTasteSeedDone(scopeOf(*m_service)));
+}
+
+void TasteSeedViewModelTest::pickerSubmitAfterASessionChangeStartsOver()
+{
+    TasteSeedViewModel picker(m_service.get(), m_config.get());
+    QSignalSpy submitted(&picker, &TasteSeedViewModel::submitted);
+    picker.load();
+    m_service->answerPage({title(QStringLiteral("movie:a")), title(QStringLiteral("movie:b")),
+                           title(QStringLiteral("movie:c"))},
+                          false);
+    picker.toggle(0);
+    picker.toggle(1);
+    picker.toggle(2);
+    QVERIFY(picker.canSubmit());
+
+    // Another profile of the same connection: the picks are not its own.
+    m_service->profileId = QStringLiteral("profile-2");
+    QVERIFY(!picker.submit());
+    QVERIFY(m_service->submitRequests.isEmpty());
+    QCOMPARE(submitted.count(), 0);
+    QCOMPARE(picker.count(), 0);
+    QCOMPARE(picker.selectedCount(), 0);
+    QVERIFY(picker.isLoading());
+    QCOMPARE(m_service->pageRequests.size(), 2);
+
+    // Another connection too.
+    m_service->answerPage({title(QStringLiteral("movie:a")), title(QStringLiteral("movie:b")),
+                           title(QStringLiteral("movie:c"))},
+                          false);
+    picker.toggle(0);
+    picker.toggle(1);
+    picker.toggle(2);
+    m_service->connectionId = QStringLiteral("connection-2");
+    QVERIFY(!picker.submit());
+    QVERIFY(m_service->submitRequests.isEmpty());
+    QCOMPARE(picker.connectionId(), QStringLiteral("connection-2"));
+    QCOMPARE(picker.selectedCount(), 0);
+    QVERIFY(!m_config->isTasteSeedDone(QStringLiteral("connection-1\nprofile-2")));
 }
 
 QTEST_MAIN(TasteSeedViewModelTest)
