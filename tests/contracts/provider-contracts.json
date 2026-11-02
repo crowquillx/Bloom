@@ -2325,7 +2325,7 @@
         "outcome": "supported",
         "capability": {
           "state": "available",
-          "discovery": "getSubtitleSyncStatus (SubtitleSyncStatus) read once per connection; Bloom offers Sync to Audio only for state: available with allowed, on the Bloom playback overlay, for an external or downloaded subtitle whose inventory entry carries sync_key."
+          "discovery": "getSubtitleSyncStatus (SubtitleSyncStatus) read at each playback start and again after an account or profile change; Bloom offers Sync to Audio only for state: available with allowed, on the Bloom playback overlay, for an external or downloaded subtitle whose inventory entry carries sync_key."
         },
         "requestSemantics": [
           "{key} is SubtitleInventoryItemV3.sync_key from the playback plan's subtitle inventory, accepted only when it matches the path pattern (stored-N or external-<64 hex>); embedded entries are never synced. {media_file_id} is the plan's effective_media_file_id.",
@@ -2336,7 +2336,7 @@
         "requiredSemantics": [
           "SubtitleSyncState carries key, media_file_id, timing (offset_ms, scale) and the latest job in sync (status pending, running, synced, already_synced, no_match or failed; phase, progress, failure).",
           "Every delivery path applies the stored correction, so the session sidecar URL serves re-timed cues (Cache-Control private, no-cache); Bloom reloads the subtitle from the same URL when the timing it observes changes, keeping the selection and the HLS timeline offset.",
-          "A job the user started that changed the timing resets Bloom's local subtitle delay to 0, so the correction is not applied twice; no_match and failed leave the timing and the delay alone."
+          "Once a synced timing is loaded (from a job the user started or the server's automatic sync), that subtitle plays with its own delay override of 0 while the season or movie delay stays, so the correction is not applied twice; no_match and failed leave the timing and the delay alone."
         ],
         "evidenceSources": [
           "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",

@@ -217,6 +217,12 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             m_playerBackend->sendVariantCommand({QStringLiteral("set_property"),
                                                  QStringLiteral("sid"), reload.oldSid});
         }
+        // A downloaded subtitle waiting on this reload fails now, not when
+        // its own (longer) timer runs out.
+        if (reload.index == m_pendingDownloadedSubtitleIndex) {
+            resolvePendingDownloadedSubtitle(
+                false, tr("The downloaded subtitle could not be loaded."));
+        }
         emit externalSubtitleReloadFinished(false);
     });
 
