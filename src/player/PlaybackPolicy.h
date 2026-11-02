@@ -256,7 +256,9 @@ enum class PostPlaybackScreen {
     /// Up Next for the series (next episode, or the caught-up state).
     UpNext,
     /// The after-movie screen: rating and "Because you watched".
-    AfterMovie
+    AfterMovie,
+    /// Up Next in shuffle mode, offering the shuffle's next pick.
+    ShuffleUpNext
 };
 
 struct PostPlaybackInput
@@ -272,6 +274,8 @@ struct PostPlaybackInput
     QString itemId;
     /// The playback request marked the item as a movie.
     bool isMovie = false;
+    /// The item is a shuffle pick (docs/playback.md "Shuffle play").
+    bool shuffle = false;
     /// Set for an episode.
     QString seriesId;
     double positionSeconds = 0.0;
@@ -283,7 +287,9 @@ struct PostPlaybackInput
 /// after-movie screen. Completion is the configured threshold, so a session
 /// stopped early, an error, an extra, and a session the sleep timer ended
 /// lead nowhere (and so release the display at once). Only an item the
-/// request marked as a movie opens the after-movie screen.
+/// request marked as a movie opens the after-movie screen. A completed
+/// shuffle pick, movie or episode, leads into the shuffle's Up Next instead;
+/// a shuffle pick that leads nowhere ends the shuffle.
 [[nodiscard]] PostPlaybackScreen postPlaybackScreen(const PostPlaybackInput &input);
 [[nodiscard]] bool shouldPrefetchNextEpisode(const PrefetchInput &input);
 [[nodiscard]] bool isUsablePrefetchedEpisode(const PrefetchedEpisodeInput &input);
@@ -404,5 +410,43 @@ enum class SleepTimerStart {
 [[nodiscard]] int sleepTimerChoiceForNewPlayback(int currentChoice,
                                                  int defaultChoice,
                                                  SleepTimerStart start);
+
+/// Shuffle play (docs/playback.md "Shuffle play").
+/// The position a shuffle pick reports to the server. A pick plays from its
+/// beginning but keeps the resume point it had (resumeFloorMs): until
+/// playback passes it, reports carry it rather than an earlier position,
+/// which the server would take as the new resume point (Jellyfin clears it
+/// below its 5 % minimum). The reported position never falls below the
+/// real one, so a completed pick still counts as played.
+[[nodiscard]] qint64 shuffleReportPositionMs(qint64 positionMs, qint64 resumeFloorMs);
+/// Whether a canonical item can be a shuffle pick: a movie or an episode
+/// with an ID. Series, seasons, extras and anything else are left out.
+[[nodiscard]] bool isShufflePlayableItem(const QVariantMap &item);
+/// A local shuffle (Bloom keeps the queue) reads another random page when
+/// fewer items than this are queued after the next one.
+inline constexpr int kLocalShuffleRefillBelow = 2;
+inline constexpr int kLocalShufflePageSize = 50;
+/// Random reads of a page that brought nothing new before the cycle starts
+/// over anyway.
+inline constexpr int kLocalShuffleMaxStaleReads = 3;
+/// What a random page adds to a local shuffle queue. handedOut holds the
+/// IDs handed out this cycle (the current item and those queued); nothing
+/// repeats until the cycle is over. A page with nothing new is read again
+/// while the scope may still hold unplayed items (total > handedOut) and
+/// the stale reads are under kLocalShuffleMaxStaleReads; otherwise a new
+/// cycle starts, in which every playable item may come again except the
+/// current one (a scope of one item repeats it).
+struct LocalShuffleRefill {
+    QVariantList accepted;
+    bool readAgain = false;
+    bool newCycle = false;
+    /// Nothing in the page can be played at all.
+    bool empty = false;
+};
+[[nodiscard]] LocalShuffleRefill planLocalShuffleRefill(const QVariantList &page,
+                                                        const QStringList &handedOut,
+                                                        const QString &currentItemId,
+                                                        int total,
+                                                        int staleReads);
 
 } // namespace Bloom::PlaybackPolicy

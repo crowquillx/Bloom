@@ -7,6 +7,7 @@
 #include "LibrarySearchScope.h"
 #include "NextEpisodeResolver.h"
 #include "models/MediaModels.h"
+#include "models/ShuffleScope.h"
 #include "providers/IPlaybackProvider.h"
 #include "utils/ConfigManager.h"
 #include <QFutureWatcher>
@@ -256,6 +257,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         m_searchCapabilities.clear();
         // Cancelled reads answer nothing; a later page asks again.
         m_notInterestedCapabilityReads.clear();
+        m_shuffleCapabilityReads.clear();
         for (auto it = m_airingCalendarReads.cbegin(); it != m_airingCalendarReads.cend(); ++it) {
             for (const QString &seriesId : it->seriesIds) {
                 emit nextAiringLoaded(seriesId, {});
@@ -267,6 +269,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         failStaleHomeCardWrites();
         failStaleSubtitleAppearanceRequests();
         failStaleUserRatingWrites();
+        failStaleShuffleRequests();
     };
     connect(m_authService, &AuthenticationService::authenticationStepChanged,
             this, [this, invalidateRequests]() {
@@ -280,7 +283,8 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
     connect(m_authService, &AuthenticationService::userIdChanged,
             this, invalidateRequests);
     // A reply sent before the connection, profile or provider changed is
-    // dropped (isCurrent), so its Home card write is answered here.
+    // dropped (isCurrent), so its Home card write, rating write or shuffle
+    // request is answered here.
     for (const auto signal : {&AuthenticationService::providerSelectionChanged,
                               &AuthenticationService::profilesChanged,
                               &AuthenticationService::authSessionsChanged}) {
@@ -288,6 +292,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
             failStaleHomeCardWrites();
             failStaleSubtitleAppearanceRequests();
             failStaleUserRatingWrites();
+            failStaleShuffleRequests();
         });
     }
 }
@@ -1704,6 +1709,209 @@ void LibraryService::failStaleUserRatingWrites()
         emit userRatingFailed(write.identity.connectionId, write.itemId, write.value,
                               tr("The connection changed before the server answered."));
     }
+}
+
+bool LibraryService::hasServerShuffle() const
+{
+    return m_authService && m_authService->isAuthenticated()
+        && m_authService->supportsCapability(ProviderCapability::ServerShuffle);
+}
+
+bool LibraryService::supportsShuffle(const QString &scopeKind,
+                                     const QString &collectionKind) const
+{
+    namespace Scope = Bloom::ShuffleScope;
+    if (!m_authService || !m_authService->isAuthenticated()) {
+        return false;
+    }
+    if (m_authService->supportsCapability(ProviderCapability::ServerShuffle)) {
+        const QString key =
+            activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
+        return m_shuffleScopeKinds.value(key).contains(
+            Scope::capabilityKey(scopeKind, collectionKind));
+    }
+    if (m_authService->supportsCapability(ProviderCapability::LocalShuffle)) {
+        return scopeKind == Scope::kLibrary || scopeKind == Scope::kSeries
+            || scopeKind == Scope::kSeason
+            || (scopeKind == Scope::kCollection && collectionKind == Scope::kBoxSet);
+    }
+    return false;
+}
+
+void LibraryService::loadShuffleCapability()
+{
+    if (!hasServerShuffle()) {
+        return;
+    }
+    // The document is profile scoped: each profile may be allowed or not.
+    const QString key =
+        activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
+    if (m_shuffleScopeKinds.contains(key)) {
+        return;
+    }
+    const auto inFlight = m_shuffleCapabilityReads.constFind(key);
+    if (inFlight != m_shuffleCapabilityReads.cend() && *inFlight == m_requestGeneration) {
+        return;
+    }
+    const quint64 generation = m_requestGeneration;
+    m_shuffleCapabilityReads.insert(key, generation);
+    const auto finish = [this, key, generation]() {
+        const auto read = m_shuffleCapabilityReads.constFind(key);
+        if (read == m_shuffleCapabilityReads.cend() || *read != generation) {
+            return false;
+        }
+        m_shuffleCapabilityReads.erase(read);
+        return true;
+    };
+    sendCatalogRequest(
+        QStringLiteral("getShuffleCapability"),
+        ProviderCatalogOperation::ShuffleCapability,
+        baseCatalogQuery(),
+        [this, key, finish](const ProviderCatalogResponse &response) {
+            if (!finish()) {
+                return;
+            }
+            const bool allowed = response.capabilityMetadata.value(QStringLiteral("allowed")).toBool();
+            m_shuffleScopeKinds.insert(
+                key, allowed ? response.capabilityMetadata.value(QStringLiteral("scopeKinds"))
+                                   .toStringList()
+                             : QStringList{});
+            emit shuffleSupportChanged();
+        },
+        [this, key, finish](const NetworkError &error) {
+            if (!finish()) {
+                return;
+            }
+            // A server without the route never offers it. Other failures
+            // leave Shuffle hidden and ask again on the next page.
+            if (error.httpStatus == 404 || error.httpStatus == 405 || error.httpStatus == 501) {
+                m_shuffleScopeKinds.insert(key, {});
+            }
+        });
+}
+
+void LibraryService::sendShuffleRequest(const QString &operationName,
+                                        ProviderCatalogOperation operation,
+                                        const ProviderCatalogQuery &query,
+                                        const QString &requestKey)
+{
+    const CatalogRequestIdentity identity = catalogRequestIdentity();
+    const QString connectionId = identity.connectionId;
+    const quint64 requestId = ++m_shuffleRequestSequence;
+    m_shuffleRequests.insert(requestId, {identity, requestKey});
+    // False once the request was answered (or failed as stale).
+    const auto take = [this, requestId]() { return m_shuffleRequests.remove(requestId) > 0; };
+    sendCatalogRequest(
+        operationName, operation, query,
+        [this, connectionId, requestKey, operation, take](const ProviderCatalogResponse &response) {
+            if (!take()) {
+                return;
+            }
+            QVariantMap result;
+            if (operation == ProviderCatalogOperation::ShuffleItems) {
+                result.insert(QStringLiteral("items"),
+                              m_authService->mapMediaItems(response.rawItems, connectionId));
+                result.insert(QStringLiteral("total"), response.total);
+            } else {
+                const QJsonObject shuffle = response.rawItem;
+                const QJsonObject scope = shuffle.value(QStringLiteral("scope")).toObject();
+                result.insert(QStringLiteral("shuffleId"),
+                              shuffle.value(QStringLiteral("id")).toString());
+                result.insert(QStringLiteral("scopeTitle"),
+                              scope.value(QStringLiteral("title")).toString());
+                result.insert(QStringLiteral("current"),
+                              m_authService->mapMediaItem(
+                                  shuffle.value(QStringLiteral("current")).toObject(), connectionId));
+                result.insert(QStringLiteral("next"),
+                              m_authService->mapMediaItem(
+                                  shuffle.value(QStringLiteral("next")).toObject(), connectionId));
+            }
+            emit shuffleLoaded(connectionId, requestKey, result);
+        },
+        [this, connectionId, requestKey, take](const NetworkError &error) {
+            if (!take()) {
+                return;
+            }
+            emit shuffleFailed(connectionId, requestKey, error.httpStatus, error.userMessage);
+        });
+}
+
+void LibraryService::failStaleShuffleRequests()
+{
+    QList<PendingShuffleRequest> stale;
+    for (auto it = m_shuffleRequests.begin(); it != m_shuffleRequests.end();) {
+        if (isCurrent(it->identity)) {
+            ++it;
+            continue;
+        }
+        stale.append(it.value());
+        it = m_shuffleRequests.erase(it);
+    }
+    for (const PendingShuffleRequest &request : std::as_const(stale)) {
+        emit shuffleFailed(request.identity.connectionId, request.requestKey, 0,
+                           tr("The connection changed before the server answered."));
+    }
+}
+
+void LibraryService::createShuffle(const QVariantMap &scope, const QString &requestKey)
+{
+    const Bloom::ShuffleScope::Scope parsed = Bloom::ShuffleScope::fromVariantMap(scope);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.parentId = parsed.id;
+    query.shuffleScopeKind = parsed.kind;
+    query.shuffleCollectionKind = parsed.collectionKind;
+    sendShuffleRequest(QStringLiteral("createShuffle"), ProviderCatalogOperation::CreateShuffle,
+                       query, requestKey);
+}
+
+void LibraryService::getShuffle(const QString &shuffleId, const QString &requestKey)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.shuffleId = shuffleId;
+    sendShuffleRequest(QStringLiteral("getShuffle"), ProviderCatalogOperation::GetShuffle,
+                       query, requestKey);
+}
+
+void LibraryService::advanceShuffle(const QString &shuffleId, const QString &fromContentId,
+                                    const QString &requestKey)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.shuffleId = shuffleId;
+    query.shuffleContentId = fromContentId;
+    sendShuffleRequest(QStringLiteral("advanceShuffle"), ProviderCatalogOperation::AdvanceShuffle,
+                       query, requestKey);
+}
+
+void LibraryService::skipShuffleItem(const QString &shuffleId, const QString &nextContentId,
+                                     const QString &requestKey)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.shuffleId = shuffleId;
+    query.shuffleContentId = nextContentId;
+    sendShuffleRequest(QStringLiteral("skipShuffleItem"),
+                       ProviderCatalogOperation::SkipShuffleItem, query, requestKey);
+}
+
+void LibraryService::deleteShuffle(const QString &shuffleId)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.shuffleId = shuffleId;
+    // Best effort: the server drops shuffles left untouched for a week.
+    sendCatalogRequest(QStringLiteral("deleteShuffle"), ProviderCatalogOperation::DeleteShuffle,
+                       query, [](const ProviderCatalogResponse &) {});
+}
+
+void LibraryService::getShuffleItems(const QVariantMap &scope, int limit,
+                                     const QString &requestKey)
+{
+    const Bloom::ShuffleScope::Scope parsed = Bloom::ShuffleScope::fromVariantMap(scope);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.parentId = parsed.id;
+    query.shuffleScopeKind = parsed.kind;
+    query.shuffleCollectionKind = parsed.collectionKind;
+    query.limit = limit;
+    sendShuffleRequest(QStringLiteral("getShuffleItems"), ProviderCatalogOperation::ShuffleItems,
+                       query, requestKey);
 }
 
 bool LibraryService::supportsNextAiring() const

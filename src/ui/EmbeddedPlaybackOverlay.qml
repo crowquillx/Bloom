@@ -2736,7 +2736,9 @@ FocusScope {
                             ChromeIconButton {
                                 id: previousEpisodeButton
                                 anchors.verticalCenter: parent.verticalCenter
+                                // A shuffle only moves forward.
                                 visible: PlayerController.hasEpisodeNavigation
+                                         && !PlayerController.shufflePlaying
                                 enabled: PlayerController.hasPreviousEpisode
                                 glyph: Icons.skipPrevious
                                 text: qsTr("Previous episode")
@@ -2783,7 +2785,8 @@ FocusScope {
                                 visible: PlayerController.hasEpisodeNavigation
                                 enabled: PlayerController.hasNextEpisode
                                 glyph: Icons.skipNext
-                                text: qsTr("Next episode")
+                                text: PlayerController.shufflePlaying ? qsTr("Next in shuffle")
+                                                                      : qsTr("Next episode")
                                 onClicked: PlayerController.skipToNextEpisode()
                             }
                         }

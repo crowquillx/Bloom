@@ -173,6 +173,24 @@ enum class ProviderCatalogOperation {
     // capabilityMetadata carries `isCold` (a generic fallback rather than
     // picks from the viewer's taste) and `hasMore`.
     WatchTonight,
+    // Server shuffles (Silo, ProviderCapability::ServerShuffle): the
+    // profile's capability document (capabilityMetadata `allowed` and
+    // `scopeKinds`, canonical Bloom::ShuffleScope kinds), starting one over
+    // shuffleScopeKind/shuffleCollectionKind and parentId, reading one
+    // (shuffleId), moving it on after the item that finished
+    // (shuffleContentId), replacing its announced next item
+    // (shuffleContentId), and stopping it. Shuffle responses carry the wire
+    // shuffle in rawItem with `current` and `next` cards.
+    ShuffleCapability,
+    CreateShuffle,
+    GetShuffle,
+    AdvanceShuffle,
+    SkipShuffleItem,
+    DeleteShuffle,
+    // A random page of the movies and episodes under one scope (parentId,
+    // shuffleScopeKind) for a shuffle Bloom keeps itself (Jellyfin).
+    // rawItems holds the wire items, total the scope's size.
+    ShuffleItems,
 };
 
 enum class ProviderHttpMethod {
@@ -258,6 +276,13 @@ struct ProviderCatalogQuery {
     // opaque document the last read answered.
     QVariantMap subtitleAppearance;
     QString subtitleAppearanceDocument;
+    // Shuffles: the canonical scope kind and collection kind
+    // (Bloom::ShuffleScope), the shuffle, and the card an advance or a skip
+    // is anchored on.
+    QString shuffleScopeKind;
+    QString shuffleCollectionKind;
+    QString shuffleId;
+    QString shuffleContentId;
 
     ProviderCatalogTriState watched = ProviderCatalogTriState::Any;
     ProviderCatalogTriState favorite = ProviderCatalogTriState::Any;

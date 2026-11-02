@@ -247,6 +247,19 @@ themselves when the extra ends. Remote (YouTube) trailers are never shown.
 Labels and the playback request come from `src/ui/ExtrasUtils.js`, shared by
 both pages.
 
+Where the provider can shuffle the page's scope (`LibraryService.supportsShuffle`),
+the series hero adds a secondary "Shuffle" `SecondaryActionButton`
+(`Icons.shuffle`) after Play Trailer, and the season hero adds one after Go
+to Series; both sit before the icon-only buttons and are hidden, not
+disabled, when the provider cannot shuffle. Left/Right reach it in row
+order. A movie or series library page puts a secondary "Shuffle" button last
+in its toolbar, after Filters (after Shelves while the shelves show), with
+Down to the grid or shelves like the other toolbar controls; combined
+"All …" pages have none. The buttons are disabled while a shuffle starts.
+The shuffle's Up Next uses the same hero: "Up Next · Shuffle" eyebrow, the
+pick's logo or title, Play, a secondary "Shuffle Again", and the icon-only
+Close, with no shelf (see "Shuffle play" in [playback](playback.md)).
+
 ## Watch history
 
 `HistoryScreen.qml` is a browse page with no hero, opened from Settings >

@@ -83,7 +83,13 @@ enum class ProviderCapability {
     // ProviderCatalogOperation::WatchHistory reads one library at a time
     // and pages by startIndex (Jellyfin); otherwise it is one cursor-paged
     // list for the whole profile (Silo).
-    LibraryScopedHistory = 1 << 27
+    LibraryScopedHistory = 1 << 27,
+    // Shuffles the server keeps (ProviderCatalogOperation::CreateShuffle and
+    // the rest, Silo). The profile's capability document still gates it.
+    ServerShuffle = 1 << 28,
+    // Shuffles Bloom keeps itself from random reads under a scope
+    // (ProviderCatalogOperation::ShuffleItems, Jellyfin).
+    LocalShuffle = 1 << 29
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

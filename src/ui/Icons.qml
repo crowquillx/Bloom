@@ -42,6 +42,7 @@ QtObject {
     readonly property string stop: "\ue047"
     readonly property string skipNext: "\ue044"
     readonly property string skipPrevious: "\ue045"
+    readonly property string shuffle: "\ue043"
     readonly property string fastForward: "\ue01f"
     readonly property string fastRewind: "\ue020"
     readonly property string replay: "\ue042"

@@ -274,6 +274,69 @@ public:
         return QStringLiteral("https://example.invalid/") + itemId;
     }
 
+    bool supportsShuffle(const QString &scopeKind,
+                         const QString &collectionKind = QString()) const override
+    {
+        Q_UNUSED(scopeKind)
+        Q_UNUSED(collectionKind)
+        return true;
+    }
+    bool hasServerShuffle() const override { return serverShuffle; }
+    void loadShuffleCapability() override {}
+    // A local shuffle (Jellyfin) reads random pages.
+    void getShuffleItems(const QVariantMap &scope, int limit, const QString &requestKey) override
+    {
+        Q_UNUSED(scope)
+        Q_UNUSED(limit)
+        shuffleKeys.append(requestKey);
+    }
+    void answerShufflePage(const QVariantList &items, int total)
+    {
+        emit shuffleLoaded(activeConnectionIdValue, shuffleKeys.last(),
+                           QVariantMap{{QStringLiteral("items"), items},
+                                       {QStringLiteral("total"), total}});
+    }
+    void createShuffle(const QVariantMap &scope, const QString &requestKey) override
+    {
+        createdShuffleScopes.append(scope);
+        shuffleKeys.append(requestKey);
+    }
+    void getShuffle(const QString &shuffleId, const QString &requestKey) override
+    {
+        readShuffleIds.append(shuffleId);
+        shuffleKeys.append(requestKey);
+    }
+    void advanceShuffle(const QString &shuffleId, const QString &fromContentId,
+                        const QString &requestKey) override
+    {
+        Q_UNUSED(shuffleId)
+        advancedShuffleFrom.append(fromContentId);
+        shuffleKeys.append(requestKey);
+    }
+    void skipShuffleItem(const QString &shuffleId, const QString &nextContentId,
+                         const QString &requestKey) override
+    {
+        Q_UNUSED(shuffleId)
+        skippedShuffleItems.append(nextContentId);
+        shuffleKeys.append(requestKey);
+    }
+    void deleteShuffle(const QString &shuffleId) override { deletedShuffleIds.append(shuffleId); }
+    // Answers the latest shuffle request, as the server's shuffle-1.
+    void answerShuffle(const QVariantMap &current, const QVariantMap &next)
+    {
+        emit shuffleLoaded(activeConnectionIdValue, shuffleKeys.last(),
+                           QVariantMap{{QStringLiteral("shuffleId"), QStringLiteral("shuffle-1")},
+                                       {QStringLiteral("current"), current},
+                                       {QStringLiteral("next"), next}});
+    }
+
+    bool serverShuffle = true;
+    QVariantList createdShuffleScopes;
+    QStringList shuffleKeys;
+    QStringList readShuffleIds;
+    QStringList advancedShuffleFrom;
+    QStringList skippedShuffleItems;
+    QStringList deletedShuffleIds;
     QList<LibraryItemQuery> itemQueries;
     QString activeConnectionIdValue;
     QStringList requestedSeriesIds;
@@ -711,9 +774,19 @@ private slots:
     void sleepTimerGraceAtPlaybackEndSkipsUpNext();
     void sleepTimerDurationEndsWithoutUpNext();
     void sleepTimerCarriesThroughEpisodeSkipReplacement();
+    void shuffleStartsEachPickFromItsBeginning();
+    void shufflePickEndOffersTheNextPickAndStopEndsIt();
+    void shuffleNextInPlaybackSkipsThePick();
+    void shuffleCountsTowardsStillWatching();
+    void shuffleSleepTimerEndsOrCarries();
+    void completedShuffledMovieOpensShuffleUpNextNotAfterMovie();
+    void shufflePickKeepsItsResumePoint();
 
 private:
     static int resolveUpNextAutoplay(PlayerController &controller, int nextEpisodeNumber);
+    // The shuffle pick the controller launched is playing, near its end.
+    static void playShufflePick(PlayerController &controller, const QString &itemId,
+                                const QString &seriesId);
 
     QTemporaryDir m_configHome;
 #ifdef Q_OS_LINUX
@@ -8148,6 +8221,535 @@ void PlayerControllerAutoplayContextTest::sleepTimerCarriesThroughEpisodeSkipRep
     controller.m_pendingPlaybackRequests.clear();
     controller.clearPendingAutoplayContext();
     controller.clearNextEpisodePrefetchState();
+}
+
+namespace {
+
+QVariantMap shuffleEpisode(const QString &itemId, const QString &seasonId, int seasonNumber)
+{
+    return {{QStringLiteral("itemId"), itemId},
+            {QStringLiteral("mediaType"), QStringLiteral("Episode")},
+            {QStringLiteral("seriesId"), QStringLiteral("series-1")},
+            {QStringLiteral("seriesName"), QStringLiteral("Dark")},
+            {QStringLiteral("seasonId"), seasonId},
+            {QStringLiteral("parentId"), seasonId},
+            {QStringLiteral("parentIndexNumber"), seasonNumber},
+            {QStringLiteral("indexNumber"), 3},
+            {QStringLiteral("name"), QStringLiteral("Lies")},
+            {QStringLiteral("positionMs"), 600000}};
+}
+
+QVariantMap shuffleMovie(const QString &itemId)
+{
+    return {{QStringLiteral("itemId"), itemId},
+            {QStringLiteral("mediaType"), QStringLiteral("Movie")},
+            {QStringLiteral("name"), QStringLiteral("Heat")},
+            {QStringLiteral("productionYear"), 1995},
+            {QStringLiteral("positionMs"), 900000}};
+}
+
+const QVariantMap kSeriesShuffleScope{{QStringLiteral("kind"), QStringLiteral("series")},
+                                      {QStringLiteral("id"), QStringLiteral("series-1")},
+                                      {QStringLiteral("title"), QStringLiteral("Dark")}};
+
+} // namespace
+
+void PlayerControllerAutoplayContextTest::playShufflePick(PlayerController &controller,
+                                                          const QString &itemId,
+                                                          const QString &seriesId)
+{
+    controller.resetTerminalTransitionState(true);
+    controller.m_pendingPlaybackRequests.clear();
+    controller.m_hasEvaluatedCompletionForAttempt = false;
+    controller.m_currentItemId = itemId;
+    controller.m_currentSeriesId = seriesId;
+    controller.m_currentIsShuffle = true;
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 99.0;
+    controller.m_playbackState = PlayerController::Playing;
+}
+
+void PlayerControllerAutoplayContextTest::shuffleStartsEachPickFromItsBeginning()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    libraryService.activeConnectionIdValue = QStringLiteral("connection-1");
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    QSignalSpy state(&controller, &PlayerController::shuffleStateChanged);
+    QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+    QVERIFY(controller.shuffleStarting());
+    QVERIFY(state.size() > 0);
+    QCOMPARE(libraryService.createdShuffleScopes.size(), 1);
+    libraryService.answerShuffle(shuffleEpisode(QStringLiteral("episode-4"), QStringLiteral("season-2"), 2),
+                                 shuffleMovie(QStringLiteral("movie-7")));
+    QVERIFY(controller.shuffleActive());
+    QVERIFY(!controller.shuffleStarting());
+
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    const auto pending = controller.m_pendingPlaybackRequests.constBegin().value();
+    QCOMPARE(pending.itemId, QStringLiteral("episode-4"));
+    // The resume point is ignored.
+    QCOMPARE(pending.startPositionMs, qint64(0));
+    QCOMPARE(pending.seriesId, QStringLiteral("series-1"));
+    // Its own season's picks; nothing carried from another season.
+    QCOMPARE(pending.seasonId, QStringLiteral("season-2"));
+    QVERIFY(pending.carryTrackPreferencesFromSeasonId.isEmpty());
+    QCOMPARE(pending.preferredAudioIndex, -2);
+    QCOMPARE(pending.preferredSubtitleIndex, -2);
+    QCOMPARE(pending.overlayTitle, QStringLiteral("Dark"));
+    QCOMPARE(pending.overlaySubtitle, QStringLiteral("S2 E3 - Lies"));
+    QVERIFY(pending.shuffle);
+    QVERIFY(!pending.isMovie);
+    // A page's Shuffle is a manual start.
+    QVERIFY(pending.allowVersionPrompt);
+    QCOMPARE(controller.autoplayChainCount(), 0);
+
+    // Any other playback ends the shuffle on the server.
+    controller.requestPlayback(QVariantMap{{QStringLiteral("itemId"), QStringLiteral("movie-1")},
+                                           {QStringLiteral("allowVersionPrompt"), false}});
+    QVERIFY(!controller.shuffleActive());
+    QCOMPARE(libraryService.deletedShuffleIds, QStringList{QStringLiteral("shuffle-1")});
+    controller.m_pendingPlaybackRequests.clear();
+
+    // A retry of a pick continues the shuffle.
+    QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-7")),
+                                 shuffleMovie(QStringLiteral("movie-8")));
+    controller.requestPlayback(QVariantMap{{QStringLiteral("itemId"), QStringLiteral("movie-7")},
+                                           {QStringLiteral("shuffle"), true},
+                                           {QStringLiteral("continuesSession"), true}});
+    QVERIFY(controller.shuffleActive());
+    QVERIFY(controller.m_pendingPlaybackRequests.constBegin().value().shuffle);
+    QCOMPARE(controller.m_pendingPlaybackRequests.constBegin().value().overlaySubtitle, QString());
+    controller.stopShuffle();
+    QVERIFY(!controller.shuffleActive());
+    controller.m_pendingPlaybackRequests.clear();
+}
+
+void PlayerControllerAutoplayContextTest::shufflePickEndOffersTheNextPickAndStopEndsIt()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(true);
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    libraryService.activeConnectionIdValue = QStringLiteral("connection-1");
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+    libraryService.answerShuffle(shuffleEpisode(QStringLiteral("episode-4"), QStringLiteral("season-2"), 2),
+                                 shuffleMovie(QStringLiteral("movie-7")));
+    playShufflePick(controller, QStringLiteral("episode-4"), QStringLiteral("series-1"));
+    QVERIFY(controller.shufflePlaying());
+    QVERIFY(controller.hasEpisodeNavigation());
+    QVERIFY(controller.hasNextEpisode());
+    QVERIFY(!controller.hasPreviousEpisode());
+
+    // The pick plays to its end: no series Up Next, the shuffle's instead.
+    QSignalSpy upNext(&controller, &PlayerController::shuffleUpNextRequested);
+    QSignalSpy seriesUpNext(&controller, &PlayerController::navigateToNextEpisode);
+    controller.requestTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(controller.m_shuffleUpNextPending);
+    QVERIFY(controller.awaitingNextEpisodeResolution());
+    QVERIFY(!controller.m_shouldAutoplay);
+    QCoreApplication::processEvents();
+    QCoreApplication::processEvents();
+    QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    QCOMPARE(upNext.size(), 1);
+    QCOMPARE(upNext.first().at(0).toMap().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("movie-7"));
+    QVERIFY(upNext.first().at(1).toBool());
+    QVERIFY(seriesUpNext.isEmpty());
+    QVERIFY(libraryService.requestedSeriesIds.isEmpty());
+    QVERIFY(!controller.awaitingNextEpisodeResolution());
+    // The server confirms the announced next pick can still play.
+    QCOMPARE(libraryService.readShuffleIds, QStringList{QStringLiteral("shuffle-1")});
+
+    // "Shuffle Again" replaces it.
+    QSignalSpy nextChanged(&controller, &PlayerController::shuffleNextItemChanged);
+    controller.skipShuffleNext();
+    QCOMPARE(libraryService.skippedShuffleItems, QStringList{QStringLiteral("movie-7")});
+    libraryService.answerShuffle(shuffleEpisode(QStringLiteral("episode-4"), QStringLiteral("season-2"), 2),
+                                 shuffleMovie(QStringLiteral("movie-8")));
+    QCOMPARE(nextChanged.size(), 1);
+    QCOMPARE(nextChanged.first().first().toMap().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("movie-8"));
+
+    // Play moves the shuffle on from the pick that finished.
+    controller.playShuffleNext(false);
+    QCOMPARE(libraryService.advancedShuffleFrom, QStringList{QStringLiteral("episode-4")});
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-8")),
+                                 shuffleMovie(QStringLiteral("movie-2")));
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    const auto pending = controller.m_pendingPlaybackRequests.constBegin().value();
+    QCOMPARE(pending.itemId, QStringLiteral("movie-8"));
+    QCOMPARE(pending.startPositionMs, qint64(0));
+    QVERIFY(pending.isMovie);
+    QVERIFY(pending.seriesId.isEmpty());
+    QVERIFY(!pending.allowVersionPrompt);
+    QCOMPARE(pending.overlayTitle, QStringLiteral("Heat"));
+    QCOMPARE(pending.overlaySubtitle, QStringLiteral("1995"));
+
+    // Stopping a pick past the threshold (or quitting mpv's window there)
+    // opens the shuffle's Up Next, as an episode's would; Close ends it.
+    playShufflePick(controller, QStringLiteral("movie-8"), QString());
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::Stop);
+    QVERIFY(controller.shuffleActive());
+    QVERIFY(controller.m_shuffleUpNextPending);
+    QVERIFY(controller.awaitingNextEpisodeResolution());
+    controller.resetTerminalTransitionState(true);
+    controller.stopShuffle();
+    controller.setAwaitingNextEpisodeResolution(false);
+    QVERIFY(!controller.shuffleActive());
+    QVERIFY(!controller.m_shuffleUpNextPending);
+    QCOMPARE(libraryService.deletedShuffleIds, QStringList{QStringLiteral("shuffle-1")});
+
+    // Stopping short of the threshold ends the shuffle.
+    QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-1")),
+                                 shuffleMovie(QStringLiteral("movie-2")));
+    playShufflePick(controller, QStringLiteral("movie-1"), QString());
+    controller.m_currentPosition = 20.0;
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::Stop);
+    QVERIFY(!controller.shuffleActive());
+    QVERIFY(!controller.m_shuffleUpNextPending);
+    QVERIFY(!controller.awaitingNextEpisodeResolution());
+    controller.resetTerminalTransitionState(true);
+
+    // A pick that ends short of the threshold ends it too.
+    QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-1")),
+                                 shuffleMovie(QStringLiteral("movie-2")));
+    playShufflePick(controller, QStringLiteral("movie-1"), QString());
+    controller.m_currentPosition = 20.0;
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(!controller.shuffleActive());
+    controller.resetTerminalTransitionState(true);
+
+    // A failure that recovery retries keeps the shuffle; leaving the error
+    // ends it.
+    QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-1")),
+                                 shuffleMovie(QStringLiteral("movie-2")));
+    playShufflePick(controller, QStringLiteral("movie-1"), QString());
+    const bool autoRecover = config.getAutoRecoverPlayback();
+    const auto restoreAutoRecover = qScopeGuard([&config, autoRecover]() {
+        config.setAutoRecoverPlayback(autoRecover);
+    });
+    config.setAutoRecoverPlayback(true);
+    controller.m_lastErrorWasNetworkRecoverable = true;
+    controller.m_pendingUrl = QStringLiteral("https://example.invalid/movie-1");
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::Error);
+    QVERIFY(controller.m_recoveryContext.valid);
+    QVERIFY(controller.m_recoveryContext.shuffle);
+    QVERIFY(controller.shuffleActive());
+    controller.resetTerminalTransitionState(true);
+    controller.m_playbackState = PlayerController::Error;
+    controller.clearError();
+    QVERIFY(!controller.shuffleActive());
+    controller.m_pendingPlaybackRequests.clear();
+}
+
+void PlayerControllerAutoplayContextTest::shuffleNextInPlaybackSkipsThePick()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    libraryService.activeConnectionIdValue = QStringLiteral("connection-1");
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-1")),
+                                 shuffleEpisode(QStringLiteral("episode-2"), QStringLiteral("season-1"), 1));
+    playShufflePick(controller, QStringLiteral("movie-1"), QString());
+    controller.m_currentPosition = 10.0;
+    // A pick asks no season listings for episode controls.
+    QVERIFY(libraryService.itemQueries.isEmpty());
+
+    controller.skipToNextEpisode();
+    QCOMPARE(libraryService.advancedShuffleFrom, QStringList{QStringLiteral("movie-1")});
+    // Next is disabled while the shuffle moves on.
+    QVERIFY(!controller.hasNextEpisode());
+    controller.skipToNextEpisode();
+    QCOMPARE(libraryService.advancedShuffleFrom.size(), 1);
+    libraryService.answerShuffle(shuffleEpisode(QStringLiteral("episode-2"), QStringLiteral("season-1"), 1),
+                                 shuffleMovie(QStringLiteral("movie-3")));
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    const auto pending = controller.m_pendingPlaybackRequests.constBegin().value();
+    QCOMPARE(pending.itemId, QStringLiteral("episode-2"));
+    QCOMPARE(pending.startPositionMs, qint64(0));
+    QVERIFY(pending.shuffle);
+    // The previous control never steps back through a shuffle.
+    controller.skipToPreviousEpisode();
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    // bloom-next-item from mpv's input.conf is the same Next.
+    playShufflePick(controller, QStringLiteral("episode-2"), QStringLiteral("series-1"));
+    QMetaObject::invokeMethod(&controller, "onScriptMessage", Qt::DirectConnection,
+                              Q_ARG(QString, QStringLiteral("bloom-next-item")),
+                              Q_ARG(QStringList, QStringList{}));
+    QCOMPARE(libraryService.advancedShuffleFrom.size(), 2);
+    controller.stopShuffle();
+    controller.m_pendingPlaybackRequests.clear();
+}
+
+void PlayerControllerAutoplayContextTest::shuffleCountsTowardsStillWatching()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(true);
+    config.setStillWatchingEpisodeThreshold(2);
+    config.setPlaybackCompletionThreshold(90);
+    const auto restoreConfig = qScopeGuard([&config]() {
+        config.setStillWatchingEpisodeThreshold(3);
+    });
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    libraryService.activeConnectionIdValue = QStringLiteral("connection-1");
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+    QSignalSpy upNext(&controller, &PlayerController::shuffleUpNextRequested);
+
+    QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-1")),
+                                 shuffleMovie(QStringLiteral("movie-2")));
+    QCOMPARE(controller.autoplayChainCount(), 0);
+    const auto finishPick = [&](const QString &itemId) {
+        playShufflePick(controller, itemId, QString());
+        controller.requestTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+        QCoreApplication::processEvents();
+        QCoreApplication::processEvents();
+    };
+
+    // Two countdowns in a row start picks with no input...
+    for (int pick = 1; pick <= 2; ++pick) {
+        finishPick(QStringLiteral("movie-%1").arg(pick));
+        QCOMPARE(upNext.size(), pick);
+        QVERIFY(upNext.last().at(1).toBool());
+        QVERIFY(!controller.stillWatchingPromptActive());
+        controller.playShuffleNext(true);
+        libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-%1").arg(pick + 1)),
+                                     shuffleMovie(QStringLiteral("movie-%1").arg(pick + 2)));
+        QCOMPARE(controller.autoplayChainCount(), pick);
+    }
+    // ...so the next Up Next asks instead of counting down.
+    finishPick(QStringLiteral("movie-3"));
+    QCOMPARE(upNext.size(), 3);
+    QVERIFY(!upNext.last().at(1).toBool());
+    QVERIFY(controller.stillWatchingPromptActive());
+
+    // Continue is a manual start.
+    controller.playShuffleNext(false);
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-4")),
+                                 shuffleMovie(QStringLiteral("movie-5")));
+    QCOMPARE(controller.autoplayChainCount(), 0);
+    QVERIFY(!controller.stillWatchingPromptActive());
+
+    // Stop on the prompt ends the shuffle.
+    controller.stopShuffle();
+    QVERIFY(!controller.shuffleActive());
+    QCOMPARE(libraryService.deletedShuffleIds, QStringList{QStringLiteral("shuffle-1")});
+    controller.m_pendingPlaybackRequests.clear();
+}
+
+void PlayerControllerAutoplayContextTest::shuffleSleepTimerEndsOrCarries()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(true);
+    config.setPlaybackCompletionThreshold(90);
+    const auto restoreConfig = qScopeGuard([&config]() {
+        config.setSleepTimerDefault(0);
+    });
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    libraryService.activeConnectionIdValue = QStringLiteral("connection-1");
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    // "End of this movie" lets the pick finish, then the shuffle ends.
+    QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-1")),
+                                 shuffleMovie(QStringLiteral("movie-2")));
+    playShufflePick(controller, QStringLiteral("movie-1"), QString());
+    controller.setSleepTimer(Bloom::PlaybackPolicy::kSleepTimerEndOfItem);
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(!controller.m_shuffleUpNextPending);
+    QVERIFY(!controller.shuffleActive());
+    QCOMPARE(controller.sleepTimerChoice(), 0);
+    controller.resetTerminalTransitionState(true);
+
+    // A duration runs on through the shuffle's Up Next with the time it
+    // had left.
+    QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-1")),
+                                 shuffleMovie(QStringLiteral("movie-2")));
+    playShufflePick(controller, QStringLiteral("movie-1"), QString());
+    controller.setSleepTimer(45);
+    controller.m_sleepTimerRemainingSeconds = 600;
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(controller.m_shuffleUpNextPending);
+    QCOMPARE(controller.sleepTimerChoice(), 45);
+    controller.resetTerminalTransitionState(true);
+    controller.m_shuffleUpNextPending = false;
+    controller.playShuffleNext(true);
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-2")),
+                                 shuffleMovie(QStringLiteral("movie-3")));
+    QCOMPARE(controller.sleepTimerChoice(), 45);
+    QCOMPARE(controller.sleepTimerRemainingSeconds(), 600);
+
+    // The grace countdown ending playback ends the shuffle.
+    playShufflePick(controller, QStringLiteral("movie-2"), QString());
+    controller.m_sleepTimerGraceActive = true;
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(!controller.shuffleActive());
+    controller.resetTerminalTransitionState(true);
+    controller.m_pendingPlaybackRequests.clear();
+}
+
+void PlayerControllerAutoplayContextTest::completedShuffledMovieOpensShuffleUpNextNotAfterMovie()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(true);
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    libraryService.activeConnectionIdValue = QStringLiteral("connection-1");
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+    QSignalSpy upNext(&controller, &PlayerController::shuffleUpNextRequested);
+    QSignalSpy afterMovie(&controller, &PlayerController::navigateToAfterMovie);
+
+    QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+    libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-1")),
+                                 shuffleMovie(QStringLiteral("movie-2")));
+    QVERIFY(controller.m_pendingPlaybackRequests.constBegin().value().isMovie);
+    playShufflePick(controller, QStringLiteral("movie-1"), QString());
+    controller.m_currentIsMovie = true;
+    controller.m_playbackAttemptId = 7;
+
+    // A shuffled movie that completes leads into the shuffle's Up Next, not
+    // the after-movie screen, and parks no after-movie restore.
+    controller.requestTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
+    QVERIFY(controller.m_pendingAfterMovie.isEmpty());
+    QTRY_COMPARE(upNext.size(), 1);
+    QCOMPARE(upNext.first().at(0).toMap().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("movie-2"));
+    QCOMPARE(afterMovie.size(), 0);
+    QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    QCOMPARE(controller.m_afterMovieRestoreAttemptId, 0ULL);
+    QVERIFY(!controller.m_afterMovieRestoreTimer->isActive());
+
+    // Close ends the shuffle and releases the parked display restore.
+    controller.m_deferredPostPlaybackDisplayRestorePending = true;
+    controller.m_deferredPostPlaybackNeedsHdrRestore = true;
+    controller.stopShuffle();
+    controller.releaseDeferredPostPlaybackDisplayRestore();
+    QVERIFY(!controller.shuffleActive());
+    QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
+    QCoreApplication::processEvents();
+    QCOMPARE(afterMovie.size(), 0);
+    controller.m_pendingPlaybackRequests.clear();
+}
+
+void PlayerControllerAutoplayContextTest::shufflePickKeepsItsResumePoint()
+{
+    // Silo keeps the shuffle on the server; Jellyfin's is local. Either way
+    // the pick's old resume point (15:00) survives a pick played from 0:00.
+    for (const bool server : {true, false}) {
+        ConfigManager config;
+        config.setPlaybackCompletionThreshold(90);
+        TrackPreferencesManager trackPrefs;
+        DisplayManager displayManager(&config);
+        AuthenticationService authService(nullptr);
+        FakePlaybackService playbackService(&authService);
+        FakeLibraryService libraryService(&authService);
+        libraryService.activeConnectionIdValue = QStringLiteral("connection-1");
+        libraryService.serverShuffle = server;
+        FakePlayerBackend backend;
+        PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                    &playbackService, &libraryService, &authService);
+
+        QVERIFY(controller.startShuffle(kSeriesShuffleScope));
+        if (server) {
+            libraryService.answerShuffle(shuffleMovie(QStringLiteral("movie-7")),
+                                         shuffleMovie(QStringLiteral("movie-8")));
+        } else {
+            libraryService.answerShufflePage({shuffleMovie(QStringLiteral("movie-7")),
+                                              shuffleMovie(QStringLiteral("movie-8"))},
+                                             2);
+        }
+        QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+        QCOMPARE(controller.m_pendingPlaybackRequests.constBegin().value().itemId,
+                 QStringLiteral("movie-7"));
+        QCOMPARE(controller.m_pendingPlaybackRequests.constBegin().value().startPositionMs, qint64(0));
+        controller.m_pendingPlaybackRequests.clear();
+
+        controller.m_currentItemId = QStringLiteral("movie-7");
+        controller.m_currentIsShuffle = true;
+        controller.m_playSessionId = QStringLiteral("play-session-1");
+        controller.m_duration = 6000.0;
+        controller.m_playbackState = PlayerController::Playing;
+
+        // At 1:00 of 100:00, under Jellyfin's 5 % minimum (which would clear
+        // the resume point), reports carry 15:00.
+        controller.onPositionChanged(60.0);
+        controller.reportPlaybackProgress();
+        QCOMPARE(playbackService.progressReports.last().positionMs, qint64(900000));
+        // Stopping there keeps it too.
+        controller.reportPlaybackStop();
+        QCOMPARE(playbackService.progressReports.last().positionMs, qint64(900000));
+        QCOMPARE(playbackService.stoppedReports.last().positionMs, qint64(900000));
+        controller.m_hasReportedStopForAttempt = false;
+
+        // Past the old point reports follow playback, even after a seek back.
+        controller.onPositionChanged(1000.0);
+        controller.reportPlaybackProgress();
+        QCOMPARE(playbackService.progressReports.last().positionMs, qint64(1000000));
+        controller.onPositionChanged(30.0);
+        controller.reportPlaybackProgress();
+        QCOMPARE(playbackService.progressReports.last().positionMs, qint64(30000));
+
+        // A completed pick reports where it ended, so it counts as played.
+        controller.onPositionChanged(5900.0);
+        controller.reportPlaybackStop();
+        QCOMPARE(playbackService.stoppedReports.last().positionMs, qint64(5900000));
+
+        // Outside a shuffle nothing is held back.
+        controller.m_hasReportedStopForAttempt = false;
+        controller.m_currentIsShuffle = false;
+        controller.m_shuffleResumeFloorMs = 900000;
+        controller.onPositionChanged(60.0);
+        controller.reportPlaybackStop();
+        QCOMPARE(playbackService.stoppedReports.last().positionMs, qint64(60000));
+        controller.stopShuffle();
+    }
 }
 
 QTEST_MAIN(PlayerControllerAutoplayContextTest)
