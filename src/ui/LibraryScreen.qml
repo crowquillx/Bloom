@@ -597,6 +597,10 @@ FocusScope {
         if (StackView.status === StackView.Active) {
             console.log("[LibraryScreen] Screen activated, transferring focus to content")
             reloadSharedDetails()
+            // Silo artwork URLs expire; collections shown a while ago are
+            // read again in place.
+            if (showingCollections)
+                libraryCollections.refreshIfStale()
             if (pendingEpisodeData) {
                 var episodeData = pendingEpisodeData
                 pendingEpisodeData = null
@@ -1161,6 +1165,11 @@ FocusScope {
                             var collections = libraryCollections.count
                             if (collections <= 0)
                                 return ""
+                            // The server could not keep the list to this
+                            // library (LibraryCollectionsViewModel.serverWide).
+                            if (libraryCollections.serverWide)
+                                return collections === 1 ? qsTr("1 collection on this server")
+                                                         : qsTr("%1 collections on this server").arg(collections)
                             return collections === 1 ? qsTr("1 collection")
                                                      : qsTr("%1 collections").arg(collections)
                         }
@@ -2300,10 +2309,21 @@ FocusScope {
                     }
                 }
 
-                onCurrentIndexChanged: {
-                    if (libraryCollections.hasMore && currentIndex >= count - columns * 2)
+                // Focus and wheel or touchpad scrolling both page: the
+                // latter moves contentY without changing currentIndex.
+                function loadMoreIfNearEnd() {
+                    if (!showingCollections || !libraryCollections.hasMore
+                            || libraryCollections.loadingMore || count === 0)
+                        return
+                    var focusNearEnd = currentIndex >= count - columns * 2
+                    var visibleEnd = contentY - originY + height
+                    if (focusNearEnd || visibleEnd >= contentHeight - cellHeight * 2)
                         libraryCollections.loadMore()
                 }
+                onCurrentIndexChanged: loadMoreIfNearEnd()
+                onContentYChanged: loadMoreIfNearEnd()
+                onContentHeightChanged: Qt.callLater(loadMoreIfNearEnd)
+                onHeightChanged: Qt.callLater(loadMoreIfNearEnd)
 
                 delegate: Item {
                     id: collectionCell
@@ -2320,11 +2340,13 @@ FocusScope {
                                          ? LibraryService.getCachedArtworkUrlFromRef(collectionCell.collectionData.primaryArtwork, 640)
                                          : ""]
                         title: collectionCell.collectionData.name || ""
+                        // The server's count can include more than movies and
+                        // shows (a Jellyfin box set's episodes, say).
                         subtitle: {
                             var count = collectionCell.collectionData.itemCount
                             if (count === undefined || count < 0)
                                 return ""
-                            return count === 1 ? qsTr("1 title") : qsTr("%1 titles").arg(count)
+                            return count === 1 ? qsTr("1 item") : qsTr("%1 items").arg(count)
                         }
                         placeholderIcon: Icons.videoLibrary
                         focused: collectionCell.GridView.isCurrentItem && collectionsGrid.activeFocus

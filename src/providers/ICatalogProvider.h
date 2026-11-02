@@ -219,6 +219,19 @@ enum class ProviderCatalogRetrySafety {
     Idempotent
 };
 
+// What a LibraryCollections read covers. Library: the collections that hold
+// titles of query.parentId, as the server scopes them (Silo; Jellyfin
+// API 12+). LibraryScan: one page of query.parentId's titles collapsed into
+// their box sets, which the caller filters to box sets (Jellyfin before
+// API 12, whose BoxSet query ignores ParentId). Ids: the collections listed
+// in query.itemIds. Server: every collection on the server.
+enum class ProviderCollectionScope {
+    Library,
+    LibraryScan,
+    Ids,
+    Server
+};
+
 enum class ProviderCatalogTriState {
     Any,
     Yes,
@@ -298,8 +311,10 @@ struct ProviderCatalogQuery {
     QString shuffleId;
     QString shuffleContentId;
     // Collections: the canonical collectionKind of the collection itemId
-    // names ("library" or "user" on Silo, "boxSet" on Jellyfin).
+    // names ("library" or "user" on Silo, "boxSet" on Jellyfin), and what
+    // a LibraryCollections read covers.
     QString collectionKind;
+    ProviderCollectionScope collectionScope = ProviderCollectionScope::Library;
 
     ProviderCatalogTriState watched = ProviderCatalogTriState::Any;
     ProviderCatalogTriState favorite = ProviderCatalogTriState::Any;

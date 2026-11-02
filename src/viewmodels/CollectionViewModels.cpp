@@ -5,6 +5,9 @@
 #include "../network/LibraryService.h"
 #include "../utils/BloomLogging.h"
 
+#include <QDateTime>
+#include <QHash>
+
 namespace {
 
 namespace Collections = Bloom::MediaCollections;
@@ -104,6 +107,7 @@ void LibraryCollectionsViewModel::load(const QString &libraryId)
         m_libraryService ? m_libraryService->getActiveConnectionId() : QString();
     if (libraryId == m_libraryId && connectionId == m_connectionId
         && (m_loaded || m_firstPagePending)) {
+        refreshIfStale();
         return;
     }
     m_libraryId = libraryId;
@@ -114,6 +118,9 @@ void LibraryCollectionsViewModel::load(const QString &libraryId)
 void LibraryCollectionsViewModel::reload()
 {
     m_requestKey.clear();
+    m_refreshKey.clear();
+    m_serverWide = false;
+    m_loadedAtMs = 0;
     m_connectionId = m_libraryService ? m_libraryService->getActiveConnectionId() : QString();
     emit libraryIdChanged();
     emit availableChanged();
@@ -149,6 +156,9 @@ void LibraryCollectionsViewModel::loadMore()
 void LibraryCollectionsViewModel::clear()
 {
     m_requestKey.clear();
+    m_refreshKey.clear();
+    m_serverWide = false;
+    m_loadedAtMs = 0;
     m_firstPagePending = false;
     m_libraryId.clear();
     m_connectionId.clear();
@@ -196,20 +206,84 @@ void LibraryCollectionsViewModel::requestPage()
                                             m_requestKey);
 }
 
+void LibraryCollectionsViewModel::refreshIfStale()
+{
+    if (!m_libraryService || !m_loaded || m_firstPagePending || !m_refreshKey.isEmpty()
+        || m_collections.isEmpty() || m_loadedAtMs <= 0
+        || m_libraryService->getActiveConnectionId() != m_connectionId
+        || QDateTime::currentMSecsSinceEpoch() - m_loadedAtMs < StaleAfterMs) {
+        return;
+    }
+    m_refreshStartIndex = 0;
+    m_refreshPendingIds = m_collectionIds;
+    requestRefreshPage();
+}
+
+void LibraryCollectionsViewModel::requestRefreshPage()
+{
+    m_refreshKey = nextRequestKey("collections-refresh");
+    // May answer synchronously.
+    m_libraryService->getLibraryCollections(m_libraryId, m_refreshStartIndex, PageSize,
+                                            m_refreshKey);
+}
+
+// Rows keep their place; only the maps (and their artwork) are replaced.
+void LibraryCollectionsViewModel::onRefreshed(const QVariantList &collections, bool hasMore)
+{
+    m_refreshStartIndex += static_cast<int>(collections.size());
+    QHash<QString, QVariantMap> fresh;
+    for (const QVariant &value : collections) {
+        const QVariantMap collection = value.toMap();
+        if (Collections::isCollection(collection)) {
+            fresh.insert(collection.value(QStringLiteral("collectionId")).toString(), collection);
+        }
+    }
+    for (qsizetype row = 0; row < m_collections.size() && !fresh.isEmpty(); ++row) {
+        const QString id =
+            m_collections.at(row).toMap().value(QStringLiteral("collectionId")).toString();
+        const auto it = fresh.constFind(id);
+        if (it == fresh.cend()) {
+            continue;
+        }
+        m_collections[row] = it.value();
+        m_refreshPendingIds.remove(id);
+        fresh.erase(it);
+        const QModelIndex changed = index(static_cast<int>(row));
+        emit dataChanged(changed, changed);
+    }
+    if (hasMore && !collections.isEmpty() && !m_refreshPendingIds.isEmpty()) {
+        requestRefreshPage();
+        return;
+    }
+    m_refreshKey.clear();
+    m_loadedAtMs = QDateTime::currentMSecsSinceEpoch();
+}
+
 void LibraryCollectionsViewModel::onLoaded(const QString &connectionId,
                                            const QString &libraryId,
                                            const QString &requestKey,
                                            const QVariantList &collections,
-                                           int totalRecordCount, bool hasMore)
+                                           int totalRecordCount, bool hasMore,
+                                           bool serverWide)
 {
     Q_UNUSED(totalRecordCount)
-    if (requestKey.isEmpty() || requestKey != m_requestKey || libraryId != m_libraryId
-        || connectionId != m_connectionId) {
+    if (requestKey.isEmpty() || libraryId != m_libraryId || connectionId != m_connectionId) {
+        return;
+    }
+    if (requestKey == m_refreshKey) {
+        onRefreshed(collections, hasMore);
+        return;
+    }
+    if (requestKey != m_requestKey) {
         return;
     }
     m_requestKey.clear();
+    if (m_firstPagePending) {
+        m_loadedAtMs = QDateTime::currentMSecsSinceEpoch();
+    }
     m_firstPagePending = false;
     m_loaded = true;
+    m_serverWide = serverWide;
     setLoadingMore(false);
     m_nextStartIndex += static_cast<int>(collections.size());
     // An empty page cannot advance; stop instead of asking again.
@@ -240,8 +314,16 @@ void LibraryCollectionsViewModel::onFailed(const QString &connectionId,
                                            const QString &requestKey,
                                            const QString &error)
 {
-    if (requestKey.isEmpty() || requestKey != m_requestKey || libraryId != m_libraryId
-        || connectionId != m_connectionId) {
+    if (requestKey.isEmpty() || libraryId != m_libraryId || connectionId != m_connectionId) {
+        return;
+    }
+    if (requestKey == m_refreshKey) {
+        // The rows stay; the next activation tries again.
+        qCWarning(lcViewModels) << "LibraryCollectionsViewModel: refresh failed:" << error;
+        m_refreshKey.clear();
+        return;
+    }
+    if (requestKey != m_requestKey) {
         return;
     }
     m_requestKey.clear();

@@ -373,7 +373,8 @@ QString refreshEndpoint(const Bloom::ArtworkRef &artwork)
                   QStringLiteral("/api/v2/catalog/items/%1").arg(encodedIdentity(artwork.itemId)))
             : QString();
     case Bloom::ArtworkOwnerKind::Collection:
-        // Read again with the collection list; nothing to refetch alone.
+        // No route reads one collection at the pin. A stale list is read
+        // again instead (LibraryCollectionsViewModel::refreshIfStale).
         return {};
     case Bloom::ArtworkOwnerKind::MediaItem:
         switch (artwork.kind) {

@@ -1273,17 +1273,12 @@ target_link_libraries(WatchHistoryViewModelTest
 
 add_test(NAME WatchHistoryViewModelTest COMMAND WatchHistoryViewModelTest)
 
+# No production target holds view models, so the view models' own sources
+# are compiled here; the services come from Bloom::Network.
 add_executable(CollectionViewModelsTest
     CollectionViewModelsTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/CollectionViewModels.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/ConnectionSessionPool.cpp
-    ${TEST_PROVIDER_BOUNDARY_SOURCES}
-    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
-    ${TEST_CONFIG_SOURCES}
 )
 
 target_include_directories(CollectionViewModelsTest PRIVATE
@@ -1293,6 +1288,7 @@ target_include_directories(CollectionViewModelsTest PRIVATE
 
 target_link_libraries(CollectionViewModelsTest
     PRIVATE
+        Bloom::Network
         Qt6::Core
         Qt6::Network
         Qt6::Concurrent

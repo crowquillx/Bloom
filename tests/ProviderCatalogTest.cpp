@@ -1031,7 +1031,8 @@ void ProviderCatalogTest::jellyfinCollectionRequestsAndMapping()
         return true;
     };
 
-    // A library's collections: its box sets, by name, a page at a time.
+    // A library's collections (API 12, which keeps a BoxSet query under a
+    // library to that library's box sets): by name, a page at a time.
     ProviderCatalogQuery query;
     query.userId = QStringLiteral("user-1");
     query.parentId = QStringLiteral("library-1");
@@ -1051,8 +1052,83 @@ void ProviderCatalogTest::jellyfinCollectionRequestsAndMapping()
     QCOMPARE(libraryQuery.queryItemValue(QStringLiteral("StartIndex")), QStringLiteral("100"));
     QCOMPARE(libraryQuery.queryItemValue(QStringLiteral("Limit")), QStringLiteral("100"));
     QVERIFY(verifyCurrent(libraryUrl.path(), libraryQuery));
+    QVERIFY(!libraryQuery.hasQueryItem(QStringLiteral("CollapseBoxSetItems")));
+
+    // Before API 12: the library's titles, collapsed into their box sets,
+    // with nothing but Type and Id.
+    query.collectionScope = ProviderCollectionScope::LibraryScan;
+    query.startIndex = 1000;
+    query.limit = 1000;
+    const ProviderCatalogRequest scan =
+        catalog->createRequest(ProviderCatalogOperation::LibraryCollections, query);
+    QVERIFY2(scan.supported, qPrintable(scan.unsupportedReason));
+    QCOMPARE(scan.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    const QUrl scanUrl(scan.relativeEndpoint);
+    QCOMPARE(scanUrl.path(), QStringLiteral("/Items"));
+    const QUrlQuery scanQuery(scanUrl);
+    QCOMPARE(scanQuery.queryItemValue(QStringLiteral("ParentId")), QStringLiteral("library-1"));
+    QCOMPARE(scanQuery.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Movie,Series"));
+    QCOMPARE(scanQuery.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
+    QCOMPARE(scanQuery.queryItemValue(QStringLiteral("CollapseBoxSetItems")), QStringLiteral("true"));
+    QCOMPARE(scanQuery.queryItemValue(QStringLiteral("EnableImages")), QStringLiteral("false"));
+    QCOMPARE(scanQuery.queryItemValue(QStringLiteral("EnableUserData")), QStringLiteral("false"));
+    QVERIFY(!scanQuery.hasQueryItem(QStringLiteral("Fields")));
+    QCOMPARE(scanQuery.queryItemValue(QStringLiteral("StartIndex")), QStringLiteral("1000"));
+    QCOMPARE(scanQuery.queryItemValue(QStringLiteral("Limit")), QStringLiteral("1000"));
+    QVERIFY(verifyCurrent(scanUrl.path(), scanQuery));
+    // Only the box set rows of a scan page are collections.
+    const ProviderCatalogResponse scanned = catalog->parseResponse(
+        ProviderCatalogOperation::LibraryCollections,
+        QByteArrayLiteral(R"({"Items":[{"Id":"m1","Name":"Heat","Type":"Movie"},)"
+                          R"({"Id":"s1","Name":"Lost","Type":"Series"},)"
+                          R"({"Id":"b7","Name":"Alien Collection","Type":"BoxSet"}],)"
+                          R"("TotalRecordCount":3,"StartIndex":0})"));
+    QVERIFY(scanned.valid);
+    QCOMPARE(scanned.total, 3);
+    const QVariantList scannedCollections =
+        adapter.mapCollections(scanned.rawItems, QStringLiteral("connection-1"));
+    QCOMPARE(scannedCollections.size(), 1);
+    QCOMPARE(scannedCollections.first().toMap().value(QStringLiteral("collectionId")).toString(),
+             QStringLiteral("b7"));
+
+    // The box sets a scan found, by ID, with their artwork.
+    query.collectionScope = ProviderCollectionScope::Ids;
     query.parentId.clear();
+    query.itemIds = {QStringLiteral("b7"), QStringLiteral("b8")};
+    const ProviderCatalogRequest byId =
+        catalog->createRequest(ProviderCatalogOperation::LibraryCollections, query);
+    QVERIFY2(byId.supported, qPrintable(byId.unsupportedReason));
+    const QUrl byIdUrl(byId.relativeEndpoint);
+    const QUrlQuery byIdQuery(byIdUrl);
+    QCOMPARE(byIdQuery.queryItemValue(QStringLiteral("Ids")), QStringLiteral("b7,b8"));
+    QCOMPARE(byIdQuery.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("BoxSet"));
+    QCOMPARE(byIdQuery.queryItemValue(QStringLiteral("Limit")), QStringLiteral("2"));
+    QVERIFY(!byIdQuery.hasQueryItem(QStringLiteral("ParentId")));
+    QVERIFY(!byIdQuery.hasQueryItem(QStringLiteral("StartIndex")));
+    QVERIFY(verifyCurrent(byIdUrl.path(), byIdQuery));
+    query.itemIds.clear();
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryCollections, query).supported);
+
+    // Every box set on the server, the fallback when a scan cannot scope.
+    query.collectionScope = ProviderCollectionScope::Server;
+    query.startIndex = 0;
+    query.limit = 100;
+    const ProviderCatalogRequest server =
+        catalog->createRequest(ProviderCatalogOperation::LibraryCollections, query);
+    QVERIFY2(server.supported, qPrintable(server.unsupportedReason));
+    const QUrl serverUrl(server.relativeEndpoint);
+    const QUrlQuery serverQuery(serverUrl);
+    QCOMPARE(serverQuery.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("BoxSet"));
+    QVERIFY(!serverQuery.hasQueryItem(QStringLiteral("ParentId")));
+    QVERIFY(!serverQuery.hasQueryItem(QStringLiteral("Ids")));
+    QVERIFY(verifyCurrent(serverUrl.path(), serverQuery));
+
+    // Library scopes need the library.
+    query.collectionScope = ProviderCollectionScope::Library;
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryCollections, query).supported);
+    query.collectionScope = ProviderCollectionScope::LibraryScan;
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryCollections, query).supported);
+    query.collectionScope = ProviderCollectionScope::Library;
 
     // One box set's movies and series, in its own order or a chosen sort.
     query.itemId = QStringLiteral("boxset-1");
@@ -1152,6 +1228,9 @@ void ProviderCatalogTest::siloCollectionRequestsAndMapping()
     QCOMPARE(tab.retrySafety, ProviderCatalogRetrySafety::Idempotent);
     QCOMPARE(tab.relativeEndpoint, QStringLiteral("/api/v2/library/lib%2F1/collections"));
     QVERIFY(!provider.createRequest(ProviderCatalogOperation::LibraryCollections, {}).supported);
+    // The server scopes the tab to the library; it has no other scope.
+    query.collectionScope = ProviderCollectionScope::Server;
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::LibraryCollections, query).supported);
 
     // A collection's titles page through the catalog, by its kind's source.
     query = {};

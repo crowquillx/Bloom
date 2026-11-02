@@ -19,7 +19,8 @@ import BloomUI
  * Keys: Sort is the top-most control; Up from it reaches the navigation
  * bar, Down enters the grid, Up from the grid's first row returns to it.
  * Enter opens a title on its details page; Back returns here with focus on
- * that title. The grid reads further pages as focus nears its end.
+ * that title. The grid reads further pages as focus or scrolling nears its
+ * end.
  */
 FocusScope {
     id: root
@@ -42,7 +43,8 @@ FocusScope {
 
     // Same request width as library and Search posters (shared cache entries).
     readonly property int posterRequestWidth: 640
-    // Read the next page when focus is within two rows of the end.
+    // Read the next page when focus or the visible end is within two rows
+    // of the loaded titles' end.
     readonly property int loadMoreRows: 2
 
     /// The header collapses (and the navigation bar recedes) once the grid
@@ -64,6 +66,9 @@ FocusScope {
     property Item lastFocusTarget: null
     property string stageSource: ""
     property string pendingStageSource: ""
+    /// Until the first page settles, Sort only stands in for the grid: the
+    /// first title takes focus once titles arrive, unless focus moved on.
+    property bool initialFocusPending: true
 
     CollectionViewModel {
         id: viewModel
@@ -186,9 +191,16 @@ FocusScope {
         return false
     }
 
-    // The grid once titles arrive, else Retry, else Sort.
+    // The grid once titles arrive, else Retry, else Sort. Sort holding focus
+    // from before the first page counts as no choice yet.
     function focusInitialTarget() {
-        if (!root.activeFocus || hasFocusInside() || (viewModel.isLoading && !root.hasTitles))
+        if (viewModel.isLoading && !root.hasTitles)
+            return
+        var pending = initialFocusPending
+        initialFocusPending = false
+        if (!root.activeFocus)
+            return
+        if (hasFocusInside() && !(pending && sortButton.activeFocus))
             return
         focusContent()
     }
@@ -410,10 +422,21 @@ FocusScope {
             readonly property int cardWidth: Math.round(cellWidth - Theme.cardGap)
             cellHeight: Math.round(cardWidth * 3 / 2) + Theme.cardCaptionHeight + Theme.cardGap
 
-            onCurrentIndexChanged: {
-                if (viewModel.hasMore && currentIndex >= count - columns * root.loadMoreRows)
+            // Focus and wheel or touchpad scrolling both page: the latter
+            // moves contentY without changing currentIndex.
+            function loadMoreIfNearEnd() {
+                if (!viewModel.hasMore || viewModel.loadingMore || count === 0)
+                    return
+                var focusNearEnd = currentIndex >= count - columns * root.loadMoreRows
+                var visibleEnd = contentY - originY + height
+                var viewNearEnd = visibleEnd >= contentHeight - cellHeight * root.loadMoreRows
+                if (focusNearEnd || viewNearEnd)
                     viewModel.loadMore()
             }
+            onCurrentIndexChanged: loadMoreIfNearEnd()
+            onContentYChanged: loadMoreIfNearEnd()
+            onContentHeightChanged: Qt.callLater(loadMoreIfNearEnd)
+            onHeightChanged: Qt.callLater(loadMoreIfNearEnd)
             onActiveFocusChanged: {
                 if (activeFocus) {
                     root.lastFocusTarget = titleGrid

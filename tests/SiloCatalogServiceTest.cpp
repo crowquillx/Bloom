@@ -172,6 +172,14 @@ public:
     {
     }
 
+    void seedJellyfin()
+    {
+        seedSession(QStringLiteral("https://jellyfin.example.test"),
+                    QStringLiteral("user-1"),
+                    QStringLiteral("token-1"),
+                    QStringLiteral("Alice"));
+    }
+
     void replaceAccount(const QString &accountId, const QString &accessToken)
     {
         seedSession(QStringLiteral("https://silo.example.test"),
@@ -233,6 +241,8 @@ private slots:
     void siloItemExtrasAnswerEmptyWithoutRequests();
     void personReadsMapCanonicalPeopleAndTitles();
     void collectionReadsMapCollectionsAndStopWithoutPartOf();
+    void jellyfinCollectionsBeforeApi12ScanTheLibrary();
+    void jellyfinCollectionsFromApi12AreServerScoped();
     void peopleSearchFollowsTheSearchCapability();
     void notInterestedRequestsAndCapabilityParse();
     void notInterestedServiceGatesOnProfileCapability();
@@ -2839,6 +2849,7 @@ void SiloCatalogServiceTest::collectionReadsMapCollectionsAndStopWithoutPartOf()
     QVERIFY(collection.value(QStringLiteral("primaryArtwork")).toMap()
                 .value(QStringLiteral("cacheKey")).toString().startsWith(QStringLiteral("artwork:")));
     QCOMPARE(libraryLoaded.first().at(5).toBool(), false);
+    QCOMPARE(libraryLoaded.first().at(6).toBool(), false);
 
     manager.responses = {{200, QByteArrayLiteral(
         R"({"items":[{"content_id":"m1","type":"movie","title":"Alien"},{"content_id":"e1","type":"episode","title":"Pilot"}],)"
@@ -2872,19 +2883,241 @@ void SiloCatalogServiceTest::collectionReadsMapCollectionsAndStopWithoutPartOf()
     QTRY_COMPARE_WITH_TIMEOUT(partOfFailed.count(), 1, 10000);
     QCOMPARE(partOfFailed.first().at(2).toString(), QStringLiteral("part-2"));
 
+    // A 404 is about that title: an empty answer, and the next title is
+    // still asked.
+    manager.responses = {{404, QByteArrayLiteral(R"({"title":"Not Found","status":404})"), false}};
+    service.getItemCollections(QStringLiteral("gone"), QStringLiteral("part-404"));
+    QTRY_COMPARE_WITH_TIMEOUT(partOfLoaded.count(), 2, 1000);
+    QCOMPARE(partOfLoaded.last().at(2).toString(), QStringLiteral("part-404"));
+    QVERIFY(partOfLoaded.last().at(3).toList().isEmpty());
+    QCOMPARE(partOfFailed.count(), 1);
+
     // A server without contains_item rejects it: an empty answer, then no
     // more reads for this connection.
     manager.responses = {{422, QByteArrayLiteral(R"({"title":"Unprocessable","status":422})"), false}};
     service.getItemCollections(QStringLiteral("m3"), QStringLiteral("part-3"));
-    QTRY_COMPARE_WITH_TIMEOUT(partOfLoaded.count(), 2, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(partOfLoaded.count(), 3, 1000);
     QVERIFY(partOfLoaded.last().at(3).toList().isEmpty());
     QCOMPARE(partOfFailed.count(), 1);
     const qsizetype sent = manager.requests.size();
     service.getItemCollections(QStringLiteral("m4"), QStringLiteral("part-4"));
-    QCOMPARE(partOfLoaded.count(), 3);
+    QCOMPARE(partOfLoaded.count(), 4);
     QCOMPARE(partOfLoaded.last().at(2).toString(), QStringLiteral("part-4"));
     QVERIFY(partOfLoaded.last().at(3).toList().isEmpty());
     QCOMPARE(manager.requests.size(), sent);
+}
+
+namespace {
+
+// A signed-in Jellyfin session on connection-jellyfin.
+struct JellyfinSession {
+    explicit JellyfinSession(const QString &configPath)
+        : isolation(configPath)
+        , transport(&manager)
+        , auth(&transport, &adapter)
+    {
+        ServerConnection connection;
+        connection.connectionId = QStringLiteral("connection-jellyfin");
+        connection.providerKind = ProviderKind::Jellyfin;
+        connection.protocolMode = ProtocolMode::Native;
+        connection.baseUrl = QStringLiteral("https://jellyfin.example.test");
+        connection.accountId = QStringLiteral("user-1");
+        connection.credentialReference = QStringLiteral("credential-jellyfin");
+        config.upsertConnection(connection, true);
+        auth.initialize(&config);
+        restored = QTest::qWaitFor([this]() { return !auth.isRestoringSession(); }, 1000);
+        auth.seedJellyfin();
+    }
+
+    ScopedConfigIsolation isolation;
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport;
+    JellyfinProviderAdapter adapter;
+    ExposedAuthenticationService auth;
+    bool restored = false;
+};
+
+QByteArray jellyfinItems(const QByteArray &items, int total, int startIndex = 0)
+{
+    return QByteArrayLiteral(R"({"Items":[)") + items + QByteArrayLiteral(R"(],"TotalRecordCount":)")
+        + QByteArray::number(total) + QByteArrayLiteral(R"(,"StartIndex":)")
+        + QByteArray::number(startIndex) + QByteArrayLiteral("}");
+}
+
+QStringList collectionNames(const QVariantList &collections)
+{
+    QStringList names;
+    for (const QVariant &value : collections) {
+        names.append(value.toMap().value(QStringLiteral("name")).toString());
+    }
+    return names;
+}
+
+} // namespace
+
+// Jellyfin 10.11 drops ParentId from a BoxSet-only query, so a library's
+// box sets come from its titles collapsed into box sets, read once and
+// kept. A scan that finds none, or a library too large to scan, answers
+// the server's list and says so. "Part of" is never asked before API 12.
+void SiloCatalogServiceTest::jellyfinCollectionsBeforeApi12ScanTheLibrary()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    JellyfinSession session(temporaryDirectory.path());
+    QVERIFY(session.restored);
+    QVERIFY(session.auth.isAuthenticated());
+    ControlledNetworkAccessManager &manager = session.manager;
+    LibraryService service(&session.auth);
+    QVERIFY(service.supportsCollections());
+    QCOMPARE(service.getActiveConnectionId(), QStringLiteral("connection-jellyfin"));
+    QSignalSpy loaded(&service, &LibraryService::canonicalLibraryCollectionsLoaded);
+    QSignalSpy failed(&service, &LibraryService::canonicalLibraryCollectionsFailed);
+    QSignalSpy partOf(&service, &LibraryService::canonicalItemCollectionsLoaded);
+
+    manager.responses = {
+        {200, QByteArrayLiteral(R"({"Version":"10.11.10","ProductName":"Jellyfin Server"})"), false},
+        // Titles in a box set come back as the box set.
+        {200, jellyfinItems(QByteArrayLiteral(
+             R"({"Id":"m1","Name":"Heat","Type":"Movie"},)"
+             R"({"Id":"b1","Name":"Zed Collection","Type":"BoxSet"},)"
+             R"({"Id":"b2","Name":"Alien Collection","Type":"BoxSet"})"), 5), false},
+        {200, jellyfinItems(QByteArrayLiteral(
+             R"({"Id":"b1","Name":"Zed Collection","Type":"BoxSet"},)"
+             R"({"Id":"m2","Name":"Ronin","Type":"Movie"})"), 5, 3), false},
+        {200, jellyfinItems(QByteArrayLiteral(
+             R"({"Id":"b2","Name":"Alien Collection","Type":"BoxSet","ChildCount":4,"ImageTags":{"Primary":"p2"}},)"
+             R"({"Id":"b1","Name":"Zed Collection","Type":"BoxSet","ChildCount":2})"), 2), false}};
+    const qsizetype first = manager.requests.size();
+    service.getLibraryCollections(QStringLiteral("lib-1"), 0, 100, QStringLiteral("k1"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 2000);
+    QCOMPARE(failed.count(), 0);
+    QCOMPARE(manager.requests.size(), first + 4);
+    QCOMPARE(manager.requests.at(first).request.url().path(), QStringLiteral("/System/Info/Public"));
+    for (int page = 1; page <= 2; ++page) {
+        const QUrl url = manager.requests.at(first + page).request.url();
+        const QUrlQuery scan(url);
+        QCOMPARE(url.path(), QStringLiteral("/Items"));
+        QCOMPARE(scan.queryItemValue(QStringLiteral("ParentId")), QStringLiteral("lib-1"));
+        QCOMPARE(scan.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Movie,Series"));
+        QCOMPARE(scan.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
+        QCOMPARE(scan.queryItemValue(QStringLiteral("CollapseBoxSetItems")), QStringLiteral("true"));
+        QCOMPARE(scan.queryItemValue(QStringLiteral("EnableImages")), QStringLiteral("false"));
+        QCOMPARE(scan.queryItemValue(QStringLiteral("EnableUserData")), QStringLiteral("false"));
+        QVERIFY(!scan.hasQueryItem(QStringLiteral("Fields")));
+        QCOMPARE(scan.queryItemValue(QStringLiteral("StartIndex")), page == 1 ? QStringLiteral("0")
+                                                                              : QStringLiteral("3"));
+        QCOMPARE(scan.queryItemValue(QStringLiteral("Limit")),
+                 QString::number(LibraryService::LibraryCollectionScanPageSize));
+    }
+    const QUrl byIdUrl = manager.requests.at(first + 3).request.url();
+    const QUrlQuery byId(byIdUrl);
+    QCOMPARE(byIdUrl.path(), QStringLiteral("/Items"));
+    QCOMPARE(byId.queryItemValue(QStringLiteral("Ids")), QStringLiteral("b1,b2"));
+    QCOMPARE(byId.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("BoxSet"));
+    QVERIFY(!byId.hasQueryItem(QStringLiteral("ParentId")));
+    QCOMPARE(loaded.first().at(0).toString(), QStringLiteral("connection-jellyfin"));
+    QCOMPARE(loaded.first().at(2).toString(), QStringLiteral("k1"));
+    QCOMPARE(collectionNames(loaded.first().at(3).toList()),
+             (QStringList{QStringLiteral("Alien Collection"), QStringLiteral("Zed Collection")}));
+    QCOMPARE(loaded.first().at(4).toInt(), 2);
+    QCOMPARE(loaded.first().at(5).toBool(), false);
+    QCOMPARE(loaded.first().at(6).toBool(), false);
+
+    // Later pages come from the kept scan.
+    service.getLibraryCollections(QStringLiteral("lib-1"), 1, 1, QStringLiteral("k2"));
+    QCOMPARE(loaded.count(), 2);
+    QCOMPARE(manager.requests.size(), first + 4);
+    QCOMPARE(collectionNames(loaded.last().at(3).toList()),
+             (QStringList{QStringLiteral("Zed Collection")}));
+    QCOMPARE(loaded.last().at(5).toBool(), false);
+
+    // "Part of" needs API 12: answered empty without a request.
+    service.getItemCollections(QStringLiteral("m1"), QStringLiteral("p1"));
+    QCOMPARE(partOf.count(), 1);
+    QVERIFY(partOf.last().at(3).toList().isEmpty());
+    QCOMPARE(manager.requests.size(), first + 4);
+
+    // No title collapsed (the server does not group movies into
+    // collections): the server's list, marked server-wide.
+    manager.responses = {
+        {200, jellyfinItems(QByteArrayLiteral(R"({"Id":"m3","Name":"Up","Type":"Movie"})"), 1), false},
+        {200, jellyfinItems(QByteArrayLiteral(R"({"Id":"b9","Name":"Pixar","Type":"BoxSet"})"), 1), false}};
+    service.getLibraryCollections(QStringLiteral("lib-2"), 0, 100, QStringLiteral("k3"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 3, 2000);
+    QCOMPARE(manager.requests.size(), first + 6);
+    const QUrlQuery serverList(manager.requests.last().request.url());
+    QCOMPARE(serverList.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("BoxSet"));
+    QVERIFY(!serverList.hasQueryItem(QStringLiteral("ParentId")));
+    QVERIFY(!serverList.hasQueryItem(QStringLiteral("Ids")));
+    QCOMPARE(collectionNames(loaded.last().at(3).toList()), QStringList{QStringLiteral("Pixar")});
+    QCOMPARE(loaded.last().at(6).toBool(), true);
+
+    // A library past the scan limit is not paged through.
+    manager.responses = {
+        {200, jellyfinItems(QByteArrayLiteral(R"({"Id":"m4","Name":"Big","Type":"Movie"})"),
+                            LibraryService::LibraryCollectionScanMaxTitles + 1), false},
+        {200, jellyfinItems(QByteArrayLiteral(R"({"Id":"b9","Name":"Pixar","Type":"BoxSet"})"), 1), false}};
+    service.getLibraryCollections(QStringLiteral("lib-3"), 0, 100, QStringLiteral("k4"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 4, 2000);
+    QCOMPARE(manager.requests.size(), first + 8);
+    QVERIFY(!QUrlQuery(manager.requests.last().request.url()).hasQueryItem(QStringLiteral("ParentId")));
+    QCOMPARE(loaded.last().at(6).toBool(), true);
+
+    // A failed scan fails the page and is tried again next time.
+    manager.responses = {{400, QByteArrayLiteral(R"({"title":"Bad"})"), false}};
+    service.getLibraryCollections(QStringLiteral("lib-4"), 0, 100, QStringLiteral("k5"));
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 2000);
+    QCOMPARE(failed.last().at(2).toString(), QStringLiteral("k5"));
+    QCOMPARE(manager.requests.size(), first + 9);
+}
+
+// From API 12 the server keeps a BoxSet query to the library's box sets,
+// and "Part of" is asked for every title: a 404 for one never stops it.
+void SiloCatalogServiceTest::jellyfinCollectionsFromApi12AreServerScoped()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    JellyfinSession session(temporaryDirectory.path());
+    QVERIFY(session.restored);
+    QVERIFY(session.auth.isAuthenticated());
+    ControlledNetworkAccessManager &manager = session.manager;
+    LibraryService service(&session.auth);
+    QSignalSpy loaded(&service, &LibraryService::canonicalLibraryCollectionsLoaded);
+    QSignalSpy partOf(&service, &LibraryService::canonicalItemCollectionsLoaded);
+    QSignalSpy partOfFailed(&service, &LibraryService::canonicalItemCollectionsFailed);
+
+    manager.responses = {
+        {200, QByteArrayLiteral(R"({"Version":"12.0.0","ProductName":"Jellyfin Server"})"), false},
+        {200, jellyfinItems(QByteArrayLiteral(R"({"Id":"b1","Name":"Alien Collection","Type":"BoxSet"})"), 1), false}};
+    const qsizetype first = manager.requests.size();
+    service.getLibraryCollections(QStringLiteral("lib-1"), 0, 100, QStringLiteral("k1"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 2000);
+    QCOMPARE(manager.requests.size(), first + 2);
+    const QUrlQuery boxSets(manager.requests.last().request.url());
+    QCOMPARE(boxSets.queryItemValue(QStringLiteral("ParentId")), QStringLiteral("lib-1"));
+    QCOMPARE(boxSets.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("BoxSet"));
+    QVERIFY(!boxSets.hasQueryItem(QStringLiteral("CollapseBoxSetItems")));
+    QCOMPARE(collectionNames(loaded.last().at(3).toList()),
+             QStringList{QStringLiteral("Alien Collection")});
+    QCOMPARE(loaded.last().at(6).toBool(), false);
+
+    // The version is read once per connection.
+    manager.responses = {
+        {404, QByteArrayLiteral(R"({"title":"Not Found"})"), false},
+        {200, QByteArrayLiteral(R"({"Items":[{"Id":"b1","Name":"Alien Collection","Type":"BoxSet"}],"TotalRecordCount":1})"), false}};
+    service.getItemCollections(QStringLiteral("gone"), QStringLiteral("p1"));
+    QTRY_COMPARE_WITH_TIMEOUT(partOf.count(), 1, 2000);
+    QCOMPARE(manager.requests.size(), first + 3);
+    QCOMPARE(manager.requests.last().request.url().path(), QStringLiteral("/Items/gone/Collections"));
+    QVERIFY(partOf.last().at(3).toList().isEmpty());
+    service.getItemCollections(QStringLiteral("m1"), QStringLiteral("p2"));
+    QTRY_COMPARE_WITH_TIMEOUT(partOf.count(), 2, 2000);
+    QCOMPARE(manager.requests.size(), first + 4);
+    QCOMPARE(manager.requests.last().request.url().path(), QStringLiteral("/Items/m1/Collections"));
+    QCOMPARE(collectionNames(partOf.last().at(3).toList()),
+             QStringList{QStringLiteral("Alien Collection")});
+    QCOMPARE(partOfFailed.count(), 0);
 }
 
 void SiloCatalogServiceTest::peopleSearchFollowsTheSearchCapability()

@@ -30,6 +30,12 @@ class LibraryService;
  * - `isLoading` covers the first page; its failure sets `hasError`. A
  *   failed later page keeps the rows and `hasMore`, so the next
  *   `loadMore()` tries again.
+ * - `serverWide` is true when the server could not scope the list to the
+ *   library, so it holds every collection on the server
+ *   (LibraryService::getLibraryCollections).
+ * - Silo artwork URLs expire. `refreshIfStale()` (and `load()` of the
+ *   library already shown) re-reads the loaded collections once they are
+ *   older than `StaleAfterMs`, replacing each row in place so focus stays.
  * - Answers for another library, connection or an older load are ignored.
  */
 class LibraryCollectionsViewModel : public BaseViewModel
@@ -42,6 +48,7 @@ class LibraryCollectionsViewModel : public BaseViewModel
     Q_PROPERTY(int count READ count NOTIFY collectionsChanged)
     Q_PROPERTY(bool hasMore READ hasMore NOTIFY collectionsChanged)
     Q_PROPERTY(bool loadingMore READ loadingMore NOTIFY loadingMoreChanged)
+    Q_PROPERTY(bool serverWide READ serverWide NOTIFY collectionsChanged)
 
 public:
     enum Roles {
@@ -53,6 +60,9 @@ public:
 
     /// Collections read per page.
     static constexpr int PageSize = 100;
+    /// Age after which shown collections are read again (Silo's signed
+    /// artwork URLs outlive it).
+    static constexpr qint64 StaleAfterMs = 10 * 60 * 1000;
 
     explicit LibraryCollectionsViewModel(QObject *parent = nullptr);
     explicit LibraryCollectionsViewModel(LibraryService *libraryService,
@@ -69,11 +79,16 @@ public:
     int count() const { return static_cast<int>(m_collections.size()); }
     bool hasMore() const { return m_hasMore; }
     bool loadingMore() const { return m_loadingMore; }
+    bool serverWide() const { return m_serverWide; }
 
     Q_INVOKABLE void load(const QString &libraryId);
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void reload() override;
     Q_INVOKABLE void clear();
+    /// Re-reads the loaded collections in place when they are stale.
+    Q_INVOKABLE void refreshIfStale();
+    /// Test hook: when the shown collections were read.
+    void setLoadedAtForTest(qint64 loadedAtMs) { m_loadedAtMs = loadedAtMs; }
     /// The canonical collection at `row`, or an empty map.
     Q_INVOKABLE QVariantMap get(int row) const;
     /// The row of the collection with this ID, or -1.
@@ -88,12 +103,14 @@ signals:
 private slots:
     void onLoaded(const QString &connectionId, const QString &libraryId,
                   const QString &requestKey, const QVariantList &collections,
-                  int totalRecordCount, bool hasMore);
+                  int totalRecordCount, bool hasMore, bool serverWide);
     void onFailed(const QString &connectionId, const QString &libraryId,
                   const QString &requestKey, const QString &error);
 
 private:
     void requestPage();
+    void requestRefreshPage();
+    void onRefreshed(const QVariantList &collections, bool hasMore);
     void setLoadingMore(bool loadingMore);
 
     LibraryService *m_libraryService = nullptr;
@@ -102,6 +119,13 @@ private:
     QVariantList m_collections;
     QSet<QString> m_collectionIds;
     bool m_loaded = false;
+    bool m_serverWide = false;
+    qint64 m_loadedAtMs = 0;
+    // A refresh in flight, where its next page starts, and the rows it has
+    // not replaced yet.
+    QString m_refreshKey;
+    int m_refreshStartIndex = 0;
+    QSet<QString> m_refreshPendingIds;
     bool m_firstPagePending = false;
     bool m_loadingMore = false;
     bool m_hasMore = false;

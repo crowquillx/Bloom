@@ -108,7 +108,7 @@ Rows load in the background with the other Home rows and refresh with them: afte
 
 Library pages offer the rows the profile curates for each library as shelves (`ProviderCapability::LibrarySections`, native Silo only). `LibraryService::getLibrarySections` reads `GET /api/v2/library/{id}/sections` (`listLibrarySections`) with the artwork widths and keeps the rows in the server's order. Every section type is kept, with only movie and series cards (`LibraryKinds`), once each per row; rows left empty are dropped. The read sends `item_limit=20` (or the server's smaller maximum) only when the Home capabilities report `section_item_limit_max`; it shares Home's cached capability read, so a connection reads the capabilities once for both, and a remembered cap the server rejects (`400`/`422`) is dropped and the rows are read once more without it. A row has more cards only when Bloom sent `item_limit`, the row came back with exactly that many items, and its `total_count` is larger (or it says `has_more`, which the pin sends only on Home reads). `total_count` alone is no such claim: it counts the section's whole set, past the section's own `item_limit`, which the items read does not exceed. Its other cards come from `GET /api/v2/library/{id}/sections/{section_id}/items` (`getLibrarySectionItems`), which takes no cap or cursor and answers the whole row, read once when focus nears the row's end. `getLibraryLayout` is not read: the sections read already carries each row's title, type and cards. Jellyfin has no curated library rows and shows only the grid.
 
-Collections are a browse view over a library's movies and series (`ProviderCapability::Collections`; see [canonical models](canonical-models.md#collections)). A library's Collections view reads `GET /api/v2/library/{id}/collections` (`getLibraryCollections`) once, whole: the tab lists curated collections in full in `collections`, and its display order in `groups` (each with a `sort_order`) and the optional `ungrouped` block. Bloom keeps that order (groups and the ungrouped block by `sort_order`, then any curated collection no group lists), takes the description and backdrop from the curated record and the poster from the card, and reads a card with `creator_profile_id`, or one in a `user_collections` group, as the viewer's opted-in personal collection. The route takes no artwork widths. A collection's titles page through `GET /api/v2/catalog` (`listCatalogItems`) with `source=library_collection` (curated) or `source=user_collection` (personal), `collection_id`, `type=video`, `limit=100` and the artwork widths, continuing by `page.next_cursor`; without `sort` the server keeps the collection's own order, and the page's Release date and Title send `sort=release_date` and `sort=title`. Only movie and series cards are kept. Bloom does not use `getLibraryCollectionItems`, which takes no sort and serves curated collections only. The "Part of" shelf on movie and series pages reads `GET /api/v2/collections?contains_item={id}` (`listCollections`), which marks `contains` only on the acting profile's own manual collections, and keeps those with `contains: true`; curated collections have no reverse lookup at the pin, so they never appear there. A server that rejects `contains_item` (it needs `getCollectionCapabilities.contains_item`) answers `422`, and Bloom asks no more for that connection.
+Collections are a browse view over a library's movies and series (`ProviderCapability::Collections`; see [canonical models](canonical-models.md#collections)). A library's Collections view reads `GET /api/v2/library/{id}/collections` (`getLibraryCollections`) once, whole: the tab lists curated collections in full in `collections`, and its display order in `groups` (each with a `sort_order`) and the optional `ungrouped` block. Bloom keeps that order (groups and the ungrouped block by `sort_order`, then any curated collection no group lists), takes the description and backdrop from the curated record and the poster from the card, and reads a card with `creator_profile_id`, or one in a `user_collections` group, as the viewer's opted-in personal collection. The route takes no artwork widths. A collection's titles page through `GET /api/v2/catalog` (`listCatalogItems`) with `source=library_collection` (curated) or `source=user_collection` (personal), `collection_id`, `type=video`, `limit=100` and the artwork widths, continuing by `page.next_cursor`; without `sort` the server keeps the collection's own order, and the page's Release date and Title send `sort=release_date` and `sort=title`. Only movie and series cards are kept. Bloom does not use `getLibraryCollectionItems`, which takes no sort and serves curated collections only. The "Part of" shelf on movie and series pages reads `GET /api/v2/collections?contains_item={id}` (`listCollections`), which marks `contains` only on the acting profile's own manual collections, and keeps those with `contains: true`; curated collections have no reverse lookup at the pin, so they never appear there. A server that rejects `contains_item` (it needs `getCollectionCapabilities.contains_item`) answers `422`, and Bloom asks no more for that connection until the session changes; a `404` for one title stops nothing. Collection artwork is signed and has no single-collection refetch at the pin, so a Collections view shown for over 10 minutes is read again in place when it is shown again (`LibraryCollectionsViewModel::refreshIfStale`).
 
 The library grid's A–Z rail covers the whole library in title order. Native Silo reads `POST /api/v2/catalog/letters` (`queryCatalogLetters`) only when `GET /api/v2/catalog/search/capabilities` (`getCatalogSearchCapabilities`) reports `state: available`, `allowed` and `letter_index`. It is the same profile-scoped document that gates scoped people search: `LibraryService` reads it once per connection and profile for both (`CatalogSearchCapabilities`, one cache entry with both flags), callers that ask while the read is in flight wait for it, and a sign-out, account or profile switch clears it. A server without the route (`404`, `405`, `501`) is remembered as having neither feature, and another failed read is not repeated for five minutes. The body carries the grid query's `library_id`, `match: all` and rule `groups` (the same groups `queryCatalogItems` gets, including the movie or series type rule) and `order: desc` for descending title order; the index takes no search text, cursor or limit, so a search keeps the loaded-rows rail. The operation is a read-only `natural_idempotent` POST, so the transport may replay it. Bloom keeps `letters` (`{letter, count, position}`) and `runs`; a jump sends the letter's `position` as `seek` with the window cursor, and `runs` tell which letter a list position is under. Entries without a letter, with no titles or with a negative position, and runs out of list order, are dropped. Silo's index can lag the list by titles added during a scan for up to two minutes; a window that answers fewer rows shortens the list.
 
@@ -348,19 +348,37 @@ not branch the core catalog/playback contract by server version. In particular:
   defaults `Limit` to 24) yields no index, and the rail keeps the letters of
   the loaded rows. A jump reads the window at the letter's position with
   `StartIndex`;
-- collections are box sets. A library's Collections view reads `GET /Items`
-  with `ParentId` (the library), `IncludeItemTypes=BoxSet`, `Recursive=true`,
-  `SortBy=SortName`, `Fields=Overview,ChildCount,PrimaryImageAspectRatio`,
-  `StartIndex` and `Limit=100`: a BoxSet-only query under a library folder
-  answers the box sets holding the library's titles, as Jellyfin's own movie
-  library Collections tab does, so the `boxsets` view itself stays out of the
-  library list. A box set's titles use `ParentId` (the box set) and
-  `IncludeItemTypes=Movie,Series`, with no `SortBy` for its own order, or
-  `PremiereDate,ProductionYear,SortName` or `SortName` ascending. The "Part
-  of" shelf reads `GET /Items/{itemId}/Collections` (`GetItemCollections`)
-  with `userId`, `fields` and `limit`. That route is new in API 12: the
-  10.11.10 control answers `404`, after which Bloom asks no more for that
-  connection, so the shelf appears only on Jellyfin 12;
+- collections are box sets. Bloom reads the server version once per
+  connection (`GET /System/Info/Public`) to scope a library's Collections
+  view. On API 12, it reads `GET /Items` with `ParentId` (the library),
+  `IncludeItemTypes=BoxSet`, `Recursive=true`, `SortBy=SortName`,
+  `Fields=Overview,ChildCount,PrimaryImageAspectRatio`, `StartIndex` and
+  `Limit=100`, and the server keeps the box sets with a title in that
+  library. 10.11.10 clears `ParentId` for a BoxSet-only query
+  (`ItemsController.GetItems`), so that request lists every box set on the
+  server. Before API 12, or when the version is unknown, Bloom scans the
+  library instead: `GET /Items` with `ParentId`,
+  `IncludeItemTypes=Movie,Series`, `Recursive=true`,
+  `CollapseBoxSetItems=true`, `EnableImages=false`, `EnableUserData=false`,
+  no `Fields`, and `Limit=1000` pages. A title in a box set comes back as
+  its box set, and Bloom keeps the `BoxSet` rows. It then reads those box
+  sets by `Ids` (100 per request, with the fields above) and keeps the list
+  by connection and library for 15 minutes. Jellyfin collapses only when
+  the server groups movies or shows into collections
+  (`EnableGroupingMoviesIntoCollections`, off by default). When a scan
+  finds no box set, or the library has more than 8,000 titles after
+  collapsing, Bloom lists the server's box sets (no `ParentId`) and the
+  header reads "N collections on this server". The `boxsets` view itself
+  stays out of the library list. A box set's titles use `ParentId` (the box
+  set) and `IncludeItemTypes=Movie,Series`, with no `SortBy` for its own
+  order, or `PremiereDate,ProductionYear,SortName` or `SortName` ascending.
+  A card's count is the box set's `ChildCount`, which can include more than
+  movies and shows, so it reads "N items". The "Part of" shelf reads
+  `GET /Items/{itemId}/Collections` (`GetItemCollections`) with `userId`,
+  `fields` and `limit`. That route is new in API 12, so Bloom never sends it
+  to an older server. A `404` for one title shows no shelf and stops
+  nothing; the version and collection state are read again after a
+  reconnect;
 - sign-out sends `POST /Sessions/Logout` (`ReportSessionEnded`) once, best
   effort, before deleting the token. It deletes only that account's token;
   Jellyfin also ends the in-memory session of any other account using

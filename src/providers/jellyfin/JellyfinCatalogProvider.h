@@ -1186,10 +1186,16 @@ private:
         return supportedRequest(endpointWithQuery(QStringLiteral("/Items"), parameters));
     }
 
-    // The box sets that hold titles of one library, by name. A BoxSet-only
-    // query under a library folder is answered from the library's titles
-    // collapsed into their box sets, which is how Jellyfin's own movie
-    // library page lists its Collections tab.
+    // A library's box sets, by scope (ProviderCollectionScope).
+    // - Library: a BoxSet-only query under the library. API 12 keeps the
+    //   box sets with a title in that library; 10.11 drops ParentId for a
+    //   BoxSet-only query and answers every box set on the server.
+    // - LibraryScan: the library's titles with CollapseBoxSetItems, so a
+    //   title in a box set comes back as its box set. Only Type and Id are
+    //   needed, so no fields, images or user data. Jellyfin collapses only
+    //   when the server groups movies (or shows) into collections.
+    // - Ids: the box sets named in itemIds, by name, with their artwork.
+    // - Server: every box set the user can see, by name.
     static ProviderCatalogRequest libraryCollectionsRequest(const ProviderCatalogQuery &query)
     {
         const ProviderCatalogRequest validation = requireIds(
@@ -1197,12 +1203,37 @@ private:
         if (!validation.supported) {
             return validation;
         }
-        if (query.parentId.trimmed().isEmpty()) {
+        const ProviderCollectionScope scope = query.collectionScope;
+        const QString libraryId = query.parentId.trimmed();
+        if ((scope == ProviderCollectionScope::Library
+             || scope == ProviderCollectionScope::LibraryScan)
+            && libraryId.isEmpty()) {
             return unsupported(QStringLiteral("Jellyfin library collections require a library ID"));
+        }
+        if (scope == ProviderCollectionScope::Ids && query.itemIds.isEmpty()) {
+            return unsupported(QStringLiteral("Jellyfin collections by ID require IDs"));
         }
         QUrlQuery parameters;
         parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
-        parameters.addQueryItem(QStringLiteral("ParentId"), query.parentId.trimmed());
+        if (scope == ProviderCollectionScope::LibraryScan) {
+            parameters.addQueryItem(QStringLiteral("ParentId"), libraryId);
+            parameters.addQueryItem(QStringLiteral("IncludeItemTypes"),
+                                    QStringLiteral("Movie,Series"));
+            parameters.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
+            parameters.addQueryItem(QStringLiteral("CollapseBoxSetItems"), QStringLiteral("true"));
+            parameters.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("false"));
+            parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("false"));
+            parameters.addQueryItem(QStringLiteral("StartIndex"),
+                                    QString::number(qMax(0, query.startIndex)));
+            parameters.addQueryItem(QStringLiteral("Limit"),
+                                    QString::number(query.limit > 0 ? query.limit : 1000));
+            return supportedRequest(endpointWithQuery(QStringLiteral("/Items"), parameters));
+        }
+        if (scope == ProviderCollectionScope::Library) {
+            parameters.addQueryItem(QStringLiteral("ParentId"), libraryId);
+        } else if (scope == ProviderCollectionScope::Ids) {
+            parameters.addQueryItem(QStringLiteral("Ids"), query.itemIds.join(QLatin1Char(',')));
+        }
         parameters.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("BoxSet"));
         parameters.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
         parameters.addQueryItem(QStringLiteral("SortBy"), QStringLiteral("SortName"));
@@ -1211,10 +1242,15 @@ private:
         parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("false"));
         parameters.addQueryItem(QStringLiteral("EnableImageTypes"),
                                 QStringLiteral("Primary,Backdrop,Thumb"));
-        parameters.addQueryItem(QStringLiteral("StartIndex"),
-                                QString::number(qMax(0, query.startIndex)));
-        parameters.addQueryItem(QStringLiteral("Limit"),
-                                QString::number(query.limit > 0 ? query.limit : 100));
+        if (scope == ProviderCollectionScope::Ids) {
+            parameters.addQueryItem(QStringLiteral("Limit"),
+                                    QString::number(query.itemIds.size()));
+        } else {
+            parameters.addQueryItem(QStringLiteral("StartIndex"),
+                                    QString::number(qMax(0, query.startIndex)));
+            parameters.addQueryItem(QStringLiteral("Limit"),
+                                    QString::number(query.limit > 0 ? query.limit : 100));
+        }
         return supportedRequest(endpointWithQuery(QStringLiteral("/Items"), parameters));
     }
 

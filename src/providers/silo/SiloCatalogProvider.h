@@ -586,7 +586,12 @@ private:
         case ProviderCatalogOperation::ShuffleItems:
             return unsupported(QStringLiteral("Silo keeps shuffles on the server"));
         case ProviderCatalogOperation::LibraryCollections:
-            // The library's Collections tab, answered whole.
+            // The library's Collections tab, answered whole; the server
+            // scopes it to the library.
+            if (query.collectionScope != ProviderCollectionScope::Library) {
+                return unsupported(QStringLiteral(
+                    "Silo lists collections only by library"));
+            }
             return getWithContentId(QStringLiteral("/api/v2/library/%1/collections"),
                                     query.parentId);
         case ProviderCatalogOperation::CollectionItems:

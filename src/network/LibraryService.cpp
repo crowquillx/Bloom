@@ -20,6 +20,7 @@
 #include <QTimeZone>
 #include <QTimer>
 #include <QUrl>
+#include <QVersionNumber>
 #include <QtConcurrent>
 #include <algorithm>
 #include <memory>
@@ -265,6 +266,12 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         }
         m_airingCalendarReads.clear();
         m_airingCalendars.clear();
+        // A reconnect may reach an upgraded server: read its version and
+        // its collection support again.
+        m_serverVersions.clear();
+        m_serverVersionReads.clear();
+        m_itemCollectionsUnsupported.clear();
+        m_libraryCollectionScans.clear();
         // Cancelled writes answer nothing on their own.
         failStaleHomeCardWrites();
         failStaleSubtitleAppearanceRequests();
@@ -3674,28 +3681,277 @@ void LibraryService::getLibraryCollections(const QString &libraryId, int startIn
                                            int limit, const QString &requestKey)
 {
     const QString connectionId = activeConnectionId(m_authService);
-    if (!supportsCollections() || libraryId.trimmed().isEmpty()) {
-        emit canonicalLibraryCollectionsLoaded(connectionId, libraryId, requestKey, {}, 0, false);
+    const QString library = libraryId.trimmed();
+    if (!supportsCollections() || library.isEmpty()) {
+        emit canonicalLibraryCollectionsLoaded(connectionId, libraryId, requestKey, {}, 0, false,
+                                               false);
         return;
     }
+    const CollectionsPageRequest page{qMax(0, startIndex), qMax(1, limit), requestKey};
+    if (m_authService->activeProviderKind() != ProviderKind::Jellyfin) {
+        sendLibraryCollectionsPage(connectionId, libraryId, ProviderCollectionScope::Library,
+                                   page);
+        return;
+    }
+    whenServerVersionKnown(connectionId, [this, connectionId, libraryId, page]() {
+        if (activeConnectionId(m_authService) != connectionId) {
+            return;
+        }
+        // API 12 scopes a BoxSet query to the library; 10.11 ignores
+        // ParentId for it, so the library's titles are scanned instead.
+        if (jellyfinMajorVersion(connectionId) >= 12) {
+            sendLibraryCollectionsPage(connectionId, libraryId,
+                                       ProviderCollectionScope::Library, page);
+        } else {
+            answerFromLibraryCollectionScan(connectionId, libraryId, page);
+        }
+    });
+}
+
+void LibraryService::sendLibraryCollectionsPage(const QString &connectionId,
+                                                const QString &libraryId,
+                                                ProviderCollectionScope scope,
+                                                const CollectionsPageRequest &page)
+{
     ProviderCatalogQuery query = baseCatalogQuery();
     query.parentId = libraryId.trimmed();
-    query.startIndex = qMax(0, startIndex);
-    query.limit = qMax(1, limit);
+    query.collectionScope = scope;
+    query.startIndex = page.startIndex;
+    query.limit = page.limit;
+    const bool serverWide = scope == ProviderCollectionScope::Server;
+    const QString requestKey = page.requestKey;
     sendCatalogRequest(
         QStringLiteral("getLibraryCollections"),
         ProviderCatalogOperation::LibraryCollections,
         query,
-        [this, connectionId, libraryId, requestKey](const ProviderCatalogResponse &response) {
+        [this, connectionId, libraryId, requestKey, serverWide](
+            const ProviderCatalogResponse &response) {
             emit canonicalLibraryCollectionsLoaded(
                 connectionId, libraryId, requestKey,
                 m_authService->mapCollections(response.rawItems, connectionId),
-                response.total, response.hasMore);
+                response.total, response.hasMore, serverWide);
         },
         [this, connectionId, libraryId, requestKey](const NetworkError &error) {
             emit canonicalLibraryCollectionsFailed(connectionId, libraryId, requestKey,
                                                    error.userMessage);
         });
+}
+
+void LibraryService::answerFromLibraryCollectionScan(const QString &connectionId,
+                                                     const QString &libraryId,
+                                                     const CollectionsPageRequest &page)
+{
+    const QString key = connectionId + QLatin1Char('\n') + libraryId;
+    LibraryCollectionScan &scan = m_libraryCollectionScans[key];
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (!scan.running && scan.fetchedAtMs > 0
+        && now - scan.fetchedAtMs < LibraryCollectionScanTtlMs) {
+        if (scan.serverWide) {
+            sendLibraryCollectionsPage(connectionId, libraryId,
+                                       ProviderCollectionScope::Server, page);
+            return;
+        }
+        const qsizetype total = scan.collections.size();
+        const qsizetype first = qMin<qsizetype>(page.startIndex, total);
+        const qsizetype end = qMin<qsizetype>(first + page.limit, total);
+        emit canonicalLibraryCollectionsLoaded(connectionId, libraryId, page.requestKey,
+                                               scan.collections.mid(first, end - first),
+                                               static_cast<int>(total), end < total, false);
+        return;
+    }
+    scan.waiting.append(page);
+    if (scan.running) {
+        return;
+    }
+    scan.running = true;
+    scan.generation = ++m_libraryCollectionScanGeneration;
+    scan.boxSetIds.clear();
+    scan.collections.clear();
+    scanLibraryCollections(connectionId, libraryId, scan.generation, 0);
+}
+
+void LibraryService::scanLibraryCollections(const QString &connectionId,
+                                            const QString &libraryId,
+                                            quint64 generation, int startIndex)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.parentId = libraryId.trimmed();
+    query.collectionScope = ProviderCollectionScope::LibraryScan;
+    query.startIndex = startIndex;
+    query.limit = LibraryCollectionScanPageSize;
+    const QString key = connectionId + QLatin1Char('\n') + libraryId;
+    sendCatalogRequest(
+        QStringLiteral("scanLibraryCollections"),
+        ProviderCatalogOperation::LibraryCollections,
+        query,
+        [this, connectionId, libraryId, generation, startIndex, key](
+            const ProviderCatalogResponse &response) {
+            const auto it = m_libraryCollectionScans.find(key);
+            if (it == m_libraryCollectionScans.end() || it->generation != generation) {
+                return;
+            }
+            // Too many titles to page through: the server's list instead.
+            if (response.total > LibraryCollectionScanMaxTitles) {
+                finishLibraryCollectionScan(connectionId, libraryId, generation, true);
+                return;
+            }
+            // Titles in a box set come back as the box set; the adapter
+            // keeps only those.
+            const QVariantList found =
+                m_authService->mapCollections(response.rawItems, connectionId);
+            for (const QVariant &value : found) {
+                const QString id = value.toMap().value(QStringLiteral("collectionId")).toString();
+                if (!id.isEmpty() && !it->boxSetIds.contains(id)) {
+                    it->boxSetIds.append(id);
+                }
+            }
+            const int next = startIndex + static_cast<int>(response.rawItems.size());
+            if (!response.rawItems.isEmpty() && next < response.total) {
+                scanLibraryCollections(connectionId, libraryId, generation, next);
+                return;
+            }
+            if (it->boxSetIds.isEmpty()) {
+                // The server groups no titles into collections, or the
+                // library has none.
+                finishLibraryCollectionScan(connectionId, libraryId, generation, true);
+                return;
+            }
+            readScannedCollections(connectionId, libraryId, generation, 0);
+        },
+        [this, connectionId, libraryId, generation](const NetworkError &error) {
+            failLibraryCollectionScan(connectionId, libraryId, generation, error.userMessage);
+        });
+}
+
+void LibraryService::readScannedCollections(const QString &connectionId,
+                                            const QString &libraryId,
+                                            quint64 generation, int batchStart)
+{
+    const QString key = connectionId + QLatin1Char('\n') + libraryId;
+    const auto it = m_libraryCollectionScans.constFind(key);
+    if (it == m_libraryCollectionScans.cend() || it->generation != generation) {
+        return;
+    }
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.collectionScope = ProviderCollectionScope::Ids;
+    query.itemIds = it->boxSetIds.mid(batchStart, CollectionIdBatchSize);
+    sendCatalogRequest(
+        QStringLiteral("getScannedCollections"),
+        ProviderCatalogOperation::LibraryCollections,
+        query,
+        [this, connectionId, libraryId, generation, batchStart, key](
+            const ProviderCatalogResponse &response) {
+            const auto scan = m_libraryCollectionScans.find(key);
+            if (scan == m_libraryCollectionScans.end() || scan->generation != generation) {
+                return;
+            }
+            scan->collections.append(
+                m_authService->mapCollections(response.rawItems, connectionId));
+            const int next = batchStart + CollectionIdBatchSize;
+            if (next < scan->boxSetIds.size()) {
+                readScannedCollections(connectionId, libraryId, generation, next);
+                return;
+            }
+            finishLibraryCollectionScan(connectionId, libraryId, generation, false);
+        },
+        [this, connectionId, libraryId, generation](const NetworkError &error) {
+            failLibraryCollectionScan(connectionId, libraryId, generation, error.userMessage);
+        });
+}
+
+void LibraryService::finishLibraryCollectionScan(const QString &connectionId,
+                                                 const QString &libraryId,
+                                                 quint64 generation, bool serverWide)
+{
+    const QString key = connectionId + QLatin1Char('\n') + libraryId;
+    const auto it = m_libraryCollectionScans.find(key);
+    if (it == m_libraryCollectionScans.end() || it->generation != generation) {
+        return;
+    }
+    it->running = false;
+    it->serverWide = serverWide;
+    it->fetchedAtMs = QDateTime::currentMSecsSinceEpoch();
+    if (serverWide) {
+        it->collections.clear();
+    } else {
+        // Each ID batch is sorted by name; sort the whole list the same way.
+        std::stable_sort(it->collections.begin(), it->collections.end(),
+                         [](const QVariant &left, const QVariant &right) {
+                             return QString::localeAwareCompare(
+                                        left.toMap().value(QStringLiteral("name")).toString(),
+                                        right.toMap().value(QStringLiteral("name")).toString())
+                                 < 0;
+                         });
+    }
+    const QList<CollectionsPageRequest> waiting = std::exchange(it->waiting, {});
+    for (const CollectionsPageRequest &page : waiting) {
+        answerFromLibraryCollectionScan(connectionId, libraryId, page);
+    }
+}
+
+void LibraryService::failLibraryCollectionScan(const QString &connectionId,
+                                               const QString &libraryId,
+                                               quint64 generation, const QString &error)
+{
+    const QString key = connectionId + QLatin1Char('\n') + libraryId;
+    const auto it = m_libraryCollectionScans.find(key);
+    if (it == m_libraryCollectionScans.end() || it->generation != generation) {
+        return;
+    }
+    const QList<CollectionsPageRequest> waiting = it->waiting;
+    m_libraryCollectionScans.erase(it);
+    for (const CollectionsPageRequest &page : waiting) {
+        emit canonicalLibraryCollectionsFailed(connectionId, libraryId, page.requestKey, error);
+    }
+}
+
+void LibraryService::whenServerVersionKnown(const QString &connectionId,
+                                            std::function<void()> then)
+{
+    if (!m_authService || m_authService->activeProviderKind() != ProviderKind::Jellyfin
+        || m_serverVersions.contains(connectionId)) {
+        then();
+        return;
+    }
+    ServerVersionRead &read = m_serverVersionReads[connectionId];
+    read.waiting.append(std::move(then));
+    // One read per connection; a reply the session change dropped is asked
+    // again once it is past any transport deadline.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (read.waiting.size() > 1 && now - read.sentAtMs < 60 * 1000) {
+        return;
+    }
+    read.sentAtMs = now;
+    const auto finish = [this, connectionId]() {
+        const QList<std::function<void()>> waiting =
+            m_serverVersionReads.take(connectionId).waiting;
+        for (const std::function<void()> &callback : waiting) {
+            callback();
+        }
+    };
+    sendCatalogRequest(
+        QStringLiteral("getServerInfo"),
+        ProviderCatalogOperation::ServerInfo,
+        baseCatalogQuery(),
+        [this, connectionId, finish](const ProviderCatalogResponse &response) {
+            const QString version
+                = response.capabilityMetadata.value(QStringLiteral("version")).toString();
+            if (!version.isEmpty()) {
+                m_serverVersions.insert(connectionId, version);
+            }
+            finish();
+        },
+        [finish](const NetworkError &) { finish(); });
+}
+
+int LibraryService::jellyfinMajorVersion(const QString &connectionId) const
+{
+    const QString version = m_serverVersions.value(connectionId).trimmed();
+    if (version.isEmpty()) {
+        return -1;
+    }
+    const QVersionNumber number = QVersionNumber::fromString(version);
+    return number.isNull() ? -1 : number.majorVersion();
 }
 
 void LibraryService::getCollectionItems(const QString &collectionId,
@@ -3741,30 +3997,47 @@ void LibraryService::getItemCollections(const QString &itemId, const QString &re
         emit canonicalItemCollectionsLoaded(connectionId, itemId, requestKey, {});
         return;
     }
-    ProviderCatalogQuery query = baseCatalogQuery();
-    query.itemId = itemId.trimmed();
-    sendCatalogRequest(
-        QStringLiteral("getItemCollections"),
-        ProviderCatalogOperation::ItemCollections,
-        query,
-        [this, connectionId, itemId, requestKey](const ProviderCatalogResponse &response) {
-            emit canonicalItemCollectionsLoaded(
-                connectionId, itemId, requestKey,
-                m_authService->mapCollections(response.rawItems, connectionId));
-        },
-        [this, connectionId, itemId, requestKey](const NetworkError &error) {
-            // A server without the read (Jellyfin before API 12 has no
-            // GetItemCollections; Silo before contains_item rejects the
-            // parameter) never offers it.
-            if (error.httpStatus == 404 || error.httpStatus == 405
-                || error.httpStatus == 422 || error.httpStatus == 501) {
-                m_itemCollectionsUnsupported.insert(connectionId);
-                emit canonicalItemCollectionsLoaded(connectionId, itemId, requestKey, {});
-                return;
-            }
-            emit canonicalItemCollectionsFailed(connectionId, itemId, requestKey,
-                                                error.userMessage);
-        });
+    whenServerVersionKnown(connectionId, [this, connectionId, itemId, requestKey]() {
+        if (activeConnectionId(m_authService) != connectionId) {
+            return;
+        }
+        // GetItemCollections is new in Jellyfin API 12. An unknown version
+        // still asks.
+        const int major = m_authService->activeProviderKind() == ProviderKind::Jellyfin
+            ? jellyfinMajorVersion(connectionId) : -1;
+        if (major >= 0 && major < 12) {
+            emit canonicalItemCollectionsLoaded(connectionId, itemId, requestKey, {});
+            return;
+        }
+        ProviderCatalogQuery query = baseCatalogQuery();
+        query.itemId = itemId.trimmed();
+        sendCatalogRequest(
+            QStringLiteral("getItemCollections"),
+            ProviderCatalogOperation::ItemCollections,
+            query,
+            [this, connectionId, itemId, requestKey](const ProviderCatalogResponse &response) {
+                emit canonicalItemCollectionsLoaded(
+                    connectionId, itemId, requestKey,
+                    m_authService->mapCollections(response.rawItems, connectionId));
+            },
+            [this, connectionId, itemId, requestKey](const NetworkError &error) {
+                // A 404 is about this title (or a server without the route,
+                // which the version gate already skips). A rejected route
+                // or parameter (Silo before contains_item) is the server's,
+                // so it is not asked again this session.
+                if (error.httpStatus == 405 || error.httpStatus == 422
+                    || error.httpStatus == 501) {
+                    m_itemCollectionsUnsupported.insert(connectionId);
+                }
+                if (error.httpStatus == 404 || error.httpStatus == 405
+                    || error.httpStatus == 422 || error.httpStatus == 501) {
+                    emit canonicalItemCollectionsLoaded(connectionId, itemId, requestKey, {});
+                    return;
+                }
+                emit canonicalItemCollectionsFailed(connectionId, itemId, requestKey,
+                                                    error.userMessage);
+            });
+    });
 }
 
 void LibraryService::searchPeople(const QString &searchTerm, int limit)

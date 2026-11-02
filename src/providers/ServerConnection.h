@@ -94,7 +94,7 @@ enum class ProviderCapability {
     // (ProviderCatalogOperation::LibraryCollections, CollectionItems and
     // ItemCollections; Jellyfin box sets, Silo library and personal
     // collections).
-    Collections = 1 << 21
+    Collections = 1 << 24
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

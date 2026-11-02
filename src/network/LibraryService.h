@@ -426,9 +426,20 @@ public:
     // nextCursor (Silo) or the next startIndex (Jellyfin), and
     // getItemCollections the collections that hold one title. requestKey
     // comes back with the answer. Without the capability the reads answer
-    // empty at once. A server without the item collections read (Jellyfin
-    // before API 12, Silo before contains_item) answers empty from then on
-    // for that connection.
+    // empty at once.
+    //
+    // Jellyfin reads its version once per connection (/System/Info/Public).
+    // From API 12 the server scopes a library's box sets. Before it (or
+    // when the version is unknown) the library's titles are scanned with
+    // CollapseBoxSetItems and the box sets found are read by ID; the result
+    // is kept per connection and library for LibraryCollectionScanTtlMs.
+    // When the scan finds none (the server does not group titles into
+    // collections, or the library has none) or the library has more than
+    // LibraryCollectionScanMaxTitles titles, the answer is the server's
+    // whole list with serverWide set. Jellyfin before API 12 has no item
+    // collections read, so getItemCollections answers empty without asking.
+    // A 404 for one title never turns the read off; a route or parameter
+    // the server rejects (405, 422, 501) does, until the session changes.
     Q_INVOKABLE virtual bool supportsCollections() const;
     virtual void getLibraryCollections(const QString &libraryId, int startIndex, int limit,
                                        const QString &requestKey);
@@ -438,6 +449,11 @@ public:
                                     const QString &cursor, int limit,
                                     const QString &requestKey);
     virtual void getItemCollections(const QString &itemId, const QString &requestKey);
+    static constexpr qint64 LibraryCollectionScanTtlMs = 15 * 60 * 1000;
+    static constexpr int LibraryCollectionScanPageSize = 1000;
+    static constexpr int LibraryCollectionScanMaxTitles = 8000;
+    /// Box sets read per request by ID.
+    static constexpr int CollectionIdBatchSize = 100;
 
     // Hero Banner: random library sample (Movies + Series). When parentIds is empty,
     // all libraries are sampled. When unwatchedOnly is true, only unplayed items are
@@ -672,12 +688,15 @@ signals:
     // A removal from the history succeeded; watched state and resume
     // points under itemId changed with it.
     void watchHistoryItemRemoved(const QString &connectionId, const QString &itemId);
+    // serverWide: the collections are the server's, not only this
+    // library's (see getLibraryCollections).
     void canonicalLibraryCollectionsLoaded(const QString &connectionId,
                                            const QString &libraryId,
                                            const QString &requestKey,
                                            const QVariantList &collections,
                                            int totalRecordCount,
-                                           bool hasMore);
+                                           bool hasMore,
+                                           bool serverWide);
     void canonicalLibraryCollectionsFailed(const QString &connectionId,
                                            const QString &libraryId,
                                            const QString &requestKey,
@@ -1000,8 +1019,54 @@ private:
     // Newest people search, and per connection whether people search can be
     // limited to movie and series credits (providers that read it).
     quint64 m_peopleSearchGeneration = 0;
-    // Connections whose server lacks the item collections read.
+    // Connections whose server rejects the item collections read.
     QSet<QString> m_itemCollectionsUnsupported;
+    // Collections: one page asked for, kept while a library scan runs.
+    struct CollectionsPageRequest {
+        int startIndex = 0;
+        int limit = 0;
+        QString requestKey;
+    };
+    // A Jellyfin library's box sets found by scanning its titles, by
+    // connection and library: canonical collections by name, or serverWide
+    // when the scan cannot scope them. fetchedAtMs is 0 until it finishes.
+    struct LibraryCollectionScan {
+        quint64 generation = 0;
+        bool running = false;
+        bool serverWide = false;
+        qint64 fetchedAtMs = 0;
+        QStringList boxSetIds;
+        QVariantList collections;
+        QList<CollectionsPageRequest> waiting;
+    };
+    QHash<QString, LibraryCollectionScan> m_libraryCollectionScans;
+    quint64 m_libraryCollectionScanGeneration = 0;
+    // Server version reads in flight per connection, with what waits on
+    // them and when they were sent (a dropped reply is asked again).
+    struct ServerVersionRead {
+        qint64 sentAtMs = 0;
+        QList<std::function<void()>> waiting;
+    };
+    QHash<QString, ServerVersionRead> m_serverVersionReads;
+    // Runs `then` once the connection's server version is read (or the read
+    // failed); at once when it is known or the provider is not Jellyfin.
+    void whenServerVersionKnown(const QString &connectionId, std::function<void()> then);
+    // The Jellyfin major version of the connection, or -1 when unknown.
+    int jellyfinMajorVersion(const QString &connectionId) const;
+    void sendLibraryCollectionsPage(const QString &connectionId, const QString &libraryId,
+                                    ProviderCollectionScope scope,
+                                    const CollectionsPageRequest &page);
+    void answerFromLibraryCollectionScan(const QString &connectionId,
+                                         const QString &libraryId,
+                                         const CollectionsPageRequest &page);
+    void scanLibraryCollections(const QString &connectionId, const QString &libraryId,
+                                quint64 generation, int startIndex);
+    void readScannedCollections(const QString &connectionId, const QString &libraryId,
+                                quint64 generation, int batchStart);
+    void finishLibraryCollectionScan(const QString &connectionId, const QString &libraryId,
+                                     quint64 generation, bool serverWide);
+    void failLibraryCollectionScan(const QString &connectionId, const QString &libraryId,
+                                   quint64 generation, const QString &error);
     /// Libraries of unsupported types per connection, from the last views
     /// listing; search leaves them out (LibraryKinds).
     QHash<QString, QStringList> m_unsupportedLibraryIds;

@@ -59,16 +59,17 @@ public:
     }
 
     void answerLibrary(const QVariantList &collections, bool hasMore,
-                       const QString &forConnection = QString(), int request = -1)
+                       const QString &forConnection = QString(), int request = -1,
+                       bool serverWide = false)
     {
         const LibraryRequest sent = request < 0 ? libraryRequests.last() : libraryRequests.at(request);
         emit canonicalLibraryCollectionsLoaded(forConnection.isEmpty() ? connectionId : forConnection,
                                                sent.libraryId, sent.requestKey, collections,
-                                               int(collections.size()), hasMore);
+                                               int(collections.size()), hasMore, serverWide);
     }
-    void failLibrary()
+    void failLibrary(int request = -1)
     {
-        const LibraryRequest sent = libraryRequests.last();
+        const LibraryRequest sent = request < 0 ? libraryRequests.last() : libraryRequests.at(request);
         emit canonicalLibraryCollectionsFailed(connectionId, sent.libraryId, sent.requestKey,
                                                QStringLiteral("Server error"));
     }
@@ -164,6 +165,8 @@ private slots:
     void libraryCollectionsPageByServerCountWithInserts();
     void libraryCollectionsErrorsAndRetries();
     void libraryCollectionsIgnoreStaleAnswers();
+    void libraryCollectionsReportServerWideLists();
+    void libraryCollectionsRefreshStaleRowsInPlace();
 
     // CollectionViewModel
     void collectionLoadsItsTitlesOnly();
@@ -331,6 +334,106 @@ void CollectionViewModelsTest::libraryCollectionsIgnoreStaleAnswers()
     // The same answer twice is applied once.
     service.answerLibrary({collection(QStringLiteral("c9"))}, false);
     QCOMPARE(model.count(), 1);
+}
+
+void CollectionViewModelsTest::libraryCollectionsReportServerWideLists()
+{
+    ScriptedLibraryService service;
+    LibraryCollectionsViewModel model(&service);
+
+    model.load(QStringLiteral("library-1"));
+    QVERIFY(!model.serverWide());
+    service.answerLibrary({collection(QStringLiteral("c1"))}, false, QString(), -1, true);
+    QVERIFY(model.serverWide());
+    model.reload();
+    QVERIFY(!model.serverWide());
+    service.answerLibrary({collection(QStringLiteral("c1"))}, false);
+    QVERIFY(!model.serverWide());
+}
+
+// Silo's signed artwork URLs expire: shown collections older than
+// StaleAfterMs are read again, and the rows are replaced where they are.
+void CollectionViewModelsTest::libraryCollectionsRefreshStaleRowsInPlace()
+{
+    ScriptedLibraryService service;
+    LibraryCollectionsViewModel model(&service);
+    QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+    QSignalSpy inserts(&model, &QAbstractItemModel::rowsInserted);
+    QSignalSpy changes(&model, &QAbstractItemModel::dataChanged);
+
+    model.load(QStringLiteral("library-1"));
+    QVariantList firstPage;
+    for (int index = 0; index < LibraryCollectionsViewModel::PageSize; ++index) {
+        firstPage.append(collection(QStringLiteral("c%1").arg(index)));
+    }
+    service.answerLibrary(firstPage, true);
+    model.loadMore();
+    service.answerLibrary({collection(QStringLiteral("last"))}, false);
+    QCOMPARE(model.count(), LibraryCollectionsViewModel::PageSize + 1);
+    QCOMPARE(service.libraryRequests.size(), 2);
+    const int insertsBefore = int(inserts.count());
+
+    // Fresh collections are not read again.
+    model.refreshIfStale();
+    model.load(QStringLiteral("library-1"));
+    QCOMPARE(service.libraryRequests.size(), 2);
+
+    model.setLoadedAtForTest(QDateTime::currentMSecsSinceEpoch()
+                             - LibraryCollectionsViewModel::StaleAfterMs - 1);
+    // Showing the same library again re-reads it from the first page.
+    model.load(QStringLiteral("library-1"));
+    QCOMPARE(service.libraryRequests.size(), 3);
+    QCOMPARE(service.libraryRequests.last().startIndex, 0);
+    // One refresh at a time.
+    model.refreshIfStale();
+    QCOMPARE(service.libraryRequests.size(), 3);
+
+    QVariantList refreshed = firstPage;
+    QVariantMap renamed = collection(QStringLiteral("c1"));
+    renamed.insert(QStringLiteral("name"), QStringLiteral("Fresh"));
+    refreshed[1] = renamed;
+    // A collection the list did not have before is not added.
+    refreshed.append(collection(QStringLiteral("new")));
+    service.answerLibrary(refreshed, true);
+    QCOMPARE(service.libraryRequests.size(), 4);
+    QCOMPARE(service.libraryRequests.last().startIndex, int(refreshed.size()));
+    service.answerLibrary({collection(QStringLiteral("last"))}, false);
+    QCOMPARE(service.libraryRequests.size(), 4);
+
+    QCOMPARE(resets.count(), 0);
+    QCOMPARE(int(inserts.count()), insertsBefore);
+    QCOMPARE(int(changes.count()), LibraryCollectionsViewModel::PageSize + 1);
+    QCOMPARE(model.count(), LibraryCollectionsViewModel::PageSize + 1);
+    QCOMPARE(model.get(1).value(QStringLiteral("name")).toString(), QStringLiteral("Fresh"));
+    QCOMPARE(model.indexOfCollection(QStringLiteral("new")), -1);
+
+    // Fresh again; a failed refresh keeps the rows and tries again later.
+    model.refreshIfStale();
+    QCOMPARE(service.libraryRequests.size(), 4);
+    model.setLoadedAtForTest(QDateTime::currentMSecsSinceEpoch()
+                             - LibraryCollectionsViewModel::StaleAfterMs - 1);
+    model.refreshIfStale();
+    QCOMPARE(service.libraryRequests.size(), 5);
+    service.failLibrary();
+    QVERIFY(!model.hasError());
+    QCOMPARE(model.count(), LibraryCollectionsViewModel::PageSize + 1);
+    model.refreshIfStale();
+    QCOMPARE(service.libraryRequests.size(), 6);
+
+    // A loadMore page in flight during a refresh is still its own answer.
+    model.reload();
+    QCOMPARE(service.libraryRequests.size(), 7);
+    service.answerLibrary(firstPage, true);
+    model.setLoadedAtForTest(QDateTime::currentMSecsSinceEpoch()
+                             - LibraryCollectionsViewModel::StaleAfterMs - 1);
+    model.loadMore();
+    model.refreshIfStale();
+    QCOMPARE(service.libraryRequests.size(), 9);
+    service.answerLibrary({collection(QStringLiteral("last"))}, false, QString(), 7);
+    QCOMPARE(model.count(), LibraryCollectionsViewModel::PageSize + 1);
+    service.answerLibrary(firstPage, false, QString(), 8);
+    QCOMPARE(model.count(), LibraryCollectionsViewModel::PageSize + 1);
+    QVERIFY(!model.loadingMore());
 }
 
 // ============================================================================
