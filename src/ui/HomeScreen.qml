@@ -1961,10 +1961,11 @@ FocusScope {
         function onHomeWatchTonightEnabledChanged() {
             if (root.mergedMode || !AuthenticationService.authenticated)
                 return
-            // Off: the row goes at once, whatever the refresh answers.
+            // Off: the row goes at once, whatever the refresh answers. On:
+            // read it from the server.
             if (!ConfigManager.homeWatchTonightEnabled)
                 HomeSectionsViewModel.removeWatchTonightRow()
-            HomeSectionsViewModel.refresh()
+            HomeSectionsViewModel.refresh(ConfigManager.homeWatchTonightEnabled)
         }
     }
 

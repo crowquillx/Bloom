@@ -76,7 +76,9 @@ Window {
         })
     }
 
-    function handleHomeNavigateToEpisode(episodeData, seriesId, libraryId, libraryName) {
+    // backToPreviousPage: Back pops to the page that opened the episode
+    // (History) instead of returning Home.
+    function handleHomeNavigateToEpisode(episodeData, seriesId, libraryId, libraryName, backToPreviousPage) {
         playPointerSelectSound()
         stackView.push("LibraryScreen.qml", {
             currentParentId: libraryId,
@@ -84,7 +86,8 @@ Window {
             currentLibraryName: libraryName,
             currentSeriesId: seriesId,
             directNavigationMode: true,
-            returnToHomeOnDirectBack: true
+            returnToHomeOnDirectBack: !backToPreviousPage,
+            preferStackPopOnDirectBack: !!backToPreviousPage
         })
         LibraryService.getSeriesDetails(seriesId)
         Qt.callLater(function() {
@@ -1746,7 +1749,7 @@ Window {
         if (historyScreen) {
             connectDetailNavigation(historyScreen)
             historyScreen.navigateToEpisode.connect(function(episode) {
-                window.handleHomeNavigateToEpisode(episode, episode.seriesId || "", "", "")
+                window.handleHomeNavigateToEpisode(episode, episode.seriesId || "", "", "", true)
             })
         }
         updateNavigationSelection()
