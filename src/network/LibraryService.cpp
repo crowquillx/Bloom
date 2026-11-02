@@ -1635,7 +1635,7 @@ void LibraryService::setItemNotInterested(const QString &itemId, bool notInteres
 QString LibraryService::userRatingScale() const
 {
     if (!m_authService || !m_authService->isAuthenticated()
-        || m_userRatingUnavailable.contains(userRatingKey())) {
+        || !m_userRatingUnavailable.value(userRatingKey(), QDeadlineTimer(0)).hasExpired()) {
         return {};
     }
     if (m_authService->supportsCapability(ProviderCapability::LikeRatings)) {
@@ -1682,7 +1682,7 @@ void LibraryService::setUserRating(const QString &itemId, int value)
             // one: hide the control for this connection and profile.
             if (error.httpStatus == 503 || error.httpStatus == 501
                 || error.httpStatus == 404 || error.httpStatus == 405) {
-                m_userRatingUnavailable.insert(key);
+                m_userRatingUnavailable.insert(key, QDeadlineTimer(UserRatingRetryMs));
                 emit userRatingSupportChanged();
             }
             emit userRatingFailed(identity.connectionId, itemId, value, error.userMessage);
