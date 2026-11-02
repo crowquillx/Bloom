@@ -62,6 +62,10 @@ public:
     // The container's own title tag, when the provider reports it apart from
     // the display title (Silo). Server track signatures name it.
     QString embeddedTitle;
+    // Set when the provider sent no title and `title` was filled in from
+    // `embeddedTitle` for display. The provider's own title is then empty,
+    // which is what a server track signature must carry.
+    bool titleFromEmbeddedTitle = false;
     QString displayTitle;
     bool isDefault = false;
     bool isForced = false;

@@ -789,6 +789,20 @@ bool sameTrackText(const QString &left, const QString &right)
     return left.trimmed().compare(right.trimmed(), Qt::CaseInsensitive) == 0;
 }
 
+// The title Silo reported for the track: the canonical title falls back to
+// the embedded title for display when Silo sends none.
+QString siloTrackTitle(const MediaStreamInfo &track)
+{
+    return track.titleFromEmbeddedTitle ? QString() : track.title;
+}
+
+QString siloTrackTitle(const QVariantMap &track)
+{
+    return track.value(QStringLiteral("titleFromEmbeddedTitle")).toBool()
+        ? QString()
+        : track.value(QStringLiteral("title")).toString();
+}
+
 // Whether a stored getAudioPreference row names `track`: its track signature
 // matches the track exactly (Silo's first rule), or its language is the
 // track's (the saved index counts only with a matching language).
@@ -797,14 +811,10 @@ bool storedAudioRowNamesTrack(const MediaStreamInfo &track, const QString &langu
 {
     if (!signature.isEmpty())
     {
-        // The canonical title falls back to the embedded title when Silo sends
-        // none.
-        const QString title = signature.value(QStringLiteral("title")).toString();
-        const bool titleMatches = sameTrackText(title, track.title)
-            || (title.trimmed().isEmpty() && sameTrackText(track.title, track.embeddedTitle));
         if (sameSpokenLanguage(signature.value(QStringLiteral("language")).toString(),
                 track.language)
-            && titleMatches
+            && sameTrackText(signature.value(QStringLiteral("title")).toString(),
+                siloTrackTitle(track))
             && sameTrackText(signature.value(QStringLiteral("embedded_title")).toString(),
                 track.embeddedTitle)
             && sameTrackText(signature.value(QStringLiteral("codec")).toString(), track.codec)
@@ -885,10 +895,11 @@ TrackPreferenceWriteRequest SiloPlaybackProvider::createTrackPreferenceWriteRequ
             return request;
         const QVariantMap track = audio.at(ordinal);
         // Silo recognizes the track in other episodes by matching these
-        // catalog fields exactly; the default flag says nothing about intent.
+        // catalog fields exactly, so they go back as Silo reported them; the
+        // default flag says nothing about intent.
         QJsonObject signature;
         insertText(signature, QStringLiteral("language"), track.value("language").toString());
-        insertText(signature, QStringLiteral("title"), track.value("title").toString());
+        insertText(signature, QStringLiteral("title"), siloTrackTitle(track));
         insertText(signature, QStringLiteral("embedded_title"),
             track.value("embeddedTitle").toString());
         insertText(signature, QStringLiteral("codec"), track.value("codec").toString());

@@ -129,6 +129,7 @@ private slots:
     void mapsServerTrackPreferences();
     void writesTrackPreferencesWithSiloIdentities();
     void storedAudioPreferenceTrustsTheResolvedTrack();
+    void audioSignatureKeepsSiloTitles();
     void replansAudioWithDurableRequestIdentity();
     void sequencesReportsAndFinalizesStop();
     void isolatesAccountsAndConnections();
@@ -499,6 +500,63 @@ void SiloPlaybackProviderTest::storedAudioPreferenceTrustsTheResolvedTrack()
     parsed = provider.parsePlaybackInfoResponse(context(), media(),
         watch(0, QJsonObject { { "content_id", "extra-1" }, { "type", "extra" } }));
     QVERIFY(!provider.createTrackPreferenceReadRequest(parsed.response).isValid());
+}
+
+void SiloPlaybackProviderTest::audioSignatureKeepsSiloTitles()
+{
+    // Silo sends no title for the first track, only its container title.
+    // Bloom shows the container title, but the signature written back must
+    // name the track exactly as Silo does, or Silo's exact match fails.
+    SiloPlaybackProvider provider;
+    const QJsonArray audio {
+        QJsonObject { { "codec", "truehd" }, { "language", "en" }, { "default", true },
+            { "embedded_title", "Main" }, { "layout", "7.1" }, { "channels", 8 } },
+        QJsonObject { { "codec", "ac3" }, { "language", "en" }, { "default", false },
+            { "title", "Commentary" }, { "embedded_title", "Director" } } };
+    const auto parsed = provider.parsePlaybackInfoResponse(context(), media(),
+        QJsonObject { { "content_id", "episode-2" }, { "type", "episode" },
+            { "series_id", "series-1" },
+            { "versions",
+                QJsonArray { QJsonObject { { "file_id", "file-1" }, { "audio_tracks", audio },
+                    { "effective_audio_track_index", 0 } } } } });
+    QVERIFY(parsed.valid);
+    const MediaSourceInfo source = parsed.response.mediaSources.first();
+    QCOMPARE(source.mediaStreams.at(0).title, QStringLiteral("Main"));
+    QVERIFY(source.mediaStreams.at(0).titleFromEmbeddedTitle);
+    QVERIFY(!source.mediaStreams.at(1).titleFromEmbeddedTitle);
+
+    TrackPreferenceWrite write;
+    write.contentId = QStringLiteral("series-1");
+    write.mediaSource = parsed.response.getMediaSourcesVariant().first().toMap();
+    write.streamIndex = source.mediaStreams.at(0).index;
+    QJsonObject signature =
+        provider.createTrackPreferenceWriteRequest(write).body.value("track_signature").toObject();
+    QVERIFY(!signature.contains("title"));
+    QCOMPARE(signature.value("embedded_title").toString(), QStringLiteral("Main"));
+    QCOMPARE(signature.value("codec").toString(), QStringLiteral("truehd"));
+    QCOMPARE(signature.value("layout").toString(), QStringLiteral("7.1"));
+    QCOMPARE(signature.value("channels").toInt(), 8);
+    // A track with both titles sends both.
+    write.streamIndex = source.mediaStreams.at(1).index;
+    const QJsonObject commentary =
+        provider.createTrackPreferenceWriteRequest(write).body.value("track_signature").toObject();
+    QCOMPARE(commentary.value("title").toString(), QStringLiteral("Commentary"));
+    QCOMPARE(commentary.value("embedded_title").toString(), QStringLiteral("Director"));
+
+    // The stored row Silo hands back with that signature names the track.
+    const auto row = [](const QJsonObject &sig)
+    {
+        return QJsonDocument(QJsonObject { { "audio_track_index", 0 }, { "track_signature", sig } })
+            .toJson();
+    };
+    PlaybackInfoResponse stored = parsed.response;
+    provider.applyTrackPreferenceRead(stored, true, row(signature));
+    QCOMPARE(stored.mediaSources.first().serverTrackPreferences.audioStreamIndex, 0);
+    // A signature carrying the display title is not Silo's track.
+    signature.insert(QStringLiteral("title"), QStringLiteral("Main"));
+    PlaybackInfoResponse displayTitle = parsed.response;
+    provider.applyTrackPreferenceRead(displayTitle, true, row(signature));
+    QCOMPARE(displayTitle.mediaSources.first().serverTrackPreferences.audioStreamIndex, -1);
 }
 
 void SiloPlaybackProviderTest::replansAudioWithDurableRequestIdentity()

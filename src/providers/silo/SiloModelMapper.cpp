@@ -1026,8 +1026,9 @@ MediaStreamInfo SiloModelMapper::mediaStream(const QJsonObject &wireTrack,
     result.language = wireTrack.value(QStringLiteral("language")).toString();
     result.title = wireTrack.value(QStringLiteral("title")).toString();
     result.embeddedTitle = wireTrack.value(QStringLiteral("embedded_title")).toString();
-    if (result.title.isEmpty()) {
+    if (result.title.isEmpty() && !result.embeddedTitle.isEmpty()) {
         result.title = result.embeddedTitle;
+        result.titleFromEmbeddedTitle = true;
     }
     result.displayTitle = result.title;
     result.isDefault = wireTrack.value(QStringLiteral("default")).toBool();

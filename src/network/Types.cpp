@@ -53,6 +53,8 @@ QVariantMap MediaStreamInfo::toVariantMap() const
     streamMap["title"] = title;
     if (!embeddedTitle.isEmpty())
         streamMap["embeddedTitle"] = embeddedTitle;
+    if (titleFromEmbeddedTitle)
+        streamMap["titleFromEmbeddedTitle"] = true;
     streamMap["displayTitle"] = displayTitle;
     streamMap["isDefault"] = isDefault;
     streamMap["isForced"] = isForced;
