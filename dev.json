@@ -1,26 +1,26 @@
 {
-  "build_id": "20261102050834-4faea2c",
+  "build_id": "20261102064340-982e02c",
   "channel": "dev",
   "installer": {
     "filename": "Bloom-Setup-dev.exe",
-    "sha256": "746225028eac6c096fb9fbc78b8dbbd1aa1c6e453985b1c8c070fd95887ecf7f",
+    "sha256": "c4b8c2da5a16f75850f258774de5c5757f722426d202e1ebe605a257097c7a48",
     "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Setup-dev.exe"
   },
   "key_id": "bloom-update-2026-08",
-  "notes": "Latest development build from the `main` branch.\n\n- Build ID: `20261102050834-4faea2c`\n- Commit: `4faea2c731108d9d11c67c80cb30396ce65f766b`\n- Base version: `0.8.0`\n- Built: `2026-11-02T05:22:02Z`\n\nLinux and Flatpak assets are attached when their builds finish.",
-  "payload": "eyJidWlsZF9pZCI6IjIwMjYxMTAyMDUwODM0LTRmYWVhMmMiLCJjaGFubmVsIjoiZGV2IiwiaW5zdGFsbGVyIjp7ImZpbGVuYW1lIjoiQmxvb20tU2V0dXAtZGV2LmV4ZSIsInNoYTI1NiI6Ijc0NjIyNTAyOGVhYzZjMDk2ZmI5ZmJjNzhiOGRiYmQxYWExYzZlNDUzOTg1YjFjOGMwNzBmZDk1ODg3ZWNmN2YiLCJ1cmwiOiJodHRwczovL2dpdGh1Yi5jb20vY3Jvd3F1aWxseC9CbG9vbS9yZWxlYXNlcy9kb3dubG9hZC9kZXYtbGF0ZXN0L0Jsb29tLVNldHVwLWRldi5leGUifSwibm90ZXMiOiJMYXRlc3QgZGV2ZWxvcG1lbnQgYnVpbGQgZnJvbSB0aGUgYG1haW5gIGJyYW5jaC5cblxuLSBCdWlsZCBJRDogYDIwMjYxMTAyMDUwODM0LTRmYWVhMmNgXG4tIENvbW1pdDogYDRmYWVhMmM3MzExMDhkOWQxMWM2N2M4MGNiMzAzOTZjZTY1Zjc2NmJgXG4tIEJhc2UgdmVyc2lvbjogYDAuOC4wYFxuLSBCdWlsdDogYDIwMjYtMTEtMDJUMDU6MjI6MDJaYFxuXG5MaW51eCBhbmQgRmxhdHBhayBhc3NldHMgYXJlIGF0dGFjaGVkIHdoZW4gdGhlaXIgYnVpbGRzIGZpbmlzaC4iLCJwb3J0YWJsZSI6eyJmaWxlbmFtZSI6IkJsb29tLVdpbmRvd3MuemlwIiwic2hhMjU2IjoiOGJiZTUxOWFmOGZhNmIxZDNjZWNkNGY3ZGI5OGMzMzgwYTE1YmY5MjAwZTdmODU1YjIyNDA5YjdiYmE4ZDBhZiIsInVybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9jcm93cXVpbGx4L0Jsb29tL3JlbGVhc2VzL2Rvd25sb2FkL2Rldi1sYXRlc3QvQmxvb20tV2luZG93cy56aXAifSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMS0wMlQwNToyMjowMloiLCJyZWxlYXNlX3RhZyI6ImRldi1sYXRlc3QiLCJyb2xsb3V0Ijp7ImVuYWJsZWQiOnRydWUsIm1pbmltdW1fc3VwcG9ydGVkX3ZlcnNpb24iOiIwLjguMCJ9LCJ2ZXJzaW9uIjoiMC44LjAifQ==",
+  "notes": "Latest development build from the `main` branch.\n\n- Build ID: `20261102064340-982e02c`\n- Commit: `982e02ca5dc92020438843e8d580e1babad8aec3`\n- Base version: `0.8.0`\n- Built: `2026-11-02T06:56:38Z`\n\nLinux and Flatpak assets are attached when their builds finish.",
+  "payload": "eyJidWlsZF9pZCI6IjIwMjYxMTAyMDY0MzQwLTk4MmUwMmMiLCJjaGFubmVsIjoiZGV2IiwiaW5zdGFsbGVyIjp7ImZpbGVuYW1lIjoiQmxvb20tU2V0dXAtZGV2LmV4ZSIsInNoYTI1NiI6ImM0YjhjMmRhNWExNmY3NTg1MGYyNTg3NzRkZTVjNTc1N2Y3MjI0MjZkMjAyZTFlYmU2MDVhMjU3MDk3YzdhNDgiLCJ1cmwiOiJodHRwczovL2dpdGh1Yi5jb20vY3Jvd3F1aWxseC9CbG9vbS9yZWxlYXNlcy9kb3dubG9hZC9kZXYtbGF0ZXN0L0Jsb29tLVNldHVwLWRldi5leGUifSwibm90ZXMiOiJMYXRlc3QgZGV2ZWxvcG1lbnQgYnVpbGQgZnJvbSB0aGUgYG1haW5gIGJyYW5jaC5cblxuLSBCdWlsZCBJRDogYDIwMjYxMTAyMDY0MzQwLTk4MmUwMmNgXG4tIENvbW1pdDogYDk4MmUwMmNhNWRjOTIwMjA0Mzg4NDNlOGQ1ODBlMWJhYmFkOGFlYzNgXG4tIEJhc2UgdmVyc2lvbjogYDAuOC4wYFxuLSBCdWlsdDogYDIwMjYtMTEtMDJUMDY6NTY6MzhaYFxuXG5MaW51eCBhbmQgRmxhdHBhayBhc3NldHMgYXJlIGF0dGFjaGVkIHdoZW4gdGhlaXIgYnVpbGRzIGZpbmlzaC4iLCJwb3J0YWJsZSI6eyJmaWxlbmFtZSI6IkJsb29tLVdpbmRvd3MuemlwIiwic2hhMjU2IjoiNmM4YTJiOGYwMDM2ZTdhZjEwNjY4YzgyN2Y5ODA0OTM5NjAwNDk5MjBiZDIyOThhMTIyMjY2N2MzNjNkMmFmOSIsInVybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9jcm93cXVpbGx4L0Jsb29tL3JlbGVhc2VzL2Rvd25sb2FkL2Rldi1sYXRlc3QvQmxvb20tV2luZG93cy56aXAifSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMS0wMlQwNjo1NjozOFoiLCJyZWxlYXNlX3RhZyI6ImRldi1sYXRlc3QiLCJyb2xsb3V0Ijp7ImVuYWJsZWQiOnRydWUsIm1pbmltdW1fc3VwcG9ydGVkX3ZlcnNpb24iOiIwLjguMCJ9LCJ2ZXJzaW9uIjoiMC44LjAifQ==",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "8bbe519af8fa6b1d3cecd4f7db98c3380a15bf9200e7f855b22409b7bba8d0af",
+    "sha256": "6c8a2b8f0036e7af10668c827f980493960049920bd2298a1222667c363d2af9",
     "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip"
   },
-  "published_at": "2026-11-02T05:22:02Z",
+  "published_at": "2026-11-02T06:56:38Z",
   "release_tag": "dev-latest",
   "rollout": {
     "enabled": true,
     "minimum_supported_version": "0.8.0"
   },
   "schema": 2,
-  "signature": "Dm338u+iru0+zyUrVjfBk/R+XE4ldvgGzzPmYd5ElI3VYO59puYUKrxwRNg4SLPMFWC9wa34ubLVNSh8zFscBg==",
+  "signature": "WdylbtvITlnI3XL0LC2/MFMpcnz4ZNMmYO6xjZwRN+EOPPhirmVw7egTnYNkxAYMIgiDewsVMvDzwYfHbc2/Aw==",
   "version": "0.8.0"
 }
