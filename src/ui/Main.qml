@@ -1600,6 +1600,10 @@ Window {
                         // Navigate to search screen
                         pushSearchScreen()
                         break
+                    case "upcoming":
+                        saveHomeFocusState()
+                        pushUpcomingScreen()
+                        break
                     case "discover":
                         saveHomeFocusState()
                         pushDiscoverScreen()
@@ -1823,6 +1827,20 @@ Window {
                 window.pushPersonScreen(person)
             })
         }
+        updateNavigationSelection()
+    }
+
+    // The live connection's upcoming airings, from the Upcoming tab. Its
+    // cards open the series page; Back returns to the same card.
+    function pushUpcomingScreen() {
+        if (stackView.currentItem && stackView.currentItem["navigationId"] === "upcoming") {
+            stackView.currentItem.forceActiveFocus()
+            return
+        }
+        playPointerSelectSound()
+        var upcomingScreen = stackView.push("UpcomingScreen.qml")
+        if (upcomingScreen)
+            connectDetailNavigation(upcomingScreen)
         updateNavigationSelection()
     }
 

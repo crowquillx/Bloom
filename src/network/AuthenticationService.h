@@ -167,6 +167,8 @@ public:
                           const QString &connectionId) const;
     QVariantList mapCollections(const QJsonArray &wireCollections,
                                 const QString &connectionId) const;
+    QVariantList mapAirings(const QJsonArray &wireAirings,
+                            const QString &connectionId) const;
     QVariantList mapPeople(const QJsonArray &wirePeople,
                            const QString &connectionId) const;
     QVariantList mapChaptersFromItem(const QJsonObject &wireItem,

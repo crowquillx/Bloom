@@ -82,6 +82,7 @@ QtObject {
     readonly property string thumbUp: "\ue8dc"
     readonly property string thumbDown: "\ue8db"
     readonly property string schedule: "\ue8b5"
+    readonly property string calendarMonth: "\uebcc"
     readonly property string info: "\ue88e"
     readonly property string error: "\ue000"
     

@@ -99,6 +99,12 @@ public:
         return SiloModelMapper::collections(wireCollections, connectionId);
     }
 
+    QVariantList mapAirings(const QJsonArray &wireAirings,
+                            const QString &connectionId) const override
+    {
+        return SiloModelMapper::calendarAirings(wireAirings, connectionId);
+    }
+
     QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
                                      const QString &connectionId,
                                      const QString &itemId) const override

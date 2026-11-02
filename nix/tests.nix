@@ -12,6 +12,7 @@
   sqlite,
   qt6,
   glibcLocales,
+  tzdata,
 }:
 
 stdenv.mkDerivation {
@@ -107,6 +108,7 @@ stdenv.mkDerivation {
       PersonViewModelTest \
       WatchHistoryViewModelTest \
       CollectionViewModelsTest \
+      UpcomingViewModelTest \
       LibrarySectionsViewModelTest \
       ContinueWatchingViewModelTest \
       MediaRequestServiceTest \
@@ -126,6 +128,9 @@ stdenv.mkDerivation {
     export XDG_CACHE_HOME="$TMPDIR/cache"
     mkdir -p "$HOME" "$XDG_CACHE_HOME"
     python3 "$src/tests/contracts/provider_contracts_test.py"
+    # Zone data, so tests of local days across daylight-saving changes
+    # (UpcomingViewModelTest) run instead of skipping; Qt reads TZDIR.
+    export TZDIR="${tzdata}/share/zoneinfo"
     export QT_QPA_PLATFORM=offscreen
     export QT_PLUGIN_PATH="${
       lib.makeSearchPath "lib/qt-6/plugins" [

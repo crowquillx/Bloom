@@ -342,6 +342,14 @@ QVariantList AuthenticationService::mapCollections(const QJsonArray &wireCollect
         : QVariantList{};
 }
 
+QVariantList AuthenticationService::mapAirings(const QJsonArray &wireAirings,
+                                                const QString &connectionId) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapAirings(wireAirings, connectionId)
+        : QVariantList{};
+}
+
 QVariantList AuthenticationService::mapPeople(const QJsonArray &wirePeople,
                                                const QString &connectionId) const
 {

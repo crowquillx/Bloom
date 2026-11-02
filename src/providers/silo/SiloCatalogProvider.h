@@ -243,6 +243,19 @@ private:
                                    .arg(query.calendarStart.toString(Qt::ISODate),
                                         query.calendarStart.addDays(kAiringWindowDays)
                                             .toString(Qt::ISODate));
+            // The pinned getCalendar presets; none sent is "all".
+            static const QStringList filters{
+                QStringLiteral("all"), QStringLiteral("everything"),
+                QStringLiteral("following"), QStringLiteral("favorites"),
+                QStringLiteral("watchlist"), QStringLiteral("popular"),
+                QStringLiteral("trending")};
+            const QString filter = query.calendarFilter.trimmed();
+            if (!filter.isEmpty()) {
+                if (!filters.contains(filter)) {
+                    return unsupported(QStringLiteral("Silo's calendar has no %1 preset").arg(filter));
+                }
+                endpoint += QStringLiteral("&filter=") + filter;
+            }
             // Encoded by hand: QUrlQuery leaves the '+' of zones such as
             // Etc/GMT+5, which the server would read as a space.
             if (!query.timeZoneId.trimmed().isEmpty()) {
@@ -724,8 +737,24 @@ public:
                 response.error = QStringLiteral("Invalid Silo calendar response");
                 return response;
             }
-            response.capabilityMetadata.insert(
-                QStringLiteral("airings"), SiloModelMapper::calendarAirings(days.toArray()));
+            // One entry per event; an event without its own local day
+            // takes the day it is listed under.
+            for (const QJsonValue &dayValue : days.toArray()) {
+                const QJsonObject day = dayValue.toObject();
+                const QJsonValue date = day.value(QStringLiteral("date"));
+                for (const QJsonValue &eventValue : day.value(QStringLiteral("items")).toArray()) {
+                    if (!eventValue.isObject()) {
+                        continue;
+                    }
+                    QJsonObject event = eventValue.toObject();
+                    if (!event.value(QStringLiteral("local_air_date")).isString()) {
+                        event.insert(QStringLiteral("local_air_date"), date);
+                    }
+                    response.rawItems.append(event);
+                }
+            }
+            response.total = static_cast<int>(response.rawItems.size());
+            response.capabilityMetadata.insert(QStringLiteral("filterable"), true);
             response.valid = true;
             return response;
         }

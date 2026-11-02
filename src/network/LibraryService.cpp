@@ -78,6 +78,17 @@ QString viewerTimeZoneId()
     return iana.match(name).hasMatch() ? name : QString();
 }
 
+// An airing's local day: its instant's day in the system zone, else its
+// date. Invalid when it has neither.
+QDate airingLocalDay(const QVariantMap &airing)
+{
+    const QDateTime instant =
+        QDateTime::fromString(airing.value(QStringLiteral("airAt")).toString(), Qt::ISODate);
+    return instant.isValid()
+        ? instant.toLocalTime().date()
+        : QDate::fromString(airing.value(QStringLiteral("airDate")).toString(), Qt::ISODate);
+}
+
 // The Etc zone for the viewer's current whole-hour offset. Etc/GMT names
 // invert the sign: UTC-5 is Etc/GMT+5. Empty for an offset off the hour,
 // which no Etc zone names.
@@ -266,6 +277,13 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         }
         m_airingCalendarReads.clear();
         m_airingCalendars.clear();
+        failStaleUpcomingReads();
+        // Probes are read again for the new session; their last answers
+        // stand until then.
+        for (UpcomingProbe &probe : m_upcomingProbes) {
+            probe.inFlight = false;
+            probe.nextCheckAt = {};
+        }
         // A reconnect may reach an upgraded server: read its version and
         // its collection support again.
         m_serverVersions.clear();
@@ -285,10 +303,15 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         // invalidate while authentication is unavailable.
         if (!m_authService->isAuthenticated()) {
             invalidateRequests();
+        } else {
+            ensureUpcomingProbe();
         }
     });
     connect(m_authService, &AuthenticationService::userIdChanged,
-            this, invalidateRequests);
+            this, [this, invalidateRequests]() {
+        invalidateRequests();
+        ensureUpcomingProbe();
+    });
     // A reply sent before the connection, profile or provider changed is
     // dropped (isCurrent), so its Home card write, rating write or shuffle
     // request is answered here.
@@ -300,8 +323,13 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
             failStaleSubtitleAppearanceRequests();
             failStaleUserRatingWrites();
             failStaleShuffleRequests();
+            failStaleUpcomingReads();
+            // Another connection or user has its own probe.
+            ensureUpcomingProbe();
         });
     }
+    m_upcomingProbeTimer.setSingleShot(true);
+    connect(&m_upcomingProbeTimer, &QTimer::timeout, this, &LibraryService::ensureUpcomingProbe);
 }
 
 ProviderCatalogQuery LibraryService::baseCatalogQuery() const
@@ -1923,12 +1951,99 @@ void LibraryService::getShuffleItems(const QVariantMap &scope, int limit,
 
 bool LibraryService::supportsNextAiring() const
 {
-    return m_authService && m_authService->isAuthenticated()
-        && m_authService->supportsCapability(ProviderCapability::AiringCalendar);
+    if (!m_authService || !m_authService->isAuthenticated()
+        || !m_authService->supportsCapability(ProviderCapability::AiringCalendar)) {
+        return false;
+    }
+    return !airingCalendarNeedsProbe()
+        || m_upcomingProbes.value(upcomingProbeKey()).available;
+}
+
+QString LibraryService::upcomingProbeKey() const
+{
+    return activeConnectionId(m_authService) + QLatin1Char('\n')
+        + (m_authService ? m_authService->getUserId() : QString());
+}
+
+bool LibraryService::airingCalendarNeedsProbe() const
+{
+    const IProviderAdapter *adapter = m_authService
+        ? m_authService->providerForConnection(activeConnectionId(m_authService))
+        : nullptr;
+    return adapter && adapter->airingCalendarNeedsProbe();
+}
+
+void LibraryService::ensureUpcomingProbe()
+{
+    if (!m_authService || !m_authService->isAuthenticated()
+        || !m_authService->supportsCapability(ProviderCapability::AiringCalendar)
+        || !airingCalendarNeedsProbe()) {
+        return;
+    }
+    const QString key = upcomingProbeKey();
+    UpcomingProbe &probe = m_upcomingProbes[key];
+    if (probe.inFlight && probe.generation == m_requestGeneration) {
+        return;
+    }
+    if (probe.nextCheckAt.isValid() && QDateTime::currentDateTimeUtc() < probe.nextCheckAt) {
+        return;
+    }
+    probe.inFlight = true;
+    probe.generation = m_requestGeneration;
+    // A few small pages from today: the list starts at yesterday (UTC)
+    // and one airing in the window is enough.
+    const QDate today = QDate::currentDate();
+    AiringCalendarRequest request;
+    request.operationName = QStringLiteral("probeUpcomingAirings");
+    request.start = today;
+    request.timeZoneId = viewerTimeZoneId();
+    request.zoneFallbackAllowed = !request.timeZoneId.isEmpty();
+    if (request.timeZoneId.isEmpty()) {
+        request.timeZoneId = offsetTimeZoneId(QDateTime::currentDateTime());
+    }
+    request.pageSize = 20;
+    request.lastDay = today.addDays(kAiringWindowDays);
+    request.stopAtFirstInWindow = true;
+    const quint64 generation = m_requestGeneration;
+    sendAiringCalendarRequest(
+        request,
+        [this, key, generation, today, lastDay = request.lastDay](const QVariantList &airings,
+                                                                 bool) {
+            const bool found = std::any_of(airings.cbegin(), airings.cend(),
+                                           [&](const QVariant &value) {
+                const QDate day = airingLocalDay(value.toMap());
+                return day.isValid() && day >= today && day <= lastDay;
+            });
+            finishUpcomingProbe(key, generation, found);
+        },
+        [this, key, generation](const NetworkError &) {
+            finishUpcomingProbe(key, generation, std::nullopt);
+        });
+}
+
+void LibraryService::finishUpcomingProbe(const QString &key, quint64 generation,
+                                         std::optional<bool> available)
+{
+    auto probe = m_upcomingProbes.find(key);
+    if (probe == m_upcomingProbes.end() || !probe->inFlight || probe->generation != generation) {
+        return;
+    }
+    probe->inFlight = false;
+    // A failed probe keeps the last answer and tries again sooner.
+    const qint64 delay = available.has_value() ? kUpcomingProbeTtlMs : kUpcomingProbeRetryMs;
+    probe->nextCheckAt = QDateTime::currentDateTimeUtc().addMSecs(delay);
+    m_upcomingProbeTimer.start(static_cast<int>(delay));
+    if (!available.has_value() || (probe->answered && probe->available == *available)) {
+        return;
+    }
+    probe->answered = true;
+    probe->available = *available;
+    emit upcomingAiringsAvailabilityChanged();
 }
 
 void LibraryService::getNextAiring(const QString &seriesId)
 {
+    ensureUpcomingProbe();
     if (seriesId.isEmpty() || !supportsNextAiring()) {
         emit nextAiringLoaded(seriesId, {});
         return;
@@ -1952,7 +2067,8 @@ void LibraryService::getNextAiring(const QString &seriesId)
     if (cached != m_airingCalendars.cend()
         && cached->fetchedAt.msecsTo(QDateTime::currentDateTimeUtc()) < kAiringCalendarTtlMs) {
         emit nextAiringLoaded(seriesId,
-                              nextAiringFor(cached->airings, seriesId, QDateTime::currentDateTime()));
+                              nextAiringFor(cached->airings, seriesId,
+                                            QDateTime::currentDateTime(), kAiringWindowDays));
         return;
     }
     // Pages asking while the calendar is read wait for the same answer.
@@ -1973,33 +2089,180 @@ void LibraryService::readAiringCalendar(const QString &key,
                                         bool zoneFallbackAllowed)
 {
     const quint64 generation = m_requestGeneration;
-    ProviderCatalogQuery query = baseCatalogQuery();
-    query.calendarStart = start;
-    query.timeZoneId = timeZoneId;
-    sendCatalogRequest(
-        QStringLiteral("getNextAiring"),
-        ProviderCatalogOperation::UpcomingAirings,
-        query,
-        [this, key, generation](const ProviderCatalogResponse &response) {
-            finishAiringCalendarRead(
-                key, generation,
-                response.capabilityMetadata.value(QStringLiteral("airings")).toList(), true);
+    // The chip reads every title, whatever the Upcoming page's preset.
+    AiringCalendarRequest request;
+    request.operationName = QStringLiteral("getNextAiring");
+    request.start = start;
+    request.timeZoneId = timeZoneId;
+    request.zoneFallbackAllowed = zoneFallbackAllowed;
+    request.lastDay = start.addDays(kAiringWindowDays);
+    sendAiringCalendarRequest(
+        request,
+        [this, key, generation](const QVariantList &airings, bool) {
+            finishAiringCalendarRead(key, generation, airings, true);
         },
-        [this, key, generation, start, zoneFallbackAllowed](const NetworkError &error) {
-            // A zone the server does not know is retried once as the
-            // viewer's whole-hour offset.
-            if (zoneFallbackAllowed && rejectsTimeZone(error)) {
-                const QString fallback = offsetTimeZoneId(QDateTime::currentDateTime());
-                const auto read = m_airingCalendarReads.constFind(key);
-                if (!fallback.isEmpty() && read != m_airingCalendarReads.cend()
-                    && read->generation == generation) {
-                    readAiringCalendar(key, start, fallback, false);
-                    return;
-                }
-            }
+        [this, key, generation](const NetworkError &) {
             // No chip, and nothing else on the page depends on it.
             finishAiringCalendarRead(key, generation, {}, false);
         });
+}
+
+void LibraryService::sendAiringCalendarRequest(const AiringCalendarRequest &request,
+                                               AiringsHandler loaded,
+                                               AiringsFailureHandler failed)
+{
+    sendAiringCalendarPage(request, catalogRequestIdentity(), 0, 0, {}, std::move(loaded),
+                           std::move(failed));
+}
+
+void LibraryService::sendAiringCalendarPage(const AiringCalendarRequest &request,
+                                            const CatalogRequestIdentity &identity,
+                                            int page,
+                                            int startIndex,
+                                            const QVariantList &previous,
+                                            AiringsHandler loaded,
+                                            AiringsFailureHandler failed)
+{
+    // A retry or a later page belongs to the session that started the read.
+    if (page > 0 && !isCurrent(identity)) {
+        NetworkError error;
+        error.endpoint = request.operationName;
+        error.userMessage = tr("The connection changed before the calendar arrived.");
+        failed(error);
+        return;
+    }
+    const QString connectionId = identity.connectionId;
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.calendarStart = request.start;
+    query.timeZoneId = request.timeZoneId;
+    query.calendarFilter = request.filter;
+    query.startIndex = startIndex;
+    query.limit = request.pageSize;
+    sendCatalogRequest(
+        request.operationName,
+        ProviderCatalogOperation::UpcomingAirings,
+        query,
+        [this, request, identity, connectionId, page, startIndex, previous, loaded,
+         failed](const ProviderCatalogResponse &response) {
+            QVariantList airings = previous;
+            const QVariantList pageAirings =
+                m_authService->mapAirings(response.rawItems, connectionId);
+            airings.append(pageAirings);
+            const bool filterable =
+                response.capabilityMetadata.value(QStringLiteral("filterable")).toBool();
+            const bool full = response.capabilityMetadata.value(QStringLiteral("paged")).toBool()
+                && request.pageSize > 0 && response.rawItems.size() >= request.pageSize;
+            // The provider lists soonest first, so a page ending after the
+            // window is the last one needed.
+            const QDate pageEnd = pageAirings.isEmpty()
+                ? QDate() : airingLocalDay(pageAirings.constLast().toMap());
+            const bool pastWindow = request.lastDay.isValid() && pageEnd.isValid()
+                && pageEnd > request.lastDay;
+            const bool found = request.stopAtFirstInWindow
+                && std::any_of(pageAirings.cbegin(), pageAirings.cend(),
+                               [&request](const QVariant &value) {
+                    const QDate day = airingLocalDay(value.toMap());
+                    return day.isValid() && day >= request.start
+                        && (!request.lastDay.isValid() || day <= request.lastDay);
+                });
+            if (!full || pastWindow || found) {
+                loaded(airings, filterable);
+                return;
+            }
+            if (page + 1 >= request.maxPages) {
+                qCWarning(lcLibrary)
+                    << request.operationName << "stopped after" << request.maxPages
+                    << "pages; later airings in the window are left out";
+                loaded(airings, filterable);
+                return;
+            }
+            sendAiringCalendarPage(request, identity, page + 1,
+                                   startIndex + static_cast<int>(response.rawItems.size()),
+                                   airings, loaded, failed);
+        },
+        [this, request, identity, page, startIndex, previous, loaded,
+         failed](const NetworkError &error) {
+            // A zone the server does not know is retried once as the
+            // viewer's whole-hour offset, only while the session that sent
+            // the read is current: the retry is a new request in whatever
+            // session is live by then.
+            if (request.zoneFallbackAllowed && rejectsTimeZone(error)) {
+                const QString fallback = offsetTimeZoneId(QDateTime::currentDateTime());
+                if (!fallback.isEmpty() && isCurrent(identity)) {
+                    AiringCalendarRequest retry = request;
+                    retry.timeZoneId = fallback;
+                    retry.zoneFallbackAllowed = false;
+                    sendAiringCalendarPage(retry, identity, page, startIndex, previous, loaded,
+                                           failed);
+                    return;
+                }
+            }
+            failed(error);
+        });
+}
+
+bool LibraryService::supportsUpcomingAirings() const
+{
+    return supportsNextAiring();
+}
+
+void LibraryService::getUpcomingAirings(const QString &filter, const QString &requestKey)
+{
+    ensureUpcomingProbe();
+    const QString connectionId = activeConnectionId(m_authService);
+    if (!supportsUpcomingAirings()) {
+        emit canonicalUpcomingAiringsFailed(connectionId, requestKey,
+                                            tr("This server has no airing calendar."));
+        return;
+    }
+    // Today and the next 30 days in the viewer's zone, as for the chip.
+    const QDate today = QDate::currentDate();
+    QString timeZoneId = viewerTimeZoneId();
+    const bool zoneFallbackAllowed = !timeZoneId.isEmpty();
+    if (timeZoneId.isEmpty()) {
+        timeZoneId = offsetTimeZoneId(QDateTime::currentDateTime());
+    }
+    m_upcomingReads.insert(requestKey, catalogRequestIdentity());
+    AiringCalendarRequest request;
+    request.operationName = QStringLiteral("getUpcomingAirings");
+    request.start = today;
+    request.timeZoneId = timeZoneId;
+    request.zoneFallbackAllowed = zoneFallbackAllowed;
+    request.filter = filter;
+    request.lastDay = today.addDays(kAiringWindowDays);
+    sendAiringCalendarRequest(
+        request,
+        [this, connectionId, requestKey](const QVariantList &airings, bool filterable) {
+            if (m_upcomingReads.remove(requestKey) > 0) {
+                emit canonicalUpcomingAiringsLoaded(connectionId, requestKey, airings,
+                                                    filterable);
+            }
+        },
+        [this, connectionId, requestKey](const NetworkError &error) {
+            if (m_upcomingReads.remove(requestKey) > 0) {
+                emit canonicalUpcomingAiringsFailed(connectionId, requestKey,
+                                                    error.userMessage);
+            }
+        });
+}
+
+void LibraryService::failStaleUpcomingReads()
+{
+    QList<std::pair<QString, QString>> stale;
+    for (auto it = m_upcomingReads.begin(); it != m_upcomingReads.end();) {
+        if (isCurrent(it.value())) {
+            ++it;
+            continue;
+        }
+        stale.append({it.value().connectionId, it.key()});
+        it = m_upcomingReads.erase(it);
+    }
+    // Answered after the loop: a page may read again from the signal.
+    for (const auto &[connectionId, requestKey] : std::as_const(stale)) {
+        emit canonicalUpcomingAiringsFailed(
+            connectionId, requestKey,
+            tr("The connection changed before the calendar arrived."));
+    }
 }
 
 void LibraryService::finishAiringCalendarRead(const QString &key,
@@ -2022,15 +2285,17 @@ void LibraryService::finishAiringCalendarRead(const QString &key,
     }
     const QDateTime now = QDateTime::currentDateTime();
     for (const QString &seriesId : seriesIds) {
-        emit nextAiringLoaded(seriesId, nextAiringFor(airings, seriesId, now));
+        emit nextAiringLoaded(seriesId, nextAiringFor(airings, seriesId, now, kAiringWindowDays));
     }
 }
 
 QVariantMap LibraryService::nextAiringFor(const QVariantList &airings,
                                           const QString &seriesId,
-                                          const QDateTime &now)
+                                          const QDateTime &now,
+                                          int windowDays)
 {
     const QDate today = now.toLocalTime().date();
+    const QDate lastDay = windowDays >= 0 ? today.addDays(windowDays) : QDate();
     QVariantMap best;
     QDateTime bestAt;
     for (const QVariant &value : airings) {
@@ -2045,12 +2310,13 @@ QVariantMap LibraryService::nextAiringFor(const QVariantList &airings,
         // Without an instant an airing counts until its local day is over.
         QDateTime at;
         if (instant.isValid()) {
-            if (instant <= now) {
+            if (instant <= now
+                || (lastDay.isValid() && instant.toLocalTime().date() > lastDay)) {
                 continue;
             }
             at = instant;
         } else {
-            if (!day.isValid() || day < today) {
+            if (!day.isValid() || day < today || (lastDay.isValid() && day > lastDay)) {
                 continue;
             }
             at = day.startOfDay();

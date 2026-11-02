@@ -255,7 +255,9 @@ private slots:
     void nextAiringSharesAndCachesOneCalendarRead();
     void nextAiringRetriesUnknownZoneAsOffset();
     void upcomingAiringsReadTheViewerCalendar();
+    void upcomingPageReadsThePresetAndFailsOnSessionChange();
     void nextAiringPicksEarliestAiringStillAhead();
+    void jellyfinUpcomingProbesThenPagesTheCalendar();
     void markerSegmentsKeepRepeatedRanges();
     void serverRatingsFollowServerOrder();
     void librarySectionsShareTheHomeRowCap();
@@ -3819,6 +3821,70 @@ void SiloCatalogServiceTest::nextAiringSharesAndCachesOneCalendarRead()
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), firstRequest + 2, 1000);
 }
 
+void SiloCatalogServiceTest::upcomingPageReadsThePresetAndFailsOnSessionChange()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    QVERIFY(service.supportsUpcomingAirings());
+    QSignalSpy loaded(&service, &LibraryService::canonicalUpcomingAiringsLoaded);
+    QSignalSpy failed(&service, &LibraryService::canonicalUpcomingAiringsFailed);
+    const QString connectionId = service.getActiveConnectionId();
+    QVERIFY(!connectionId.isEmpty());
+    const QDate today = QDate::currentDate();
+
+    // The page reads its preset from today, profile scoped, as a safe read.
+    qsizetype firstRequest = manager.requests.size();
+    manager.responses = { { 200, calendarBody(today.addDays(1)), false } };
+    service.getUpcomingAirings(QStringLiteral("following"), QStringLiteral("upcoming:1"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    const QUrl url = manager.requests.at(firstRequest).request.url();
+    QCOMPARE(url.path(), QStringLiteral("/api/v2/calendar"));
+    const QUrlQuery parameters(url);
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("start")), today.toString(Qt::ISODate));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("end")), today.addDays(30).toString(Qt::ISODate));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("filter")), QStringLiteral("following"));
+    QVERIFY(parameters.hasQueryItem(QStringLiteral("timezone")));
+    QCOMPARE(manager.requests.at(firstRequest).request.rawHeader("X-Profile-Id"),
+             QByteArrayLiteral("profile-1"));
+    QCOMPARE(loaded.first().at(0).toString(), connectionId);
+    QCOMPARE(loaded.first().at(1).toString(), QStringLiteral("upcoming:1"));
+    const QVariantList airings = loaded.first().at(2).toList();
+    QCOMPARE(airings.size(), 2);
+    QCOMPARE(airings.first().toMap().value(QStringLiteral("connectionId")).toString(), connectionId);
+    QCOMPARE(airings.first().toMap().value(QStringLiteral("seriesName")).toString(),
+             QStringLiteral("a"));
+    QVERIFY(loaded.first().at(3).toBool());
+    QCOMPARE(failed.count(), 0);
+
+    // A refused read answers failed with the request key.
+    manager.responses = { { 404, QByteArrayLiteral(R"({"type":"about:blank","status":404})"), false } };
+    service.getUpcomingAirings(QStringLiteral("trending"), QStringLiteral("upcoming:2"));
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+    QCOMPARE(failed.first().at(1).toString(), QStringLiteral("upcoming:2"));
+
+    // A read the session moves past is answered as failed, not left waiting.
+    failed.clear();
+    firstRequest = manager.requests.size();
+    manager.responses = { { 200, calendarBody(today), true } };
+    service.getUpcomingAirings(QStringLiteral("everything"), QStringLiteral("upcoming:3"));
+    QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), firstRequest + 1, 1000);
+    emit auth.userIdChanged();
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(failed.first().at(1).toString(), QStringLiteral("upcoming:3"));
+    manager.replies.at(firstRequest)->complete();
+    QTest::qWait(50);
+    QCOMPARE(loaded.count(), 1);
+}
+
 void SiloCatalogServiceTest::nextAiringRetriesUnknownZoneAsOffset()
 {
     // A zone with a fixed whole-hour offset (UTC+9) that the server is
@@ -3886,9 +3952,21 @@ void SiloCatalogServiceTest::upcomingAiringsReadTheViewerCalendar()
     // At most 31 days, and the '+' of the zone survives the query string.
     QCOMPARE(request.relativeEndpoint,
              QStringLiteral("/api/v2/calendar?start=2026-11-01&end=2026-12-01&timezone=Etc%2FGMT%2B5"));
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
     query.timeZoneId.clear();
     QCOMPARE(provider.createRequest(ProviderCatalogOperation::UpcomingAirings, query).relativeEndpoint,
              QStringLiteral("/api/v2/calendar?start=2026-11-01&end=2026-12-01"));
+    // The Upcoming page's presets; a value the pin does not list is not sent.
+    query.calendarFilter = QStringLiteral("following");
+    QCOMPARE(provider.createRequest(ProviderCatalogOperation::UpcomingAirings, query).relativeEndpoint,
+             QStringLiteral("/api/v2/calendar?start=2026-11-01&end=2026-12-01&filter=following"));
+    query.calendarFilter = QStringLiteral("everything");
+    query.timeZoneId = QStringLiteral("America/New_York");
+    QCOMPARE(provider.createRequest(ProviderCatalogOperation::UpcomingAirings, query).relativeEndpoint,
+             QStringLiteral("/api/v2/calendar?start=2026-11-01&end=2026-12-01&filter=everything"
+                            "&timezone=America%2FNew_York"));
+    query.calendarFilter = QStringLiteral("mine");
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::UpcomingAirings, query).supported);
 
     const ProviderCatalogResponse response = provider.parseResponse(
         ProviderCatalogOperation::UpcomingAirings,
@@ -3898,11 +3976,46 @@ void SiloCatalogServiceTest::upcomingAiringsReadTheViewerCalendar()
             R"({"content_id":"episode:sev-s02e05","type":"episode","title":"Severance","series_id":"series:severance",)"
             R"("season_number":2,"episode_number":5,"episode_title":"Trojan Horse","air_date":"2026-11-05",)"
             R"("air_time":"21:00","air_timezone":"America/New_York","air_at":"2026-11-06T02:00:00Z",)"
-            R"("local_air_date":"2026-11-05","watched":false,"badges":["finale"]}]}]})"));
+            R"("local_air_date":"2026-11-05","watched":false,"badges":["finale"],)"
+            R"("poster_url":"/images/posters/sev.jpg?sig=abc"}]},)"
+            R"({"date":"2026-11-07","items":[)"
+            R"({"content_id":"season:sev-s03","type":"season_premiere","title":"Severance","series_id":"series:severance",)"
+            R"("season_number":3,"air_date":"2026-11-07","air_time":"20:00","watched":true,"badges":["season_premiere"],)"
+            R"("poster_url":"/images/posters/sev-s3.jpg"}]}]})"));
     QVERIFY(response.valid);
-    const QVariantList airings = response.capabilityMetadata.value(QStringLiteral("airings")).toList();
-    QCOMPARE(airings.size(), 1);
+    QVERIFY(response.capabilityMetadata.value(QStringLiteral("filterable")).toBool());
+    // One entry per event; one without its own local day takes its day's.
+    QCOMPARE(response.rawItems.size(), 3);
+    QCOMPARE(response.rawItems.at(2).toObject().value(QStringLiteral("local_air_date")).toString(),
+             QStringLiteral("2026-11-07"));
+    SiloProviderAdapter siloAdapter;
+    const QVariantList airings = siloAdapter.mapAirings(response.rawItems,
+                                                        QStringLiteral("connection-1"));
+    QCOMPARE(airings.size(), 2);
     const QVariantMap airing = airings.first().toMap();
+    QCOMPARE(airing.value(QStringLiteral("connectionId")).toString(), QStringLiteral("connection-1"));
+    QCOMPARE(airing.value(QStringLiteral("seriesName")).toString(), QStringLiteral("Severance"));
+    QCOMPARE(airing.value(QStringLiteral("type")).toString(), QStringLiteral("episode"));
+    QVERIFY(!airing.value(QStringLiteral("watched")).toBool());
+    // The poster is the series', owned by the series and token-free.
+    const QVariantMap poster = airing.value(QStringLiteral("seriesPrimaryArtwork")).toMap();
+    QCOMPARE(poster.value(QStringLiteral("itemId")).toString(), QStringLiteral("series:severance"));
+    QCOMPARE(poster.value(QStringLiteral("connectionId")).toString(), QStringLiteral("connection-1"));
+    QCOMPARE(airing.value(QStringLiteral("artwork")).toList().size(), 1);
+    // A season premiere has no episode, and its poster is the season's.
+    const QVariantMap premiere = airings.at(1).toMap();
+    QCOMPARE(premiere.value(QStringLiteral("type")).toString(), QStringLiteral("season_premiere"));
+    QCOMPARE(premiere.value(QStringLiteral("airDate")).toString(), QStringLiteral("2026-11-07"));
+    QCOMPARE(premiere.value(QStringLiteral("seasonNumber")).toInt(), 3);
+    QCOMPARE(premiere.value(QStringLiteral("episodeNumber")).toInt(), -1);
+    QVERIFY(!premiere.contains(QStringLiteral("airAt")));
+    // An air_time without its zone stays the network's wall clock.
+    QCOMPARE(premiere.value(QStringLiteral("airTime")).toString(), QStringLiteral("20:00"));
+    QVERIFY(!airing.contains(QStringLiteral("airTime")));
+    QVERIFY(premiere.value(QStringLiteral("watched")).toBool());
+    QCOMPARE(premiere.value(QStringLiteral("seriesPrimaryArtwork")).toMap()
+                 .value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("season:sev-s03"));
     QCOMPARE(airing.value(QStringLiteral("seriesId")).toString(), QStringLiteral("series:severance"));
     QCOMPARE(airing.value(QStringLiteral("itemId")).toString(), QStringLiteral("episode:sev-s02e05"));
     QCOMPARE(airing.value(QStringLiteral("seasonNumber")).toInt(), 2);
@@ -3929,8 +4042,9 @@ void SiloCatalogServiceTest::upcomingAiringsReadTheViewerCalendar()
 
     SiloProviderAdapter silo;
     QVERIFY(silo.supportsCapability(ProviderCapability::AiringCalendar));
+    // Jellyfin's upcoming episodes are its calendar (ProviderCatalogTest).
     JellyfinProviderAdapter jellyfin;
-    QVERIFY(!jellyfin.supportsCapability(ProviderCapability::AiringCalendar));
+    QVERIFY(jellyfin.supportsCapability(ProviderCapability::AiringCalendar));
 }
 
 void SiloCatalogServiceTest::nextAiringPicksEarliestAiringStillAhead()
@@ -3966,6 +4080,132 @@ void SiloCatalogServiceTest::nextAiringPicksEarliestAiringStillAhead()
                                       now.toLocalTime().date().toString(Qt::ISODate), QString())};
     QCOMPARE(LibraryService::nextAiringFor(dayOnly, QStringLiteral("series:d"), now)
                  .value(QStringLiteral("episodeNumber")).toInt(), 4);
+
+    // The chip's window: nothing after the local day 30 days from today.
+    const QDate today = now.toLocalTime().date();
+    const QVariantList far{
+        airing(QStringLiteral("series:e"), 1, today.addDays(31).toString(Qt::ISODate), QString()),
+        airing(QStringLiteral("series:f"), 1, today.addDays(30).toString(Qt::ISODate), QString()),
+        airing(QStringLiteral("series:g"), 1, today.addDays(40).toString(Qt::ISODate),
+               QDateTime(today.addDays(40), QTime(12, 0)).toUTC().toString(Qt::ISODate))};
+    QVERIFY(LibraryService::nextAiringFor(far, QStringLiteral("series:e"), now, 30).isEmpty());
+    QVERIFY(!LibraryService::nextAiringFor(far, QStringLiteral("series:e"), now).isEmpty());
+    QVERIFY(!LibraryService::nextAiringFor(far, QStringLiteral("series:f"), now, 30).isEmpty());
+    QVERIFY(LibraryService::nextAiringFor(far, QStringLiteral("series:g"), now, 30).isEmpty());
+}
+
+void SiloCatalogServiceTest::jellyfinUpcomingProbesThenPagesTheCalendar()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    JellyfinSession session(temporaryDirectory.path());
+    QVERIFY(session.restored);
+    QVERIFY(session.auth.isAuthenticated());
+    ControlledNetworkAccessManager &manager = session.manager;
+    LibraryService service(&session.auth);
+    QSignalSpy availability(&service, &LibraryService::upcomingAiringsAvailabilityChanged);
+    const QDate today = QDate::currentDate();
+    const auto episode = [](const QString &id, const QString &series, const QDate &day) {
+        return QStringLiteral(R"({"Id":"%1","Name":"E","Type":"Episode","SeriesId":"%2",)"
+                              R"("SeriesName":"%2","ParentIndexNumber":1,"IndexNumber":2,)"
+                              R"("PremiereDate":"%3T00:00:00.0000000Z"})")
+            .arg(id, series, day.toString(Qt::ISODate))
+            .toUtf8();
+    };
+    const auto episodes = [&episode](int count, const QString &prefix, const QDate &day) {
+        QByteArrayList list;
+        for (int index = 0; index < count; ++index) {
+            list.append(episode(prefix + QString::number(index), QStringLiteral("s-") + prefix, day));
+        }
+        return list.join(',');
+    };
+
+    // Until a probe finds an airing, the tab and the chip stay away.
+    QVERIFY(!service.supportsUpcomingAirings());
+    QVERIFY(!service.supportsNextAiring());
+
+    // A session change probes: one small page, here empty.
+    qsizetype firstRequest = manager.requests.size();
+    manager.responses = { { 200, jellyfinItems({}, 0), false } };
+    emit session.auth.userIdChanged();
+    QTRY_COMPARE_WITH_TIMEOUT(availability.count(), 1, 1000);
+    QCOMPARE(manager.requests.size(), firstRequest + 1);
+    QUrl url = manager.requests.at(firstRequest).request.url();
+    QCOMPARE(url.path(), QStringLiteral("/Shows/Upcoming"));
+    QCOMPARE(QUrlQuery(url).queryItemValue(QStringLiteral("Limit")), QStringLiteral("20"));
+    QVERIFY(!QUrlQuery(url).hasQueryItem(QStringLiteral("StartIndex")));
+    QVERIFY(!service.supportsUpcomingAirings());
+    // Kept: asking again reads nothing.
+    service.getNextAiring(QStringLiteral("s-a"));
+    QTest::qWait(20);
+    QCOMPARE(manager.requests.size(), firstRequest + 1);
+
+    // The next session probes again. A full page of yesterday's episodes
+    // reads on until one in the window shows up.
+    firstRequest = manager.requests.size();
+    manager.responses = {
+        { 200, jellyfinItems(episodes(20, QStringLiteral("old"), today.addDays(-1)), 20), false },
+        { 200, jellyfinItems(episode(QStringLiteral("new"), QStringLiteral("s-new"),
+                                     today.addDays(2)), 1, 20), false } };
+    emit session.auth.userIdChanged();
+    QTRY_COMPARE_WITH_TIMEOUT(availability.count(), 2, 1000);
+    QCOMPARE(manager.requests.size(), firstRequest + 2);
+    QCOMPARE(QUrlQuery(manager.requests.at(firstRequest + 1).request.url())
+                 .queryItemValue(QStringLiteral("StartIndex")), QStringLiteral("20"));
+    QVERIFY(service.supportsUpcomingAirings());
+    QVERIFY(service.supportsNextAiring());
+
+    // The page reads full pages until one ends past the window.
+    QSignalSpy loaded(&service, &LibraryService::canonicalUpcomingAiringsLoaded);
+    firstRequest = manager.requests.size();
+    const int pageSize = LibraryService::kAiringCalendarPageSize;
+    manager.responses = {
+        { 200, jellyfinItems(episodes(pageSize, QStringLiteral("a"), today), pageSize), false },
+        { 200, jellyfinItems(episode(QStringLiteral("near"), QStringLiteral("s-near"),
+                                     today.addDays(5))
+                                 + ',' + episode(QStringLiteral("far"), QStringLiteral("s-far"),
+                                                 today.addDays(40)),
+                             2, pageSize), false } };
+    service.getUpcomingAirings(QString(), QStringLiteral("upcoming:1"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 2000);
+    QCOMPARE(manager.requests.size(), firstRequest + 2);
+    QCOMPARE(QUrlQuery(manager.requests.at(firstRequest).request.url())
+                 .queryItemValue(QStringLiteral("Limit")), QString::number(pageSize));
+    QCOMPARE(QUrlQuery(manager.requests.at(firstRequest + 1).request.url())
+                 .queryItemValue(QStringLiteral("StartIndex")), QString::number(pageSize));
+    QCOMPARE(loaded.first().at(2).toList().size(), pageSize + 2);
+    QVERIFY(!loaded.first().at(3).toBool());
+
+    // A calendar that keeps coming back full stops after the page cap.
+    loaded.clear();
+    firstRequest = manager.requests.size();
+    manager.responses.clear();
+    for (int page = 0; page < LibraryService::kAiringCalendarMaxPages + 1; ++page) {
+        manager.responses.append(
+            { 200, jellyfinItems(episodes(pageSize, QStringLiteral("p%1-").arg(page), today),
+                                 pageSize, page * pageSize), false });
+    }
+    service.getUpcomingAirings(QString(), QStringLiteral("upcoming:2"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 4000);
+    QCOMPARE(manager.requests.size(), firstRequest + LibraryService::kAiringCalendarMaxPages);
+    QCOMPARE(loaded.first().at(2).toList().size(),
+             pageSize * LibraryService::kAiringCalendarMaxPages);
+
+    // The chip reads the same pages, but names nothing past 30 days.
+    manager.responses = {
+        { 200, jellyfinItems(episode(QStringLiteral("near"), QStringLiteral("s-near"),
+                                     today.addDays(5))
+                                 + ',' + episode(QStringLiteral("far"), QStringLiteral("s-far"),
+                                                 today.addDays(40)),
+                             2), false } };
+    QSignalSpy chips(&service, &LibraryService::nextAiringLoaded);
+    service.getNextAiring(QStringLiteral("s-near"));
+    QTRY_COMPARE_WITH_TIMEOUT(chips.count(), 1, 1000);
+    QCOMPARE(chips.first().at(1).toMap().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("near"));
+    service.getNextAiring(QStringLiteral("s-far"));
+    QCOMPARE(chips.count(), 2);
+    QVERIFY(chips.at(1).at(1).toMap().isEmpty());
 }
 
 void SiloCatalogServiceTest::markerSegmentsKeepRepeatedRanges()

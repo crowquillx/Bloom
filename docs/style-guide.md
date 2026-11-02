@@ -63,7 +63,7 @@ the shell's `NavigationBar` floating above it.
 | Archetype | Pages | Stage | Header | Body |
 |-----------|-------|-------|--------|------|
 | **Hero** | Home, movie/series/season/episode details, Up Next and its movie counterpart (the after-movie screen) | `mode: "hero"`, the subject's backdrop | Hero block | Shelves below the hero |
-| **Browse** | Library grids, Search, Discover and its Browse pages, collections, person pages, Watch History | `mode: "ambient"`, optionally the focused item's backdrop | `PageHeader` + toolbar | Poster grid or shelves |
+| **Browse** | Library grids, Search, Discover and its Browse pages, collections, person pages, Watch History, Upcoming | `mode: "ambient"`, optionally the focused item's backdrop | `PageHeader` + toolbar | Poster grid or shelves |
 | **Panel** | Settings, Active Sessions, account pages | `mode: "ambient"`, no art | `PageHeader` | Category list + content column of rows |
 
 Only hero pages carry a hero. Browse and panel pages do not invent one; they
@@ -72,7 +72,8 @@ get their warmth from the stage.
 ## Navigation bar
 
 `NavigationBar.qml` is owned by `Main.qml`. Left to right: brand, page tabs
-(Home, Movies, Series, Discover when requests have a backend, Search),
+(Home, Movies, Series, Upcoming when the live connection has an airing
+calendar, Discover when requests have a backend, Search),
 and a utility cluster (update when available, Settings, space avatar, power). Keep the tab row short: a new destination
 earns a tab only if it is a top-level way to browse, and libraries never get
 their own tabs. Account pages (Manage Sessions, Watch History) open from
@@ -294,6 +295,47 @@ in its place with a toast if the server refuses. If the session changes
 before the server answers, a toast says the removal is unconfirmed and the
 page reloads when it is shown again. Jellyfin keeps no history apart from the
 played state, so its cards have no menu.
+
+## Upcoming
+
+`UpcomingScreen.qml` is a browse page with no hero, opened from the
+navigation bar's **Upcoming** tab. It earns a tab because it is a top-level
+way to browse (what is coming, across every series) that belongs to no
+library and no account page; like Discover, the tab shows only while the live
+connection can answer it (Silo's calendar; Jellyfin's upcoming episodes once
+a probe found one in the next 30 days, since stock Jellyfin lists none). It
+sits after Movies and Series, the tabs it extends, and before Discover.
+
+Below `pageMarginTop`, a `PageHeader` reads "Upcoming" with the number of
+episodes in the next 30 days and, in a merged space, the source it lists
+("12 episodes in the next 30 days · Living room"). On Silo the header's trailing row holds the
+calendar presets as `ActionButton`s (`selected` marks the current one):
+**Following** (the default: the profile's favorites, watchlist and every show
+it has watched, the same default as Silo's web calendar), **Trending** and
+**All**. Jellyfin has no presets, so the row is absent there.
+
+Each local day with airings is a shelf: a `SectionHeader` ("Today",
+"Tomorrow", then "Thursday, November 5", with the day's episode count) over a
+`ShelfList` of poster `MediaCard`s. A card shows the series poster and name,
+and a subtitle of the episode, the air time on the viewer's clock when the
+server knows it, and a premiere or finale mark: `S2 E10 · 9:00 PM · Finale`,
+or `Season 3 · Season premiere` for a season without a dated first episode.
+Silo marks an episode the profile already watched with the watched check. An
+airing never offers Play: Enter or a click opens the series page, and Back
+returns to the same card (found by day and ID after a refresh). The stage is
+ambient without art (the calendar carries posters only).
+
+Left/Right walk a day; Up/Down move to the day above or below and keep the
+column where that day has one. Up from the first day reaches the presets,
+and Up from the presets (or from the first day on Jellyfin) reaches the
+navigation bar; Down from the presets returns to the cards. The bar recedes
+once the days scroll. Loading, errors (with Try again) and empty calendars
+use `StateMessage`: an empty Following or Trending calendar offers "Show all",
+and Jellyfin's names the TMDb plugin option that creates unaired episodes. When a read fails or comes back empty, the message's
+action takes focus, and once the message hides (Try again, Show all) focus
+returns to the cards. A failed refresh keeps the cards and shows a toast. The days are read again when the page is shown after 10
+minutes (Silo's poster URLs expire), and regrouped once the local day
+changes (also after a suspend). The chosen preset is kept for the session.
 
 ## Watch Tonight row
 

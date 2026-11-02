@@ -118,6 +118,22 @@ public:
         Q_UNUSED(connectionId)
         return {};
     }
+    /// True when the airing calendar (ProviderCapability::AiringCalendar)
+    /// stays empty unless the server is set up to list unaired episodes,
+    /// so LibraryService offers it only after a read finds an airing in the
+    /// window (Jellyfin). False offers it with the capability (Silo).
+    virtual bool airingCalendarNeedsProbe() const { return false; }
+    /// The wire airings of an UpcomingAirings response as canonical airing
+    /// maps (docs/canonical-models.md, Ratings and airings), in the order
+    /// the provider sent them; entries that are not series episodes are
+    /// dropped.
+    virtual QVariantList mapAirings(const QJsonArray &wireAirings,
+                                    const QString &connectionId) const
+    {
+        Q_UNUSED(wireAirings)
+        Q_UNUSED(connectionId)
+        return {};
+    }
 
     // Optional route discovery is explicit. Callers must not interpret an
     // empty URL, empty mapping, or HTTP success as feature support.

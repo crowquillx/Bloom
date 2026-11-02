@@ -2267,31 +2267,47 @@ QList<MediaSegmentInfo> SiloModelMapper::mediaSegments(const QString &itemId,
     return result;
 }
 
-QVariantList SiloModelMapper::calendarAirings(const QJsonArray &wireDays)
+QVariantList SiloModelMapper::calendarAirings(const QJsonArray &wireEvents,
+                                              const QString &connectionId)
 {
     QVariantList result;
-    for (const QJsonValue &dayValue : wireDays) {
-        const QJsonObject day = dayValue.toObject();
-        for (const QJsonValue &eventValue : day.value(QStringLiteral("items")).toArray()) {
-            const QJsonObject event = eventValue.toObject();
-            const QString seriesId = identityString(event.value(QStringLiteral("series_id")));
-            if (seriesId.isEmpty()) {
-                continue; // a movie release
-            }
-            QVariantMap mapped = airing(
-                event,
-                event.value(QStringLiteral("local_air_date"))
-                    .toString(day.value(QStringLiteral("date")).toString()),
-                event.value(QStringLiteral("air_at")).toString());
-            if (mapped.isEmpty()) {
-                continue;
-            }
-            mapped.insert(QStringLiteral("seriesId"), seriesId);
-            mapped.insert(QStringLiteral("itemId"),
-                          identityString(event.value(QStringLiteral("content_id"))));
-            mapped.insert(QStringLiteral("watched"), event.value(QStringLiteral("watched")).toBool());
-            result.append(mapped);
+    for (const QJsonValue &eventValue : wireEvents) {
+        const QJsonObject event = eventValue.toObject();
+        const QString seriesId = identityString(event.value(QStringLiteral("series_id")));
+        if (seriesId.isEmpty()) {
+            continue; // a movie release
         }
+        QVariantMap mapped = airing(event,
+                                    event.value(QStringLiteral("local_air_date")).toString(),
+                                    event.value(QStringLiteral("air_at")).toString());
+        if (mapped.isEmpty()) {
+            continue;
+        }
+        const QString itemId = identityString(event.value(QStringLiteral("content_id")));
+        mapped.insert(QStringLiteral("connectionId"), connectionId);
+        mapped.insert(QStringLiteral("seriesId"), seriesId);
+        mapped.insert(QStringLiteral("seriesName"), event.value(QStringLiteral("title")).toString());
+        mapped.insert(QStringLiteral("itemId"), itemId);
+        mapped.insert(QStringLiteral("watched"), event.value(QStringLiteral("watched")).toBool());
+        // Without air_at (the network's zone is unknown) air_time is still
+        // the network's wall clock: kept as `airTime`, never an instant.
+        const QTime wallClock = QTime::fromString(
+            event.value(QStringLiteral("air_time")).toString(), QStringLiteral("HH:mm"));
+        if (!mapped.contains(QStringLiteral("airAt")) && wallClock.isValid()) {
+            mapped.insert(QStringLiteral("airTime"), wallClock.toString(QStringLiteral("HH:mm")));
+        }
+        // An episode shows its series' poster; a season premiere its
+        // season's when it has one, so the season owns it.
+        QVariantList artwork;
+        const bool seasonPremiere =
+            event.value(QStringLiteral("type")).toString() == QStringLiteral("season_premiere");
+        appendArtwork(artwork, mapped, QStringLiteral("seriesPrimaryArtwork"),
+                      QStringLiteral("seriesPrimaryArtworkUrl"), connectionId,
+                      seasonPremiere && !itemId.isEmpty() ? itemId : seriesId,
+                      Bloom::ArtworkKind::Primary,
+                      event.value(QStringLiteral("poster_url")).toString());
+        mapped.insert(QStringLiteral("artwork"), artwork);
+        result.append(mapped);
     }
     return result;
 }

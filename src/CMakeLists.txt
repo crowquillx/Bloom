@@ -87,6 +87,9 @@ qt_add_executable(Bloom
     viewmodels/CollectionViewModels.h
     viewmodels/CollectionViewModels.cpp
     ui/CollectionViewModelRegistration.h
+    viewmodels/UpcomingViewModel.h
+    viewmodels/UpcomingViewModel.cpp
+    ui/UpcomingViewModelRegistration.h
     viewmodels/LibrarySectionsViewModel.h
     viewmodels/LibrarySectionsViewModel.cpp
     viewmodels/SubtitleSearchViewModel.h
@@ -222,6 +225,7 @@ qt_add_qml_module(Bloom
         ui/HistoryScreen.qml
         ui/CollectionScreen.qml
         ui/CollectionsShelf.qml
+        ui/UpcomingScreen.qml
         ui/DiscoverScreen.qml
         ui/BrowseScreen.qml
         ui/DiscoveryCard.qml
