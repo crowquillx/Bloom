@@ -17,6 +17,7 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <cstring>
+#include <optional>
 
 #include "network/AuthenticationService.h"
 #include "network/HttpTransport.h"
@@ -29,6 +30,7 @@
 #include "providers/silo/SiloCatalogProvider.h"
 #include "providers/silo/SiloModelMapper.h"
 #include "providers/silo/SiloProviderAdapter.h"
+#include "providers/silo/SiloSubtitleAppearanceMapper.h"
 #include "utils/ConfigManager.h"
 
 #include "TestConfigIsolation.h"
@@ -210,6 +212,7 @@ private slots:
     void homeSectionsCapRowsOnlyWhenTheServerAcceptsIt();
     void homeSectionsServiceReportsFailure();
     void watchlistWritesReportSuccessAndFailure();
+    void subtitleAppearanceDocumentStaysInLibraryService();
     void homeDismissalRequestsCarryTheirAnchor();
     void homeDismissalWritesReportSuccessAndFailure();
     void homeCardCapabilitiesFollowTheCardsProvider();
@@ -2193,6 +2196,92 @@ void SiloCatalogServiceTest::watchlistWritesReportSuccessAndFailure()
     QCOMPARE(changed.count(), 2);
     // A 404 is not replayed.
     QCOMPARE(manager.requests.size(), firstRequest + 3);
+}
+
+// LibraryService keeps Silo's subtitle appearance document per scope: a
+// write sends the local appearance over the last read's document, nothing
+// outside LibraryService sees it, and a request whose session changes is
+// still answered.
+void SiloCatalogServiceTest::subtitleAppearanceDocumentStaysInLibraryService()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+
+    LibraryService service(&auth);
+    const QString scope = service.subtitleAppearanceScope();
+    QVERIFY(!scope.isEmpty());
+    QVERIFY(!service.hasSubtitleAppearanceDocument(scope));
+
+    const QJsonObject serverDocument{
+        {QStringLiteral("fontSize"), QStringLiteral("large")},
+        {QStringLiteral("textOpacity"), 60},
+        {QStringLiteral("futureField"), QStringLiteral("kept")},
+    };
+    const auto effective = [](const QJsonObject &document) {
+        return QJsonDocument(QJsonObject{
+            {QStringLiteral("key"), QStringLiteral("subtitle_appearance")},
+            {QStringLiteral("profile_id"), QStringLiteral("profile-1")},
+            {QStringLiteral("effective_value"),
+             QString::fromUtf8(QJsonDocument(document).toJson(QJsonDocument::Compact))},
+            {QStringLiteral("has_device_override"), false},
+        }).toJson(QJsonDocument::Compact);
+    };
+
+    manager.responses = {{200, effective(serverDocument), false}};
+    std::optional<QVariantMap> read;
+    service.getSubtitleAppearance([&read](bool ok, const QVariantMap &result) {
+        QVERIFY(ok);
+        read = result;
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(read.has_value(), 1000);
+    QVERIFY(read->value(QStringLiteral("hasValue")).toBool());
+    QVERIFY(!read->contains(QStringLiteral("document")));
+    QVERIFY(service.hasSubtitleAppearanceDocument(scope));
+
+    manager.responses = {{200, effective(serverDocument), false}};
+    const qsizetype writeIndex = manager.requests.size();
+    bool written = false;
+    service.setSubtitleAppearance({{QStringLiteral("sizePercent"), 150}},
+                                  [&written](bool ok, const QVariantMap &result) {
+        written = ok && !result.contains(QStringLiteral("document"));
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(written, 1000);
+    const RecordedRequest put = manager.requests.at(writeIndex);
+    QCOMPARE(put.operation, QNetworkAccessManager::PutOperation);
+    QCOMPARE(put.request.url().path(), QStringLiteral("/api/v2/settings/device/subtitle-appearance"));
+    const QJsonObject value = SiloSubtitleAppearanceMapper::parseDocument(
+        QJsonDocument::fromJson(put.body).object().value(QStringLiteral("value")).toString());
+    QCOMPARE(value.value(QStringLiteral("fontSize")).toString(), QStringLiteral("xxlarge"));
+    QCOMPARE(value.value(QStringLiteral("textOpacity")).toInt(), 60);
+    QCOMPARE(value.value(QStringLiteral("futureField")).toString(), QStringLiteral("kept"));
+
+    // Removing the override drops the document; the next read brings the
+    // profile-wide one.
+    manager.responses = {{204, QByteArray(), false}};
+    bool removed = false;
+    service.resetSubtitleAppearance([&removed](bool ok, const QVariantMap &) { removed = ok; });
+    QTRY_VERIFY_WITH_TIMEOUT(removed, 1000);
+    QCOMPARE(manager.requests.constLast().operation, QNetworkAccessManager::DeleteOperation);
+    QVERIFY(!service.hasSubtitleAppearanceDocument(scope));
+
+    // A session change answers a request still out as stale.
+    manager.responses = {{200, effective(serverDocument), true}};
+    std::optional<QVariantMap> stale;
+    service.getSubtitleAppearance([&stale](bool ok, const QVariantMap &result) {
+        QVERIFY(!ok);
+        stale = result;
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.replies.isEmpty() && manager.replies.constLast(), 1000);
+    auth.replaceAccount(QStringLiteral("account-2"), QStringLiteral("access-2"));
+    QTRY_VERIFY_WITH_TIMEOUT(stale.has_value(), 1000);
+    QVERIFY(stale->value(QStringLiteral("stale")).toBool());
 }
 
 void SiloCatalogServiceTest::homeDismissalRequestsCarryTheirAnchor()

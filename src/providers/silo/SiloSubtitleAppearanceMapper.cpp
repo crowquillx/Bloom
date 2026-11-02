@@ -116,8 +116,19 @@ QJsonObject SiloSubtitleAppearanceMapper::document(const Bloom::SubtitleAppearan
                             || appearance.font == QStringLiteral("monospace")
                         ? appearance.font
                         : QStringLiteral("sans-serif"));
-    document.insert(QStringLiteral("fontColor"), appearance.textColor.toLower());
-    document.insert(QStringLiteral("textOutlineColor"), appearance.outlineColor.toLower());
+    // "default" (the MPV profile's colour) has no Silo value: the base's
+    // colour stays, else the web player's default.
+    const auto insertColor = [&document](const char *key, const QString &value,
+                                         const char *fallback) {
+        const QString name = QString::fromLatin1(key);
+        if (value != QLatin1String(Bloom::SubtitleAppearance::kDefaultColor)) {
+            document.insert(name, value.toLower());
+        } else if (!document.value(name).isString()) {
+            document.insert(name, QString::fromLatin1(fallback));
+        }
+    };
+    insertColor("fontColor", appearance.textColor, "#ffffff");
+    insertColor("textOutlineColor", appearance.outlineColor, "#000000");
     document.insert(QStringLiteral("backgroundColor"), appearance.backgroundColor.toLower());
     document.insert(QStringLiteral("backgroundOpacity"), appearance.backgroundOpacity);
     QString style;

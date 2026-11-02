@@ -145,9 +145,10 @@ QStringList mpvArguments(const SubtitleAppearance &appearance)
     return arguments;
 }
 
-MpvProperties mpvProperties(const SubtitleAppearance &appearance, const QStringList &baseArgs)
+namespace {
+// The last value `baseArgs` gives each of `names`.
+QHash<QString, QString> baseValues(const QStringList &baseArgs, const QStringList &names)
 {
-    const QStringList names = managedProperties();
     QHash<QString, QString> base;
     for (const QString &arg : baseArgs) {
         const qsizetype separator = arg.indexOf(QLatin1Char('='));
@@ -159,6 +160,14 @@ MpvProperties mpvProperties(const SubtitleAppearance &appearance, const QStringL
             base.insert(name, arg.mid(separator + 1));
         }
     }
+    return base;
+}
+}  // namespace
+
+MpvProperties mpvProperties(const SubtitleAppearance &appearance, const QStringList &baseArgs)
+{
+    const QStringList names = managedProperties();
+    const QHash<QString, QString> base = baseValues(baseArgs, names);
     QHash<QString, QString> own;
     for (const auto &[name, value] : ownProperties(appearance)) {
         own.insert(name, value);
@@ -167,6 +176,14 @@ MpvProperties mpvProperties(const SubtitleAppearance &appearance, const QStringL
     for (const QString &name : names) {
         properties.append({name, own.value(name, base.value(name, mpvDefault(name)))});
     }
+    return properties;
+}
+
+MpvProperties previewProperties(const SubtitleAppearance &appearance, const QStringList &baseArgs)
+{
+    const QString fontSize = QStringLiteral("sub-font-size");
+    MpvProperties properties = mpvProperties(appearance, baseArgs);
+    properties.append({fontSize, baseValues(baseArgs, {fontSize}).value(fontSize, QStringLiteral("38"))});
     return properties;
 }
 

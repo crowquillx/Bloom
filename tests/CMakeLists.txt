@@ -1592,6 +1592,11 @@ add_executable(SubtitleAppearanceTest SubtitleAppearanceTest.cpp)
 target_link_libraries(SubtitleAppearanceTest PRIVATE Bloom::Network Qt6::Test)
 add_test(NAME SubtitleAppearanceTest COMMAND SubtitleAppearanceTest)
 
+# Bloom::PlayerPolicy alone: the mpv mapping stays Qt Core only.
+add_executable(SubtitleAppearancePolicyTest SubtitleAppearancePolicyTest.cpp)
+target_link_libraries(SubtitleAppearancePolicyTest PRIVATE Bloom::PlayerPolicy Qt6::Test)
+add_test(NAME SubtitleAppearancePolicyTest COMMAND SubtitleAppearancePolicyTest)
+
 add_executable(AudioPolicyTest AudioPolicyTest.cpp)
 target_link_libraries(AudioPolicyTest PRIVATE Bloom::PlayerPolicy Qt6::Test)
 add_test(NAME AudioPolicyTest COMMAND AudioPolicyTest)

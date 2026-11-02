@@ -142,9 +142,10 @@ enum class ProviderCatalogOperation {
     // device, and writing (stateValue true, subtitleAppearance) or removing
     // (false) this device's override (Silo). capabilityMetadata carries the
     // canonical `appearance` map (only the fields the server's value sets),
-    // `hasValue`, `hasDeviceOverride`, and an opaque `document` that a later
-    // write passes back as subtitleAppearanceDocument so fields Bloom does
-    // not map survive.
+    // `hasValue`, `hasDeviceOverride`, and an opaque `document` that
+    // LibraryService keeps per scope and passes back on a later write as
+    // subtitleAppearanceDocument, so fields Bloom does not map survive. The
+    // document never leaves LibraryService.
     SubtitleAppearance,
     SetSubtitleAppearance,
 };

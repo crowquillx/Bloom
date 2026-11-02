@@ -363,8 +363,21 @@ public:
     // subtitleAppearanceReset.
     Q_INVOKABLE void resetSubtitleAppearance();
     // Takes a server's appearance as the starting point while the user has
-    // not changed the appearance in Bloom. Returns whether it was taken.
-    bool adoptSubtitleAppearance(const Bloom::SubtitleAppearance &appearance);
+    // not changed the appearance in Bloom, remembering the sync scope it came
+    // from (subtitleAppearanceSourceScope). Returns whether it was taken.
+    bool adoptSubtitleAppearance(const Bloom::SubtitleAppearance &appearance,
+                                 const QString &sourceScope = QString());
+    // The scope ("<connection>\n<profile>") the appearance was adopted from;
+    // empty after a user change or reset.
+    QString subtitleAppearanceSourceScope() const;
+    // SubtitleAppearanceSync's per-scope state, kept across restarts at
+    // settings.playback.subtitle_appearance_sync: a user change not yet
+    // written as that scope's device override, and a reset whose override
+    // removal has not reached the server yet.
+    bool isSubtitleAppearanceWritePending(const QString &scope) const;
+    void setSubtitleAppearanceWritePending(const QString &scope, bool pending);
+    bool isSubtitleAppearanceDeletePending(const QString &scope) const;
+    void setSubtitleAppearanceDeletePending(const QString &scope, bool pending);
     void setServerTrickplayEnabled(bool enabled);
     bool getServerTrickplayEnabled() const;
     void setLocalSeekPreviewsEnabled(bool enabled);

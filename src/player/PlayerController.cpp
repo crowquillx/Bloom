@@ -5418,8 +5418,13 @@ void PlayerController::adjustSubtitleSize(int steps)
         QStringLiteral("sizePercent"),
         Bloom::SubtitleAppearance::normalizedSizePercent(
             current + steps * Bloom::SubtitleAppearance::kSizeStepPercent));
-    if (subtitleSizePercent() != current) {
-        showExternalMpvOsd(tr("Subtitle size %1%").arg(subtitleSizePercent()), 1500);
+    const int size = subtitleSizePercent();
+    if (size != current) {
+        showExternalMpvOsd(tr("Subtitle size %1%").arg(size), 1500);
+    } else if (steps > 0 && size >= Bloom::SubtitleAppearance::kMaxSizePercent) {
+        showExternalMpvOsd(tr("Subtitle size %1% (largest)").arg(size), 1500);
+    } else if (steps < 0 && size <= Bloom::SubtitleAppearance::kMinSizePercent) {
+        showExternalMpvOsd(tr("Subtitle size %1% (smallest)").arg(size), 1500);
     }
 }
 
@@ -5431,6 +5436,19 @@ void PlayerController::resetSubtitleSize()
     if (subtitleSizePercent() != current) {
         showExternalMpvOsd(tr("Subtitle size %1%").arg(subtitleSizePercent()), 1500);
     }
+}
+
+QVariantMap PlayerController::subtitlePreviewStyle(const QVariantMap &appearance) const
+{
+    const QStringList profileArgs =
+        m_config->getMpvArgsForProfile(m_config->getDefaultProfileName());
+    QVariantMap style;
+    for (const auto &[name, value] : Bloom::SubtitleAppearancePolicy::previewProperties(
+             Bloom::SubtitleAppearance{}.withValues(appearance), profileArgs)) {
+        style.insert(name, value);
+    }
+    style.insert(QStringLiteral("profileName"), m_config->getDefaultProfileName());
+    return style;
 }
 
 void PlayerController::applySubtitleAppearance()

@@ -5,8 +5,6 @@
 #include "utils/BloomLogging.h"
 #include "utils/ConfigManager.h"
 
-#include <utility>
-
 SubtitleAppearanceSync::SubtitleAppearanceSync(ConfigManager *config,
                                                LibraryService *library,
                                                AuthenticationService *authService,
@@ -17,7 +15,7 @@ SubtitleAppearanceSync::SubtitleAppearanceSync(ConfigManager *config,
 {
     m_writeTimer.setSingleShot(true);
     m_writeTimer.setInterval(kWriteDebounceMs);
-    connect(&m_writeTimer, &QTimer::timeout, this, &SubtitleAppearanceSync::sendWrite);
+    connect(&m_writeTimer, &QTimer::timeout, this, &SubtitleAppearanceSync::pump);
     // Sign-in announces itself more than once; read once per burst.
     m_refreshTimer.setSingleShot(true);
     m_refreshTimer.setInterval(0);
@@ -40,116 +38,165 @@ SubtitleAppearanceSync::SubtitleAppearanceSync(ConfigManager *config,
 void SubtitleAppearanceSync::refresh()
 {
     const QString scope = m_library ? m_library->subtitleAppearanceScope() : QString();
-    if (scope != m_scope) {
-        m_document.clear();
+    if (m_inFlight != Request::None && m_inFlightScope != scope) {
+        // A request for a scope that is no longer live cannot race this
+        // scope's override; its mark stays for when that scope is back.
+        ++m_generation;
+        m_inFlight = Request::None;
     }
-    if (scope != m_writeScope) {
-        m_writeTimer.stop();
-        m_writeQueued = false;
-    } else if (std::exchange(m_writeQueued, false)) {
-        // The write in flight is forgotten below; send the queued one anew.
-        m_writeTimer.start();
-    }
-    // Answers to requests for the previous state are ignored from here on;
-    // a session change may have dropped them without an answer.
-    const quint64 generation = ++m_generation;
-    m_writeInFlight = false;
-    m_scope = scope;
-    if (scope.isEmpty()) {
-        return;
-    }
-    m_library->getSubtitleAppearance([this, generation, scope](bool ok, const QVariantMap &result) {
-        if (generation != m_generation) {
-            return;
-        }
-        if (!ok) {
-            qCDebug(lcLibrary) << "Subtitle appearance unavailable; keeping the local one";
-            return;
-        }
-        m_document = result.value(QStringLiteral("document")).toString();
-        if (!result.value(QStringLiteral("hasValue")).toBool() || !m_config) {
-            return;
-        }
-        const Bloom::SubtitleAppearance server = Bloom::SubtitleAppearance{}.withValues(
-            result.value(QStringLiteral("appearance")).toMap());
-        if (m_config->adoptSubtitleAppearance(server)) {
-            qCInfo(lcLibrary) << "Adopted the server's subtitle appearance";
-        }
-    });
+    m_readScope = scope;
+    pump();
 }
 
 void SubtitleAppearanceSync::flushPendingWrite()
 {
     if (m_writeTimer.isActive()) {
         m_writeTimer.stop();
-        sendWrite();
+        pump();
     }
 }
 
 void SubtitleAppearanceSync::onEdited()
 {
     const QString scope = m_library ? m_library->subtitleAppearanceScope() : QString();
-    if (scope.isEmpty()) {
+    if (scope.isEmpty() || !m_config) {
         return;
     }
-    m_writeScope = scope;
+    ++m_editSerial;
+    m_config->setSubtitleAppearanceWritePending(scope, true);
     m_writeTimer.start();
+    // The read a first write needs can go during the debounce.
+    pump();
 }
 
 void SubtitleAppearanceSync::onReset()
 {
     m_writeTimer.stop();
-    m_writeQueued = false;
     const QString scope = m_library ? m_library->subtitleAppearanceScope() : QString();
+    if (scope.isEmpty() || !m_config) {
+        return;
+    }
+    m_config->setSubtitleAppearanceWritePending(scope, false);
+    m_config->setSubtitleAppearanceDeletePending(scope, true);
+    // Waits for a write still out, so the removal reaches the server last.
+    pump();
+}
+
+void SubtitleAppearanceSync::pump()
+{
+    if (m_inFlight != Request::None || !m_library || !m_config) {
+        return;
+    }
+    const QString scope = m_library->subtitleAppearanceScope();
     if (scope.isEmpty()) {
         return;
     }
+    if (m_config->isSubtitleAppearanceDeletePending(scope)) {
+        sendRemove(scope);
+        return;
+    }
+    if (m_config->isSubtitleAppearanceWritePending(scope)) {
+        if (!m_library->hasSubtitleAppearanceDocument(scope)) {
+            sendRead(scope);
+        } else if (!m_writeTimer.isActive()) {
+            sendWrite(scope);
+        }
+        return;
+    }
+    if (m_readScope == scope) {
+        sendRead(scope);
+    }
+}
+
+bool SubtitleAppearanceSync::finish(quint64 generation, const QVariantMap &result, bool ok)
+{
+    if (generation != m_generation) {
+        return false;
+    }
+    m_inFlight = Request::None;
+    if (!ok && result.value(QStringLiteral("stale")).toBool()) {
+        // The session changed under the request; look at the live scope
+        // again once the change has settled.
+        m_refreshTimer.start();
+    }
+    return true;
+}
+
+void SubtitleAppearanceSync::sendRead(const QString &scope)
+{
+    m_inFlight = Request::Read;
+    m_inFlightScope = scope;
+    if (m_readScope == scope) {
+        m_readScope.clear();
+    }
     const quint64 generation = m_generation;
-    m_library->resetSubtitleAppearance([this, generation](bool ok, const QVariantMap &) {
-        if (generation != m_generation) {
+    m_library->getSubtitleAppearance([this, generation, scope](bool ok, const QVariantMap &result) {
+        if (!finish(generation, result, ok)) {
             return;
         }
         if (!ok) {
-            qCDebug(lcLibrary) << "Could not remove this device's subtitle appearance override";
+            qCDebug(lcLibrary) << "Subtitle appearance unavailable; keeping the local one";
             return;
         }
-        // The profile-wide appearance applies again; take it as the start.
-        refresh();
+        // A pending write means the user changed it here; never adopt then.
+        if (!m_config->isSubtitleAppearanceWritePending(scope)) {
+            // No value on the server means its defaults: an appearance
+            // adopted from another profile does not carry over.
+            const Bloom::SubtitleAppearance server =
+                result.value(QStringLiteral("hasValue")).toBool()
+                ? Bloom::SubtitleAppearance{}.withValues(
+                      result.value(QStringLiteral("appearance")).toMap())
+                : Bloom::SubtitleAppearance{};
+            if (m_config->adoptSubtitleAppearance(server, scope)) {
+                qCInfo(lcLibrary) << "Adopted the server's subtitle appearance";
+            }
+        }
+        pump();
     });
 }
 
-void SubtitleAppearanceSync::sendWrite()
+void SubtitleAppearanceSync::sendWrite(const QString &scope)
 {
-    const QString scope = m_library ? m_library->subtitleAppearanceScope() : QString();
-    if (scope.isEmpty() || scope != m_writeScope || !m_config) {
-        // The change was made on another connection or profile.
-        return;
-    }
-    if (m_writeInFlight) {
-        m_writeQueued = true;
-        return;
-    }
-    m_writeInFlight = true;
+    m_inFlight = Request::Write;
+    m_inFlightScope = scope;
     const quint64 generation = m_generation;
+    const quint64 editSerial = m_editSerial;
     m_library->setSubtitleAppearance(
         m_config->getSubtitleAppearance().toVariantMap(),
-        scope == m_scope ? m_document : QString(),
-        [this, generation, scope](bool ok, const QVariantMap &result) {
-        if (generation != m_generation) {
+        [this, generation, editSerial, scope](bool ok, const QVariantMap &result) {
+        if (!finish(generation, result, ok)) {
             return;
         }
-        m_writeInFlight = false;
-        if (ok) {
-            m_scope = scope;
-            const QString document = result.value(QStringLiteral("document")).toString();
-            if (!document.isEmpty()) {
-                m_document = document;
-            }
-        } else {
+        if (!ok) {
+            // Kept marked; sent again when the scope is next live.
             qCDebug(lcLibrary) << "Could not save the subtitle appearance on the server";
+            return;
         }
-        if (std::exchange(m_writeQueued, false)) {
-            sendWrite();
+        if (editSerial == m_editSerial) {
+            m_config->setSubtitleAppearanceWritePending(scope, false);
         }
+        pump();
+    });
+}
+
+void SubtitleAppearanceSync::sendRemove(const QString &scope)
+{
+    m_inFlight = Request::Remove;
+    m_inFlightScope = scope;
+    const quint64 generation = m_generation;
+    m_library->resetSubtitleAppearance([this, generation, scope](bool ok, const QVariantMap &result) {
+        if (!finish(generation, result, ok)) {
+            return;
+        }
+        if (!ok) {
+            // Kept marked: nothing is read or written for this scope until
+            // the removal goes through.
+            qCDebug(lcLibrary) << "Could not remove this device's subtitle appearance override";
+            return;
+        }
+        m_config->setSubtitleAppearanceDeletePending(scope, false);
+        // The profile-wide appearance applies again; take it as the start.
+        m_readScope = scope;
+        pump();
     });
 }

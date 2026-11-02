@@ -265,6 +265,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         m_airingCalendars.clear();
         // Cancelled writes answer nothing on their own.
         failStaleHomeCardWrites();
+        failStaleSubtitleAppearanceRequests();
     };
     connect(m_authService, &AuthenticationService::authenticationStepChanged,
             this, [this, invalidateRequests]() {
@@ -282,7 +283,10 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
     for (const auto signal : {&AuthenticationService::providerSelectionChanged,
                               &AuthenticationService::profilesChanged,
                               &AuthenticationService::authSessionsChanged}) {
-        connect(m_authService, signal, this, &LibraryService::failStaleHomeCardWrites);
+        connect(m_authService, signal, this, [this]() {
+            failStaleHomeCardWrites();
+            failStaleSubtitleAppearanceRequests();
+        });
     }
 }
 
@@ -1842,48 +1846,100 @@ QString LibraryService::subtitleAppearanceScope() const
     return activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
 }
 
+bool LibraryService::hasSubtitleAppearanceDocument(const QString &scope) const
+{
+    return !scope.isEmpty() && m_subtitleAppearanceDocuments.contains(scope);
+}
+
 void LibraryService::getSubtitleAppearance(SubtitleAppearanceHandler handler)
 {
-    sendCatalogRequest(
+    sendSubtitleAppearanceRequest(
         QStringLiteral("getSubtitleAppearance"),
         ProviderCatalogOperation::SubtitleAppearance,
         baseCatalogQuery(),
-        [handler](const ProviderCatalogResponse &response) {
-            handler(true, response.capabilityMetadata);
-        },
-        [handler](const NetworkError &) { handler(false, {}); });
+        std::move(handler));
 }
 
 void LibraryService::setSubtitleAppearance(const QVariantMap &appearance,
-                                           const QString &document,
                                            SubtitleAppearanceHandler handler)
 {
     ProviderCatalogQuery query = baseCatalogQuery();
     query.stateValue = true;
     query.subtitleAppearance = appearance;
-    query.subtitleAppearanceDocument = document;
-    sendCatalogRequest(
+    query.subtitleAppearanceDocument =
+        m_subtitleAppearanceDocuments.value(subtitleAppearanceScope());
+    sendSubtitleAppearanceRequest(
         QStringLiteral("setSubtitleAppearance"),
         ProviderCatalogOperation::SetSubtitleAppearance,
         query,
-        [handler](const ProviderCatalogResponse &response) {
-            handler(true, response.capabilityMetadata);
-        },
-        [handler](const NetworkError &) { handler(false, {}); });
+        std::move(handler));
 }
 
 void LibraryService::resetSubtitleAppearance(SubtitleAppearanceHandler handler)
 {
     ProviderCatalogQuery query = baseCatalogQuery();
     query.stateValue = false;
-    sendCatalogRequest(
+    sendSubtitleAppearanceRequest(
         QStringLiteral("resetSubtitleAppearance"),
         ProviderCatalogOperation::SetSubtitleAppearance,
         query,
-        [handler](const ProviderCatalogResponse &response) {
-            handler(true, response.capabilityMetadata);
+        std::move(handler));
+}
+
+void LibraryService::sendSubtitleAppearanceRequest(const QString &operationName,
+                                                   ProviderCatalogOperation operation,
+                                                   const ProviderCatalogQuery &query,
+                                                   SubtitleAppearanceHandler handler)
+{
+    const quint64 id = ++m_nextSubtitleAppearanceRequest;
+    const QString scope = subtitleAppearanceScope();
+    m_subtitleAppearanceRequests.insert(id, {catalogRequestIdentity(), std::move(handler)});
+    // The handler, once: null when already answered (or failed as stale).
+    const auto take = [this, id]() {
+        return m_subtitleAppearanceRequests.take(id).handler;
+    };
+    const bool removal = operation == ProviderCatalogOperation::SetSubtitleAppearance
+        && !query.stateValue;
+    sendCatalogRequest(
+        operationName,
+        operation,
+        query,
+        [this, take, scope, removal](const ProviderCatalogResponse &response) {
+            const SubtitleAppearanceHandler handler = take();
+            if (!handler) {
+                return;
+            }
+            QVariantMap result = response.capabilityMetadata;
+            const QString document = result.take(QStringLiteral("document")).toString();
+            if (removal) {
+                // The next read brings the profile-wide document.
+                m_subtitleAppearanceDocuments.remove(scope);
+            } else if (!scope.isEmpty()) {
+                m_subtitleAppearanceDocuments.insert(scope, document);
+            }
+            handler(true, result);
         },
-        [handler](const NetworkError &) { handler(false, {}); });
+        [take](const NetworkError &) {
+            if (const SubtitleAppearanceHandler handler = take()) {
+                handler(false, {});
+            }
+        });
+}
+
+void LibraryService::failStaleSubtitleAppearanceRequests()
+{
+    QList<SubtitleAppearanceHandler> stale;
+    for (auto it = m_subtitleAppearanceRequests.begin(); it != m_subtitleAppearanceRequests.end();) {
+        if (isCurrent(it->identity)) {
+            ++it;
+            continue;
+        }
+        stale.append(it->handler);
+        it = m_subtitleAppearanceRequests.erase(it);
+    }
+    for (const SubtitleAppearanceHandler &handler : std::as_const(stale)) {
+        handler(false, {{QStringLiteral("stale"), true}});
+    }
 }
 
 void LibraryService::clearResumePosition(const QString &requestKey, const QString &itemId)

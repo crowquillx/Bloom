@@ -76,10 +76,13 @@ SubtitleAppearance SubtitleAppearance::withValues(const QVariantMap &values) con
         const auto it = values.constFind(QString::fromLatin1(key));
         return it == values.cend() ? QString() : choice(*it, allowed);
     };
-    const auto color = [&values](const char *key) {
+    const auto color = [&values](const char *key, bool allowDefault) {
         const auto it = values.constFind(QString::fromLatin1(key));
-        return it == values.cend() || it->typeId() != QMetaType::QString
-            ? QString() : normalizedColor(it->toString());
+        if (it == values.cend() || it->typeId() != QMetaType::QString) {
+            return QString();
+        }
+        return allowDefault ? normalizedColorOrDefault(it->toString())
+                            : normalizedColor(it->toString());
     };
     if (const auto value = number("sizePercent")) {
         result.sizePercent = normalizedSizePercent(*value);
@@ -87,10 +90,10 @@ SubtitleAppearance SubtitleAppearance::withValues(const QVariantMap &values) con
     if (const QString value = text("font", fontIds()); !value.isEmpty()) {
         result.font = value;
     }
-    if (const QString value = color("textColor"); !value.isEmpty()) {
+    if (const QString value = color("textColor", true); !value.isEmpty()) {
         result.textColor = value;
     }
-    if (const QString value = color("outlineColor"); !value.isEmpty()) {
+    if (const QString value = color("outlineColor", true); !value.isEmpty()) {
         result.outlineColor = value;
     }
     if (const QString value = text("outline", outlineIds()); !value.isEmpty()) {
@@ -102,7 +105,7 @@ SubtitleAppearance SubtitleAppearance::withValues(const QVariantMap &values) con
     if (const QString value = text("background", backgroundIds()); !value.isEmpty()) {
         result.background = value;
     }
-    if (const QString value = color("backgroundColor"); !value.isEmpty()) {
+    if (const QString value = color("backgroundColor", false); !value.isEmpty()) {
         result.backgroundColor = value;
     }
     if (const auto value = number("backgroundOpacity")) {
@@ -198,6 +201,14 @@ QString SubtitleAppearance::normalizedColor(const QString &color)
     static const QRegularExpression pattern(QStringLiteral("^#[0-9A-Fa-f]{6}$"));
     const QString trimmed = color.trimmed();
     return pattern.match(trimmed).hasMatch() ? trimmed.toUpper() : QString();
+}
+
+QString SubtitleAppearance::normalizedColorOrDefault(const QString &color)
+{
+    if (color.trimmed().compare(QLatin1String(kDefaultColor), Qt::CaseInsensitive) == 0) {
+        return QString::fromLatin1(kDefaultColor);
+    }
+    return normalizedColor(color);
 }
 
 }  // namespace Bloom

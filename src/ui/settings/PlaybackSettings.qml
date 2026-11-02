@@ -125,7 +125,9 @@ FocusScope {
         { label: "Verdana", value: "verdana" }
     ]
     // Colours match Silo's web player palette so a synced choice keeps its name.
+    // "Default" keeps the MPV profile's colour; White and Black are explicit.
     readonly property var subtitleTextColorOptions: [
+        { label: qsTr("Default (MPV profile)"), value: "default" },
         { label: qsTr("White"), value: "#FFFFFF" },
         { label: qsTr("Yellow"), value: "#FACC15" },
         { label: qsTr("Green"), value: "#22C55E" },
@@ -137,6 +139,7 @@ FocusScope {
         { label: qsTr("Black"), value: "#000000" }
     ]
     readonly property var subtitleOutlineColorOptions: [
+        { label: qsTr("Default (MPV profile)"), value: "default" },
         { label: qsTr("Black"), value: "#000000" },
         { label: qsTr("Dark Gray"), value: "#374151" },
         { label: qsTr("Navy"), value: "#1E3A5F" },
@@ -1066,7 +1069,12 @@ FocusScope {
                 }
 
                 SubtitleAppearancePreview {
-                    appearance: root.subtitleAppearance
+                    // Follows the default MPV profile and its edits too.
+                    style: {
+                        ConfigManager.defaultProfileName
+                        ConfigManager.mpvProfileNames
+                        return PlayerController.subtitlePreviewStyle(root.subtitleAppearance)
+                    }
                     Layout.fillWidth: true
                     Layout.maximumWidth: Math.round(720 * Theme.layoutScale)
                     Layout.preferredHeight: implicitHeight
@@ -1077,7 +1085,7 @@ FocusScope {
                 SettingsSliderRow {
                     id: subtitleSizeSlider
                     label: qsTr("Size")
-                    description: qsTr("Text subtitle size; also changeable during playback in Playback Settings")
+                    description: qsTr("Text subtitle size; also changeable during playback in Playback Settings. Image subtitles (PGS, VobSub) scale too unless the MPV profile turns style overrides off, as the ArtCNN and nnedi3 profiles do")
                     value: root.subtitleAppearance.sizePercent
                     from: 75
                     to: 200
@@ -1195,7 +1203,7 @@ FocusScope {
                 SettingsSliderRow {
                     id: subtitlePositionSlider
                     label: qsTr("Raise Subtitles")
-                    description: qsTr("Moves text and image subtitles up from the bottom, in % of the screen height")
+                    description: qsTr("Moves text subtitles up from the bottom, in % of the screen height. Image subtitles move too unless the MPV profile turns style overrides off, as the ArtCNN and nnedi3 profiles do")
                     value: root.subtitleAppearance.positionPercent
                     from: 0
                     to: 40

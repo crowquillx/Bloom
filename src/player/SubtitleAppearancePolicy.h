@@ -25,8 +25,13 @@ QStringList mpvArguments(const SubtitleAppearance &appearance);
 /// appearance's own value, else the last value `baseArgs` (the arguments
 /// mpv started with, before mpvArguments) gives it, else mpv's default.
 MpvProperties mpvProperties(const SubtitleAppearance &appearance, const QStringList &baseArgs);
+/// mpvProperties plus `sub-font-size` (the base's, else mpv's 38), the
+/// style the Settings preview draws.
+MpvProperties previewProperties(const SubtitleAppearance &appearance, const QStringList &baseArgs);
 /// The entries of `to` whose value differs from `from`: what a live change
-/// sets.
+/// sets. Both come from Bloom's own appearances, never from mpv's live
+/// state, so a property mpv's own keys changed is sent again only when the
+/// appearance field behind it changes in Bloom.
 MpvProperties changedProperties(const MpvProperties &from, const MpvProperties &to);
 
 }  // namespace Bloom::SubtitleAppearancePolicy

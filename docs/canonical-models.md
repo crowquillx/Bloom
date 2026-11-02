@@ -81,7 +81,7 @@ An airing map describes the next episode to air: `type`, `airDate` (`YYYY-MM-DD`
 
 ## Subtitle appearance
 
-`Bloom::SubtitleAppearance` (`src/models/SubtitleAppearance.*`) is the canonical subtitle look, with camelCase map keys (`sizePercent`, `font`, `textColor`, `outlineColor`, `outline`, `shadow`, `background`, `backgroundColor`, `backgroundOpacity`, `positionPercent`, `applyToStyled`). `withValues` validates every key, so a provider answer can only set fields it maps. Silo's `SubtitleAppearance` read answers a partial map in `capabilityMetadata.appearance` and keeps its wire document opaque (`document`), which a write hands back; see [provider compatibility](provider-compatibility.md#subtitle-appearance).
+`Bloom::SubtitleAppearance` (`src/models/SubtitleAppearance.*`) is the canonical subtitle look, with camelCase map keys (`sizePercent`, `font`, `textColor`, `outlineColor`, `outline`, `shadow`, `background`, `backgroundColor`, `backgroundOpacity`, `positionPercent`, `applyToStyled`). `withValues` validates every key, so a provider answer can only set fields it maps. `textColor` and `outlineColor` are `#RRGGBB` or `default` (the MPV profile's colour). Silo's `SubtitleAppearance` read answers a partial map in `capabilityMetadata.appearance`; its wire document (`document`) stays inside `LibraryService`, which keeps it per connection and profile and hands it back on a write, so nothing past `LibraryService` sees it; see [provider compatibility](provider-compatibility.md#subtitle-appearance).
 
 ## Migrated surfaces
 

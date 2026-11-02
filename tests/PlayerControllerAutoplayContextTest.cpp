@@ -3622,6 +3622,10 @@ void PlayerControllerAutoplayContextTest::subtitleAppearanceAppliesAtStartAndLiv
         return sets;
     };
 
+    // The style override toggle (Bloom's K, like mpv's own keys) changes mpv
+    // only; a later change in Bloom sends just what changed in Bloom, never
+    // the override back.
+    controller.toggleSubtitleAssOverride();
     backend.variantCommands.clear();
     config.setSubtitleAppearanceValue(QStringLiteral("sizePercent"), 120);
     QCOMPARE(setProperties(), (QList<QStringList>{{"sub-scale", "1.20"}}));
@@ -3636,6 +3640,22 @@ void PlayerControllerAutoplayContextTest::subtitleAppearanceAppliesAtStartAndLiv
     controller.onScriptMessage(QStringLiteral("bloom-subtitle-size"), {QStringLiteral("-")});
     QCOMPARE(controller.subtitleSizePercent(), 120);
     QVERIFY(setProperties().contains(QStringList({"sub-scale", "1.20"})));
+
+    // A step past the largest size changes nothing but still answers on
+    // mpv's OSD.
+    config.setSubtitleAppearanceValue(QStringLiteral("sizePercent"), 200);
+    backend.variantCommands.clear();
+    controller.onScriptMessage(QStringLiteral("bloom-subtitle-size"), {QStringLiteral("+")});
+    QCOMPARE(controller.subtitleSizePercent(), 200);
+    QVERIFY(setProperties().isEmpty());
+    const bool largestShown = std::any_of(
+        backend.variantCommands.cbegin(), backend.variantCommands.cend(),
+        [](const QVariantList &command) {
+            return command.value(0).toString() == QStringLiteral("show-text")
+                && command.value(1).toString().contains(QStringLiteral("largest"));
+        });
+    QVERIFY(largestShown);
+    config.setSubtitleAppearanceValue(QStringLiteral("sizePercent"), 120);
 
     backend.variantCommands.clear();
     config.setSubtitleAppearanceValue(QStringLiteral("background"), QStringLiteral("box"));

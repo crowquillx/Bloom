@@ -270,6 +270,13 @@ void ApplicationInitializer::registerServices()
         // 3.6 SubtitleAppearanceSync - Silo subtitle appearance read/adopt/write
         m_subtitleAppearanceSync = std::make_unique<SubtitleAppearanceSync>(
             m_configManager.get(), m_libraryService.get(), m_authService.get());
+        // A change still debounced is sent on quit; its write mark is saved
+        // either way, so the next start retries it if the request is lost.
+        if (QCoreApplication *app = QCoreApplication::instance()) {
+            QObject::connect(app, &QCoreApplication::aboutToQuit,
+                             m_subtitleAppearanceSync.get(),
+                             &SubtitleAppearanceSync::flushPendingWrite);
+        }
         
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(

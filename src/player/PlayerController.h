@@ -371,6 +371,10 @@ public:
     // Steps the saved subtitle size; it applies to the running mpv at once.
     Q_INVOKABLE void adjustSubtitleSize(int steps);
     Q_INVOKABLE void resetSubtitleSize();
+    // The mpv subtitle style `appearance` (a ConfigManager.subtitleAppearance
+    // map) gives under the default MPV profile, keyed by mpv property name
+    // (SubtitleAppearancePolicy::previewProperties), for the Settings preview.
+    Q_INVOKABLE QVariantMap subtitlePreviewStyle(const QVariantMap &appearance) const;
     Q_INVOKABLE void addExternalSubtitleTrack(const QString &subtitleUrl,
                                               const QString &displayTitle = QString(),
                                               const QString &language = QString(),

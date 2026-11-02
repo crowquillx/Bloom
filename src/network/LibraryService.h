@@ -239,15 +239,20 @@ public:
     // Subtitle appearance on the live connection, for providers with
     // ProviderCapability::SubtitleAppearance (Silo). The scope the setting
     // belongs to is "<connection>\n<profile>", empty when the live
-    // connection keeps none. The handler answers once with the response's
-    // capabilityMetadata (SubtitleAppearance operation) unless the session
-    // changes first, which drops the request without an answer.
+    // connection keeps none. Each handler answers exactly once, with the
+    // canonical `appearance`, `hasValue` and `hasDeviceOverride` of the
+    // response's capabilityMetadata; a request whose session changes first
+    // fails with `stale` true. The provider's wire document stays here, per
+    // scope: a read keeps it and a write sends the local appearance over it,
+    // so server fields Bloom does not map survive.
     using SubtitleAppearanceHandler = std::function<void(bool ok, const QVariantMap &result)>;
     virtual QString subtitleAppearanceScope() const;
+    // Whether a read for `scope` succeeded since its document was last
+    // dropped; a write before it would replace fields Bloom does not map.
+    virtual bool hasSubtitleAppearanceDocument(const QString &scope) const;
     virtual void getSubtitleAppearance(SubtitleAppearanceHandler handler);
-    // Writes this device's override; `document` is the last read's.
+    // Writes this device's override over the scope's document.
     virtual void setSubtitleAppearance(const QVariantMap &appearance,
-                                       const QString &document,
                                        SubtitleAppearanceHandler handler);
     // Removes this device's override, so the profile-wide value applies.
     virtual void resetSubtitleAppearance(SubtitleAppearanceHandler handler);
@@ -587,6 +592,11 @@ private:
                            std::function<void()> onSuccess,
                            std::function<void(const NetworkError &)> onFailure);
     void failStaleHomeCardWrites();
+    void sendSubtitleAppearanceRequest(const QString &operationName,
+                                       ProviderCatalogOperation operation,
+                                       const ProviderCatalogQuery &query,
+                                       SubtitleAppearanceHandler handler);
+    void failStaleSubtitleAppearanceRequests();
     void sendCatalogRequest(
         const QString &operationName,
         ProviderCatalogOperation operation,
@@ -684,6 +694,16 @@ private:
     // Home card writes in flight, by request key. A write whose session is
     // gone is answered with a failure (failStaleHomeCardWrites).
     QHash<QString, CatalogRequestIdentity> m_homeCardWrites;
+    // Subtitle appearance requests in flight; one whose session is gone is
+    // answered with a stale failure (failStaleSubtitleAppearanceRequests).
+    struct SubtitleAppearanceRequest {
+        CatalogRequestIdentity identity;
+        SubtitleAppearanceHandler handler;
+    };
+    QHash<quint64, SubtitleAppearanceRequest> m_subtitleAppearanceRequests;
+    quint64 m_nextSubtitleAppearanceRequest = 0;
+    // The provider's opaque subtitle appearance document per scope.
+    QHash<QString, QString> m_subtitleAppearanceDocuments;
     // Connections whose server lacks the resume reset route.
     QSet<QString> m_resumeResetMissing;
     // Parsed airing calendars per connection, profile, local day and zone,

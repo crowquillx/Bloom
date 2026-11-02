@@ -1588,6 +1588,22 @@ int ConfigManager::getSleepTimerDefault() const
 namespace {
 constexpr auto kSubtitleAppearanceKey = "subtitle_appearance";
 constexpr auto kSubtitleAppearanceUserModifiedKey = "user_modified";
+constexpr auto kSubtitleAppearanceSourceScopeKey = "source_scope";
+constexpr auto kSubtitleAppearanceSyncKey = "subtitle_appearance_sync";
+constexpr auto kSubtitleAppearanceWritePendingKey = "write_pending";
+constexpr auto kSubtitleAppearanceDeletePendingKey = "delete_pending";
+
+QJsonObject storedSubtitleAppearance(const Bloom::SubtitleAppearance &appearance,
+                                     bool userModified,
+                                     const QString &sourceScope = QString())
+{
+    QJsonObject stored = appearance.toJson();
+    stored[QLatin1String(kSubtitleAppearanceUserModifiedKey)] = userModified;
+    if (!sourceScope.isEmpty()) {
+        stored[QLatin1String(kSubtitleAppearanceSourceScopeKey)] = sourceScope;
+    }
+    return stored;
+}
 } // namespace
 
 Bloom::SubtitleAppearance ConfigManager::getSubtitleAppearance() const
@@ -1609,6 +1625,13 @@ bool ConfigManager::isSubtitleAppearanceUserModified() const
         .value(QLatin1String(kSubtitleAppearanceUserModifiedKey)).toBool(false);
 }
 
+QString ConfigManager::subtitleAppearanceSourceScope() const
+{
+    return playbackSettingsObject(m_config)
+        .value(QLatin1String(kSubtitleAppearanceKey)).toObject()
+        .value(QLatin1String(kSubtitleAppearanceSourceScopeKey)).toString();
+}
+
 void ConfigManager::setSubtitleAppearanceValue(const QString &key, const QVariant &value)
 {
     const Bloom::SubtitleAppearance current = getSubtitleAppearance();
@@ -1616,9 +1639,8 @@ void ConfigManager::setSubtitleAppearanceValue(const QString &key, const QVarian
     if (next == current) {
         return;
     }
-    QJsonObject stored = next.toJson();
-    stored[QLatin1String(kSubtitleAppearanceUserModifiedKey)] = true;
-    setPlaybackSetting(m_config, QLatin1String(kSubtitleAppearanceKey), stored);
+    setPlaybackSetting(m_config, QLatin1String(kSubtitleAppearanceKey),
+                       storedSubtitleAppearance(next, true));
     // Steppers change it in quick succession.
     scheduleSave();
     emit subtitleAppearanceChanged();
@@ -1628,18 +1650,18 @@ void ConfigManager::setSubtitleAppearanceValue(const QString &key, const QVarian
 void ConfigManager::resetSubtitleAppearance()
 {
     const bool changed = getSubtitleAppearance() != Bloom::SubtitleAppearance{}
-        || isSubtitleAppearanceUserModified();
+        || isSubtitleAppearanceUserModified() || !subtitleAppearanceSourceScope().isEmpty();
     if (changed) {
-        QJsonObject stored = Bloom::SubtitleAppearance{}.toJson();
-        stored[QLatin1String(kSubtitleAppearanceUserModifiedKey)] = false;
-        setPlaybackSetting(m_config, QLatin1String(kSubtitleAppearanceKey), stored);
+        setPlaybackSetting(m_config, QLatin1String(kSubtitleAppearanceKey),
+                           storedSubtitleAppearance(Bloom::SubtitleAppearance{}, false));
         save();
         emit subtitleAppearanceChanged();
     }
     emit subtitleAppearanceReset();
 }
 
-bool ConfigManager::adoptSubtitleAppearance(const Bloom::SubtitleAppearance &appearance)
+bool ConfigManager::adoptSubtitleAppearance(const Bloom::SubtitleAppearance &appearance,
+                                            const QString &sourceScope)
 {
     if (isSubtitleAppearanceUserModified()) {
         return false;
@@ -1647,15 +1669,76 @@ bool ConfigManager::adoptSubtitleAppearance(const Bloom::SubtitleAppearance &app
     // Normalized like a stored value, so an unknown value cannot be kept.
     const Bloom::SubtitleAppearance adopted =
         Bloom::SubtitleAppearance::fromJson(appearance.toJson());
-    if (adopted == getSubtitleAppearance()) {
+    const bool appearanceChanged = adopted != getSubtitleAppearance();
+    if (!appearanceChanged && sourceScope == subtitleAppearanceSourceScope()) {
         return true;
     }
-    QJsonObject stored = adopted.toJson();
-    stored[QLatin1String(kSubtitleAppearanceUserModifiedKey)] = false;
-    setPlaybackSetting(m_config, QLatin1String(kSubtitleAppearanceKey), stored);
+    setPlaybackSetting(m_config, QLatin1String(kSubtitleAppearanceKey),
+                       storedSubtitleAppearance(adopted, false, sourceScope));
     scheduleSave();
-    emit subtitleAppearanceChanged();
+    if (appearanceChanged) {
+        emit subtitleAppearanceChanged();
+    }
     return true;
+}
+
+namespace {
+bool subtitleAppearanceSyncFlag(const QJsonObject &config, const QString &scope, const char *flag)
+{
+    return playbackSettingsObject(config)
+        .value(QLatin1String(kSubtitleAppearanceSyncKey)).toObject()
+        .value(scope).toObject()
+        .value(QLatin1String(flag)).toBool(false);
+}
+
+// Returns whether the flag changed.
+bool setSubtitleAppearanceSyncFlag(QJsonObject &config, const QString &scope, const char *flag,
+                                   bool value)
+{
+    if (scope.isEmpty() || subtitleAppearanceSyncFlag(config, scope, flag) == value) {
+        return false;
+    }
+    QJsonObject sync = playbackSettingsObject(config)
+        .value(QLatin1String(kSubtitleAppearanceSyncKey)).toObject();
+    QJsonObject entry = sync.value(scope).toObject();
+    if (value) {
+        entry[QLatin1String(flag)] = true;
+    } else {
+        entry.remove(QLatin1String(flag));
+    }
+    if (entry.isEmpty()) {
+        sync.remove(scope);
+    } else {
+        sync[scope] = entry;
+    }
+    setPlaybackSetting(config, QLatin1String(kSubtitleAppearanceSyncKey), sync);
+    return true;
+}
+} // namespace
+
+bool ConfigManager::isSubtitleAppearanceWritePending(const QString &scope) const
+{
+    return subtitleAppearanceSyncFlag(m_config, scope, kSubtitleAppearanceWritePendingKey);
+}
+
+void ConfigManager::setSubtitleAppearanceWritePending(const QString &scope, bool pending)
+{
+    if (setSubtitleAppearanceSyncFlag(m_config, scope, kSubtitleAppearanceWritePendingKey, pending)) {
+        scheduleSave();
+    }
+}
+
+bool ConfigManager::isSubtitleAppearanceDeletePending(const QString &scope) const
+{
+    return subtitleAppearanceSyncFlag(m_config, scope, kSubtitleAppearanceDeletePendingKey);
+}
+
+void ConfigManager::setSubtitleAppearanceDeletePending(const QString &scope, bool pending)
+{
+    if (setSubtitleAppearanceSyncFlag(m_config, scope, kSubtitleAppearanceDeletePendingKey, pending)) {
+        // A reset is rare and must survive a crash right after it.
+        save();
+    }
 }
 
 void ConfigManager::setServerTrickplayEnabled(bool enabled)

@@ -21,13 +21,16 @@ struct SubtitleAppearance {
     static constexpr int kBackgroundOpacityStep = 5;
     static constexpr int kMaxPositionPercent = 40;
     static constexpr int kPositionStepPercent = 5;
+    static constexpr auto kDefaultColor = "default";
 
     int sizePercent = 100;
     // A fontIds() entry; "default" sets no font.
     QString font = QStringLiteral("default");
-    // "#RRGGBB" in upper case.
-    QString textColor = QStringLiteral("#FFFFFF");
-    QString outlineColor = QStringLiteral("#000000");
+    // "#RRGGBB" in upper case, or "default" for the MPV profile's colour
+    // (kDefaultColor), so an explicit White or Black still applies under a
+    // profile with other colours.
+    QString textColor = QString::fromLatin1(kDefaultColor);
+    QString outlineColor = QString::fromLatin1(kDefaultColor);
     // An outlineIds() entry.
     QString outline = QStringLiteral("default");
     // A shadowIds() entry.
@@ -76,6 +79,8 @@ struct SubtitleAppearance {
     static int normalizedSizePercent(int sizePercent);
     /// "#RRGGBB" in upper case, or empty when `color` is no 6-digit hex colour.
     static QString normalizedColor(const QString &color);
+    /// normalizedColor, but also accepting kDefaultColor (text and outline).
+    static QString normalizedColorOrDefault(const QString &color);
 };
 
 }  // namespace Bloom

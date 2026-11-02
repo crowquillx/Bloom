@@ -87,6 +87,7 @@ stdenv.mkDerivation {
       DiscoveryListModelTest \
       PosterBadgesTest \
       SubtitleAppearanceTest \
+      SubtitleAppearancePolicyTest \
       CombinedLibraryTest \
       AudioPolicyTest \
       AudioOutputServiceTest \
