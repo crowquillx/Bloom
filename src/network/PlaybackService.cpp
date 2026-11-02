@@ -133,6 +133,13 @@ PlaybackService::PlaybackService(AuthenticationService *authService,
         connect(m_authService, &AuthenticationService::connectionActivated, this,
                 [this](const QString &) { emit trackPreferenceIdentityChanged(); });
     }
+    // A session or profile change cancels the shared transport, which can
+    // suppress a write's callbacks; forget the bookkeeping so a later write
+    // with the same identity and key is never left waiting behind it.
+    connect(this, &PlaybackService::trackPreferenceIdentityChanged, this, [this]() {
+        m_trackPreferenceWritesInFlight.clear();
+        m_queuedTrackPreferenceWrites.clear();
+    });
 }
 
 PlaybackService::~PlaybackService() = default;
