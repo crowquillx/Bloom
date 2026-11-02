@@ -18,7 +18,6 @@
 
 #include "Types.h"  // Shared data structs and error helpers
 #include "providers/ICatalogProvider.h"
-#include "providers/IProviderAdapter.h"
 #include "models/HomeRecommendations.h"
 
 class AuthenticationService;
@@ -591,6 +590,12 @@ signals:
                                          const QVariantList &items);
     void canonicalScreensaverItemsFailed(const QString &connectionId,
                                          const QString &error);
+    /// A movie or series detail sent without the extended artwork (its
+    /// image capability was not yet known), mapped again with it. Views take
+    /// only the artwork from it: the rest is the same read.
+    void canonicalDetailArtworkLoaded(const QString &connectionId,
+                                      const QString &itemId,
+                                      const QVariantMap &item);
     void canonicalSeriesDetailsLoaded(const QString &connectionId,
                                       const QString &seriesId,
                                       const QVariantMap &seriesData);
@@ -1096,13 +1101,25 @@ private:
     /// backed off, else after one shared read.
     void withCapabilityDocument(ProviderCatalogOperation operation,
                                 const QString &operationName,
-                                CapabilityDocumentHandler handler);
+                                CapabilityDocumentHandler handler,
+                                std::optional<RetryPolicy> retryPolicy = std::nullopt,
+                                int attemptTimeoutMs = 0);
+    QString capabilityDocumentKey(ProviderCatalogOperation operation) const;
     void withSearchCapabilities(CapabilityDocumentHandler handler);
-    /// Answers @p handler with how the active connection's item details are
-    /// mapped: at once for providers without an image capability document,
-    /// else once Silo's (getImageCapabilities) is known. A failed read maps
-    /// without the extended artwork.
-    void withDetailMapping(std::function<void(const ProviderDetailMapping &)> handler);
+    /// Maps one detail read (@p readKind names the read: item or series) at
+    /// once. On a provider with an image capability document (Silo
+    /// getImageCapabilities) the extended artwork is mapped only once it is
+    /// known to be allowed; a movie or series detail mapped while it is
+    /// unknown asks for it (one short attempt) and, when allowed and the
+    /// detail is still the latest read of that item in this session, is
+    /// mapped again and sent as canonicalDetailArtworkLoaded.
+    QVariantMap mapDetail(const QJsonObject &rawItem, const QString &connectionId,
+                          const QString &itemId, const QString &readKind);
+    /// The latest detail read per read kind, connection and item that waits
+    /// for the image capability document; cleared with the session.
+    QHash<QString, quint64> m_detailRemaps;
+    quint64 m_detailRemapSequence = 0;
+    static constexpr int ImageCapabilityAttemptTimeoutMs = 5000;
     /// Above this many titles a provider that builds the letter index from
     /// the whole list (Jellyfin) gets no index; the rail shows the loaded
     /// letters instead.

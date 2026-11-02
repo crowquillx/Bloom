@@ -37,6 +37,7 @@ private slots:
     void mainBackdropFirstThenTheOthersByIndex();
     void otherOwnersKindsAndRepeatsAreLeftOut();
     void limitAndMissingMainBackdrop();
+    void artworkOfARemapReplacesOnlyArtwork();
 };
 
 void HeroBackdropsTest::mainBackdropFirstThenTheOthersByIndex()
@@ -98,6 +99,41 @@ void HeroBackdropsTest::limitAndMissingMainBackdrop()
 
     // Without a main backdrop (a poster fallback) nothing cycles.
     QVERIFY(Bloom::HeroBackdrops::refs(QVariantMap{{QStringLiteral("artwork"), artwork}}).isEmpty());
+}
+
+// A detail mapped again with more artwork changes only the artwork of the
+// detail on screen; state changed since the read stays.
+void HeroBackdropsTest::artworkOfARemapReplacesOnlyArtwork()
+{
+    const QVariantMap main = backdrop(QStringLiteral("movie-1"), 0, QStringLiteral("a"));
+    const QVariantMap shown{
+        {QStringLiteral("itemId"), QStringLiteral("movie-1")},
+        {QStringLiteral("isWatched"), true},
+        {QStringLiteral("backdropArtwork"), main},
+        {QStringLiteral("artwork"), QVariantList{main}},
+        {QStringLiteral("logoArtwork"), QVariantMap{{QStringLiteral("tag"), QStringLiteral("logo")}}}};
+    const QVariantMap remapped{
+        {QStringLiteral("itemId"), QStringLiteral("movie-1")},
+        {QStringLiteral("isWatched"), false},
+        {QStringLiteral("title"), QStringLiteral("Heat")},
+        {QStringLiteral("backdropArtwork"), main},
+        {QStringLiteral("artwork"),
+         QVariantList{main, backdrop(QStringLiteral("movie-1"), 1, QStringLiteral("b"))}},
+        {QStringLiteral("thumbArtwork"), QVariantMap{{QStringLiteral("tag"), QStringLiteral("thumb")}}},
+        {QStringLiteral("thumbArtworkUrl"), QStringLiteral("https://example.test/thumb")},
+        {QStringLiteral("artworkThumbhashes"),
+         QVariantMap{{QStringLiteral("thumb"), QStringLiteral("hash")}}}};
+
+    const QVariantMap merged = Bloom::HeroBackdrops::withArtworkOf(shown, remapped);
+    QVERIFY(merged.value(QStringLiteral("isWatched")).toBool());
+    QVERIFY(!merged.contains(QStringLiteral("title")));
+    QCOMPARE(tags(Bloom::HeroBackdrops::refs(merged)),
+             (QStringList{QStringLiteral("a"), QStringLiteral("b")}));
+    QCOMPARE(merged.value(QStringLiteral("thumbArtworkUrl")).toString(),
+             QStringLiteral("https://example.test/thumb"));
+    QVERIFY(merged.contains(QStringLiteral("thumbArtwork")));
+    QVERIFY(merged.contains(QStringLiteral("artworkThumbhashes")));
+    QCOMPARE(merged.value(QStringLiteral("logoArtwork")), shown.value(QStringLiteral("logoArtwork")));
 }
 
 QTEST_GUILESS_MAIN(HeroBackdropsTest)

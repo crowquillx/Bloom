@@ -15,8 +15,8 @@ import BloomUI
  * the stage changes, so the stage only ever fades to art that is ready; one
  * that is still loading at the tick waits for the next one, and one that
  * fails is skipped. Cycling stops while `active` is false (page hidden,
- * playback, screensaver) and with Reduce Motion, which keeps the main
- * backdrop. The interval is the user's backdrop rotation setting.
+ * playback, screensaver) and with Reduce Motion, which goes back to and
+ * keeps the main backdrop. The interval is the user's backdrop rotation setting.
  */
 Item {
     id: root
@@ -65,6 +65,18 @@ Item {
             cycled = false
         }
         shownSource = currentSource
+    }
+
+    // Reduce Motion turned on mid-cycle goes back to the main backdrop.
+    Connections {
+        target: Theme
+        function onUiAnimationsEnabledChanged() {
+            if (!Theme.uiAnimationsEnabled && root.currentIndex !== 0) {
+                root.currentIndex = 0
+                root.cycled = false
+                root.shownSource = root.currentSource
+            }
+        }
     }
 
     Image {

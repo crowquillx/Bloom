@@ -452,6 +452,8 @@ signals:
     void loadError(const QString &error);
 
 private slots:
+    void onSeriesArtworkLoaded(const QString &connectionId, const QString &seriesId,
+                               const QVariantMap &data);
     void onSeriesDetailsLoaded(const QString &connectionId,
                                const QString &seriesId,
                                const QVariantMap &seriesData);
@@ -508,6 +510,7 @@ private:
     void updateSeriesMetadata(const QVariantMap &data);
     void updateNextEpisode(const QVariantMap &episodeData);
     QString buildArtworkUrl(const QVariantMap &artwork, int width) const;
+    void updateBackdropUrls(const QVariantMap &data);
     void applyFocusedEpisodeDetails(const QString &episodeId, const QVariantMap &data);
     QString startEpisodeDetailsRequest(const QString &episodeId);
     bool matchesEpisodeDetailsRequest(const QString &itemId, const QString &requestContext) const;

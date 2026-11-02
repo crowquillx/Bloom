@@ -1543,7 +1543,7 @@
         "outcome": "supported",
         "capability": {
           "state": "conditional",
-          "discovery": "getImageCapabilities for the selected profile reports extended_item_artwork, read once per connection and profile beside the first detail read; detail reads that finish first wait for it, a missing route (404, 405, 501) means no extended artwork, and another failed read maps details without it for five minutes. No ProviderCapability bit."
+          "discovery": "getImageCapabilities for the selected profile reports extended_item_artwork, read once per connection and profile after the first movie or series detail read, in one attempt with a five-second deadline; details are never held back for it (sent at once without the extended artwork, then their artwork is sent again once it is allowed), a missing route (404, 405, 501) means no extended artwork, and another failed read maps details without it for five minutes. No ProviderCapability bit."
         },
         "requestSemantics": [
           "Detail pages read getCatalogItem with the declared slot widths; backdrop_width sizes backdrop_url and every backdrop_urls entry. Thumb, banner, clear art and disc have no slot width and resolve at the detail's default size.",

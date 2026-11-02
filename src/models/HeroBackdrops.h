@@ -19,4 +19,11 @@ inline constexpr int kMaxBackdrops = 8;
 /// title's own and is left out. Empty when the item has no main backdrop.
 [[nodiscard]] QVariantList refs(const QVariantMap &item, int limit = kMaxBackdrops);
 
+/// @p detail with the artwork of @p remapped, the same detail mapped again
+/// with more artwork (LibraryService::canonicalDetailArtworkLoaded): the
+/// `artwork` list, `artworkThumbhashes` and every `…Artwork` and
+/// `…ArtworkUrl` field. Everything else in @p detail is kept, so state
+/// changed since the read stays.
+[[nodiscard]] QVariantMap withArtworkOf(QVariantMap detail, const QVariantMap &remapped);
+
 } // namespace Bloom::HeroBackdrops

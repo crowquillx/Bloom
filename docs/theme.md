@@ -130,7 +130,7 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `FocusRing` | Focus indicator; place it inside a focusable item's background. |
 | `NavigationBar` | The shell's top navigation (owned by `Main.qml`). |
 | `StageBackdrop` | Full-bleed page background: artwork in `hero` or `ambient` mode with the standard scrims, or the ambient accent glow without art. `fadeDuration` sets its cross-fade. |
-| `BackdropCycle` | Steps a detail page's stage through the title's backdrops (`sources`, main backdrop first): it preloads the next one, then hands it over as `currentSource` with a slow `fadeDuration`. Paused while `active` is false and with Reduce Motion. |
+| `BackdropCycle` | Steps a detail page's stage through the title's backdrops (`sources`, main backdrop first): it preloads the next one, then hands it over as `currentSource` with a slow `fadeDuration`. Paused while `active` is false; Reduce Motion returns it to the main backdrop. |
 | `MediaCard` | The one media card: `poster` (caption below) or `landscape` (title on the art, progress), with focus lift, badges and hybrid rounded artwork. `menuEnabled` makes right-click and press-and-hold emit `menuRequested` (an actions menu); without it a long press still clicks. |
 | `ShelfList` | Horizontal shelf `ListView` aligned to the gutter with focus room and displacement transitions (no fade-in: ListView can leave an interrupted fade at opacity 0). |
 | `PageHeader` | Eyebrow, display title and detail line for non-hero pages, with a trailing slot for toolbars. |

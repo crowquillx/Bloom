@@ -5257,9 +5257,10 @@ void SiloCatalogServiceTest::extendedItemArtworkMapsOnlyWithTheCapability()
                                     QByteArrayLiteral(R"({"sizes":[]})")).valid);
 }
 
-// Detail pages read the image capability document once per connection and
-// profile, beside the first detail read, and map the extended artwork only
-// when it says so.
+// Detail pages never wait for the image capability document: the first
+// movie or series detail is sent at once without the extended artwork, and
+// its artwork is sent again once the document (read once per connection and
+// profile, in one short attempt) allows it.
 void SiloCatalogServiceTest::imageCapabilitiesGateDetailArtworkOncePerProfile()
 {
     QTemporaryDir temporaryDirectory;
@@ -5271,6 +5272,8 @@ void SiloCatalogServiceTest::imageCapabilitiesGateDetailArtworkOncePerProfile()
     SiloProviderAdapter adapter;
     ExposedAuthenticationService auth(&transport, &adapter);
     QVERIFY(signInToSilo(manager, auth, config));
+    const QString connectionId = config.getActiveConnection().value_or(ServerConnection{}).connectionId;
+    QVERIFY(!connectionId.isEmpty());
     const QString capabilitiesPath = QStringLiteral("/api/v2/images/capabilities");
     const QString itemPath = QStringLiteral("/api/v2/catalog/items/movie-1");
     manager.responsesByPath.insert(
@@ -5279,47 +5282,163 @@ void SiloCatalogServiceTest::imageCapabilitiesGateDetailArtworkOncePerProfile()
     const auto capabilityReads = [&manager, &capabilitiesPath](qsizetype from) {
         return static_cast<int>(requestPaths(manager, from).count(capabilitiesPath));
     };
+    // The capability read sent since request @p from, if any.
+    const auto capabilityReply = [&manager, &capabilitiesPath](
+                                     qsizetype from) -> QPointer<ControlledReply> {
+        for (qsizetype index = manager.requests.size() - 1; index >= from; --index) {
+            if (manager.requests.at(index).request.url().path() == capabilitiesPath) {
+                return manager.replies.at(index);
+            }
+        }
+        return {};
+    };
+    const auto itemSignal = qOverload<const QString &, const QVariantMap &>(
+        &LibraryService::canonicalItemLoaded);
 
+    // The detail comes at once with its one backdrop; the capability read
+    // follows it, and the artwork comes again with every backdrop.
     {
         LibraryService service(&auth);
-        QSignalSpy items(&service, qOverload<const QString &, const QVariantMap &>(
-                                       &LibraryService::canonicalItemLoaded));
+        QSignalSpy items(&service, itemSignal);
         QSignalSpy series(&service, &LibraryService::canonicalSeriesDetailsLoaded);
+        QSignalSpy artwork(&service, &LibraryService::canonicalDetailArtworkLoaded);
         manager.responsesByPath.insert(capabilitiesPath, {200, imageCapabilities(true), false, {}});
-        const qsizetype first = manager.requests.size();
-        service.getItem(QStringLiteral("movie-1"));
-        QTRY_COMPARE_WITH_TIMEOUT(items.count(), 1, 1000);
-        QCOMPARE(backdropUrlsOf(items.first().at(1).toMap()).size(), qsizetype(3));
-        QVERIFY(items.first().at(1).toMap().contains(QStringLiteral("thumbArtwork")));
-        // Both reads went out together.
-        QCOMPARE(capabilityReads(first), 1);
-        QCOMPARE(requestPaths(manager, first).count(itemPath), qsizetype(1));
-
-        // A later detail page uses the answer it already has.
-        service.getSeriesDetails(QStringLiteral("movie-1"));
-        QTRY_COMPARE_WITH_TIMEOUT(series.count(), 1, 1000);
-        QCOMPARE(backdropUrlsOf(series.first().at(2).toMap()).size(), qsizetype(3));
-        QCOMPARE(capabilityReads(first), 1);
-    }
-
-    // A server that does not announce it, or has no such document, maps
-    // the one backdrop.
-    for (const ResponsePlan &plan :
-         {ResponsePlan{200, imageCapabilities(false), false, {}},
-          ResponsePlan{404, QByteArrayLiteral(R"({"type":"about:blank","status":404})"), false, {}}}) {
-        LibraryService service(&auth);
-        QSignalSpy items(&service, qOverload<const QString &, const QVariantMap &>(
-                                       &LibraryService::canonicalItemLoaded));
-        manager.responsesByPath.insert(capabilitiesPath, plan);
         const qsizetype first = manager.requests.size();
         service.getItem(QStringLiteral("movie-1"));
         QTRY_COMPARE_WITH_TIMEOUT(items.count(), 1, 1000);
         QCOMPARE(backdropUrlsOf(items.first().at(1).toMap()).size(), qsizetype(1));
         QVERIFY(!items.first().at(1).toMap().contains(QStringLiteral("thumbArtwork")));
+        QTRY_COMPARE_WITH_TIMEOUT(artwork.count(), 1, 1000);
+        QCOMPARE(artwork.first().at(0).toString(), connectionId);
+        QCOMPARE(artwork.first().at(1).toString(), QStringLiteral("movie-1"));
+        const QVariantMap remapped = artwork.first().at(2).toMap();
+        QCOMPARE(backdropUrlsOf(remapped).size(), qsizetype(3));
+        QVERIFY(remapped.contains(QStringLiteral("thumbArtwork")));
+        QCOMPARE(items.count(), 1);
+        QCOMPARE(capabilityReads(first), 1);
+        // The detail went out first: the capability read waited for it.
+        QCOMPARE(requestPaths(manager, first).indexOf(itemPath), 0);
+
+        // A later detail page maps with the answer it already has.
+        service.getSeriesDetails(QStringLiteral("movie-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(series.count(), 1, 1000);
+        QCOMPARE(backdropUrlsOf(series.first().at(2).toMap()).size(), qsizetype(3));
+        QTest::qWait(20);
+        QCOMPARE(artwork.count(), 1);
+        QCOMPARE(capabilityReads(first), 1);
+
+        // The view model takes only the artwork from it.
+        QVariantMap shown = items.first().at(1).toMap();
+        shown.insert(QStringLiteral("isWatched"), true);
+        const QVariantMap merged = Bloom::HeroBackdrops::withArtworkOf(shown, remapped);
+        QVERIFY(merged.value(QStringLiteral("isWatched")).toBool());
+        QCOMPARE(backdropUrlsOf(merged).size(), qsizetype(3));
+        QCOMPARE(merged.value(QStringLiteral("thumbArtworkUrl")),
+                 remapped.value(QStringLiteral("thumbArtworkUrl")));
+    }
+
+    // Episode details have no extended artwork and do not read the document.
+    {
+        LibraryService service(&auth);
+        QSignalSpy items(&service, itemSignal);
+        QJsonObject episode = extendedMovieDetail(QStringLiteral("a"));
+        episode.insert(QStringLiteral("content_id"), QStringLiteral("episode-1"));
+        episode.insert(QStringLiteral("type"), QStringLiteral("episode"));
+        manager.responsesByPath.insert(QStringLiteral("/api/v2/catalog/items/episode-1"),
+                                       {200, QJsonDocument(episode).toJson(), false, {}});
+        const qsizetype first = manager.requests.size();
+        service.getItem(QStringLiteral("episode-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(items.count(), 1, 1000);
+        QTest::qWait(20);
+        QCOMPARE(capabilityReads(first), 0);
+    }
+
+    // A slow answer never holds the detail back.
+    {
+        LibraryService service(&auth);
+        QSignalSpy items(&service, itemSignal);
+        QSignalSpy artwork(&service, &LibraryService::canonicalDetailArtworkLoaded);
+        manager.responsesByPath.insert(capabilitiesPath, {200, imageCapabilities(true), true, {}});
+        const qsizetype first = manager.requests.size();
+        service.getItem(QStringLiteral("movie-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(items.count(), 1, 1000);
+        QTRY_VERIFY_WITH_TIMEOUT(capabilityReply(first), 1000);
+        QPointer<ControlledReply> slow = capabilityReply(first);
+        QVERIFY(slow && !slow->isFinished());
+        QCOMPARE(backdropUrlsOf(items.first().at(1).toMap()).size(), qsizetype(1));
+        // A second read of the same detail while it waits replaces the first.
+        service.getItem(QStringLiteral("movie-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(items.count(), 2, 1000);
+        QCOMPARE(artwork.count(), 0);
+        slow->complete();
+        QTRY_COMPARE_WITH_TIMEOUT(artwork.count(), 1, 1000);
+        QCOMPARE(backdropUrlsOf(artwork.first().at(2).toMap()).size(), qsizetype(3));
+        QTest::qWait(20);
+        QCOMPARE(artwork.count(), 1);
+    }
+
+    // A failed read is tried once and not again for five minutes; details
+    // keep their one backdrop meanwhile.
+    {
+        LibraryService service(&auth);
+        QSignalSpy items(&service, itemSignal);
+        QSignalSpy artwork(&service, &LibraryService::canonicalDetailArtworkLoaded);
+        manager.responsesByPath.insert(
+            capabilitiesPath, {500, QByteArrayLiteral(R"({"error":"boom"})"), false, {}});
+        const qsizetype first = manager.requests.size();
+        service.getItem(QStringLiteral("movie-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(items.count(), 1, 1000);
+        QTRY_COMPARE_WITH_TIMEOUT(capabilityReads(first), 1, 1000);
+        // Past the transport's first retry delay: no second attempt.
+        QTest::qWait(1500);
         QCOMPARE(capabilityReads(first), 1);
         service.getItem(QStringLiteral("movie-1"));
         QTRY_COMPARE_WITH_TIMEOUT(items.count(), 2, 1000);
+        QCOMPARE(backdropUrlsOf(items.last().at(1).toMap()).size(), qsizetype(1));
+        QTest::qWait(20);
         QCOMPARE(capabilityReads(first), 1);
+        QCOMPARE(artwork.count(), 0);
+    }
+
+    // An answer that arrives after a session change is dropped.
+    {
+        LibraryService service(&auth);
+        QSignalSpy items(&service, itemSignal);
+        QSignalSpy artwork(&service, &LibraryService::canonicalDetailArtworkLoaded);
+        manager.responsesByPath.insert(capabilitiesPath, {200, imageCapabilities(true), true, {}});
+        const qsizetype first = manager.requests.size();
+        service.getItem(QStringLiteral("movie-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(items.count(), 1, 1000);
+        QTRY_VERIFY_WITH_TIMEOUT(capabilityReply(first), 1000);
+        QPointer<ControlledReply> stale = capabilityReply(first);
+        auth.replaceAccount(QStringLiteral("account-2"), QStringLiteral("access-2"));
+        if (stale) {
+            stale->complete();
+        }
+        QTest::qWait(50);
+        QCOMPARE(artwork.count(), 0);
+    }
+
+    // A server that does not announce it, or has no such document, maps
+    // the one backdrop and sends nothing more.
+    for (const ResponsePlan &plan :
+         {ResponsePlan{200, imageCapabilities(false), false, {}},
+          ResponsePlan{404, QByteArrayLiteral(R"({"type":"about:blank","status":404})"), false, {}}}) {
+        LibraryService service(&auth);
+        QSignalSpy items(&service, itemSignal);
+        QSignalSpy artwork(&service, &LibraryService::canonicalDetailArtworkLoaded);
+        manager.responsesByPath.insert(capabilitiesPath, plan);
+        const qsizetype first = manager.requests.size();
+        service.getItem(QStringLiteral("movie-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(items.count(), 1, 1000);
+        QCOMPARE(backdropUrlsOf(items.first().at(1).toMap()).size(), qsizetype(1));
+        QTRY_COMPARE_WITH_TIMEOUT(capabilityReads(first), 1, 1000);
+        service.getItem(QStringLiteral("movie-1"));
+        QTRY_COMPARE_WITH_TIMEOUT(items.count(), 2, 1000);
+        QCOMPARE(backdropUrlsOf(items.last().at(1).toMap()).size(), qsizetype(1));
+        QTest::qWait(20);
+        QCOMPARE(capabilityReads(first), 1);
+        QCOMPARE(artwork.count(), 0);
     }
 }
 
@@ -5382,14 +5501,25 @@ void SiloCatalogServiceTest::extendedBackdropRefreshFindsItsPosition()
                                 renewed.arg(QStringLiteral("backdrop-1"))});
     QCOMPARE(refresh(refs.at(2).toMap(), reordered), renewed.arg(QStringLiteral("backdrop-2")));
 
-    // Replaced artwork falls back to the same position; a position that is
-    // gone resolves nothing.
+    // Removed or replaced artwork resolves nothing, never the image now at
+    // its position: after backdrop-1 is deleted, backdrop-2 moves up.
+    QJsonObject removed = extendedMovieDetail(QStringLiteral("new"));
+    removed.insert(QStringLiteral("backdrop_urls"),
+                   QJsonArray{renewed.arg(QStringLiteral("backdrop-0")),
+                              renewed.arg(QStringLiteral("backdrop-2"))});
+    QCOMPARE(refresh(refs.at(1).toMap(), removed), QString());
+    QCOMPARE(refresh(refs.at(2).toMap(), removed), renewed.arg(QStringLiteral("backdrop-2")));
     QJsonObject replaced = extendedMovieDetail(QStringLiteral("new"));
     replaced.insert(QStringLiteral("backdrop_urls"),
                     QJsonArray{renewed.arg(QStringLiteral("backdrop-0")),
                                renewed.arg(QStringLiteral("fresh-1"))});
-    QCOMPARE(refresh(refs.at(1).toMap(), replaced), renewed.arg(QStringLiteral("fresh-1")));
-    QCOMPARE(refresh(refs.at(2).toMap(), replaced), QString());
+    QCOMPARE(refresh(refs.at(1).toMap(), replaced), QString());
+    // The main backdrop follows backdrop_url even when it is replaced.
+    replaced.insert(QStringLiteral("backdrop_url"), renewed.arg(QStringLiteral("fresh-0")));
+    replaced.insert(QStringLiteral("backdrop_urls"),
+                    QJsonArray{renewed.arg(QStringLiteral("fresh-0")),
+                               renewed.arg(QStringLiteral("fresh-1"))});
+    QCOMPARE(refresh(refs.at(0).toMap(), replaced), renewed.arg(QStringLiteral("fresh-0")));
 }
 
 QTEST_MAIN(SiloCatalogServiceTest)

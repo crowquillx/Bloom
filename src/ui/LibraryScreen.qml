@@ -676,13 +676,14 @@ FocusScope {
 
     property var currentBackdropCandidates: []
     property int currentBackdropCandidateIndex: 0
-    property int backdropRotationInterval: ConfigManager.backdropRotationInterval // user-configurable, default 30 seconds
     // Rounded image mode: "auto" tries pre-rounded assets first, then shader; "shader" forces shader; "prerender" prefers pre-rounded only.
     property string roundedImageMode: ConfigManager.roundedImageMode || "auto"
     property bool roundedPreprocessEnabled: ConfigManager.roundedImagePreprocessEnabled
 
-    // Stage: the focused item's artwork, softened behind the grid; sharp
-    // behind detail views, which draw their own hero over it.
+    // Stage: the focused item's artwork, softened behind the grid. Movie,
+    // series and season views cover it with their own stage (the movie and
+    // series ones cycle the title's backdrops, BackdropCycle), so it never
+    // rotates.
     StageBackdrop {
         id: stage
         anchors.fill: parent
@@ -690,20 +691,6 @@ FocusScope {
         mode: (root.showMovieDetails || root.showSeriesDetails || root.showSeasonView) ? "hero" : "ambient"
         source: root.currentBackdropUrl
         onArtworkFailed: root.loadNextBackdropCandidate()
-    }
-
-    // Timer to cycle backdrop candidates when viewing a Series/Season/Episode/Movie detail
-    Timer {
-        id: backdropRotationTimer
-        interval: root.backdropRotationInterval
-        repeat: true
-        // Only run when we have multiple candidates and we're in a details view (including movies)
-        running: root.currentBackdropCandidates.length > 1
-                 && (root.showSeriesDetails || root.showSeasonView || root.showMovieDetails)
-                 && !PlayerController.isPlaybackActive
-        onTriggered: {
-            cycleBackdropCandidate()
-        }
     }
 
     // Main Content - conditionally show SeriesDetailsView, SeasonView, EpisodeView, MovieDetailsView or regular grid
@@ -3104,20 +3091,6 @@ FocusScope {
         }
         root.currentBackdropUrl = root.currentBackdropCandidates[root.currentBackdropCandidateIndex]
         root.currentBackdropCandidateIndex += 1
-    }
-
-    // Cycle (wrap) through available backdrop candidates. Used by the rotation timer.
-    function cycleBackdropCandidate() {
-        var len = root.currentBackdropCandidates.length
-        if (!len) {
-            root.currentBackdropUrl = ""
-            return
-        }
-        // Ensure index is within bounds
-        var idx = root.currentBackdropCandidateIndex % len
-        root.currentBackdropUrl = root.currentBackdropCandidates[idx]
-        // Advance for next cycle
-        root.currentBackdropCandidateIndex = (idx + 1) % len
     }
 
     function buildBackdropCandidates(item) {

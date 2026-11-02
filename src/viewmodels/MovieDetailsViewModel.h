@@ -210,6 +210,8 @@ signals:
 
 private slots:
     void onMovieDetailsLoaded(const QString &itemId, const QVariantMap &data);
+    void onMovieArtworkLoaded(const QString &connectionId, const QString &itemId,
+                              const QVariantMap &data);
     void onMovieDetailsNotModified(const QString &itemId);
     void onSimilarItemsLoaded(const QString &connectionId,
                               const QString &itemId,
@@ -239,6 +241,7 @@ private slots:
 private:
     void updateMovieMetadata(const QVariantMap &data);
     QString cachedArtworkUrl(const QVariantMap &artwork, int width) const;
+    void updateBackdropUrls(const QVariantMap &data);
     QVariantList mapCanonicalPeople(const QVariantList &people) const;
     QVariantList normalizeSimilarItems(const QVariantList &items) const;
     void compileRatings();

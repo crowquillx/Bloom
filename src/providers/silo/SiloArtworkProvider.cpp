@@ -222,22 +222,18 @@ QString sourceForKind(const QJsonObject &object, Bloom::ArtworkKind kind)
 }
 
 // A backdrop past the first comes from backdrop_urls (extended item
-// artwork): the one whose path still matches wins, else the one at the same
-// position.
+// artwork) and only by its path: after a deletion another image holds its
+// position, so one that is gone resolves nothing and the hero skips it
+// (BackdropCycle). The main backdrop follows backdrop_url.
 QString backdropSource(const QJsonObject &item, const Bloom::ArtworkRef &artwork)
 {
-    const QJsonArray backdrops = item.value(QStringLiteral("backdrop_urls")).toArray();
-    for (const QJsonValue &value : backdrops) {
+    for (const QJsonValue &value : item.value(QStringLiteral("backdrop_urls")).toArray()) {
         const QString url = value.toString();
         if (!url.isEmpty() && SiloModelMapper::artworkTag(url) == artwork.tag) {
             return url;
         }
     }
-    if (artwork.index > 0) {
-        return artwork.index < backdrops.size() ? backdrops.at(artwork.index).toString()
-                                                : QString();
-    }
-    return sourceForKind(item, Bloom::ArtworkKind::Backdrop);
+    return artwork.index > 0 ? QString() : sourceForKind(item, Bloom::ArtworkKind::Backdrop);
 }
 
 QString chapterSource(const QJsonArray &chapters, int requestedIndex)

@@ -267,6 +267,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         // Capability documents are profile scoped; reads in flight were
         // cancelled and their waiters belong to the old session.
         m_capabilityDocuments.clear();
+        m_detailRemaps.clear();
         // Cancelled reads answer nothing; a later page asks again.
         m_notInterestedCapabilityReads.clear();
         m_shuffleCapabilityReads.clear();
@@ -1108,22 +1109,16 @@ void LibraryService::getItem(const QString &itemId, const QString &requestContex
     ProviderCatalogQuery query = baseCatalogQuery();
     query.itemId = itemId;
     query.useCacheValidation = true;
-    // The image capability read (Silo, once per profile) runs beside the
-    // first detail read instead of before it.
-    withDetailMapping([](const ProviderDetailMapping &) {});
     sendCatalogRequest(
         QStringLiteral("getItem"),
         ProviderCatalogOperation::Item,
         query,
         [this, itemId, requestContext, connectionId](
             const ProviderCatalogResponse &response) {
-            withDetailMapping([this, itemId, requestContext, connectionId,
-                               rawItem = response.rawItem](const ProviderDetailMapping &mapping) {
-                const QVariantMap item =
-                    m_authService->mapMediaDetail(rawItem, connectionId, mapping);
-                emit canonicalItemLoaded(itemId, item, requestContext);
-                emit canonicalItemLoaded(itemId, item);
-            });
+            const QVariantMap item = mapDetail(
+                response.rawItem, connectionId, itemId, QStringLiteral("item"));
+            emit canonicalItemLoaded(itemId, item, requestContext);
+            emit canonicalItemLoaded(itemId, item);
         },
         [this, itemId, requestContext](const NetworkError &error) {
             emit itemFailed(itemId, error.userMessage, requestContext);
@@ -1222,19 +1217,15 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
     ProviderCatalogQuery query = baseCatalogQuery();
     query.itemId = seriesId;
     query.useCacheValidation = true;
-    withDetailMapping([](const ProviderDetailMapping &) {});
     sendCatalogRequest(
         QStringLiteral("getSeriesDetails"),
         ProviderCatalogOperation::Item,
         query,
         [this, connectionId, seriesId](const ProviderCatalogResponse &response) {
-            withDetailMapping([this, connectionId, seriesId,
-                               rawItem = response.rawItem](const ProviderDetailMapping &mapping) {
-                emit canonicalSeriesDetailsLoaded(
-                    connectionId,
-                    seriesId,
-                    m_authService->mapMediaDetail(rawItem, connectionId, mapping));
-            });
+            emit canonicalSeriesDetailsLoaded(
+                connectionId,
+                seriesId,
+                mapDetail(response.rawItem, connectionId, seriesId, QStringLiteral("series")));
         },
         [this, connectionId, seriesId](const NetworkError &error) {
             emit canonicalSeriesDetailsFailed(
@@ -3493,33 +3484,80 @@ void LibraryService::withSearchCapabilities(CapabilityDocumentHandler handler)
                            QStringLiteral("getCatalogSearchCapabilities"), std::move(handler));
 }
 
-void LibraryService::withDetailMapping(
-    std::function<void(const ProviderDetailMapping &)> handler)
+QVariantMap LibraryService::mapDetail(const QJsonObject &rawItem,
+                                      const QString &connectionId,
+                                      const QString &itemId,
+                                      const QString &readKind)
 {
+    // Providers without an image capability document (Jellyfin) map their
+    // details whole.
     const ICatalogProvider *provider = m_authService && m_authService->isAuthenticated()
         ? m_authService->catalogProvider() : nullptr;
     if (!provider
         || !provider->createRequest(ProviderCatalogOperation::ImageCapabilities,
                                     baseCatalogQuery()).supported) {
-        handler(ProviderDetailMapping{.extendedArtwork = true});
-        return;
+        return m_authService
+            ? m_authService->mapMediaDetail(rawItem, connectionId, {.extendedArtwork = true})
+            : QVariantMap{};
     }
+    // A detail is never held back for the capability: while it is unknown
+    // the detail maps without the extended artwork, and a movie or series
+    // detail is mapped again once the answer allows it.
+    const CapabilityDocument document = m_capabilityDocuments.value(
+        capabilityDocumentKey(ProviderCatalogOperation::ImageCapabilities));
+    const QVariantMap item = m_authService->mapMediaDetail(
+        rawItem, connectionId,
+        {.extendedArtwork =
+             document.values.value(QStringLiteral("extendedItemArtwork")).toBool()});
+    // A newer read of the same detail replaces one still waiting.
+    const QString remapKey = readKind + QLatin1Char('\n') + connectionId + QLatin1Char('\n') + itemId;
+    m_detailRemaps.remove(remapKey);
+    const QString type = item.value(QStringLiteral("mediaType")).toString();
+    if (document.known || (type != QStringLiteral("Movie") && type != QStringLiteral("Series"))) {
+        return item;
+    }
+    const quint64 sequence = ++m_detailRemapSequence;
+    const quint64 generation = m_requestGeneration;
+    m_detailRemaps.insert(remapKey, sequence);
+    // One short attempt: a slow or failing document only costs the extra
+    // artwork, and a failure is not asked again until its back-off ends.
+    RetryPolicy once = m_retryPolicy;
+    once.maxAttempts = 1;
     withCapabilityDocument(
         ProviderCatalogOperation::ImageCapabilities, QStringLiteral("getImageCapabilities"),
-        [handler = std::move(handler)](const CapabilityDocument &document, const NetworkError *) {
-            handler(ProviderDetailMapping{
-                .extendedArtwork =
-                    document.values.value(QStringLiteral("extendedItemArtwork")).toBool()});
-        });
+        [this, rawItem, connectionId, itemId, remapKey, sequence, generation](
+            const CapabilityDocument &answered, const NetworkError *) {
+            if (m_detailRemaps.value(remapKey) != sequence) {
+                return;
+            }
+            m_detailRemaps.remove(remapKey);
+            if (generation != m_requestGeneration
+                || activeConnectionId(m_authService) != connectionId
+                || !answered.values.value(QStringLiteral("extendedItemArtwork")).toBool()) {
+                return;
+            }
+            emit canonicalDetailArtworkLoaded(
+                connectionId, itemId,
+                m_authService->mapMediaDetail(rawItem, connectionId, {.extendedArtwork = true}));
+        },
+        once, ImageCapabilityAttemptTimeoutMs);
+    return item;
+}
+
+QString LibraryService::capabilityDocumentKey(ProviderCatalogOperation operation) const
+{
+    return QString::number(static_cast<int>(operation)) + QLatin1Char('\n')
+        + activeConnectionId(m_authService) + QLatin1Char('\n')
+        + activeProfileId(m_authService);
 }
 
 void LibraryService::withCapabilityDocument(ProviderCatalogOperation operation,
                                             const QString &operationName,
-                                            CapabilityDocumentHandler handler)
+                                            CapabilityDocumentHandler handler,
+                                            std::optional<RetryPolicy> retryPolicy,
+                                            int attemptTimeoutMs)
 {
-    const QString key = QString::number(static_cast<int>(operation)) + QLatin1Char('\n')
-        + activeConnectionId(m_authService) + QLatin1Char('\n')
-        + activeProfileId(m_authService);
+    const QString key = capabilityDocumentKey(operation);
     CapabilityDocument &entry = m_capabilityDocuments[key];
     if (entry.known || (entry.failed && !entry.retryAfter.hasExpired())) {
         // A copy: the handler may read other entries and grow the hash.
@@ -3574,7 +3612,10 @@ void LibraryService::withCapabilityDocument(ProviderCatalogOperation operation,
                     document.retryAfter = QDeadlineTimer(CapabilityDocumentRetryMs);
                 }
             }, &error);
-        });
+        },
+        CatalogNotModifiedHandler(),
+        retryPolicy,
+        attemptTimeoutMs);
 }
 
 void LibraryService::readLibraryLetters(const QString &connectionId,

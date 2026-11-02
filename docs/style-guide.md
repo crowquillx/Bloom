@@ -115,9 +115,11 @@ The movie and series detail pages cycle through the title's backdrops with
 stage stays on each one for the Backdrop Rotation setting and cross-fades
 slowly (`Theme.durationBackdropCycle`) to the next once it has loaded, so a
 slow or failed image never blanks the stage. Cycling pauses while the page is
-hidden, during playback and under the screensaver, and Reduce Motion keeps the
-main backdrop. A title with one backdrop looks as before. Season and episode
-views keep the series' main backdrop.
+hidden, during playback and under the screensaver, and Reduce Motion (also
+when turned on mid-cycle) returns to and keeps the main backdrop. A title with
+one backdrop looks as before. Season and episode views keep the series' main
+backdrop: they are for browsing episodes, so their stage stays put. The
+library page's own stage, which every detail view covers, never rotates.
 
 ## Hero
 

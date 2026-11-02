@@ -64,4 +64,18 @@ QVariantList refs(const QVariantMap &item, int limit)
     return result;
 }
 
+QVariantMap withArtworkOf(QVariantMap detail, const QVariantMap &remapped)
+{
+    const auto isArtwork = [](const QString &key) {
+        return key == QStringLiteral("artwork") || key == QStringLiteral("artworkThumbhashes")
+            || key.endsWith(QStringLiteral("Artwork")) || key.endsWith(QStringLiteral("ArtworkUrl"));
+    };
+    for (auto it = remapped.cbegin(); it != remapped.cend(); ++it) {
+        if (isArtwork(it.key())) {
+            detail.insert(it.key(), it.value());
+        }
+    }
+    return detail;
+}
+
 } // namespace Bloom::HeroBackdrops
