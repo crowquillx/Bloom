@@ -115,6 +115,7 @@ stdenv.mkDerivation {
       MediaRequestServiceTest \
       UpNextRecommendationsViewModelTest \
       SessionServiceTest \
+      ServerDiscoveryTest \
       JellyfinQuickConnectTest \
       ContinueWatchingTest \
       HomeRecommendationsTest \

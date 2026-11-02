@@ -48,6 +48,76 @@ FocusScope {
     property string lastDeviceState: "idle"
     property bool returnFocusToDeviceButton: false
 
+    // Servers found on the local network (docs/server-discovery.md). The
+    // search runs only while the address form is on screen.
+    readonly property bool discoveryAvailable: typeof ServerDiscovery !== "undefined"
+                                               && ServerDiscovery.available
+    readonly property bool discoverySearching: typeof ServerDiscovery !== "undefined"
+                                               && ServerDiscovery.searching
+    readonly property bool discoveryWanted: root.visible && credentialsStep.visible
+    // Up from the address field reaches the found servers, or the search
+    // again action when none were found; the form's bottom wraps there too.
+    readonly property Item discoveryFocusTarget: !discoverySection.visible ? null
+                                                 : discoveredList.count > 0 ? discoveredList
+                                                 : !root.discoverySearching ? discoveryState
+                                                 : null
+    readonly property Item formTop: discoveryFocusTarget ? discoveryFocusTarget : serverField
+    readonly property Item formBottom: showSpaceAction ? spaceActionButton
+                                       : offerDeviceSignIn ? deviceSignInButton : connectButton
+
+    function syncDiscoveryActive() {
+        if (typeof ServerDiscovery !== "undefined")
+            ServerDiscovery.active = discoveryWanted
+    }
+
+    // Appends to the shown list while the service only adds servers, so the
+    // focused card keeps its place; a new search rebuilds it.
+    function syncDiscoveredServers() {
+        const servers = typeof ServerDiscovery !== "undefined" ? (ServerDiscovery.servers || []) : []
+        let keep = discoveredServers.count <= servers.length
+        for (let i = 0; keep && i < discoveredServers.count; ++i)
+            keep = discoveredServers.get(i).key === servers[i].key
+        const hadFocus = discoveredList.activeFocus
+        if (!keep)
+            discoveredServers.clear()
+        for (let i = discoveredServers.count; i < servers.length; ++i) {
+            const server = servers[i]
+            discoveredServers.append({
+                key: String(server.key),
+                name: String(server.name),
+                url: String(server.url),
+                address: String(server.address),
+                provider: String(server.provider)
+            })
+        }
+        if (discoveredList.currentIndex < 0 && discoveredServers.count > 0)
+            discoveredList.currentIndex = 0
+        if (hadFocus && discoveredServers.count === 0) {
+            Qt.callLater(function() {
+                if (root.visible && credentialsStep.visible)
+                    serverField.forceActiveFocus()
+            })
+        }
+    }
+
+    function providerLabel(provider) {
+        return provider === "silo" ? qsTr("Silo") : qsTr("Jellyfin")
+    }
+
+    // Choosing a found server is the same as typing its address.
+    function chooseDiscoveredServer(index) {
+        if (index < 0 || index >= discoveredServers.count)
+            return
+        const url = discoveredServers.get(index).url
+        clearStatus()
+        serverField.text = url
+        AuthenticationService.checkSignInOptions(url)
+        if (root.passwordSignInAvailable)
+            userField.forceActiveFocus()
+        else
+            deviceSignInButton.forceActiveFocus()
+    }
+
     function startDeviceSignIn() {
         clearStatus()
         AuthenticationService.startDeviceSignIn(serverField.text.trim())
@@ -455,6 +525,166 @@ FocusScope {
             visible: authenticationStep !== "profiles" && authenticationStep !== "pin"
                      && !root.showDeviceSignIn
 
+            // ---------- Found on your network ----------
+            ColumnLayout {
+                id: discoverySection
+                visible: root.discoveryAvailable
+                Layout.fillWidth: true
+                Layout.bottomMargin: Theme.spacingMedium
+                spacing: Theme.spacingSmall
+
+                Text {
+                    text: qsTr("Found on your network")
+                    color: Theme.textSecondary
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.weight: Theme.fontWeightStrong
+                    Accessible.ignored: true
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: discoveredList.rowHeight
+
+                    ListView {
+                        id: discoveredList
+                        readonly property int rowHeight: Math.round(96 * Theme.layoutScale)
+                        anchors.fill: parent
+                        visible: count > 0
+                        orientation: ListView.Horizontal
+                        spacing: Theme.spacingSmall
+                        clip: true
+                        model: discoveredServers
+                        boundsBehavior: Flickable.StopAtBounds
+                        highlightMoveDuration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0
+                        Accessible.role: Accessible.List
+                        Accessible.name: qsTr("Servers found on your network")
+                        KeyNavigation.up: root.formBottom
+                        KeyNavigation.backtab: root.formBottom
+                        KeyNavigation.down: serverField
+                        KeyNavigation.tab: serverField
+                        Keys.onReturnPressed: function(event) {
+                            if (!event.isAutoRepeat)
+                                root.chooseDiscoveredServer(currentIndex)
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: function(event) {
+                            if (!event.isAutoRepeat)
+                                root.chooseDiscoveredServer(currentIndex)
+                            event.accepted = true
+                        }
+                        onCurrentIndexChanged: {
+                            if (currentIndex >= 0)
+                                positionViewAtIndex(currentIndex, ListView.Contain)
+                        }
+
+                        delegate: Rectangle {
+                            id: serverCard
+                            required property int index
+                            required property string name
+                            required property string address
+                            required property string provider
+                            readonly property bool highlighted: discoveredList.activeFocus
+                                                                && discoveredList.currentIndex === index
+                            width: Math.round(400 * Theme.layoutScale)
+                            height: discoveredList.height
+                            radius: Theme.radiusMedium
+                            color: highlighted || serverCardMouse.containsMouse ? Theme.surfaceInteractiveHover
+                                                                               : Theme.surfaceInteractive
+                            border.width: Theme.borderWidth
+                            border.color: Theme.surfaceBorder
+                            Accessible.role: Accessible.ListItem
+                            Accessible.name: name
+                            Accessible.description: root.providerLabel(provider) + ", " + address
+
+                            FocusRing {
+                                inset: true
+                                active: serverCard.highlighted
+                                radius: parent.radius
+                            }
+
+                            MouseArea {
+                                id: serverCardMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onEntered: {
+                                    if (typeof InputModeManager === "undefined" || InputModeManager.pointerActive)
+                                        discoveredList.currentIndex = serverCard.index
+                                }
+                                onClicked: {
+                                    discoveredList.currentIndex = serverCard.index
+                                    root.chooseDiscoveredServer(serverCard.index)
+                                }
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: Theme.spacingLarge
+                                anchors.rightMargin: Theme.spacingLarge
+                                spacing: Theme.spacingMedium
+
+                                Text {
+                                    text: Icons.server
+                                    color: serverCard.highlighted ? Theme.textPrimary : Theme.textSecondary
+                                    font.family: Theme.fontIcon
+                                    font.pixelSize: Theme.iconSizeNav
+                                    Accessible.ignored: true
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Math.round(4 * Theme.layoutScale)
+
+                                    Text {
+                                        text: serverCard.name
+                                        color: Theme.textPrimary
+                                        font.family: Theme.fontPrimary
+                                        font.pixelSize: Theme.fontSizeBody
+                                        font.weight: Theme.fontWeightStrong
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                        Accessible.ignored: true
+                                    }
+
+                                    Text {
+                                        text: root.providerLabel(serverCard.provider) + " · " + serverCard.address
+                                        color: Theme.textSecondary
+                                        font.family: Theme.fontPrimary
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                        Accessible.ignored: true
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    StateMessage {
+                        id: discoveryState
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: implicitWidth
+                        visible: discoveredList.count === 0
+                        compact: true
+                        kind: root.discoverySearching ? "loading" : "empty"
+                        iconGlyph: ""
+                        message: root.discoverySearching ? qsTr("Looking for servers on your network…")
+                                                         : qsTr("No servers found. Enter the address below.")
+                        actionText: root.discoverySearching ? "" : qsTr("Search again")
+                        KeyNavigation.up: root.formBottom
+                        KeyNavigation.backtab: root.formBottom
+                        KeyNavigation.down: serverField
+                        KeyNavigation.tab: serverField
+                        onActionTriggered: {
+                            // The action hides while searching; keep focus on the form.
+                            serverField.forceActiveFocus()
+                            ServerDiscovery.refresh()
+                        }
+                    }
+                }
+            }
+
             Text {
                 text: qsTr("Server")
                 color: Theme.textSecondary
@@ -476,11 +706,11 @@ FocusScope {
                 verticalAlignment: TextInput.AlignVCenter
                 inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
                 Accessible.name: qsTr("Server address")
-                KeyNavigation.up: root.showSpaceAction ? spaceActionButton
-                                  : root.offerDeviceSignIn ? deviceSignInButton : connectButton
+                KeyNavigation.up: root.discoveryFocusTarget ? root.discoveryFocusTarget : root.formBottom
                 KeyNavigation.down: root.passwordSignInAvailable ? userField : deviceSignInButton
                 KeyNavigation.tab: root.passwordSignInAvailable ? userField : deviceSignInButton
-                KeyNavigation.backtab: root.showSpaceAction ? spaceActionButton
+                KeyNavigation.backtab: root.discoveryFocusTarget ? root.discoveryFocusTarget
+                                       : root.showSpaceAction ? spaceActionButton
                                        : root.offerDeviceSignIn ? deviceSignInButton : credentialCancelButton
                 // Entering an address checks what the server offers, so a
                 // code option appears before anyone reaches the password.
@@ -590,7 +820,7 @@ FocusScope {
                     focusPolicy: Qt.StrongFocus
                     KeyNavigation.up: passField
                     KeyNavigation.down: root.offerDeviceSignIn ? deviceSignInButton
-                                        : root.showSpaceAction ? spaceActionButton : serverField
+                                        : root.showSpaceAction ? spaceActionButton : root.formTop
                     KeyNavigation.left: credentialCancelButton
                     KeyNavigation.right: credentialCancelButton
                     KeyNavigation.tab: credentialCancelButton
@@ -609,11 +839,11 @@ FocusScope {
                     focusPolicy: Qt.StrongFocus
                     KeyNavigation.up: passField
                     KeyNavigation.down: root.offerDeviceSignIn ? deviceSignInButton
-                                        : root.showSpaceAction ? spaceActionButton : serverField
+                                        : root.showSpaceAction ? spaceActionButton : root.formTop
                     KeyNavigation.left: connectButton
                     KeyNavigation.right: connectButton
                     KeyNavigation.tab: root.offerDeviceSignIn ? deviceSignInButton
-                                       : root.showSpaceAction ? spaceActionButton : serverField
+                                       : root.showSpaceAction ? spaceActionButton : root.formTop
                     KeyNavigation.backtab: connectButton
                     Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
                     Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
@@ -643,8 +873,8 @@ FocusScope {
                 Layout.preferredHeight: Theme.buttonHeightLarge
                 focusPolicy: Qt.StrongFocus
                 KeyNavigation.up: root.passwordSignInAvailable ? connectButton : serverField
-                KeyNavigation.down: root.showSpaceAction ? spaceActionButton : serverField
-                KeyNavigation.tab: root.showSpaceAction ? spaceActionButton : serverField
+                KeyNavigation.down: root.showSpaceAction ? spaceActionButton : root.formTop
+                KeyNavigation.tab: root.showSpaceAction ? spaceActionButton : root.formTop
                 KeyNavigation.backtab: root.passwordSignInAvailable ? credentialCancelButton : serverField
                 Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
                 Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
@@ -661,8 +891,8 @@ FocusScope {
                 Layout.preferredHeight: Theme.buttonHeightMedium
                 focusPolicy: Qt.StrongFocus
                 KeyNavigation.up: root.offerDeviceSignIn ? deviceSignInButton : connectButton
-                KeyNavigation.down: serverField
-                KeyNavigation.tab: serverField
+                KeyNavigation.down: root.formTop
+                KeyNavigation.tab: root.formTop
                 KeyNavigation.backtab: root.offerDeviceSignIn ? deviceSignInButton : credentialCancelButton
                 Keys.onReturnPressed: clicked()
                 Keys.onEnterPressed: clicked()
@@ -1231,7 +1461,31 @@ FocusScope {
         onClosed: root.restoreStepFocus()
     }
 
-    Component.onCompleted: restoreStepFocus()
+    ListModel {
+        id: discoveredServers
+    }
+
+    Component.onCompleted: {
+        restoreStepFocus()
+        syncDiscoveryActive()
+        syncDiscoveredServers()
+    }
+
+    Component.onDestruction: {
+        if (typeof ServerDiscovery !== "undefined")
+            ServerDiscovery.active = false
+    }
+
+    onDiscoveryWantedChanged: syncDiscoveryActive()
+
+    Connections {
+        target: typeof ServerDiscovery !== "undefined" ? ServerDiscovery : null
+        ignoreUnknownSignals: true
+
+        function onServersChanged() {
+            root.syncDiscoveredServers()
+        }
+    }
 
     onVisibleChanged: {
         if (visible)

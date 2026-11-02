@@ -3,6 +3,7 @@
 #include "providers/IProviderAdapter.h"
 #include "providers/silo/SiloAuthenticator.h"
 #include "providers/silo/SiloCatalogProvider.h"
+#include "providers/silo/SiloLanDiscovery.h"
 #include "providers/silo/SiloModelMapper.h"
 #include "providers/silo/SiloPlaybackProvider.h"
 #include "providers/silo/SiloRequestFactory.h"
@@ -143,6 +144,10 @@ public:
             return QStringLiteral("/api/v2/system/info");
         case ProviderRoute::CallerLogout:
             return QStringLiteral("/api/v2/auth/logout");
+        case ProviderRoute::ServerIdentity:
+            return QStringLiteral("/api/v2/system/identity");
+        case ProviderRoute::ServerBranding:
+            return QStringLiteral("/api/v2/theme/branding");
         case ProviderRoute::Profiles:
             return QStringLiteral("/api/v2/profiles");
         case ProviderRoute::VerifyProfilePin:
@@ -193,6 +198,17 @@ public:
         result.protocolMode = ProtocolMode::Native;
         result.capabilities = implementedCapabilities();
         return result;
+    }
+
+    std::optional<ProviderServerIdentity> mapServerIdentity(
+        const QJsonObject &wireIdentity) const override
+    {
+        return SiloLanDiscovery::serverIdentity(wireIdentity);
+    }
+
+    QString mapServerBrandingName(const QJsonObject &wireBranding) const override
+    {
+        return SiloLanDiscovery::brandingServerName(wireBranding);
     }
 
     std::optional<QList<ProviderProfile>> mapProfiles(

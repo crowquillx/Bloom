@@ -37,7 +37,9 @@ public:
             || path.endsWith(QStringLiteral("/api/v2/auth/providers"))
             || path.endsWith(QStringLiteral("/health"))
             || path.endsWith(QStringLiteral("/ready"))
-            || path.endsWith(QStringLiteral("/api/v2/system/info"));
+            || path.endsWith(QStringLiteral("/api/v2/system/info"))
+            || path.endsWith(QStringLiteral("/api/v2/system/identity"))
+            || path.endsWith(QStringLiteral("/api/v2/theme/branding"));
         const bool profileVerificationRoute =
             path.contains(QStringLiteral("/api/v2/profiles/"))
             && path.endsWith(QStringLiteral("/verify-pin"));

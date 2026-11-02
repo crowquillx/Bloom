@@ -12,6 +12,7 @@ Key services
 - `WorkspaceController` — QML `Workspaces`: space switching, editing, adding/removing connections, and routing items to their owning connection. Depends on AuthenticationService, BloomProfileRepository, and ConfigManager.
 - `MergedCatalogService` — QML `MergedCatalog`: fans Views, Next Up, Recently Added, and Search out across a merged space's members and combines them through `IMergedCatalogPolicy`. Depends on AuthenticationService (pooled member sessions) and BloomProfileRepository.
 - `PosterBadgeService` — QML `PosterBadges`: reads each Silo connection's poster badge preferences through `MergedCatalogService::readConnection` and resolves an item's badges. Depends on AuthenticationService, BloomProfileRepository, ConfigManager, and MergedCatalogService. See [poster badges](poster-badges.md).
+- `ServerDiscoveryService` — QML `ServerDiscovery`: lists Jellyfin and Silo servers on the local network while the login screen's address form is visible, validated through the provider adapters. Depends on the provider adapters only; inert in test mode. See [server discovery](server-discovery.md).
 - `ConnectionSessionPool` — Owned by AuthenticationService; read-only in-memory tokens for the non-live members of a merged space.
 - `CredentialStore` — Provider-neutral platform-keychain names, access/refresh/profile token storage, and verified legacy Jellyfin credential migration.
 - `TrackPreferencesManager` — Versioned, connection-scoped persistence for explicit season/movie audio and subtitle preferences.
@@ -51,6 +52,7 @@ Key services
 4. AuthenticationService — stable session façade; depends on `CredentialStore`, `HttpTransport`, and the selected provider adapter.
 4.1. LibraryService — depends on AuthenticationService and uses the selected catalog/artwork provider through shared transport.
 4.6. MergedCatalogService, WorkspaceController, and PosterBadgeService (after MergedCatalogService, which it reads through) — depend on AuthenticationService and BloomProfileRepository; registered after PlayerController/ThemeSongManager in both production and test mode.
+4.7. ServerDiscoveryService — depends on the provider adapters; registered after PosterBadgeService in both modes (an inert instance with no browsers in test mode).
 5. InputModeManager — depends on QGuiApplication.
 5.1. InputBindingManager — depends on QGuiApplication + ConfigManager.
 6. MediaSegmentProviderService — depends on AuthenticationService + ConfigManager.

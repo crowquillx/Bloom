@@ -47,6 +47,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.history",
     "native.home.watch-tonight",
     "native.recommendations.taste-seed",
+    "native.discovery.lan",
     "native.artwork.refetch",
     "native.playback.capability",
     "native.playback.start-v3",

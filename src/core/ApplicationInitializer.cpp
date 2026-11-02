@@ -22,6 +22,9 @@
 #include "network/MediaRequestService.h"
 #include "network/SubtitleAppearanceSync.h"
 #include "network/SeerrService.h"
+#include "network/discovery/LanServerBrowser.h"
+#include "network/discovery/ServerCandidateValidator.h"
+#include "network/discovery/ServerDiscoveryService.h"
 #include "utils/InputModeManager.h"
 #include "utils/InputBindingManager.h"
 #include "viewmodels/LibraryViewModel.h"
@@ -316,6 +319,17 @@ void ApplicationInitializer::registerServices()
         workspaceAuth, m_bloomProfileRepository.get(), m_configManager.get(),
         m_mergedCatalogService.get());
     ServiceLocator::registerService<PosterBadgeService>(m_posterBadgeService.get());
+
+    // 4.7 ServerDiscoveryService - LAN servers for the add-server screen.
+    // Test mode gets an inert instance: no sockets, nothing listed.
+    if (isTestMode) {
+        m_serverDiscoveryService = std::make_unique<ServerDiscoveryService>(
+            QList<LanServerBrowser *>{}, nullptr);
+    } else {
+        m_serverDiscoveryService = ServerDiscoveryService::create(
+            {m_jellyfinProviderAdapter.get(), m_siloProviderAdapter.get()});
+    }
+    ServiceLocator::registerService<ServerDiscoveryService>(m_serverDiscoveryService.get());
 
     // 5. InputModeManager - Depends on QGuiApplication
     m_inputModeManager = std::make_unique<InputModeManager>(m_app);

@@ -91,6 +91,10 @@ Bloom-owned media contracts live in `src/models/MediaModels.*` and are documente
 
 Provider conversion belongs inside provider adapters. `JellyfinModelMapper` is the Jellyfin DTO boundary and owns item-list envelopes, filter facets, ancestor identity, chapter extraction, tick-to-millisecond conversion, playback sources, streams, trickplay metadata, Intro Skipper segments, and remote sessions. Shared catalog, playback, and session projections expose camelCase fields and milliseconds only while stable QML-facing façade names remain available.
 
+## Local-network discovery
+
+The login screen lists servers found on the local network (`Bloom::ServerDiscovery`, QML `ServerDiscovery`; see [server discovery](server-discovery.md)). It is not a session service: it runs only while the address form is visible, holds no credentials, and hands the chosen address to the login screen, which continues as if it had been typed. Provider rules stay in the providers: `SiloLanDiscovery` reads the `_silo._tcp` TXT record, `JellyfinLanDiscovery` the UDP 7359 reply, and `ProviderServerValidator` confirms each candidate through the adapter's `ProviderRoute::ServerIdentity` read and `mapServerIdentity` (Silo `getServerIdentity`, Jellyfin `GetPublicSystemInfo`), then labels Silo servers through `ProviderRoute::ServerBranding` and `mapServerBrandingName` (`getBranding`). The reads carry no credentials and follow no redirect. A saved connection keeps the single address that was chosen; failover between a server's addresses (`getServerConnections`) is a follow-up.
+
 ## Request, authentication, and transport boundaries
 
 `SiloProviderAdapter` exposes `SiloAuthenticator`, `SiloRequestFactory`, `SiloCatalogProvider`, `SiloArtworkProvider`, and `SiloPlaybackProvider` for the native `/api/v2` surface. `SiloAuthenticator` owns login, refresh, `/account/me`, and profile-PIN request/response wire contracts; the adapter's route mapping and model mapper supply provider discovery, caller logout, auth-session list/revoke, and profile listing. Access, refresh, and profile tokens are supplied from `CredentialStore` and never from QML or connection metadata.

@@ -97,6 +97,7 @@ QtObject {
     readonly property string login: "\uea77"
     readonly property string smartphone: "\ue32c"
     readonly property string language: "\ue894"
+    readonly property string server: "\ue875"
     
     // Content & Layout  
     readonly property string folder: "\ue2c7"

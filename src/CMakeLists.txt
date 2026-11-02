@@ -504,6 +504,7 @@ target_link_libraries(Bloom
     Bloom::ImageCache
     Bloom::Display
     Bloom::Network
+    Bloom::ServerDiscovery
     Bloom::Workspace
     Bloom::PlayerPolicy
     Bloom::PlayerProcess

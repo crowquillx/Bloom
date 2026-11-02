@@ -1,6 +1,7 @@
 # Reusable production libraries shared by the application and unit tests.
 # Keep dependency direction acyclic:
 #   Models -> Config / Transport / ImageCache / PlayerProcess -> Providers -> Network
+#                                                               Providers -> ServerDiscovery
 #                     Config -> Profiles;  Network + Profiles -> Workspace
 #                     Config -> Display
 #                     Qt Core -> PlayerPolicy -> PlayerProcess
@@ -262,9 +263,11 @@ endif()
 
 add_library(BloomProviders STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinAuthenticator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinLanDiscovery.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinModelMapper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinPlaybackProvider.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinRequestFactory.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloLanDiscovery.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloModelMapper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloMediaRequestMapper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/silo/SiloPlaybackProvider.cpp
@@ -281,6 +284,38 @@ target_link_libraries(BloomProviders
         Bloom::Config
         Bloom::PlayerPolicy
         Bloom::Transport
+        Qt6::Core
+        Qt6::Network
+)
+
+# Local-network server discovery for the add-server screen
+# (docs/server-discovery.md): the DNS wire format and DNS-SD resolution, the
+# mDNS and Jellyfin broadcast browsers, and validation through the provider
+# adapters' public reads. Needs no session, so it sits beside Network.
+add_library(BloomServerDiscovery STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/DnsMessage.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/DnsMessage.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/DnsSdResolver.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/DnsSdResolver.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/JellyfinServerBrowser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/JellyfinServerBrowser.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/LanServerBrowser.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/MdnsServerBrowser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/MdnsServerBrowser.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/ServerCandidateValidator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/ServerCandidateValidator.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/ServerDiscoveryService.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/discovery/ServerDiscoveryService.h
+)
+add_library(Bloom::ServerDiscovery ALIAS BloomServerDiscovery)
+target_include_directories(BloomServerDiscovery
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_link_libraries(BloomServerDiscovery
+    PUBLIC
+        Bloom::Providers
         Qt6::Core
         Qt6::Network
 )
@@ -383,6 +418,7 @@ set_target_properties(
     BloomPlayerPolicy
     BloomUpdater
     BloomProviders
+    BloomServerDiscovery
     BloomNetwork
     BloomProfiles
     BloomWorkspace

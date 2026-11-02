@@ -86,6 +86,15 @@ Every Quick Connect request carries the MediaBrowser authorization header with t
 
 Jellyfin has no cancel operation. Backing out, leaving the signed-out state, or starting another sign-in only stops polling, and the server forgets the request on its own timeout. Every ended state offers "Get a new code".
 
+### Local-network discovery
+
+The login screen's "Found on your network" list ([server discovery](server-discovery.md)) reads only public operations, with no bearer, profile or device headers, one attempt each with a 3-second deadline, no redirect followed, and at most 64 KiB buffered.
+
+- **Silo** (`native.discovery.lan`): DNS-SD `_silo._tcp` over multicast DNS with TXT `v=1` and `id=<server_id>` (an instance with another `v` or no `id` is skipped). Each A/AAAA address of the advertised host on the SRV port, as plain HTTP, is a candidate; link-local IPv6 is not. `GET /api/v2/system/identity` (`getServerIdentity`) must answer the TXT `id` as `server_id`. `GET /api/v2/theme/branding` (`getBranding`) `server_name` labels the entry; the instance name does when that read fails. Silo's responder answers only multicast queries sent from UDP 5353, by multicast, so Bloom's querier shares port 5353.
+- **Jellyfin** (`discovery.lan`): `Who is JellyfinServer?` broadcast to UDP 7359; the ServerDiscoveryInfo reply's `Address` (a bare host becomes `http://host:8096`), `EndpointAddress` and the reply's source address are candidates. `GET /System/Info/Public` (`GetPublicSystemInfo`, non-obsolete in the pinned OpenAPI document) must answer the reply's `Id`; `ServerName` labels the entry. Silo's compatibility listener does not answer the probe.
+
+Several addresses of one server are one entry at the address that confirmed first; failed candidates are dropped. The server id is a hint that groups addresses; choosing an entry is the same as typing its address.
+
 ## Catalog and conditional requests
 
 Catalog reads use `cursor`, `page.next_cursor`, `page.has_more`, and `window_cursor`. Bloom keeps bounded cursors per connection and query. Explicit window jumps use `seek` with the window cursor. There are no offset or snapshot parameters. GET pages allow up to 200; structured POST queries allow up to 100. Bloom currently requests at most 100 for both paths.
