@@ -14,6 +14,25 @@ std::optional<bool> administratorFlag(const QJsonObject &user)
     return value.isBool() ? std::optional<bool>(value.toBool()) : std::nullopt;
 }
 
+// UserDto.Policy.EnableSubtitleManagement gates RemoteSearch/Subtitles;
+// administrators pass it too. Unknown when the policy says neither.
+std::optional<bool> subtitleManagementFlag(const QJsonObject &user)
+{
+    const QJsonObject policy = user.value(QStringLiteral("Policy")).toObject();
+    const QJsonValue management = policy.value(QStringLiteral("EnableSubtitleManagement"));
+    const std::optional<bool> administrator = administratorFlag(user);
+    if (management.isBool() && management.toBool()) {
+        return true;
+    }
+    if (administrator.value_or(false)) {
+        return true;
+    }
+    if (management.isBool() && administrator.has_value()) {
+        return false;
+    }
+    return std::nullopt;
+}
+
 // UserDto.Configuration as language-based defaults. RememberAudioSelections
 // and RememberSubtitleSelections act only inside the server's own
 // PlaybackInfo defaults, so they are not read here.
@@ -77,6 +96,7 @@ ProviderAuthenticationResult JellyfinAuthenticator::parseLoginResponse(
     result.accountId = user.value(QStringLiteral("Id")).toString();
     result.username = user.value(QStringLiteral("Name")).toString();
     result.isAdministrator = administratorFlag(user);
+    result.canManageSubtitles = subtitleManagementFlag(user);
     result.playbackDefaults = playbackDefaults(user);
     return result;
 }
@@ -91,6 +111,7 @@ ProviderAuthenticationResult JellyfinAuthenticator::parseSessionValidationRespon
     result.accountId = user.value(QStringLiteral("Id")).toString();
     result.username = user.value(QStringLiteral("Name")).toString();
     result.isAdministrator = administratorFlag(user);
+    result.canManageSubtitles = subtitleManagementFlag(user);
     result.playbackDefaults = playbackDefaults(user);
     return result;
 }

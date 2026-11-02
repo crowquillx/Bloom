@@ -45,12 +45,14 @@ FocusScope {
 
     // One settings pop-out holds subtitles, audio, quality, audio output and
     // the sleep timer. Pages: "root", "subtitles", "audio", "quality",
-    // "output", "sleep".
+    // "output", "sleep", and "subtitleSearch" below the Subtitles page.
     property bool settingsMenuOpen: false
     property string settingsPage: "root"
     // True when the current page was entered from the root list, so Back
     // returns there instead of closing the menu.
     property bool settingsPageFromRoot: false
+    // How the Subtitles page was entered, kept while its search page is open.
+    property bool subtitleSearchParentFromRoot: false
     property int settingsCursor: 0
     readonly property bool audioSelectorOpen: settingsMenuOpen && (settingsPage === "audio" || settingsPage === "output")
     readonly property bool subtitleSelectorOpen: settingsMenuOpen && settingsPage === "subtitles"
@@ -388,6 +390,7 @@ FocusScope {
         if (page === "quality") return qsTr("Quality")
         if (page === "output") return qsTr("Audio Output")
         if (page === "sleep") return qsTr("Sleep Timer")
+        if (page === "subtitleSearch") return qsTr("Search Subtitles")
         return qsTr("Playback Settings")
     }
 
@@ -431,8 +434,22 @@ FocusScope {
         if (settingsPage === "subtitles") {
             var subtitles = subtitleTrackOptions
             for (i = 0; i < subtitles.length; i++) rows.push({ kind: "subtitle", track: subtitles[i] })
+            if (SubtitleSearch.available) rows.push({ kind: "searchEntry" })
             rows.push({ kind: "delay" })
             rows.push({ kind: "size" })
+        } else if (settingsPage === "subtitleSearch") {
+            rows.push({ kind: "searchLanguage" })
+            if (SubtitleSearch.isLoading) {
+                rows.push({ kind: "searchState", state: "loading" })
+            } else if (SubtitleSearch.hasError) {
+                rows.push({ kind: "searchState", state: "error" })
+            } else if (SubtitleSearch.searched && SubtitleSearch.warnings.length > 0) {
+                rows.push({ kind: "searchState", state: "warning" })
+            } else if (SubtitleSearch.searched && SubtitleSearch.count === 0) {
+                rows.push({ kind: "searchState", state: "empty" })
+            }
+            var found = SubtitleSearch.results
+            for (i = 0; i < found.length; i++) rows.push({ kind: "searchResult", result: found[i] })
         } else if (settingsPage === "audio") {
             var audioTracks = PlayerController.availableAudioTracks
             for (i = 0; i < audioTracks.length; i++) rows.push({ kind: "audio", track: audioTracks[i] })
@@ -471,6 +488,71 @@ FocusScope {
         if (row.kind === "output") return row.entry.selected === true
         if (row.kind === "sleep") return row.choice === PlayerController.sleepTimerChoice
         return false
+    }
+
+    function settingsRowIndexOfKind(kind) {
+        for (var i = 0; i < settingsRows.length; i++) {
+            if (settingsRows[i].kind === kind) return i
+        }
+        return 0
+    }
+
+    // ---- Subtitle search ----
+    function subtitleResultTitle(result) {
+        if (!result) return ""
+        return result.title || result.provider || qsTr("Subtitle")
+    }
+
+    function subtitleResultDetail(result) {
+        if (!result) return ""
+        if (SubtitleSearch.downloadingId === result.id) return qsTr("Downloading…")
+        var parts = []
+        if (result.provider) parts.push(result.provider)
+        if (result.format) parts.push(String(result.format).toUpperCase())
+        if (result.score > 0) parts.push(qsTr("Score %1").arg(Number(result.score).toLocaleString(Qt.locale(), "f", 1)))
+        if (result.downloads > 0) parts.push(qsTr("%1 downloads").arg(Number(result.downloads).toLocaleString(Qt.locale(), "f", 0)))
+        if (result.hearingImpaired) parts.push(qsTr("SDH"))
+        if (result.forced) parts.push(qsTr("Forced"))
+        if (result.machineTranslated || result.aiTranslated) parts.push(qsTr("Machine translated"))
+        return parts.join("  •  ")
+    }
+
+    function subtitleSearchStateTitle(state) {
+        if (state === "loading") return qsTr("Searching for subtitles…")
+        if (state === "error") return qsTr("Subtitle search failed")
+        if (state === "warning") return SubtitleSearch.count > 0 ? qsTr("Some subtitle providers failed")
+                                                                 : qsTr("Subtitle providers failed")
+        return qsTr("No subtitles found")
+    }
+
+    function subtitleSearchStateMessage(state) {
+        if (state === "loading") return SubtitleSearch.languageLabel
+        if (state === "error") return SubtitleSearch.errorMessage + "\n" + qsTr("Select to try again.")
+        if (state === "warning") return SubtitleSearch.warnings.join("\n") + "\n" + qsTr("Select to try again.")
+        return qsTr("Try another language.")
+    }
+
+    function openSubtitleSearchPage() {
+        if (!SubtitleSearch.available) return
+        subtitleSearchParentFromRoot = settingsPageFromRoot
+        settingsPage = "subtitleSearch"
+        settingsPageFromRoot = false
+        SubtitleSearch.open()
+        placeSettingsCursor(0)
+    }
+
+    /// Back, Left or the header back control on the search page return to
+    /// the Subtitles page with the search entry focused.
+    function closeSubtitleSearchPage() {
+        settingsPage = "subtitles"
+        settingsPageFromRoot = subtitleSearchParentFromRoot
+        placeSettingsCursor(settingsRowIndexOfKind("searchEntry"))
+    }
+
+    function settingsRowHeight(kind) {
+        if (isStepperRow(kind)) return settingsMenu.delayRowHeight
+        if (kind === "searchState") return settingsMenu.stateRowHeight
+        return settingsMenu.rowHeight
     }
 
     function settingsRowIndexForPage(page) {
@@ -546,6 +628,10 @@ FocusScope {
     /// Back/Escape inside the menu: a page entered from the root list returns
     /// there; anything else closes the menu.
     function settingsBack() {
+        if (settingsPage === "subtitleSearch") {
+            closeSubtitleSearchPage()
+            return true
+        }
         if (settingsPage !== "root" && settingsPageFromRoot) {
             showSettingsRoot()
             return true
@@ -580,6 +666,14 @@ FocusScope {
             PlayerController.resetSubtitleDelay()
         } else if (row.kind === "size") {
             PlayerController.resetSubtitleSize()
+        } else if (row.kind === "searchEntry") {
+            openSubtitleSearchPage()
+        } else if (row.kind === "searchLanguage") {
+            SubtitleSearch.search()
+        } else if (row.kind === "searchState") {
+            if (row.state === "error" || row.state === "warning") SubtitleSearch.reload()
+        } else if (row.kind === "searchResult") {
+            if (!SubtitleSearch.downloading) SubtitleSearch.download(row.result.id)
         }
     }
 
@@ -594,6 +688,10 @@ FocusScope {
                 adjustSubtitleDelayBy(-PlayerController.subtitleDelayStepMs)
             } else if (row && row.kind === "size") {
                 adjustSubtitleSizeBy(-1)
+            } else if (row && row.kind === "searchLanguage") {
+                SubtitleSearch.cycleLanguage(-1)
+            } else if (settingsPage === "subtitleSearch") {
+                closeSubtitleSearchPage()
             } else if (settingsPage !== "root") {
                 showSettingsRoot()
             }
@@ -602,8 +700,12 @@ FocusScope {
                 adjustSubtitleDelayBy(PlayerController.subtitleDelayStepMs)
             } else if (row && row.kind === "size") {
                 adjustSubtitleSizeBy(1)
+            } else if (row && row.kind === "searchLanguage") {
+                SubtitleSearch.cycleLanguage(1)
             } else if (row && row.kind === "page") {
                 openSettingsPage(row.page)
+            } else if (row && row.kind === "searchEntry") {
+                openSubtitleSearchPage()
             }
         }
         return true
@@ -2869,12 +2971,13 @@ FocusScope {
         readonly property int menuPadding: Math.round(16 * Theme.layoutScale)
         readonly property int rowHeight: Math.round(76 * Theme.layoutScale)
         readonly property int delayRowHeight: Math.round(96 * Theme.layoutScale)
+        readonly property int stateRowHeight: Math.round(176 * Theme.layoutScale)
         readonly property int rowSpacing: Math.round(4 * Theme.layoutScale)
         readonly property real rowsHeight: {
             var rows = root.settingsRows
             var total = 0
             for (var i = 0; i < rows.length; i++) {
-                total += root.isStepperRow(rows[i].kind) ? delayRowHeight : rowHeight
+                total += root.settingsRowHeight(rows[i].kind)
             }
             return total + Math.max(0, rows.length - 1) * rowSpacing
         }
@@ -2917,7 +3020,10 @@ FocusScope {
                 focusPolicy: Qt.NoFocus
                 glyph: Icons.chevronLeft
                 text: qsTr("Back")
-                onClicked: root.showSettingsRoot()
+                onClicked: {
+                    if (root.settingsPage === "subtitleSearch") root.closeSubtitleSearchPage()
+                    else root.showSettingsRoot()
+                }
             }
 
             Text {
@@ -2980,9 +3086,15 @@ FocusScope {
                 readonly property bool isSelected: root.isSettingsRowSelected(modelData)
                 width: settingsList.width
                 readonly property bool isStepper: root.isStepperRow(kind)
-                height: isStepper ? settingsMenu.delayRowHeight : settingsMenu.rowHeight
-                Accessible.role: kind === "page" ? Accessible.Button : (isStepper ? Accessible.Slider : Accessible.ListItem)
-                Accessible.name: rowPrimary.text
+                height: root.settingsRowHeight(kind)
+                Accessible.role: kind === "page" || kind === "searchEntry" || kind === "searchResult"
+                                 ? Accessible.Button
+                                 : (isStepper || kind === "searchLanguage"
+                                    ? Accessible.Slider
+                                    : (kind === "searchState" ? Accessible.StaticText : Accessible.ListItem))
+                Accessible.name: kind === "searchState" ? searchStateMessage.Accessible.name
+                                 : (kind === "searchLanguage" ? rowPrimary.text + ": " + SubtitleSearch.languageLabel
+                                                              : rowPrimary.text)
                 Accessible.description: rowSecondary.text
 
                 Rectangle {
@@ -3027,15 +3139,32 @@ FocusScope {
                     }
                 }
 
+                // Loading, empty and error states of the search page.
+                StateMessage {
+                    id: searchStateMessage
+                    visible: settingsRow.kind === "searchState"
+                    anchors.centerIn: parent
+                    width: parent.width - Math.round(32 * Theme.layoutScale)
+                    compact: true
+                    kind: settingsRow.modelData.state === "warning" ? "error" : (settingsRow.modelData.state || "empty")
+                    title: settingsRow.kind === "searchState" ? root.subtitleSearchStateTitle(settingsRow.modelData.state) : ""
+                    message: settingsRow.kind === "searchState" ? root.subtitleSearchStateMessage(settingsRow.modelData.state) : ""
+                    titleColor: Theme.playbackTimePrimary
+                    messageColor: Theme.playbackTimeSecondary
+                    iconColor: settingsRow.modelData.state === "error" || settingsRow.modelData.state === "warning"
+                               ? Theme.errorColor : Theme.playbackTimeSecondary
+                }
+
                 RowLayout {
+                    visible: settingsRow.kind !== "searchState"
                     anchors.fill: parent
                     anchors.leftMargin: Math.round(22 * Theme.layoutScale)
                     anchors.rightMargin: Math.round(14 * Theme.layoutScale)
                     spacing: Math.round(14 * Theme.layoutScale)
 
                     Text {
-                        visible: settingsRow.kind === "page"
-                        text: settingsRow.modelData.icon || ""
+                        visible: settingsRow.kind === "page" || settingsRow.kind === "searchEntry"
+                        text: settingsRow.kind === "searchEntry" ? Icons.search : (settingsRow.modelData.icon || "")
                         font.family: Theme.fontIcon
                         font.pixelSize: Math.round(28 * Theme.layoutScale)
                         color: Theme.playbackTimeSecondary
@@ -3059,6 +3188,9 @@ FocusScope {
                                 if (row.kind === "delay") return qsTr("Subtitle Delay")
                                 if (row.kind === "size") return qsTr("Subtitle Size")
                                 if (row.kind === "sleep") return root.sleepTimerChoiceLabel(row.choice)
+                                if (row.kind === "searchEntry") return qsTr("Search subtitles…")
+                                if (row.kind === "searchLanguage") return qsTr("Language")
+                                if (row.kind === "searchResult") return root.subtitleResultTitle(row.result)
                                 return ""
                             }
                             color: settingsRow.kind === "output" && !settingsRow.modelData.entry.available
@@ -3089,6 +3221,10 @@ FocusScope {
                                 if (row.kind === "size") return InputModeManager.pointerActive
                                                                ? qsTr("Text subtitles, %1% steps").arg(PlayerController.subtitleSizeStepPercent)
                                                                : qsTr("Text subtitles; Left/Right to adjust")
+                                if (row.kind === "searchEntry") return qsTr("Find subtitles online through the server")
+                                if (row.kind === "searchLanguage") return InputModeManager.pointerActive
+                                                                         ? "" : qsTr("Left/Right to change")
+                                if (row.kind === "searchResult") return root.subtitleResultDetail(row.result)
                                 return ""
                             }
                             visible: text.length > 0
@@ -3099,11 +3235,15 @@ FocusScope {
                         }
                     }
 
-                    // Current value of a category row.
+                    // Current value of a category row; a result that matches
+                    // the file says so.
                     Text {
-                        visible: settingsRow.kind === "page" && text.length > 0
-                        text: settingsRow.kind === "page" ? root.settingsPageValue(settingsRow.modelData.page) : ""
-                        color: Theme.playbackTimeSecondary
+                        readonly property bool fileMatch: settingsRow.kind === "searchResult"
+                                                          && settingsRow.modelData.result.hashMatch === true
+                        visible: (settingsRow.kind === "page" || fileMatch) && text.length > 0
+                        text: settingsRow.kind === "page" ? root.settingsPageValue(settingsRow.modelData.page)
+                                                          : (fileMatch ? qsTr("Matches this file") : "")
+                        color: fileMatch ? Theme.playbackAccent : Theme.playbackTimeSecondary
                         font.family: Theme.fontPrimary
                         font.pixelSize: Math.round(18 * Theme.layoutScale)
                         elide: Text.ElideRight
@@ -3113,12 +3253,61 @@ FocusScope {
                     }
 
                     Text {
-                        visible: settingsRow.kind === "page" || settingsRow.isSelected
-                        text: settingsRow.kind === "page" ? Icons.chevronRight : Icons.check
+                        readonly property bool opensPage: settingsRow.kind === "page" || settingsRow.kind === "searchEntry"
+                        visible: opensPage || settingsRow.isSelected
+                        text: opensPage ? Icons.chevronRight : Icons.check
                         font.family: Theme.fontIcon
                         font.pixelSize: Math.round(26 * Theme.layoutScale)
-                        color: settingsRow.kind === "page" ? Theme.playbackTimeSecondary : Theme.playbackAccent
+                        color: opensPage ? Theme.playbackTimeSecondary : Theme.playbackAccent
                         Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    BusyIndicator {
+                        visible: settingsRow.kind === "searchResult"
+                                 && SubtitleSearch.downloadingId === settingsRow.modelData.result.id
+                        running: visible
+                        Layout.preferredWidth: Math.round(36 * Theme.layoutScale)
+                        Layout.preferredHeight: Layout.preferredWidth
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    // Language picker: Left/Right, or the arrows with a pointer.
+                    Row {
+                        visible: settingsRow.kind === "searchLanguage"
+                        spacing: Math.round(8 * Theme.layoutScale)
+                        Layout.alignment: Qt.AlignVCenter
+
+                        ChromeIconButton {
+                            anchors.verticalCenter: parent.verticalCenter
+                            diameter: Math.round(44 * Theme.layoutScale)
+                            iconSize: Math.round(24 * Theme.layoutScale)
+                            filled: true
+                            focusPolicy: Qt.NoFocus
+                            glyph: Icons.chevronLeft
+                            text: qsTr("Previous language")
+                            onClicked: SubtitleSearch.cycleLanguage(-1)
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Math.round(150 * Theme.layoutScale)
+                            text: SubtitleSearch.languageLabel
+                            color: Theme.playbackTimePrimary
+                            font.family: Theme.fontPrimary
+                            font.pixelSize: Math.round(21 * Theme.layoutScale)
+                            font.weight: Font.DemiBold
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
+                        }
+                        ChromeIconButton {
+                            anchors.verticalCenter: parent.verticalCenter
+                            diameter: Math.round(44 * Theme.layoutScale)
+                            iconSize: Math.round(24 * Theme.layoutScale)
+                            filled: true
+                            focusPolicy: Qt.NoFocus
+                            glyph: Icons.chevronRight
+                            text: qsTr("Next language")
+                            onClicked: SubtitleSearch.cycleLanguage(1)
+                        }
                     }
 
                     Row {
@@ -3236,6 +3425,25 @@ FocusScope {
         Connections {
             target: PlayerController
             function onAudioOutputNotice(message) {
+                root.audioNoticeText = message
+                audioNoticeTimer.restart()
+            }
+        }
+
+        Connections {
+            target: SubtitleSearch
+            function onSubtitleLoaded(title) {
+                root.audioNoticeText = qsTr("Subtitle added: %1").arg(title)
+                audioNoticeTimer.restart()
+                if (root.settingsMenuOpen && root.settingsPage === "subtitleSearch") {
+                    root.closeSettingsMenu()
+                }
+            }
+            function onSubtitleListed(title) {
+                root.audioNoticeText = qsTr("Subtitle downloaded: %1. It is listed under Subtitles.").arg(title)
+                audioNoticeTimer.restart()
+            }
+            function onDownloadFailed(message) {
                 root.audioNoticeText = message
                 audioNoticeTimer.restart()
             }

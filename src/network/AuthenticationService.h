@@ -129,6 +129,10 @@ public:
     /// The server refused an administrator-only action (403): the account
     /// has lost those rights since sign-in.
     void markAccountNotAdministrator() { setAccountIsAdministrator(false); }
+    /// Whether the account may search and download subtitles through the
+    /// server (Jellyfin: subtitle management policy or administrator).
+    /// Absent when the provider does not say.
+    std::optional<bool> accountCanManageSubtitles() const { return m_accountCanManageSubtitles; }
     /// The signed-in account's own audio/subtitle language defaults, as read
     /// at sign-in or session validation (Jellyfin UserConfiguration). Absent
     /// when the provider keeps none per account or has not reported them for
@@ -250,6 +254,8 @@ protected:
                      const QString &userId,
                      const QString &accessToken,
                      const QString &username = QString());
+    void setAccountPrivileges(std::optional<bool> isAdministrator,
+                              std::optional<bool> canManageSubtitles);
 
 private:
     void setAccountIsAdministrator(std::optional<bool> isAdministrator);
@@ -275,6 +281,7 @@ private:
     QString m_userId;
     QString m_username;
     std::optional<bool> m_accountIsAdministrator;
+    std::optional<bool> m_accountCanManageSubtitles;
     std::optional<Bloom::ServerTrackPreferences> m_accountPlaybackDefaults;
     // The server and account m_accountPlaybackDefaults were read for.
     QString m_accountPlaybackDefaultsServerUrl;

@@ -3,8 +3,9 @@
 #include "providers/jellyfin/JellyfinModelMapper.h"
 #include "player/AudioPolicy.h"
 
-#include <QUrlQuery>
 #include <QJsonArray>
+#include <QJsonDocument>
+#include <QUrlQuery>
 
 #include <algorithm>
 
@@ -436,4 +437,94 @@ PlaybackReportRequest JellyfinPlaybackProvider::createReportRequest(
 
     request.body = body;
     return request;
+}
+
+SubtitleSearchRequest JellyfinPlaybackProvider::createSubtitleSearchRequest(
+    const PlaybackProviderContext &, const SubtitleSearchTarget &target,
+    const QString &language) const
+{
+    SubtitleSearchRequest request;
+    const QString code = language.trimmed().toLower();
+    if (target.media.itemId.isEmpty() || code.isEmpty()) {
+        return request;
+    }
+    // The language is the three-letter code Jellyfin's subtitle providers
+    // take (ThreeLetterISOLanguageName). isPerfectMatch is left out, so every
+    // result comes back and IsHashMatch marks the ones that match the file.
+    request.endpoint = QStringLiteral("/Items/%1/RemoteSearch/Subtitles/%2")
+                           .arg(QString::fromLatin1(QUrl::toPercentEncoding(target.media.itemId)),
+                                QString::fromLatin1(QUrl::toPercentEncoding(code)));
+    request.method = QStringLiteral("GET");
+    request.replaySafe = true;
+    return request;
+}
+
+SubtitleSearchParseResult JellyfinPlaybackProvider::parseSubtitleSearchResponse(
+    const QByteArray &body) const
+{
+    SubtitleSearchParseResult parsed;
+    QJsonParseError error{};
+    const QJsonDocument document = QJsonDocument::fromJson(body, &error);
+    if (error.error != QJsonParseError::NoError || !document.isArray()) {
+        parsed.error = QStringLiteral("The server sent an unreadable subtitle list.");
+        return parsed;
+    }
+    for (const QJsonValue &value : document.array()) {
+        const QJsonObject wire = value.toObject();
+        Bloom::SubtitleSearchResult result;
+        result.id = wire.value(QStringLiteral("Id")).toString();
+        if (result.id.isEmpty()) {
+            continue;
+        }
+        result.provider = wire.value(QStringLiteral("ProviderName")).toString();
+        result.language = wire.value(QStringLiteral("ThreeLetterISOLanguageName")).toString();
+        result.title = wire.value(QStringLiteral("Name")).toString();
+        result.format = wire.value(QStringLiteral("Format")).toString().toLower();
+        result.downloads = wire.value(QStringLiteral("DownloadCount")).toInteger();
+        result.score = wire.value(QStringLiteral("CommunityRating")).toDouble();
+        result.hearingImpaired = wire.value(QStringLiteral("HearingImpaired")).toBool();
+        result.forced = wire.value(QStringLiteral("Forced")).toBool();
+        result.machineTranslated = wire.value(QStringLiteral("MachineTranslated")).toBool();
+        result.aiTranslated = wire.value(QStringLiteral("AiTranslated")).toBool();
+        result.hashMatch = wire.value(QStringLiteral("IsHashMatch")).toBool();
+        result.uploadedAt = QDateTime::fromString(
+            wire.value(QStringLiteral("DateCreated")).toString(), Qt::ISODateWithMs);
+        parsed.results.append(result);
+    }
+    parsed.valid = true;
+    return parsed;
+}
+
+SubtitleSearchRequest JellyfinPlaybackProvider::createSubtitleDownloadRequest(
+    const PlaybackProviderContext &, const SubtitleSearchTarget &target,
+    const Bloom::SubtitleSearchResult &result) const
+{
+    SubtitleSearchRequest request;
+    if (target.media.itemId.isEmpty() || result.id.isEmpty()) {
+        return request;
+    }
+    request.endpoint = QStringLiteral("/Items/%1/RemoteSearch/Subtitles/%2")
+                           .arg(QString::fromLatin1(QUrl::toPercentEncoding(target.media.itemId)),
+                                QString::fromLatin1(QUrl::toPercentEncoding(result.id)));
+    request.method = QStringLiteral("POST");
+    // A replay could fetch from the provider again and spend the user's
+    // provider quota, so a download is sent once.
+    request.replaySafe = false;
+    return request;
+}
+
+SubtitleDownloadParseResult JellyfinPlaybackProvider::parseSubtitleDownloadResponse(
+    const PlaybackProviderContext &, const SubtitleSearchTarget &,
+    const Bloom::SubtitleSearchResult &result, const QByteArray &) const
+{
+    // 204 No Content: the server saved the file next to the media and
+    // refreshes the item, after which PlaybackInfo lists it as an external
+    // stream with its own index.
+    SubtitleDownloadParseResult parsed;
+    parsed.valid = true;
+    parsed.needsPlaybackInfo = true;
+    parsed.subtitle.title = result.title;
+    parsed.subtitle.language = result.language;
+    parsed.subtitle.format = result.format;
+    return parsed;
 }

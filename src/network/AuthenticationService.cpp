@@ -800,7 +800,7 @@ void AuthenticationService::handleAuthenticationResult(
     if (!authentication.username.isEmpty()) {
         m_username = authentication.username;
     }
-    setAccountIsAdministrator(authentication.isAdministrator);
+    setAccountPrivileges(authentication.isAdministrator, authentication.canManageSubtitles);
     setAccountPlaybackDefaults(authentication.playbackDefaults);
 
     ServerConnection connection;
@@ -1890,7 +1890,7 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
     setAccessTokenLifetime(-1);
     m_username = username;
     // Session validation reports the account's current privileges.
-    setAccountIsAdministrator(std::nullopt);
+    setAccountPrivileges(std::nullopt, std::nullopt);
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
     updateAuthenticationStep(QStringLiteral("credentials"));
@@ -1973,10 +1973,18 @@ void AuthenticationService::seedSession(const QString &serverUrl,
 
 void AuthenticationService::setAccountIsAdministrator(std::optional<bool> isAdministrator)
 {
-    if (m_accountIsAdministrator == isAdministrator) {
+    setAccountPrivileges(isAdministrator, m_accountCanManageSubtitles);
+}
+
+void AuthenticationService::setAccountPrivileges(std::optional<bool> isAdministrator,
+                                                 std::optional<bool> canManageSubtitles)
+{
+    if (m_accountIsAdministrator == isAdministrator
+        && m_accountCanManageSubtitles == canManageSubtitles) {
         return;
     }
     m_accountIsAdministrator = isAdministrator;
+    m_accountCanManageSubtitles = canManageSubtitles;
     emit accountPrivilegesChanged();
 }
 
@@ -2182,7 +2190,7 @@ void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
     m_profileToken.clear();
     m_userId.clear();
     m_username.clear();
-    setAccountIsAdministrator(std::nullopt);
+    setAccountPrivileges(std::nullopt, std::nullopt);
     setAccountPlaybackDefaults(std::nullopt);
     m_pendingProfileId.clear();
     m_sessionExpiredPending = false;
@@ -2309,7 +2317,7 @@ void AuthenticationService::validateAccessToken(std::function<void(SessionValidi
             const bool valid = statusCode >= 200 && statusCode < 300
                 && identity.accountId == m_userId;
             if (valid) {
-                setAccountIsAdministrator(identity.isAdministrator);
+                setAccountPrivileges(identity.isAdministrator, identity.canManageSubtitles);
                 setAccountPlaybackDefaults(identity.playbackDefaults);
             }
             complete(valid ? SessionValidity::Valid : SessionValidity::Invalid);

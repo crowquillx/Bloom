@@ -332,6 +332,12 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     connect(m_autoplayPlaybackInfoTimeoutTimer, &QTimer::timeout,
             this, &PlayerController::onAutoplayPlaybackInfoTimeout);
 
+    m_downloadedSubtitleTimer = new QTimer(this);
+    m_downloadedSubtitleTimer->setSingleShot(true);
+    connect(m_downloadedSubtitleTimer, &QTimer::timeout, this, [this]() {
+        resolvePendingDownloadedSubtitle(false, tr("The downloaded subtitle could not be loaded."));
+    });
+
     m_trackPreferenceWriteTimer = new QTimer(this);
     m_trackPreferenceWriteTimer->setSingleShot(true);
     m_trackPreferenceWriteTimer->setInterval(kTrackPreferenceWriteDelayMs);
@@ -2383,6 +2389,7 @@ void PlayerController::onPlaybackReplannedForRequest(const QString &sessionId,
     if (seek) {
         segment[QStringLiteral("subtitleIndex")] = keptSubtitle;
     }
+    restoreDownloadedSubtitleTracks(segment, seek ? keptSubtitle : m_inFlightSubtitleTrack);
     if (!descriptor.selectedAudioTrackId.isEmpty()) {
         segment[QStringLiteral("audioIndex")] = descriptor.selectedAudioTrackId.toInt();
     }
@@ -2454,6 +2461,7 @@ void PlayerController::onPlaybackReplannedForRequest(const QString &sessionId,
     emit timelineChanged();
 
     rollBackUngrantedTrackPicks(m_inFlightAudioTrack, m_inFlightSubtitleTrack);
+    checkPendingDownloadedSubtitleSelection();
     if (m_replanQueued) {
         // The new stream has not reported a position yet; it starts here.
         dispatchQueuedReplan(static_cast<double>(descriptor.startPositionMs) / 1000.0);
@@ -2565,6 +2573,7 @@ void PlayerController::onPlaybackReplanFailedForRequest(const QString &sessionId
         }
         emit selectedSubtitleTrackChanged();
     }
+    checkPendingDownloadedSubtitleSelection();
     qCWarning(lcPlayback) << (seek ? "Server seek failed:" : "Server track change failed:")
                           << error;
     if (m_replanQueued) {
@@ -3219,6 +3228,9 @@ void PlayerController::appendDescriptorExternalSubtitleTracks(
         }
         option[QStringLiteral("requiresReplan")] = track.requiresReplan;
         option[QStringLiteral("trackId")] = track.trackId;
+        if (!track.storedSubtitleId.isEmpty()) {
+            option[QStringLiteral("storedSubtitleId")] = track.storedSubtitleId;
+        }
         if (existingPosition >= 0) {
             availableSubtitleTracks[existingPosition] = option;
         } else {
@@ -4826,6 +4838,10 @@ void PlayerController::setSelectedSubtitleTrack(int index)
 
     const int previousSubtitleTrack = m_selectedSubtitleTrack;
     m_selectedSubtitleTrack = index;
+    if (!m_deferSubtitlePickPersistence) {
+        // Another pick replaces a download still loading.
+        resolvePendingDownloadedSubtitle(false);
+    }
     qCDebug(lcPlayback) << "User subtitle track selection:"
                         << "sourceIndex=" << index
                         << "previousSourceIndex=" << previousSubtitleTrack;
@@ -4844,7 +4860,7 @@ void PlayerController::setSelectedSubtitleTrack(int index)
         if (requestStreamReplan(false, m_segmentRelativePosition)) {
             // Written back only once the server delivers the new stream. A
             // refusal answered at once has already restored the previous one.
-            if (index >= -1 && m_selectedSubtitleTrack == index) {
+            if (index >= -1 && m_selectedSubtitleTrack == index && !m_deferSubtitlePickPersistence) {
                 persistSubtitlePreferenceForCurrentScope(index, TrackPick::UserAwaitingReplan,
                                                          previousSubtitleTrack);
             }
@@ -4908,7 +4924,7 @@ void PlayerController::setSelectedSubtitleTrack(int index)
         }
     }
 
-    if (index >= -1) {
+    if (index >= -1 && !m_deferSubtitlePickPersistence) {
         persistSubtitlePreferenceForCurrentScope(index);
     }
     if (m_activePlaybackSegmentIndex >= 0 && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
@@ -4931,22 +4947,22 @@ void PlayerController::addExternalSubtitleTrack(const QString &subtitleUrl,
     addExternalSubtitleTrackInternal(subtitleUrl, displayTitle, language, sourceStreamIndexHint, true);
 }
 
-void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleUrl,
-                                                        const QString &displayTitle,
-                                                        const QString &language,
-                                                        int sourceStreamIndexHint,
-                                                        bool select,
-                                                        bool loadInMpv)
+int PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleUrl,
+                                                       const QString &displayTitle,
+                                                       const QString &language,
+                                                       int sourceStreamIndexHint,
+                                                       bool select,
+                                                       bool loadInMpv)
 {
     const QString normalizedSubtitleUrl = subtitleUrl.trimmed();
     if (normalizedSubtitleUrl.isEmpty()) {
         qCWarning(lcPlayback) << "Cannot add external subtitle: empty URL/path";
-        return;
+        return kNoSubtitleTrackIndex;
     }
 
     if (!(m_playbackState == Playing || m_playbackState == Paused)) {
         qCWarning(lcPlayback) << "Cannot add external subtitle outside active playback state";
-        return;
+        return kNoSubtitleTrackIndex;
     }
 
     // mpv sends http-header-fields with every request, so while the stream
@@ -4963,7 +4979,7 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
             || sidecar.host().compare(stream.host(), Qt::CaseInsensitive) != 0
             || port(sidecar) != port(stream)) {
             qCWarning(lcPlayback) << "Skipping a cross-origin subtitle while stream headers are active";
-            return;
+            return kNoSubtitleTrackIndex;
         }
     }
 
@@ -4980,7 +4996,7 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
         && m_externalSubtitleTrackMap.contains(syntheticIndex)
         && m_externalSubtitleTrackMap.value(syntheticIndex) != -1) {
         qCDebug(lcPlayback) << "Skipping external subtitle; index already present and resolved:" << syntheticIndex;
-        return;
+        return syntheticIndex;
     }
 
     QVariantMap option;
@@ -5012,10 +5028,13 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
     }
     m_externalSubtitleTrackMap.insert(syntheticIndex, -1);
     if (!loadInMpv) {
-        return;
+        return syntheticIndex;
     }
     if (select) {
         m_pendingExternalSubtitleIndex = syntheticIndex;
+        if (syntheticIndex == m_pendingDownloadedSubtitleIndex) {
+            m_downloadedSubtitleTimer->start(kDownloadedSubtitleLoadTimeoutMs);
+        }
     }
 
     m_playerBackend->sendVariantCommand({
@@ -5025,6 +5044,303 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
         option.value(QStringLiteral("displayTitle")).toString(),
         option.value(QStringLiteral("language")).toString()
     });
+    return syntheticIndex;
+}
+
+int PlayerController::addDownloadedSubtitleTrack(const QVariantMap &subtitleMap, bool select)
+{
+    if (!(m_playbackState == Playing || m_playbackState == Paused)) {
+        return kNoSubtitleTrackIndex;
+    }
+    const Bloom::DownloadedSubtitle subtitle = Bloom::DownloadedSubtitle::fromVariantMap(subtitleMap);
+    if (!subtitle.isValid()) {
+        return kNoSubtitleTrackIndex;
+    }
+    const QString url = subtitle.url.toString(QUrl::FullyEncoded);
+    const QString title = subtitle.title.trimmed().isEmpty() ? tr("Downloaded subtitle")
+                                                             : subtitle.title.trimmed();
+    // A download that is a stream of the source (Jellyfin) keeps its stream
+    // index; any other gets an index of its own.
+    const int index = subtitle.sourceIndex >= 0 ? subtitle.sourceIndex : nextDownloadedSubtitleIndex();
+
+    // A copy mpv already holds under this index is stale (the server saved
+    // the download over it): load it again.
+    const int loadedTrack = m_externalSubtitleTrackMap.value(index, -1);
+    if (loadedTrack > 0) {
+        m_playerBackend->sendVariantCommand({QStringLiteral("sub-remove"), loadedTrack});
+        m_externalSubtitleTrackMap.remove(index);
+    }
+    if (addExternalSubtitleTrackInternal(url, title, subtitle.language, index, false, false)
+        == kNoSubtitleTrackIndex) {
+        return kNoSubtitleTrackIndex;
+    }
+
+    QVariantMap option;
+    option[QStringLiteral("index")] = index;
+    option[QStringLiteral("displayTitle")] = title;
+    option[QStringLiteral("language")] = subtitle.language;
+    option[QStringLiteral("codec")] = subtitle.codec.isEmpty() ? subtitle.format : subtitle.codec;
+    option[QStringLiteral("channels")] = 0;
+    option[QStringLiteral("channelLayout")] = QString();
+    option[QStringLiteral("isDefault")] = false;
+    option[QStringLiteral("isForced")] = subtitle.isForced;
+    option[QStringLiteral("isHearingImpaired")] = subtitle.isHearingImpaired;
+    option[QStringLiteral("isExternal")] = true;
+    option[QStringLiteral("externalUrl")] = url;
+    option[QStringLiteral("downloaded")] = true;
+    if (!subtitle.storedId.isEmpty()) {
+        option[QStringLiteral("storedSubtitleId")] = subtitle.storedId;
+    }
+    upsertSubtitleOption(m_availableSubtitleTracks, option);
+
+    QVariantMap *segment = m_activePlaybackSegmentIndex >= 0
+            && m_activePlaybackSegmentIndex < m_playbackSegments.size()
+        ? &m_playbackSegments[m_activePlaybackSegmentIndex]
+        : nullptr;
+    if (subtitle.sourceIndex >= 0) {
+        // The download is a stream of the media source now: listing it there
+        // saves a pick of it by what it is, and a new stream keeps it.
+        QVariantMap stream{
+            {QStringLiteral("index"), index},
+            {QStringLiteral("type"), QStringLiteral("Subtitle")},
+            {QStringLiteral("codec"), subtitle.codec},
+            {QStringLiteral("language"), subtitle.language},
+            {QStringLiteral("title"), subtitle.streamTitle},
+            {QStringLiteral("displayTitle"), title},
+            {QStringLiteral("isDefault"), false},
+            {QStringLiteral("isForced"), subtitle.isForced},
+            {QStringLiteral("isExternal"), true},
+            {QStringLiteral("isHearingImpaired"), subtitle.isHearingImpaired},
+        };
+        const auto withStream = [&stream, index](QVariantMap source) {
+            QVariantList streams = source.value(QStringLiteral("mediaStreams")).toList();
+            bool replaced = false;
+            for (QVariant &existing : streams) {
+                const QVariantMap map = existing.toMap();
+                if (map.value(QStringLiteral("index"), -1).toInt() == index
+                    && map.value(QStringLiteral("type")).toString().compare(
+                           QStringLiteral("Subtitle"), Qt::CaseInsensitive) == 0) {
+                    existing = stream;
+                    replaced = true;
+                }
+            }
+            if (!replaced) {
+                streams.append(stream);
+            }
+            source[QStringLiteral("mediaStreams")] = streams;
+            return source;
+        };
+        m_activeMediaSource = withStream(m_activeMediaSource);
+        if (segment) {
+            (*segment)[QStringLiteral("mediaSource")] =
+                withStream(segment->value(QStringLiteral("mediaSource")).toMap());
+        }
+    }
+    if (segment) {
+        QVariantList options = segment->value(QStringLiteral("availableSubtitleTracks")).toList();
+        upsertSubtitleOption(options, option);
+        (*segment)[QStringLiteral("availableSubtitleTracks")] = options;
+        QVariantList downloads = segment->value(QStringLiteral("downloadedSubtitleTracks")).toList();
+        upsertSubtitleOption(downloads, option);
+        (*segment)[QStringLiteral("downloadedSubtitleTracks")] = downloads;
+    }
+    emit availableTracksChanged();
+    if (!select) {
+        return index;
+    }
+
+    // Selected like a menu pick, so a burned-in subtitle is replaced through
+    // a new stream first; the pick is saved once mpv has the track.
+    resolvePendingDownloadedSubtitle(false);
+    m_pendingDownloadedSubtitleIndex = index;
+    m_pendingDownloadedSubtitlePrevious = m_selectedSubtitleTrack;
+    m_pendingDownloadedSubtitlePreference.reset();
+    if (subtitle.sourceIndex < 0) {
+        // No stream of the source to point at: the pick is the language and
+        // kind, matched against later files' tracks.
+        TrackSelectionPreference preference;
+        preference.mode = TrackPreferenceMode::ExplicitStream;
+        preference.preferredLanguage = subtitle.language;
+        preference.hearingImpaired = subtitle.isHearingImpaired;
+        m_pendingDownloadedSubtitlePreference = preference;
+    }
+    m_downloadedSubtitleTimer->stop();
+    m_deferSubtitlePickPersistence = true;
+    if (m_selectedSubtitleTrack == index) {
+        m_pendingExternalSubtitleIndex = index;
+        addExternalSubtitleTrackInternal(url, title, subtitle.language, index, true);
+    } else {
+        setSelectedSubtitleTrack(index);
+    }
+    m_deferSubtitlePickPersistence = false;
+    if (m_pendingDownloadedSubtitleIndex != index || m_selectedSubtitleTrack != index) {
+        // Refused at once: the previous subtitle stays.
+        if (m_pendingDownloadedSubtitleIndex == index) {
+            m_pendingDownloadedSubtitleIndex = kNoSubtitleTrackIndex;
+            m_pendingDownloadedSubtitlePreference.reset();
+            m_downloadedSubtitleTimer->stop();
+        }
+        return kNoSubtitleTrackIndex;
+    }
+    if (segment) {
+        (*segment)[QStringLiteral("subtitleIndex")] = index;
+    }
+    if (!m_downloadedSubtitleTimer->isActive()) {
+        // Waiting for a new stream that drops a burned-in subtitle.
+        m_downloadedSubtitleTimer->start(kDownloadedSubtitleReplanTimeoutMs);
+    }
+    return index;
+}
+
+QVariantList PlayerController::currentSubtitleStreams() const
+{
+    return mediaStreamsForType(m_activeMediaSource, QStringLiteral("Subtitle"));
+}
+
+int PlayerController::nextDownloadedSubtitleIndex() const
+{
+    QSet<int> used;
+    for (const QVariant &track : m_availableSubtitleTracks) {
+        used.insert(track.toMap().value(QStringLiteral("index"), -1).toInt());
+    }
+    for (const QVariant &segment : m_playbackSegments) {
+        for (const QVariant &track :
+             segment.toMap().value(QStringLiteral("downloadedSubtitleTracks")).toList()) {
+            used.insert(track.toMap().value(QStringLiteral("index"), -1).toInt());
+        }
+    }
+    int index = kDownloadedSubtitleIndexBase;
+    while (used.contains(index)) {
+        --index;
+    }
+    return index;
+}
+
+void PlayerController::upsertSubtitleOption(QVariantList &options, const QVariantMap &option) const
+{
+    const int index = option.value(QStringLiteral("index")).toInt();
+    for (QVariant &existing : options) {
+        if (existing.toMap().value(QStringLiteral("index"), -1).toInt() == index) {
+            existing = option;
+            return;
+        }
+    }
+    options.append(option);
+}
+
+void PlayerController::restoreDownloadedSubtitleTracks(QVariantMap &segment,
+                                                       int requestedSubtitle) const
+{
+    const QVariantList downloads = segment.value(QStringLiteral("downloadedSubtitleTracks")).toList();
+    if (downloads.isEmpty()) {
+        return;
+    }
+    QVariantList options = segment.value(QStringLiteral("availableSubtitleTracks")).toList();
+    int selected = segment.value(QStringLiteral("subtitleIndex"), -1).toInt();
+    for (const QVariant &downloadValue : downloads) {
+        const QVariantMap download = downloadValue.toMap();
+        const int index = download.value(QStringLiteral("index")).toInt();
+        const QString storedId = download.value(QStringLiteral("storedSubtitleId")).toString();
+        qsizetype position = -1;
+        for (qsizetype i = 0; i < options.size(); ++i) {
+            const QVariantMap option = options.at(i).toMap();
+            if (option.value(QStringLiteral("index"), -1).toInt() == index
+                || (!storedId.isEmpty()
+                    && option.value(QStringLiteral("storedSubtitleId")).toString() == storedId)) {
+                position = i;
+                break;
+            }
+        }
+        if (position < 0) {
+            options.append(download);
+            continue;
+        }
+        // The new stream lists the download (a Silo inventory entry, or the
+        // Jellyfin stream): it keeps the index the menu and the selection
+        // know it by, with the stream's fresh URL when it has one.
+        QVariantMap option = options.at(position).toMap();
+        const int listedIndex = option.value(QStringLiteral("index"), -1).toInt();
+        if (!option.value(QStringLiteral("isExternal")).toBool()
+            || option.value(QStringLiteral("externalUrl")).toString().isEmpty()) {
+            option[QStringLiteral("isExternal")] = true;
+            option[QStringLiteral("externalUrl")] = download.value(QStringLiteral("externalUrl"));
+            option[QStringLiteral("requiresReplan")] = false;
+        }
+        option[QStringLiteral("index")] = index;
+        option[QStringLiteral("downloaded")] = true;
+        if (option.value(QStringLiteral("displayTitle")).toString().trimmed().isEmpty()) {
+            option[QStringLiteral("displayTitle")] = download.value(QStringLiteral("displayTitle"));
+        }
+        options[position] = option;
+        if (selected == listedIndex) {
+            selected = index;
+        }
+    }
+    // A download the viewer asked for is loaded beside the new stream unless
+    // that stream burns another subtitle in.
+    if (requestedSubtitle != selected && !segment.value(QStringLiteral("subtitleBurnedIn")).toBool()) {
+        for (const QVariant &downloadValue : downloads) {
+            if (downloadValue.toMap().value(QStringLiteral("index")).toInt() == requestedSubtitle) {
+                selected = requestedSubtitle;
+                break;
+            }
+        }
+    }
+    segment[QStringLiteral("availableSubtitleTracks")] = options;
+    segment[QStringLiteral("subtitleIndex")] = selected;
+}
+
+void PlayerController::resolvePendingDownloadedSubtitle(bool loaded, const QString &message)
+{
+    if (m_pendingDownloadedSubtitleIndex == kNoSubtitleTrackIndex) {
+        return;
+    }
+    const int index = std::exchange(m_pendingDownloadedSubtitleIndex, kNoSubtitleTrackIndex);
+    const std::optional<TrackSelectionPreference> preference =
+        std::exchange(m_pendingDownloadedSubtitlePreference, std::nullopt);
+    m_downloadedSubtitleTimer->stop();
+    if (!loaded) {
+        // Nothing was saved; the menu goes back to what mpv shows.
+        if (m_selectedSubtitleTrack == index && !message.isEmpty()) {
+            m_selectedSubtitleTrack = m_pendingDownloadedSubtitlePrevious;
+            if (m_activePlaybackSegmentIndex >= 0
+                && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
+                m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("subtitleIndex")] =
+                    m_selectedSubtitleTrack;
+            }
+            emit selectedSubtitleTrackChanged();
+        }
+        emit downloadedSubtitleLoadFailed(index, message);
+        return;
+    }
+    if (m_selectedSubtitleTrack == index) {
+        if (!preference) {
+            persistSubtitlePreferenceForCurrentScope(index);
+        } else if (PlayerPolicy::playbackContentRules(m_currentContentKind).persistsTrackPreferences) {
+            // Saved like a pick that plays (TrackPick::User): it replaces a
+            // held pick and the write of an earlier one. Silo stores no
+            // preference for a downloaded track (it has no ordinal of the
+            // file), so nothing is written back.
+            const QString contentId = !m_currentSeasonId.isEmpty() ? m_currentSeriesId
+                : m_currentSeriesId.isEmpty()                        ? m_currentItemId
+                                                                     : QString();
+            if (!contentId.isEmpty()) {
+                m_heldTrackPicks[1].reset();
+                cancelTrackPreferenceWrite(TrackPreferenceWrite::Kind::Subtitle, contentId);
+                saveCurrentScopeTrackPreference(TrackPreferenceWrite::Kind::Subtitle, *preference);
+            }
+        }
+    }
+    emit downloadedSubtitleLoaded(index);
+}
+
+void PlayerController::checkPendingDownloadedSubtitleSelection()
+{
+    if (m_pendingDownloadedSubtitleIndex != kNoSubtitleTrackIndex
+        && m_selectedSubtitleTrack != m_pendingDownloadedSubtitleIndex) {
+        resolvePendingDownloadedSubtitle(
+            false, tr("The server could not switch to the downloaded subtitle."));
+    }
 }
 
 void PlayerController::cycleAudioTrack()
@@ -5325,7 +5641,9 @@ void PlayerController::requestAdjacentEpisodePlayback(const QVariantMap &episode
         subtitleOverride = -1;
         break;
     case TrackPreferenceMode::ExplicitStream:
-        subtitleOverride = m_selectedSubtitleTrack;
+        // A track with only a menu index of this file (a downloaded Silo
+        // subtitle) is found again by the saved pick.
+        subtitleOverride = m_selectedSubtitleTrack >= 0 ? m_selectedSubtitleTrack : -2;
         break;
     default:
         break;
@@ -5571,7 +5889,8 @@ int PlayerController::getLastSubtitleTrackForSeason(const QString &seasonId) con
 {
     const ScopedTrackPreferences preferences = m_trackPrefs->getSeasonPreferences(seasonId);
     if (preferences.subtitle.mode == TrackPreferenceMode::ExplicitStream) {
-        return preferences.subtitle.streamIndex;
+        // -2: a pick without a stream index, found by what it is.
+        return preferences.subtitle.streamIndex >= 0 ? preferences.subtitle.streamIndex : -2;
     }
     return -1;
 }
@@ -5598,7 +5917,8 @@ int PlayerController::getLastSubtitleTrackForMovie(const QString &movieId) const
 {
     const ScopedTrackPreferences preferences = m_trackPrefs->getMoviePreferences(movieId);
     if (preferences.subtitle.mode == TrackPreferenceMode::ExplicitStream) {
-        return preferences.subtitle.streamIndex;
+        // -2: a pick without a stream index, found by what it is.
+        return preferences.subtitle.streamIndex >= 0 ? preferences.subtitle.streamIndex : -2;
     }
     return -1;
 }
@@ -5923,6 +6243,9 @@ void PlayerController::syncBackendSubtitleTrack(int mpvTrackId)
             m_pendingSubtitleTrackPersistenceFromBackend = false;
             if (m_streamTimelineOffsetSeconds != 0.0) {
                 applySubtitleDelay();
+            }
+            if (externalIndex == m_pendingDownloadedSubtitleIndex) {
+                resolvePendingDownloadedSubtitle(true);
             }
             return;
         }

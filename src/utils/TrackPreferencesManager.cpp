@@ -105,10 +105,19 @@ TrackSelectionPreference preferenceFromJson(const QJsonValue &value)
     preference.codec = object.value(kCodecKey).toString();
     preference.channels = qMax(0, object.value(kChannelsKey).toInt(0));
 
+    // An explicit pick names its stream, or what the track is (a downloaded
+    // subtitle that is no stream of the source keeps only its language and
+    // kind); with neither it picks nothing.
+    const bool knowsTrack = !preference.preferredLanguage.isEmpty() || !preference.title.isEmpty()
+        || !preference.codec.isEmpty() || preference.channels > 0 || preference.forcedOnly
+        || preference.hearingImpaired;
     if (preference.mode != TrackPreferenceMode::ExplicitStream) {
         preference.streamIndex = -1;
     } else if (preference.streamIndex < 0) {
-        preference.mode = TrackPreferenceMode::Unset;
+        preference.streamIndex = -1;
+        if (!knowsTrack) {
+            preference.mode = TrackPreferenceMode::Unset;
+        }
     }
 
     return preference;
