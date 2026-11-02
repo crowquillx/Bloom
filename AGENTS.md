@@ -85,7 +85,9 @@ Each area has one owner. Read its doc before changing it.
   non-obsolete operations and parameters from the pinned OpenAPI contract
   (`docs/provider-compatibility.md`). Only movie and series libraries exist in
   the app: `LibraryKinds` drops every other type where views enter, and search
-  goes around them.
+  goes around them. Collections are a browse view over movie and series
+  titles (a library's Collections view, the detail pages' "Part of" shelf),
+  never a library kind, so Jellyfin `boxsets` views stay out.
 - **Image cache**: `Bloom::ImageCache`. SQLite and disk files
   belong to its dedicated worker; its `QSqlDatabase` stays on that thread.
   Provider image jobs coalesce identical identity-and-size requests; QML

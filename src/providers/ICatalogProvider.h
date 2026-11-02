@@ -138,6 +138,20 @@ enum class ProviderCatalogOperation {
     // Zeroes the viewer's resume position for itemId without changing
     // its played state, so it leaves the resume list (Jellyfin).
     ClearResumePosition,
+    // Collections, a browse view over movies and series
+    // (ProviderCapability::Collections). LibraryCollections lists the
+    // collections of one library (parentId), one page at a time
+    // (startIndex, limit; a provider that answers the whole list sets no
+    // hasMore). CollectionItems pages one collection's titles (itemId,
+    // collectionKind) in canonical sortBy order (empty: the collection's
+    // own order), by startIndex or cursor. ItemCollections lists the
+    // collections that hold one title (itemId). Collection responses carry
+    // wire collections in rawItems; the adapter maps them
+    // (IProviderAdapter::mapCollections). CollectionItems carries wire
+    // movie and series cards.
+    LibraryCollections,
+    CollectionItems,
+    ItemCollections,
 };
 
 enum class ProviderHttpMethod {
@@ -219,6 +233,9 @@ struct ProviderCatalogQuery {
     // the card's progress stamp, as the server sent it.
     QString homeSurface;
     QString progressUpdatedAt;
+    // Collections: the canonical collectionKind of the collection itemId
+    // names ("library" or "user" on Silo, "boxSet" on Jellyfin).
+    QString collectionKind;
 
     ProviderCatalogTriState watched = ProviderCatalogTriState::Any;
     ProviderCatalogTriState favorite = ProviderCatalogTriState::Any;

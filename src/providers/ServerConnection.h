@@ -63,7 +63,12 @@ enum class ProviderCapability {
     MovieRecommendations = 1 << 19,
     // ProviderCatalogOperation::SetHomeDismissal hides a card from
     // Continue Watching or Next Up and can undo it (Silo).
-    HomeDismissals = 1 << 20
+    HomeDismissals = 1 << 20,
+    // Collections as a browse view over a library's movies and series
+    // (ProviderCatalogOperation::LibraryCollections, CollectionItems and
+    // ItemCollections; Jellyfin box sets, Silo library and personal
+    // collections).
+    Collections = 1 << 21
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

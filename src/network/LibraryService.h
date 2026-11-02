@@ -319,6 +319,27 @@ public:
                                 const QString &requestKey);
     Q_INVOKABLE virtual void searchPeople(const QString &searchTerm, int limit = 20);
 
+    // Collections, a browse view over movies and series
+    // (ProviderCapability::Collections; models/MediaCollections.h).
+    // getLibraryCollections reads one page of a library's collections,
+    // getCollectionItems one page of a collection's titles in canonical
+    // sortBy order (empty: the collection's own) from the previous page's
+    // nextCursor (Silo) or the next startIndex (Jellyfin), and
+    // getItemCollections the collections that hold one title. requestKey
+    // comes back with the answer. Without the capability the reads answer
+    // empty at once. A server without the item collections read (Jellyfin
+    // before API 12, Silo before contains_item) answers empty from then on
+    // for that connection.
+    Q_INVOKABLE virtual bool supportsCollections() const;
+    virtual void getLibraryCollections(const QString &libraryId, int startIndex, int limit,
+                                       const QString &requestKey);
+    virtual void getCollectionItems(const QString &collectionId,
+                                    const QString &collectionKind,
+                                    const QString &sortBy, int startIndex,
+                                    const QString &cursor, int limit,
+                                    const QString &requestKey);
+    virtual void getItemCollections(const QString &itemId, const QString &requestKey);
+
     // Hero Banner: random library sample (Movies + Series). When parentIds is empty,
     // all libraries are sampled. When unwatchedOnly is true, only unplayed items are
     // returned. Used by the Home screen "Library" hero source.
@@ -518,6 +539,35 @@ signals:
                                     const QString &personId,
                                     const QString &requestKey,
                                     const QString &error);
+    void canonicalLibraryCollectionsLoaded(const QString &connectionId,
+                                           const QString &libraryId,
+                                           const QString &requestKey,
+                                           const QVariantList &collections,
+                                           int totalRecordCount,
+                                           bool hasMore);
+    void canonicalLibraryCollectionsFailed(const QString &connectionId,
+                                           const QString &libraryId,
+                                           const QString &requestKey,
+                                           const QString &error);
+    void canonicalCollectionItemsLoaded(const QString &connectionId,
+                                        const QString &collectionId,
+                                        const QString &requestKey,
+                                        const QVariantList &items,
+                                        int totalRecordCount,
+                                        bool hasMore,
+                                        const QString &nextCursor);
+    void canonicalCollectionItemsFailed(const QString &connectionId,
+                                        const QString &collectionId,
+                                        const QString &requestKey,
+                                        const QString &error);
+    void canonicalItemCollectionsLoaded(const QString &connectionId,
+                                        const QString &itemId,
+                                        const QString &requestKey,
+                                        const QVariantList &collections);
+    void canonicalItemCollectionsFailed(const QString &connectionId,
+                                        const QString &itemId,
+                                        const QString &requestKey,
+                                        const QString &error);
     void canonicalPeopleSearchLoaded(const QString &connectionId,
                                      const QString &searchTerm,
                                      const QVariantList &people);
@@ -725,6 +775,8 @@ private:
     // Newest people search, and per connection whether people search can be
     // limited to movie and series credits (providers that read it).
     quint64 m_peopleSearchGeneration = 0;
+    // Connections whose server lacks the item collections read.
+    QSet<QString> m_itemCollectionsUnsupported;
     /// Libraries of unsupported types per connection, from the last views
     /// listing; search leaves them out (LibraryKinds).
     QHash<QString, QStringList> m_unsupportedLibraryIds;

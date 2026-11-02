@@ -1,6 +1,8 @@
 #include "JellyfinModelMapper.h"
+#include "models/MediaCollections.h"
 #include "models/MediaExtras.h"
 #include <QHash>
+#include <QSet>
 
 #include <QDate>
 #include <QDateTime>
@@ -719,6 +721,61 @@ QVariantList JellyfinModelMapper::personList(const QJsonArray &wirePeople,
     for (const QJsonValue &value : wirePeople) {
         const QVariantMap mapped = person(value.toObject(), connectionId);
         if (!mapped.isEmpty()) {
+            result.append(mapped);
+        }
+    }
+    return result;
+}
+
+QVariantMap JellyfinModelMapper::collection(const QJsonObject &wireBoxSet,
+                                            const QString &connectionId)
+{
+    namespace Collections = Bloom::MediaCollections;
+    const QString collectionId = wireBoxSet.value(QStringLiteral("Id")).toString();
+    const QString name = wireBoxSet.value(QStringLiteral("Name")).toString().trimmed();
+    const QString type = wireBoxSet.value(QStringLiteral("Type")).toString();
+    if (collectionId.isEmpty() || name.isEmpty() || connectionId.isEmpty()
+        || (!type.isEmpty() && type != QStringLiteral("BoxSet"))) {
+        return {};
+    }
+    QVariantMap collection{
+        {QStringLiteral("media"), Bloom::MediaRef{connectionId, collectionId}.toVariantMap()},
+        {QStringLiteral("connectionId"), connectionId},
+        {QStringLiteral("itemId"), collectionId},
+        {QStringLiteral("collectionId"), collectionId},
+        {QStringLiteral("collectionKind"), Collections::kBoxSet},
+        {QStringLiteral("mediaType"), Collections::kMediaType},
+        {QStringLiteral("name"), name},
+        {QStringLiteral("overview"), wireBoxSet.value(QStringLiteral("Overview")).toString()},
+        {QStringLiteral("itemCount"),
+         wireBoxSet.value(QStringLiteral("ChildCount")).isDouble()
+             ? wireBoxSet.value(QStringLiteral("ChildCount")).toInt() : -1}};
+    QVariantList artwork;
+    const QJsonObject imageTags = wireBoxSet.value(QStringLiteral("ImageTags")).toObject();
+    appendArtwork(artwork, collection, QStringLiteral("primaryArtwork"), connectionId,
+                  collectionId, Bloom::ArtworkKind::Primary,
+                  imageTags.value(QStringLiteral("Primary")).toString());
+    const QJsonArray backdropTags =
+        wireBoxSet.value(QStringLiteral("BackdropImageTags")).toArray();
+    for (qsizetype index = 0; index < backdropTags.size(); ++index) {
+        appendArtwork(artwork, collection, QStringLiteral("backdropArtwork"), connectionId,
+                      collectionId, Bloom::ArtworkKind::Backdrop,
+                      backdropTags.at(index).toString(), static_cast<int>(index));
+    }
+    collection[QStringLiteral("artwork")] = artwork;
+    return collection;
+}
+
+QVariantList JellyfinModelMapper::collections(const QJsonArray &wireBoxSets,
+                                              const QString &connectionId)
+{
+    QVariantList result;
+    QSet<QString> seen;
+    for (const QJsonValue &value : wireBoxSets) {
+        const QVariantMap mapped = collection(value.toObject(), connectionId);
+        const QString collectionId = mapped.value(QStringLiteral("collectionId")).toString();
+        if (!mapped.isEmpty() && !seen.contains(collectionId)) {
+            seen.insert(collectionId);
             result.append(mapped);
         }
     }

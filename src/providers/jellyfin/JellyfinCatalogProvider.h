@@ -123,6 +123,12 @@ public:
             return unsupported(QStringLiteral("Jellyfin has no Home dismissals"));
         case ProviderCatalogOperation::ClearResumePosition:
             return clearResumePositionRequest(query);
+        case ProviderCatalogOperation::LibraryCollections:
+            return libraryCollectionsRequest(query);
+        case ProviderCatalogOperation::CollectionItems:
+            return collectionItemsRequest(query);
+        case ProviderCatalogOperation::ItemCollections:
+            return itemCollectionsRequest(query);
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -1067,6 +1073,101 @@ private:
         return supportedRequest(endpointWithQuery(QStringLiteral("/Items"), parameters));
     }
 
+    // The box sets that hold titles of one library, by name. A BoxSet-only
+    // query under a library folder is answered from the library's titles
+    // collapsed into their box sets, which is how Jellyfin's own movie
+    // library page lists its Collections tab.
+    static ProviderCatalogRequest libraryCollectionsRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, false, QStringLiteral("library collections"));
+        if (!validation.supported) {
+            return validation;
+        }
+        if (query.parentId.trimmed().isEmpty()) {
+            return unsupported(QStringLiteral("Jellyfin library collections require a library ID"));
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
+        parameters.addQueryItem(QStringLiteral("ParentId"), query.parentId.trimmed());
+        parameters.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("BoxSet"));
+        parameters.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
+        parameters.addQueryItem(QStringLiteral("SortBy"), QStringLiteral("SortName"));
+        parameters.addQueryItem(QStringLiteral("SortOrder"), QStringLiteral("Ascending"));
+        parameters.addQueryItem(QStringLiteral("Fields"), collectionFields());
+        parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("false"));
+        parameters.addQueryItem(QStringLiteral("EnableImageTypes"),
+                                QStringLiteral("Primary,Backdrop,Thumb"));
+        parameters.addQueryItem(QStringLiteral("StartIndex"),
+                                QString::number(qMax(0, query.startIndex)));
+        parameters.addQueryItem(QStringLiteral("Limit"),
+                                QString::number(query.limit > 0 ? query.limit : 100));
+        return supportedRequest(endpointWithQuery(QStringLiteral("/Items"), parameters));
+    }
+
+    // One box set's movies and series. Without a sort the box set keeps its
+    // own display order; release date runs oldest first, the way a
+    // franchise is watched.
+    static ProviderCatalogRequest collectionItemsRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, true, QStringLiteral("collection items"));
+        if (!validation.supported) {
+            return validation;
+        }
+        QString sortBy;
+        const QString sort = query.sortBy.trimmed();
+        if (sort == QStringLiteral("title")) {
+            sortBy = QStringLiteral("SortName");
+        } else if (sort == QStringLiteral("releaseDate")) {
+            sortBy = QStringLiteral("PremiereDate,ProductionYear,SortName");
+        } else if (!sort.isEmpty() && sort != QStringLiteral("collectionOrder")) {
+            return unsupported(QStringLiteral("Unsupported Jellyfin collection sort"));
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
+        parameters.addQueryItem(QStringLiteral("ParentId"), query.itemId);
+        parameters.addQueryItem(QStringLiteral("IncludeItemTypes"), QStringLiteral("Movie,Series"));
+        if (!sortBy.isEmpty()) {
+            parameters.addQueryItem(QStringLiteral("SortBy"), sortBy);
+            parameters.addQueryItem(QStringLiteral("SortOrder"), QStringLiteral("Ascending"));
+        }
+        parameters.addQueryItem(QStringLiteral("Fields"),
+                                standardItemFields(false).join(QLatin1Char(',')));
+        parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
+        parameters.addQueryItem(QStringLiteral("EnableImageTypes"),
+                                QStringLiteral("Primary,Backdrop,Thumb,Logo"));
+        parameters.addQueryItem(QStringLiteral("StartIndex"),
+                                QString::number(qMax(0, query.startIndex)));
+        parameters.addQueryItem(QStringLiteral("Limit"),
+                                QString::number(query.limit > 0 ? query.limit : 100));
+        return supportedRequest(endpointWithQuery(QStringLiteral("/Items"), parameters));
+    }
+
+    // GetItemCollections: the collections that include one title (API 12;
+    // older servers answer 404).
+    static ProviderCatalogRequest itemCollectionsRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, true, QStringLiteral("item collections"));
+        if (!validation.supported) {
+            return validation;
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("userId"), query.userId);
+        parameters.addQueryItem(QStringLiteral("fields"), collectionFields());
+        parameters.addQueryItem(QStringLiteral("limit"),
+                                QString::number(query.limit > 0 ? query.limit : 20));
+        return supportedRequest(endpointWithQuery(
+            QStringLiteral("/Items/%1/Collections").arg(encodedPathSegment(query.itemId)),
+            parameters));
+    }
+
+    static QString collectionFields()
+    {
+        return QStringLiteral("Overview,ChildCount,PrimaryImageAspectRatio");
+    }
+
     // GetPersons, not /Search/Hints. GetPersons has no media scope, so
     // personTypes keeps it to film and TV credits (no artists or authors).
     static ProviderCatalogRequest personSearchRequest(const ProviderCatalogQuery &query)
@@ -1313,6 +1414,9 @@ private:
         case ProviderCatalogOperation::ServerInfo: return QStringLiteral("server info");
         case ProviderCatalogOperation::SetHomeDismissal: return QStringLiteral("home dismissal");
         case ProviderCatalogOperation::ClearResumePosition: return QStringLiteral("resume position");
+        case ProviderCatalogOperation::LibraryCollections: return QStringLiteral("library collections");
+        case ProviderCatalogOperation::CollectionItems: return QStringLiteral("collection items");
+        case ProviderCatalogOperation::ItemCollections: return QStringLiteral("item collections");
         }
         return QStringLiteral("catalog");
     }

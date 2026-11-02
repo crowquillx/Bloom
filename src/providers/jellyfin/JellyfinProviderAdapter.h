@@ -21,10 +21,11 @@ public:
     {
         // Jellyfin's Next Up takes rewatching and a last-watched cutoff, its
         // resume list is a separate read, and it recommends movies per
-        // library.
+        // library. Box sets are its collections.
         return capability == ProviderCapability::NextUpOptions
             || capability == ProviderCapability::ResumeItems
-            || capability == ProviderCapability::MovieRecommendations;
+            || capability == ProviderCapability::MovieRecommendations
+            || capability == ProviderCapability::Collections;
     }
     std::optional<QString> endpointFor(
         ProviderRoute route, const ProviderRouteContext &context) const override
@@ -104,6 +105,11 @@ public:
                            const QString &connectionId) const override
     {
         return JellyfinModelMapper::personList(wirePeople, connectionId);
+    }
+    QVariantList mapCollections(const QJsonArray &wireCollections,
+                                const QString &connectionId) const override
+    {
+        return JellyfinModelMapper::collections(wireCollections, connectionId);
     }
     QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
                                      const QString &connectionId,

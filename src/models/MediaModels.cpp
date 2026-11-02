@@ -74,6 +74,7 @@ QString artworkOwnerKindName(ArtworkOwnerKind kind)
     case ArtworkOwnerKind::Person: return QStringLiteral("person");
     case ArtworkOwnerKind::Chapter: return QStringLiteral("chapter");
     case ArtworkOwnerKind::Extra: return QStringLiteral("extra");
+    case ArtworkOwnerKind::Collection: return QStringLiteral("collection");
     }
     return QStringLiteral("mediaItem");
 }
@@ -86,6 +87,7 @@ ArtworkOwnerKind artworkOwnerKindFromName(const QString &name)
     if (normalized == QStringLiteral("person")) return ArtworkOwnerKind::Person;
     if (normalized == QStringLiteral("chapter")) return ArtworkOwnerKind::Chapter;
     if (normalized == QStringLiteral("extra")) return ArtworkOwnerKind::Extra;
+    if (normalized == QStringLiteral("collection")) return ArtworkOwnerKind::Collection;
     return ArtworkOwnerKind::MediaItem;
 }
 

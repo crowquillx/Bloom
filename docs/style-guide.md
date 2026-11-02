@@ -230,6 +230,43 @@ themselves when the extra ends. Remote (YouTube) trailers are never shown.
 Labels and the playback request come from `src/ui/ExtrasUtils.js`, shared by
 both pages.
 
+## Collections
+
+Collections are a browse view over a library's movies and series, not a
+library kind: they never get a navigation tab or a library menu entry
+(Jellyfin `boxsets` views stay out of the library list), and they are
+reached from inside a movie or series library and from detail pages.
+
+- **Library Collections view.** A library whose provider has collections
+  offers a **Collections** toggle in the toolbar, after Shelves. Selected,
+  it shows the library's collections as a poster grid (`MediaCard`, the
+  collection's poster or the `videoLibrary` placeholder, "12 titles" as the
+  subtitle) instead of the grid or the shelves, and hides search, sort,
+  filters and the letter rail. The header counts collections. The view is
+  read the first time it is chosen and kept while the page lives; it is not
+  remembered per library and combined pages ("All Movies") have none. Up
+  from the first row reaches the toggle, Down from the toolbar enters the
+  grid. Loading, "No collections yet" and errors (with Try Again) use
+  `StateMessage`.
+- **Collection page.** `CollectionScreen.qml` is a browse page: no hero, an
+  ambient stage with the collection's backdrop and then the focused title's,
+  and below `pageMarginTop` a `PageHeader` (eyebrow "Collection", the name,
+  the title count) with a **Sort** button whose `BloomMenu` offers
+  Collection order (the server's), Release date (oldest first) and Title.
+  The description follows, two lines at most, then a poster grid of the
+  titles with the usual year or run subtitle. Sort is the top-most control:
+  Up from it reaches the navigation bar, Down enters the grid, and Up from
+  the grid's first row comes back. The header collapses and the bar recedes
+  once the grid scrolls past its first row. Enter opens a title through
+  Main's details navigation; Back returns to the same card, and Back from
+  the page to the card that opened it. The grid reads the next page as focus
+  nears its end; new titles are added without moving the focused card.
+- **"Part of" shelf.** Movie and series pages show the collections that hold
+  the title as a poster shelf (`CollectionsShelf.qml`) after Cast & Crew:
+  "Part of Alien Collection" for one, "Collections" with a count for more.
+  It is absent when the provider knows none, and never reserves space.
+  Enter opens the collection; Back returns focus to that card.
+
 ## Grids
 
 Browse grids fill the content width between gutters with `Theme.gridColumns`
@@ -260,7 +297,8 @@ server's order instead of the grid, and hides search, sort and filters, which
 belong to the grid. The grid is the default; each library then opens on the
 view last chosen for it. The toggle is absent on Jellyfin and while the
 library has no rows. Up from the first shelf reaches the toggle, Up again the
-navigation bar. A shelf that has more cards than it shows reads the rest as
+navigation bar. From the Collections view (see [Collections](#collections)),
+Shelves shows the shelves. A shelf that has more cards than it shows reads the rest as
 focus nears its end. Returning from a title puts focus back on its shelf and
 card, found by ID when the shelves changed meanwhile.
 

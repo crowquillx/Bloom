@@ -13,6 +13,10 @@ FocusScope {
     signal personRequested(var person)
     /// Set by Main once personRequested is connected.
     property bool personNavigationConnected: false
+    /// A collection card (the Collections view or a detail page's "Part of"
+    /// shelf) asked for the collection's page; Main pushes it.
+    signal collectionRequested(var collection)
+    property bool collectionNavigationConnected: false
     property string currentParentId: ""
     property string currentLibraryId: ""   // The root library ID (for profile resolution)
     property string currentLibraryName: ""  // Name of the current library for display
@@ -40,7 +44,18 @@ FocusScope {
                                              && LibrarySectionsViewModel.libraryId === currentParentId
                                              && currentSeriesId === ""
                                              && currentParentId.indexOf("combined:") !== 0
-    readonly property bool showingShelves: shelvesMode && shelvesAvailable
+    readonly property bool showingShelves: shelvesMode && shelvesAvailable && !showingCollections
+    /// Collections: the library's collections as a poster grid, a browse
+    /// view over its titles (not a library of their own). Offered for one
+    /// library whose provider has collections; read when first chosen.
+    property bool collectionsMode: false
+    readonly property bool collectionsAvailable: libraryCollections.available
+                                                 && currentParentId !== ""
+                                                 && currentSeriesId === ""
+                                                 && currentParentId.indexOf("combined:") !== 0
+    readonly property bool showingCollections: collectionsMode && collectionsAvailable
+    /// The title grid, with its search, sort, filters and letter rail.
+    readonly property bool showingGrid: !showingShelves && !showingCollections
     /// Shelf and card to focus when the shelves come back
     /// ({ sectionId, itemId, row, index }; the IDs win, the positions are
     /// the fallback).
@@ -53,7 +68,12 @@ FocusScope {
     // Each library opens on the view last chosen for it.
     onCurrentLibraryIdChanged: {
         shelvesMode = currentLibraryId !== "" && ConfigManager.getLibraryShelvesShown(currentLibraryId)
+        collectionsMode = false
         _pendingShelfFocus = null
+    }
+
+    LibraryCollectionsViewModel {
+        id: libraryCollections
     }
     
     // Filter properties
@@ -776,6 +796,10 @@ FocusScope {
                 root.personRequested(person)
             }
 
+            onCollectionSelected: function(collection) {
+                root.collectionRequested(collection)
+            }
+
             onBackRequested: {
                 exitSeriesDetails()
             }
@@ -850,6 +874,10 @@ FocusScope {
              
             onPersonSelected: function(person) {
                 root.personRequested(person)
+            }
+
+            onCollectionSelected: function(collection) {
+                root.collectionRequested(collection)
             }
 
             onBackRequested: {
@@ -968,7 +996,7 @@ FocusScope {
             anchors.centerIn: parent
             width: Math.min(parent.width - Theme.pageMarginX * 2, Math.round(760 * Theme.layoutScale))
             z: 5
-            visible: !showingShelves && !isLoading && grid.count === 0
+            visible: showingGrid && !isLoading && grid.count === 0
                      && (LibraryViewModel.hasError || currentParentId !== "")
             kind: LibraryViewModel.hasError ? "error" : "empty"
             title: LibraryViewModel.hasError ? qsTr("Couldn't load this library")
@@ -1003,6 +1031,8 @@ FocusScope {
         function focusContent() {
             if (showingShelves)
                 shelvesView.focusShelf()
+            else if (showingCollections)
+                collectionsGrid.focusGrid()
             else
                 grid.forceActiveFocus()
         }
@@ -1034,12 +1064,18 @@ FocusScope {
                 else if (showingShelves && grid.activeFocus)
                     Qt.callLater(shelvesView.focusShelf)
             }
+            // Focus never stays on a view that left.
+            function onShowingCollectionsChanged() {
+                if (!showingCollections && collectionsGrid.activeFocus)
+                    Qt.callLater(focusContent)
+            }
         }
         
     // The header collapses (and the navigation bar recedes) once the grid is
     // scrolled, so browsing uses the full height. It returns at the top of
     // the grid or whenever a header control has focus.
-    readonly property bool headerControlFocused: shelvesToggle.activeFocus || searchField.activeFocus
+    readonly property bool headerControlFocused: shelvesToggle.activeFocus || collectionsToggle.activeFocus
+                                                 || searchField.activeFocus
                                                  || sortCombo.activeFocus || sortCombo.popup.visible
                                                  || orderCombo.activeFocus || orderCombo.popup.visible
                                                  || filterDrawerButton.activeFocus || backButton.activeFocus
@@ -1047,6 +1083,10 @@ FocusScope {
     readonly property bool headerExpanded: showingShelves
         ? (headerControlFocused || !shelvesView.activeFocus
            || (InputModeManager.pointerActive ? shelvesView.atYBeginning : shelvesView.currentIndex <= 0))
+        : showingCollections
+        ? (headerControlFocused || !collectionsGrid.activeFocus || collectionsGrid.count === 0
+           || (InputModeManager.pointerActive ? collectionsGrid.atYBeginning
+                                              : collectionsGrid.currentIndex < collectionsGrid.columns))
         : (queryToolbarPinned || headerControlFocused || showFilterPanel
            || !grid.activeFocus || grid.count === 0
            || (InputModeManager.pointerActive ? grid.atYBeginning
@@ -1099,6 +1139,13 @@ FocusScope {
                     detail: {
                         if (currentParentId === "")
                             return ""
+                        if (showingCollections) {
+                            var collections = libraryCollections.count
+                            if (collections <= 0)
+                                return ""
+                            return collections === 1 ? qsTr("1 collection")
+                                                     : qsTr("%1 collections").arg(collections)
+                        }
                         // Rows a letter jump skipped are not counted.
                         var loaded = LibraryViewModel.loadedCount
                         var total = LibraryViewModel.totalRecordCount
@@ -1124,17 +1171,35 @@ FocusScope {
                         selected: showingShelves
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         Accessible.name: showingShelves ? qsTr("Show all titles") : qsTr("Show shelves")
-                        KeyNavigation.right: showingShelves ? (backButton.visible ? backButton : null) : searchField
+                        KeyNavigation.right: collectionsToggle.visible ? collectionsToggle
+                                             : (showingGrid ? searchField : (backButton.visible ? backButton : null))
                         Keys.onDownPressed: (event) => {
-                            if (showingShelves)
-                                shelvesView.focusShelf()
-                            else
-                                grid.forceActiveFocus()
+                            focusContent()
                             event.accepted = true
                         }
                         Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) toggleShelves(); event.accepted = true }
                         Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) toggleShelves(); event.accepted = true }
                         onClicked: toggleShelves()
+                    }
+
+                    ActionButton {
+                        id: collectionsToggle
+                        variant: "secondary"
+                        visible: collectionsAvailable
+                        text: qsTr("Collections")
+                        iconGlyph: Icons.videoLibrary
+                        selected: showingCollections
+                        Layout.preferredHeight: Theme.buttonHeightMedium
+                        Accessible.name: showingCollections ? qsTr("Show all titles") : qsTr("Show collections")
+                        KeyNavigation.left: shelvesToggle.visible ? shelvesToggle : null
+                        KeyNavigation.right: showingGrid ? searchField : (backButton.visible ? backButton : null)
+                        Keys.onDownPressed: (event) => {
+                            focusContent()
+                            event.accepted = true
+                        }
+                        Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) toggleCollections(); event.accepted = true }
+                        Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) toggleCollections(); event.accepted = true }
+                        onClicked: toggleCollections()
                     }
 
                     TextField {
@@ -1153,8 +1218,9 @@ FocusScope {
                         verticalAlignment: TextInput.AlignVCenter
                         cursorVisible: activeFocus
                         Accessible.name: "Search library"
-                        visible: !showingShelves
-                        KeyNavigation.left: shelvesToggle.visible ? shelvesToggle : null
+                        visible: showingGrid
+                        KeyNavigation.left: collectionsToggle.visible ? collectionsToggle
+                                            : (shelvesToggle.visible ? shelvesToggle : null)
                         KeyNavigation.right: sortCombo
                         KeyNavigation.down: grid
                         background: Rectangle {
@@ -1185,7 +1251,7 @@ FocusScope {
 
                     LibraryComboBox {
                         id: sortCombo
-                        visible: !showingShelves
+                        visible: showingGrid
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         // Library order, then the sorts the connection serves.
                         readonly property var sortOptions: [
@@ -1220,7 +1286,7 @@ FocusScope {
 
                     LibraryComboBox {
                         id: orderCombo
-                        visible: !showingShelves
+                        visible: showingGrid
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         model: ["Ascending", "Descending"]
                         values: ["ascending", "descending"]
@@ -1240,7 +1306,7 @@ FocusScope {
                         variant: "secondary"
                         text: LibraryViewModel.activeFilterCount > 0 ? ("Filters " + LibraryViewModel.activeFilterCount) : "Filters"
                         iconGlyph: Icons.filter
-                        visible: !showingShelves
+                        visible: showingGrid
                         selected: showFilterPanel
                         Layout.preferredHeight: Theme.buttonHeightMedium
                         Accessible.name: text
@@ -1298,12 +1364,10 @@ FocusScope {
                     Layout.alignment: Qt.AlignBottom
                     Layout.preferredHeight: Theme.buttonHeightMedium
                     
-                    KeyNavigation.left: showingShelves ? shelvesToggle : filterDrawerButton
+                    KeyNavigation.left: showingGrid ? filterDrawerButton
+                                        : (collectionsToggle.visible ? collectionsToggle : shelvesToggle)
                     Keys.onDownPressed: (event) => {
-                        if (showingShelves)
-                            shelvesView.focusShelf()
-                        else
-                            grid.forceActiveFocus()
+                        focusContent()
                         event.accepted = true
                     }
                     
@@ -1673,7 +1737,8 @@ FocusScope {
 
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
-                running: isLoading && !showingShelves
+                running: (isLoading && showingGrid)
+                         || (showingCollections && libraryCollections.isLoading)
                 visible: running
                 width: Math.round(72 * Theme.layoutScale)
                 height: Math.round(72 * Theme.layoutScale)
@@ -1685,7 +1750,7 @@ FocusScope {
                 id: grid
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: !showingShelves
+                visible: showingGrid
                 Accessible.role: Accessible.List
                 Accessible.name: currentParentId === "" ? "Media Libraries" : (currentLibraryName + " Library Items")
                 property int columns: Math.max(Theme.gridColumns, 1)
@@ -2128,6 +2193,133 @@ FocusScope {
                 }
             }
 
+
+            // Collections: the library's collections as a poster grid.
+            // Enter opens one on its own page; Back returns to the same
+            // card. Up from the first row reaches the header.
+            GridView {
+                id: collectionsGrid
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: showingCollections && count > 0
+                model: libraryCollections
+                clip: false
+                focus: false
+                keyNavigationEnabled: true
+                boundsBehavior: Flickable.StopAtBounds
+                highlightRangeMode: GridView.ApplyRange
+                preferredHighlightBegin: Theme.shelfFocusMargin
+                preferredHighlightEnd: height - cellHeight
+                highlightMoveDuration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0
+                Accessible.role: Accessible.List
+                Accessible.name: qsTr("%1 collections").arg(currentLibraryName)
+                readonly property int columns: Math.max(Theme.gridColumns, 1)
+                cellWidth: width / columns
+                readonly property int cardWidth: Math.round(cellWidth - Theme.cardGap)
+                cellHeight: Math.round(cardWidth * 3 / 2) + Theme.cardCaptionHeight + Theme.cardGap
+
+                function focusGrid() {
+                    if (count === 0) {
+                        if (collectionsState.visible && collectionsState.actionText !== "")
+                            collectionsState.focusAction()
+                        else
+                            collectionsToggle.forceActiveFocus()
+                        return
+                    }
+                    if (currentIndex < 0 || currentIndex >= count)
+                        currentIndex = 0
+                    forceActiveFocus()
+                }
+
+                function openCurrent() {
+                    var collection = libraryCollections.get(currentIndex)
+                    if (collection && collection.collectionId)
+                        root.collectionRequested(collection)
+                }
+
+                // The first page arrives after the toggle: move into it when
+                // the view is still asked for.
+                Connections {
+                    target: libraryCollections
+                    function onCollectionsChanged() {
+                        if (showingCollections && collectionsGrid.count > 0 && collectionsToggle.activeFocus
+                                && collectionsGrid.currentIndex < 0)
+                            collectionsGrid.currentIndex = 0
+                    }
+                }
+
+                onCurrentIndexChanged: {
+                    if (libraryCollections.hasMore && currentIndex >= count - columns * 2)
+                        libraryCollections.loadMore()
+                }
+
+                delegate: Item {
+                    id: collectionCell
+                    required property var collectionData
+                    required property int index
+                    width: collectionsGrid.cellWidth
+                    height: collectionsGrid.cellHeight
+
+                    MediaCard {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        variant: "poster"
+                        artworkWidth: collectionsGrid.cardWidth
+                        artworkSources: [collectionCell.collectionData.primaryArtwork
+                                         ? LibraryService.getCachedArtworkUrlFromRef(collectionCell.collectionData.primaryArtwork, 640)
+                                         : ""]
+                        title: collectionCell.collectionData.name || ""
+                        subtitle: {
+                            var count = collectionCell.collectionData.itemCount
+                            if (count === undefined || count < 0)
+                                return ""
+                            return count === 1 ? qsTr("1 title") : qsTr("%1 titles").arg(count)
+                        }
+                        placeholderIcon: Icons.videoLibrary
+                        focused: collectionCell.GridView.isCurrentItem && collectionsGrid.activeFocus
+                        onClicked: {
+                            collectionsGrid.currentIndex = collectionCell.index
+                            collectionsGrid.forceActiveFocus()
+                            collectionsGrid.openCurrent()
+                        }
+                        Accessible.description: qsTr("Open the %1 collection").arg(title)
+                    }
+                }
+
+                Keys.onUpPressed: (event) => {
+                    if (currentIndex < columns) {
+                        collectionsToggle.forceActiveFocus()
+                        event.accepted = true
+                    } else {
+                        event.accepted = false
+                    }
+                }
+                Keys.onReturnPressed: (event) => {
+                    if (!event.isAutoRepeat)
+                        openCurrent()
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: (event) => {
+                    if (!event.isAutoRepeat)
+                        openCurrent()
+                    event.accepted = true
+                }
+            }
+
+            StateMessage {
+                id: collectionsState
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: showingCollections && collectionsGrid.count === 0 && !libraryCollections.isLoading
+                kind: libraryCollections.hasError ? "error" : "empty"
+                iconGlyph: libraryCollections.hasError ? Icons.error : Icons.videoLibrary
+                title: libraryCollections.hasError ? qsTr("Couldn't load the collections")
+                                                   : qsTr("No collections yet")
+                message: libraryCollections.hasError ? libraryCollections.errorMessage
+                                                     : qsTr("This library has no collections.")
+                actionText: libraryCollections.hasError ? qsTr("Try Again") : ""
+                onActionTriggered: libraryCollections.reload()
+                Keys.onUpPressed: (event) => { collectionsToggle.forceActiveFocus(); event.accepted = true }
+            }
         }
 
         FocusScope {
@@ -2136,7 +2328,7 @@ FocusScope {
             Layout.preferredWidth: Math.round(52 * Theme.layoutScale)
             Layout.fillHeight: true
             Layout.maximumHeight: railBuckets.length * (idealEntryHeight + entrySpacing) - entrySpacing
-            visible: !showingShelves && railBuckets.length > 2
+            visible: showingGrid && railBuckets.length > 2
             activeFocusOnTab: false
             Accessible.role: Accessible.List
             Accessible.name: qsTr("Jump to letter")
@@ -3020,11 +3212,30 @@ FocusScope {
     function toggleShelves() {
         if (!shelvesAvailable)
             return
-        shelvesMode = !shelvesMode
+        // From the collections, Shelves shows the shelves.
+        if (showingCollections) {
+            collectionsMode = false
+            shelvesMode = true
+        } else {
+            shelvesMode = !shelvesMode
+        }
         ConfigManager.setLibraryShelvesShown(currentLibraryId, shelvesMode)
         _pendingShelfFocus = null
         if (shelvesMode)
             showFilterPanel = false
+        resetQueryToolbarVisibility()
+    }
+
+    // Switches between the collections and the other views. Focus stays on
+    // the toggle. The collections are read the first time they are shown.
+    function toggleCollections() {
+        if (!collectionsAvailable)
+            return
+        collectionsMode = !collectionsMode
+        if (collectionsMode) {
+            showFilterPanel = false
+            libraryCollections.load(currentParentId)
+        }
         resetQueryToolbarVisibility()
     }
 
@@ -3078,7 +3289,7 @@ FocusScope {
             var contentY = restoring ? _pendingSeekContentY : -1
             _pendingSeekIndex = -1
             _pendingSeekContentY = -1
-            if (!grid || showingShelves || position < 0 || position >= grid.count)
+            if (!grid || !showingGrid || position < 0 || position >= grid.count)
                 return
             grid.currentIndex = position
             // A return keeps the title where it was on screen.

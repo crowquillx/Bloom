@@ -13,6 +13,7 @@
 #include <tuple>
 
 #include "models/LetterIndex.h"
+#include "models/MediaCollections.h"
 #include "models/MediaExtras.h"
 #include "providers/ICatalogProvider.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
@@ -46,6 +47,8 @@ private slots:
     void jellyfinRecommendationLibraryAndServerReads();
     void jellyfinPersonRequestsAndMapping();
     void siloPersonRequestsAndMapping();
+    void jellyfinCollectionRequestsAndMapping();
+    void siloCollectionRequestsAndMapping();
     void siloTrackIndicesAndMultipartFallbackStayContiguous();
     void siloCanonicalIdentityVersionsMultipartAndStateUseMilliseconds();
     void siloPlaybackFallbacksAndExternalSubtitleMetadata();
@@ -887,6 +890,301 @@ void ProviderCatalogTest::jellyfinPersonRequestsAndMapping()
     QVERIFY(page.valid);
     QVERIFY(page.hasMore);
     QCOMPARE(page.total, 61);
+}
+
+void ProviderCatalogTest::jellyfinCollectionRequestsAndMapping()
+{
+    JellyfinProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+    QVERIFY(adapter.supportsCapability(ProviderCapability::Collections));
+
+    QFile openApiManifest(QStringLiteral(BLOOM_JELLYFIN_OPENAPI_MANIFEST));
+    QVERIFY(openApiManifest.open(QIODevice::ReadOnly));
+    const QJsonObject manifest = QJsonDocument::fromJson(openApiManifest.readAll()).object();
+    QSet<QString> itemFields;
+    for (const QJsonValue &field : manifest.value(QStringLiteral("schemas")).toObject()
+                                       .value(QStringLiteral("ItemFields")).toObject()
+                                       .value(QStringLiteral("enum")).toArray()) {
+        itemFields.insert(field.toString());
+    }
+    // The route is a current GET operation, every parameter a current one of
+    // it, and every Fields value an ItemFields member.
+    const auto verifyCurrent = [&manifest, &itemFields](const QString &path,
+                                                        const QUrlQuery &parameters) {
+        QHash<QString, bool> deprecatedByName;
+        bool found = false;
+        for (const QJsonValue &value : manifest.value(QStringLiteral("operations")).toArray()) {
+            const QJsonObject operation = value.toObject();
+            if (operation.value(QStringLiteral("method")).toString() != QStringLiteral("GET")
+                || operation.value(QStringLiteral("path")).toString() != path) {
+                continue;
+            }
+            found = !operation.value(QStringLiteral("deprecated")).toBool();
+            for (const QJsonValue &parameter :
+                 operation.value(QStringLiteral("parameters")).toArray()) {
+                deprecatedByName.insert(
+                    parameter.toObject().value(QStringLiteral("name")).toString().toLower(),
+                    parameter.toObject().value(QStringLiteral("deprecated")).toBool());
+            }
+        }
+        if (!found) {
+            return false;
+        }
+        for (const auto &[name, value] : parameters.queryItems()) {
+            if (!deprecatedByName.contains(name.toLower()) || deprecatedByName.value(name.toLower())) {
+                return false;
+            }
+            if (name.compare(QStringLiteral("Fields"), Qt::CaseInsensitive) == 0) {
+                for (const QString &field : value.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+                    if (!itemFields.contains(field)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    };
+
+    // A library's collections: its box sets, by name, a page at a time.
+    ProviderCatalogQuery query;
+    query.userId = QStringLiteral("user-1");
+    query.parentId = QStringLiteral("library-1");
+    query.startIndex = 100;
+    query.limit = 100;
+    const ProviderCatalogRequest library =
+        catalog->createRequest(ProviderCatalogOperation::LibraryCollections, query);
+    QVERIFY2(library.supported, qPrintable(library.unsupportedReason));
+    QCOMPARE(library.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    const QUrl libraryUrl(library.relativeEndpoint);
+    QCOMPARE(libraryUrl.path(), QStringLiteral("/Items"));
+    const QUrlQuery libraryQuery(libraryUrl);
+    QCOMPARE(libraryQuery.queryItemValue(QStringLiteral("ParentId")), QStringLiteral("library-1"));
+    QCOMPARE(libraryQuery.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("BoxSet"));
+    QCOMPARE(libraryQuery.queryItemValue(QStringLiteral("Recursive")), QStringLiteral("true"));
+    QCOMPARE(libraryQuery.queryItemValue(QStringLiteral("SortBy")), QStringLiteral("SortName"));
+    QCOMPARE(libraryQuery.queryItemValue(QStringLiteral("StartIndex")), QStringLiteral("100"));
+    QCOMPARE(libraryQuery.queryItemValue(QStringLiteral("Limit")), QStringLiteral("100"));
+    QVERIFY(verifyCurrent(libraryUrl.path(), libraryQuery));
+    query.parentId.clear();
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::LibraryCollections, query).supported);
+
+    // One box set's movies and series, in its own order or a chosen sort.
+    query.itemId = QStringLiteral("boxset-1");
+    query.startIndex = 0;
+    const ProviderCatalogRequest ordered =
+        catalog->createRequest(ProviderCatalogOperation::CollectionItems, query);
+    QVERIFY2(ordered.supported, qPrintable(ordered.unsupportedReason));
+    const QUrl orderedUrl(ordered.relativeEndpoint);
+    const QUrlQuery orderedQuery(orderedUrl);
+    QCOMPARE(orderedUrl.path(), QStringLiteral("/Items"));
+    QCOMPARE(orderedQuery.queryItemValue(QStringLiteral("ParentId")), QStringLiteral("boxset-1"));
+    QCOMPARE(orderedQuery.queryItemValue(QStringLiteral("IncludeItemTypes")), QStringLiteral("Movie,Series"));
+    QVERIFY(!orderedQuery.hasQueryItem(QStringLiteral("SortBy")));
+    QVERIFY(!orderedQuery.hasQueryItem(QStringLiteral("Recursive")));
+    QVERIFY(verifyCurrent(orderedUrl.path(), orderedQuery));
+    query.sortBy = QStringLiteral("releaseDate");
+    const QUrlQuery byRelease(QUrl(catalog->createRequest(
+        ProviderCatalogOperation::CollectionItems, query).relativeEndpoint));
+    QCOMPARE(byRelease.queryItemValue(QStringLiteral("SortBy")),
+             QStringLiteral("PremiereDate,ProductionYear,SortName"));
+    QCOMPARE(byRelease.queryItemValue(QStringLiteral("SortOrder")), QStringLiteral("Ascending"));
+    query.sortBy = QStringLiteral("title");
+    QCOMPARE(QUrlQuery(QUrl(catalog->createRequest(ProviderCatalogOperation::CollectionItems, query)
+                                .relativeEndpoint)).queryItemValue(QStringLiteral("SortBy")),
+             QStringLiteral("SortName"));
+    query.sortBy = QStringLiteral("random");
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::CollectionItems, query).supported);
+    query.sortBy.clear();
+
+    // "Part of": GetItemCollections (API 12).
+    query.itemId = QStringLiteral("movie 1");
+    const ProviderCatalogRequest partOf =
+        catalog->createRequest(ProviderCatalogOperation::ItemCollections, query);
+    QVERIFY2(partOf.supported, qPrintable(partOf.unsupportedReason));
+    const QUrl partOfUrl(partOf.relativeEndpoint);
+    QCOMPARE(partOfUrl.path(), QStringLiteral("/Items/movie 1/Collections"));
+    QCOMPARE(QUrlQuery(partOfUrl).queryItemValue(QStringLiteral("userId")), QStringLiteral("user-1"));
+    QVERIFY(verifyCurrent(QStringLiteral("/Items/{itemId}/Collections"), QUrlQuery(partOfUrl)));
+    query.itemId.clear();
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::ItemCollections, query).supported);
+
+    // Box sets map to canonical collections; nameless, unidentified and
+    // other item types are dropped, each ID once.
+    const ProviderCatalogResponse page = catalog->parseResponse(
+        ProviderCatalogOperation::LibraryCollections,
+        QByteArrayLiteral(R"({"Items":[)"
+                          R"({"Id":"b1","Name":"Alien Collection","Type":"BoxSet","Overview":"Six films.",)"
+                          R"("ChildCount":6,"ImageTags":{"Primary":"p1"},"BackdropImageTags":["d1"]},)"
+                          R"({"Id":"b1","Name":"Alien Collection","Type":"BoxSet"},)"
+                          R"({"Id":"b2","Name":"No Count","Type":"BoxSet"},)"
+                          R"({"Id":"f1","Name":"A Folder","Type":"Folder"},)"
+                          R"({"Name":"No ID","Type":"BoxSet"}],"TotalRecordCount":205,"StartIndex":100})"));
+    QVERIFY(page.valid);
+    QVERIFY(page.hasMore);
+    const QVariantList collections = adapter.mapCollections(page.rawItems, QStringLiteral("connection-1"));
+    QCOMPARE(collections.size(), 2);
+    const QVariantMap alien = collections.first().toMap();
+    QVERIFY(Bloom::MediaCollections::isCollection(alien));
+    QCOMPARE(alien.value(QStringLiteral("collectionId")).toString(), QStringLiteral("b1"));
+    QCOMPARE(alien.value(QStringLiteral("itemId")).toString(), QStringLiteral("b1"));
+    QCOMPARE(alien.value(QStringLiteral("collectionKind")).toString(), QStringLiteral("boxSet"));
+    QCOMPARE(alien.value(QStringLiteral("mediaType")).toString(), QStringLiteral("Collection"));
+    QCOMPARE(alien.value(QStringLiteral("name")).toString(), QStringLiteral("Alien Collection"));
+    QCOMPARE(alien.value(QStringLiteral("overview")).toString(), QStringLiteral("Six films."));
+    QCOMPARE(alien.value(QStringLiteral("itemCount")).toInt(), 6);
+    QCOMPARE(alien.value(QStringLiteral("connectionId")).toString(), QStringLiteral("connection-1"));
+    const Bloom::ArtworkRef poster = Bloom::ArtworkRef::fromVariantMap(
+        alien.value(QStringLiteral("primaryArtwork")).toMap());
+    QCOMPARE(poster.kind, Bloom::ArtworkKind::Primary);
+    QCOMPARE(poster.itemId, QStringLiteral("b1"));
+    QCOMPARE(poster.tag, QStringLiteral("p1"));
+    QCOMPARE(Bloom::ArtworkRef::fromVariantMap(alien.value(QStringLiteral("backdropArtwork")).toMap()).kind,
+             Bloom::ArtworkKind::Backdrop);
+    QVERIFY(!alien.contains(QStringLiteral("Overview")));
+    QCOMPARE(collections.at(1).toMap().value(QStringLiteral("itemCount")).toInt(), -1);
+
+    // GetItemCollections answers the same envelope.
+    const ProviderCatalogResponse holders = catalog->parseResponse(
+        ProviderCatalogOperation::ItemCollections,
+        QByteArrayLiteral(R"({"Items":[{"Id":"b1","Name":"Alien Collection","Type":"BoxSet"}],)"
+                          R"("TotalRecordCount":1,"StartIndex":0})"));
+    QVERIFY(holders.valid);
+    QCOMPARE(adapter.mapCollections(holders.rawItems, QStringLiteral("connection-1")).size(), 1);
+}
+
+void ProviderCatalogTest::siloCollectionRequestsAndMapping()
+{
+    SiloProviderAdapter adapter;
+    QVERIFY(adapter.supportsCapability(ProviderCapability::Collections));
+    SiloCatalogProvider provider;
+
+    // getLibraryCollections declares no artwork widths.
+    ProviderCatalogQuery query;
+    query.parentId = QStringLiteral("lib/1");
+    ProviderCatalogRequest tab = provider.createRequest(ProviderCatalogOperation::LibraryCollections, query);
+    QVERIFY(tab.supported);
+    QCOMPARE(tab.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(tab.relativeEndpoint, QStringLiteral("/api/v2/library/lib%2F1/collections"));
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::LibraryCollections, {}).supported);
+
+    // A collection's titles page through the catalog, by its kind's source.
+    query = {};
+    query.itemId = QStringLiteral("c1");
+    query.collectionKind = QStringLiteral("library");
+    query.limit = 100;
+    ProviderCatalogRequest items = provider.createRequest(ProviderCatalogOperation::CollectionItems, query);
+    QVERIFY(items.supported);
+    QCOMPARE(items.relativeEndpoint,
+             QStringLiteral("/api/v2/catalog?source=library_collection&collection_id=c1&type=video&limit=100"
+                            "&poster_width=1000&backdrop_width=3840&logo_width=1280&still_width=1280"));
+    query.collectionKind = QStringLiteral("user");
+    query.sortBy = QStringLiteral("releaseDate");
+    query.cursor = QStringLiteral("next 2");
+    items = provider.createRequest(ProviderCatalogOperation::CollectionItems, query);
+    const QUrlQuery userQuery(QUrl(items.relativeEndpoint));
+    QCOMPARE(userQuery.queryItemValue(QStringLiteral("source")), QStringLiteral("user_collection"));
+    QCOMPARE(userQuery.queryItemValue(QStringLiteral("sort")), QStringLiteral("release_date"));
+    QCOMPARE(userQuery.queryItemValue(QStringLiteral("cursor"), QUrl::FullyDecoded), QStringLiteral("next 2"));
+    query.sortBy = QStringLiteral("title");
+    QCOMPARE(QUrlQuery(QUrl(provider.createRequest(ProviderCatalogOperation::CollectionItems, query)
+                                .relativeEndpoint)).queryItemValue(QStringLiteral("sort")),
+             QStringLiteral("title"));
+    query.sortBy = QStringLiteral("random");
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::CollectionItems, query).supported);
+    query.sortBy.clear();
+    query.collectionKind = QStringLiteral("boxSet");
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::CollectionItems, query).supported);
+
+    // "Part of": the profile's own collections, marked by contains_item.
+    query = {};
+    query.itemId = QStringLiteral("m 1");
+    const ProviderCatalogRequest partOf = provider.createRequest(ProviderCatalogOperation::ItemCollections, query);
+    QVERIFY(partOf.supported);
+    QCOMPARE(partOf.relativeEndpoint, QStringLiteral("/api/v2/collections?contains_item=m%201"));
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::ItemCollections, {}).supported);
+
+    // The tab in display order: groups by sort_order with the ungrouped
+    // block among them, then curated collections no group listed. Group
+    // cards take the curated description; personal ones are user kind.
+    const ProviderCatalogResponse parsed = provider.parseResponse(
+        ProviderCatalogOperation::LibraryCollections,
+        QByteArrayLiteral(R"({"library_id":"1","collections":[)"
+                          R"({"id":"c1","title":"Franchise A","description":"First.","poster_url":"https://s/p1.webp?sig=1",)"
+                          R"("backdrop_url":"https://s/b1.webp?sig=1","item_count":4},)"
+                          R"({"id":"c2","title":"Oscar Winners","description":"","poster_url":"","backdrop_url":"","item_count":30},)"
+                          R"({"id":"c3","title":"Hidden From Groups","description":"","poster_url":"","backdrop_url":"","item_count":2}],)"
+                          R"("groups":[)"
+                          R"({"id":"g2","name":"Mine","kind":"user_collections","sort_order":5,"collections":[)"
+                          R"({"id":"u1","title":"Rainy days","poster_url":"","item_count":3,"poster_is_collage":false,"creator_profile_id":"p1"}]},)"
+                          R"({"id":"g1","name":"Franchises","kind":"admin","sort_order":0,"collections":[)"
+                          R"({"id":"c1","title":"Franchise A","poster_url":"https://s/p1-card.webp?sig=2","item_count":4,"poster_is_collage":false}]}],)"
+                          R"("ungrouped":{"sort_order":2,"collections":[)"
+                          R"({"id":"c2","title":"Oscar Winners","poster_url":"","item_count":30,"poster_is_collage":true},)"
+                          R"({"id":"x","title":"","poster_url":"","item_count":0,"poster_is_collage":false}]}})"));
+    QVERIFY(parsed.valid);
+    const QVariantList collections = adapter.mapCollections(parsed.rawItems, QStringLiteral("connection-1"));
+    QStringList order;
+    for (const QVariant &value : collections) {
+        order.append(value.toMap().value(QStringLiteral("collectionId")).toString());
+    }
+    QCOMPARE(order, (QStringList{QStringLiteral("c1"), QStringLiteral("c2"), QStringLiteral("u1"),
+                                 QStringLiteral("c3")}));
+    const QVariantMap franchise = collections.at(0).toMap();
+    QCOMPARE(franchise.value(QStringLiteral("collectionKind")).toString(), QStringLiteral("library"));
+    QCOMPARE(franchise.value(QStringLiteral("name")).toString(), QStringLiteral("Franchise A"));
+    QCOMPARE(franchise.value(QStringLiteral("overview")).toString(), QStringLiteral("First."));
+    QCOMPARE(franchise.value(QStringLiteral("itemCount")).toInt(), 4);
+    // The card's poster is the one the tab shows; the backdrop comes from
+    // the curated record. Both belong to the collection.
+    QCOMPARE(franchise.value(QStringLiteral("primaryArtworkUrl")).toString(),
+             QStringLiteral("https://s/p1-card.webp?sig=2"));
+    const Bloom::ArtworkRef backdrop = Bloom::ArtworkRef::fromVariantMap(
+        franchise.value(QStringLiteral("backdropArtwork")).toMap());
+    QCOMPARE(backdrop.kind, Bloom::ArtworkKind::Backdrop);
+    QCOMPARE(backdrop.ownerKind, Bloom::ArtworkOwnerKind::Collection);
+    QCOMPARE(backdrop.itemId, QStringLiteral("c1"));
+    QVERIFY(!collections.at(1).toMap().contains(QStringLiteral("primaryArtwork")));
+    QCOMPARE(collections.at(2).toMap().value(QStringLiteral("collectionKind")).toString(),
+             QStringLiteral("user"));
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::LibraryCollections,
+                                    QByteArrayLiteral(R"({"groups":[]})")).valid);
+
+    // Without groups the curated list keeps its order.
+    const ProviderCatalogResponse flat = provider.parseResponse(
+        ProviderCatalogOperation::LibraryCollections,
+        QByteArrayLiteral(R"({"library_id":"1","groups":[],"collections":[)"
+                          R"({"id":"c2","title":"B","item_count":1},{"id":"c1","title":"A","item_count":1}]})"));
+    QVERIFY(flat.valid);
+    QCOMPARE(flat.rawItems.size(), 2);
+    QCOMPARE(flat.rawItems.first().toObject().value(QStringLiteral("id")).toString(), QStringLiteral("c2"));
+
+    // listCollections: only collections that hold the title.
+    const ProviderCatalogResponse holders = provider.parseResponse(
+        ProviderCatalogOperation::ItemCollections,
+        QByteArrayLiteral(R"({"groups":[],"items":[)"
+                          R"({"id":"u1","name":"Rainy days","description":"Cosy.","poster_url":"","item_count":3,"contains":true},)"
+                          R"({"id":"u2","name":"Not this one","poster_url":"","item_count":1,"contains":false},)"
+                          R"({"id":"u3","name":"Shared list","poster_url":"","item_count":1}]})"));
+    QVERIFY(holders.valid);
+    const QVariantList partOfCollections = adapter.mapCollections(holders.rawItems, QStringLiteral("connection-1"));
+    QCOMPARE(partOfCollections.size(), 1);
+    QCOMPARE(partOfCollections.first().toMap().value(QStringLiteral("collectionKind")).toString(),
+             QStringLiteral("user"));
+    QCOMPARE(partOfCollections.first().toMap().value(QStringLiteral("overview")).toString(),
+             QStringLiteral("Cosy."));
+
+    // Collection pages keep only movie and series cards and their cursor.
+    const ProviderCatalogResponse page = provider.parseResponse(
+        ProviderCatalogOperation::CollectionItems,
+        QByteArrayLiteral(R"({"items":[{"content_id":"m1","type":"movie","title":"Alien"},)"
+                          R"({"content_id":"e1","type":"episode","title":"Pilot"},)"
+                          R"({"content_id":"s1","type":"series","title":"Show"}],)"
+                          R"("total":3,"page":{"has_more":true,"next_cursor":"n2"}})"));
+    QVERIFY(page.valid);
+    QCOMPARE(page.rawItems.size(), 2);
+    QVERIFY(page.hasMore);
+    QCOMPARE(page.nextCursor, QStringLiteral("n2"));
 }
 
 void ProviderCatalogTest::siloPersonRequestsAndMapping()

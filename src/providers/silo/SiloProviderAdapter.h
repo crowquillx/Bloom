@@ -93,6 +93,12 @@ public:
         return SiloModelMapper::personList(wirePeople, connectionId);
     }
 
+    QVariantList mapCollections(const QJsonArray &wireCollections,
+                                const QString &connectionId) const override
+    {
+        return SiloModelMapper::collections(wireCollections, connectionId);
+    }
+
     QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
                                      const QString &connectionId,
                                      const QString &itemId) const override
@@ -229,6 +235,7 @@ private:
         capabilities |= ProviderCapability::NotInterested;
         capabilities |= ProviderCapability::AiringCalendar;
         capabilities |= ProviderCapability::HomeDismissals;
+        capabilities |= ProviderCapability::Collections;
         return capabilities;
     }
 

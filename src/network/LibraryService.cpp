@@ -3040,6 +3040,109 @@ void LibraryService::getPersonItems(const QString &personId, int startIndex,
         });
 }
 
+bool LibraryService::supportsCollections() const
+{
+    return m_authService && m_authService->isAuthenticated()
+        && m_authService->supportsCapability(ProviderCapability::Collections);
+}
+
+void LibraryService::getLibraryCollections(const QString &libraryId, int startIndex,
+                                           int limit, const QString &requestKey)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    if (!supportsCollections() || libraryId.trimmed().isEmpty()) {
+        emit canonicalLibraryCollectionsLoaded(connectionId, libraryId, requestKey, {}, 0, false);
+        return;
+    }
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.parentId = libraryId.trimmed();
+    query.startIndex = qMax(0, startIndex);
+    query.limit = qMax(1, limit);
+    sendCatalogRequest(
+        QStringLiteral("getLibraryCollections"),
+        ProviderCatalogOperation::LibraryCollections,
+        query,
+        [this, connectionId, libraryId, requestKey](const ProviderCatalogResponse &response) {
+            emit canonicalLibraryCollectionsLoaded(
+                connectionId, libraryId, requestKey,
+                m_authService->mapCollections(response.rawItems, connectionId),
+                response.total, response.hasMore);
+        },
+        [this, connectionId, libraryId, requestKey](const NetworkError &error) {
+            emit canonicalLibraryCollectionsFailed(connectionId, libraryId, requestKey,
+                                                   error.userMessage);
+        });
+}
+
+void LibraryService::getCollectionItems(const QString &collectionId,
+                                        const QString &collectionKind,
+                                        const QString &sortBy, int startIndex,
+                                        const QString &cursor, int limit,
+                                        const QString &requestKey)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    if (!supportsCollections() || collectionId.trimmed().isEmpty()) {
+        emit canonicalCollectionItemsFailed(connectionId, collectionId, requestKey,
+                                            tr("This collection could not be found."));
+        return;
+    }
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = collectionId.trimmed();
+    query.collectionKind = collectionKind;
+    query.sortBy = sortBy;
+    query.startIndex = qMax(0, startIndex);
+    query.cursor = cursor;
+    query.limit = qMax(1, limit);
+    sendCatalogRequest(
+        QStringLiteral("getCollectionItems"),
+        ProviderCatalogOperation::CollectionItems,
+        query,
+        [this, connectionId, collectionId, requestKey](const ProviderCatalogResponse &response) {
+            emit canonicalCollectionItemsLoaded(
+                connectionId, collectionId, requestKey,
+                m_authService->mapMediaItems(response.rawItems, connectionId),
+                response.total, response.hasMore, response.nextCursor);
+        },
+        [this, connectionId, collectionId, requestKey](const NetworkError &error) {
+            emit canonicalCollectionItemsFailed(connectionId, collectionId, requestKey,
+                                                error.userMessage);
+        });
+}
+
+void LibraryService::getItemCollections(const QString &itemId, const QString &requestKey)
+{
+    const QString connectionId = activeConnectionId(m_authService);
+    if (!supportsCollections() || itemId.trimmed().isEmpty()
+        || m_itemCollectionsUnsupported.contains(connectionId)) {
+        emit canonicalItemCollectionsLoaded(connectionId, itemId, requestKey, {});
+        return;
+    }
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId.trimmed();
+    sendCatalogRequest(
+        QStringLiteral("getItemCollections"),
+        ProviderCatalogOperation::ItemCollections,
+        query,
+        [this, connectionId, itemId, requestKey](const ProviderCatalogResponse &response) {
+            emit canonicalItemCollectionsLoaded(
+                connectionId, itemId, requestKey,
+                m_authService->mapCollections(response.rawItems, connectionId));
+        },
+        [this, connectionId, itemId, requestKey](const NetworkError &error) {
+            // A server without the read (Jellyfin before API 12 has no
+            // GetItemCollections; Silo before contains_item rejects the
+            // parameter) never offers it.
+            if (error.httpStatus == 404 || error.httpStatus == 405
+                || error.httpStatus == 422 || error.httpStatus == 501) {
+                m_itemCollectionsUnsupported.insert(connectionId);
+                emit canonicalItemCollectionsLoaded(connectionId, itemId, requestKey, {});
+                return;
+            }
+            emit canonicalItemCollectionsFailed(connectionId, itemId, requestKey,
+                                                error.userMessage);
+        });
+}
+
 void LibraryService::searchPeople(const QString &searchTerm, int limit)
 {
     const quint64 generation = ++m_peopleSearchGeneration;

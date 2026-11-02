@@ -1,4 +1,5 @@
 #include "SiloModelMapper.h"
+#include "models/MediaCollections.h"
 #include "models/MediaExtras.h"
 
 #include <algorithm>
@@ -1647,6 +1648,51 @@ QVariantList SiloModelMapper::mediaItems(const QJsonArray &wireItems,
         if (!mapped.isEmpty()) {
             result.append(mapped);
         }
+    }
+    return result;
+}
+
+QVariantList SiloModelMapper::collections(const QJsonArray &wireCollections,
+                                          const QString &connectionId)
+{
+    namespace Collections = Bloom::MediaCollections;
+    QVariantList result;
+    QSet<QString> seen;
+    for (const QJsonValue &value : wireCollections) {
+        const QJsonObject wire = value.toObject();
+        const QString collectionId = identityString(wire.value(QStringLiteral("id")));
+        const QString name = wire.value(QStringLiteral("title")).toString().trimmed();
+        const QString kind = wire.value(QStringLiteral("kind")).toString();
+        if (connectionId.isEmpty() || collectionId.isEmpty() || name.isEmpty()
+            || (kind != Collections::kLibrary && kind != Collections::kUser)
+            || seen.contains(collectionId)) {
+            continue;
+        }
+        seen.insert(collectionId);
+        const QJsonValue itemCount = wire.value(QStringLiteral("item_count"));
+        QVariantMap collection{
+            {QStringLiteral("media"), Bloom::MediaRef{connectionId, collectionId}.toVariantMap()},
+            {QStringLiteral("connectionId"), connectionId},
+            {QStringLiteral("itemId"), collectionId},
+            {QStringLiteral("collectionId"), collectionId},
+            {QStringLiteral("collectionKind"), kind},
+            {QStringLiteral("mediaType"), Collections::kMediaType},
+            {QStringLiteral("name"), name},
+            {QStringLiteral("overview"), wire.value(QStringLiteral("description")).toString()},
+            {QStringLiteral("itemCount"), itemCount.isDouble() ? itemCount.toInt() : -1}};
+        QVariantList artwork;
+        appendArtwork(artwork, collection, QStringLiteral("primaryArtwork"),
+                      QStringLiteral("primaryArtworkUrl"), connectionId, collectionId,
+                      Bloom::ArtworkKind::Primary,
+                      wire.value(QStringLiteral("poster_url")).toString(),
+                      0, Bloom::ArtworkOwnerKind::Collection);
+        appendArtwork(artwork, collection, QStringLiteral("backdropArtwork"),
+                      QStringLiteral("backdropArtworkUrl"), connectionId, collectionId,
+                      Bloom::ArtworkKind::Backdrop,
+                      wire.value(QStringLiteral("backdrop_url")).toString(),
+                      0, Bloom::ArtworkOwnerKind::Collection);
+        collection[QStringLiteral("artwork")] = artwork;
+        result.append(collection);
     }
     return result;
 }

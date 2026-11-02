@@ -61,6 +61,12 @@ public:
     // ItemExtraInfo entries of a catalog item detail as canonical extras
     // (models/MediaExtras.h) of `parentId`. The still is owned by the parent
     // (ArtworkOwnerKind::Extra), since an extra has no catalog route.
+    // Collections in SiloCatalogProvider's normalized wire shape (`id`,
+    // `title`, `description`, `poster_url`, `backdrop_url`, `item_count`,
+    // `kind`) as canonical collections (models/MediaCollections.h). Their
+    // artwork is owned by the collection (ArtworkOwnerKind::Collection).
+    static QVariantList collections(const QJsonArray &wireCollections,
+                                    const QString &connectionId);
     static QVariantList extras(const QJsonArray &wireExtras,
                                const QString &connectionId,
                                const QString &parentId);

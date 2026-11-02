@@ -218,6 +218,7 @@ private slots:
     void jellyfinItemExtrasPutTrailersFirstAndFlagPartialAnswers();
     void siloItemExtrasAnswerEmptyWithoutRequests();
     void personReadsMapCanonicalPeopleAndTitles();
+    void collectionReadsMapCollectionsAndStopWithoutPartOf();
     void peopleSearchFollowsTheSearchCapability();
     void notInterestedRequestsAndCapabilityParse();
     void notInterestedServiceGatesOnProfileCapability();
@@ -2594,6 +2595,94 @@ void SiloCatalogServiceTest::personReadsMapCanonicalPeopleAndTitles()
     service.getPerson(QStringLiteral("8"));
     QTRY_COMPARE_WITH_TIMEOUT(personFailed.count(), 1, 1000);
     QCOMPARE(personFailed.first().at(1).toString(), QStringLiteral("8"));
+}
+
+// LibraryService's collection reads map the library tab, page a
+// collection's titles, and stop asking for "Part of" once the server
+// rejects the read.
+void SiloCatalogServiceTest::collectionReadsMapCollectionsAndStopWithoutPartOf()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+    LibraryService service(&auth);
+    QVERIFY(service.supportsCollections());
+    const QString connectionId = service.getActiveConnectionId();
+    QVERIFY(!connectionId.isEmpty());
+    QSignalSpy libraryLoaded(&service, &LibraryService::canonicalLibraryCollectionsLoaded);
+    QSignalSpy itemsLoaded(&service, &LibraryService::canonicalCollectionItemsLoaded);
+    QSignalSpy partOfLoaded(&service, &LibraryService::canonicalItemCollectionsLoaded);
+    QSignalSpy partOfFailed(&service, &LibraryService::canonicalItemCollectionsFailed);
+
+    manager.responses = {{200, QByteArrayLiteral(
+        R"({"library_id":"lib-1","groups":[],"collections":[)"
+        R"({"id":"c1","title":"Alien","description":"Six films.","poster_url":"https://cdn.example.test/c1.webp?sig=a",)"
+        R"("backdrop_url":"","item_count":6}]})"), false}};
+    service.getLibraryCollections(QStringLiteral("lib-1"), 0, 100, QStringLiteral("library-key"));
+    QTRY_COMPARE_WITH_TIMEOUT(libraryLoaded.count(), 1, 1000);
+    QCOMPARE(manager.requests.last().request.url().path(), QStringLiteral("/api/v2/library/lib-1/collections"));
+    QCOMPARE(libraryLoaded.first().at(0).toString(), connectionId);
+    QCOMPARE(libraryLoaded.first().at(2).toString(), QStringLiteral("library-key"));
+    const QVariantList collections = libraryLoaded.first().at(3).toList();
+    QCOMPARE(collections.size(), 1);
+    const QVariantMap collection = collections.first().toMap();
+    QCOMPARE(collection.value(QStringLiteral("collectionKind")).toString(), QStringLiteral("library"));
+    QCOMPARE(collection.value(QStringLiteral("connectionId")).toString(), connectionId);
+    QVERIFY(collection.value(QStringLiteral("primaryArtwork")).toMap()
+                .value(QStringLiteral("cacheKey")).toString().startsWith(QStringLiteral("artwork:")));
+    QCOMPARE(libraryLoaded.first().at(5).toBool(), false);
+
+    manager.responses = {{200, QByteArrayLiteral(
+        R"({"items":[{"content_id":"m1","type":"movie","title":"Alien"},{"content_id":"e1","type":"episode","title":"Pilot"}],)"
+        R"("total":6,"page":{"has_more":true,"next_cursor":"n2"}})"), false}};
+    service.getCollectionItems(QStringLiteral("c1"), QStringLiteral("library"), QStringLiteral("releaseDate"),
+                               0, QString(), 100, QStringLiteral("items-key"));
+    QTRY_COMPARE_WITH_TIMEOUT(itemsLoaded.count(), 1, 1000);
+    const QUrlQuery itemsQuery(manager.requests.last().request.url());
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("source")), QStringLiteral("library_collection"));
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("collection_id")), QStringLiteral("c1"));
+    QCOMPARE(itemsQuery.queryItemValue(QStringLiteral("sort")), QStringLiteral("release_date"));
+    QCOMPARE(itemsLoaded.first().at(1).toString(), QStringLiteral("c1"));
+    QCOMPARE(itemsLoaded.first().at(3).toList().size(), 1);
+    QCOMPARE(itemsLoaded.first().at(5).toBool(), true);
+    QCOMPARE(itemsLoaded.first().at(6).toString(), QStringLiteral("n2"));
+
+    // "Part of": the profile's own collections that hold the title.
+    manager.responses = {{200, QByteArrayLiteral(
+        R"({"groups":[],"items":[{"id":"u1","name":"Rainy days","poster_url":"","item_count":3,"contains":true}]})"), false}};
+    service.getItemCollections(QStringLiteral("m1"), QStringLiteral("part-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(partOfLoaded.count(), 1, 1000);
+    QCOMPARE(QUrlQuery(manager.requests.last().request.url()).queryItemValue(QStringLiteral("contains_item")),
+             QStringLiteral("m1"));
+    QCOMPARE(partOfLoaded.first().at(3).toList().size(), 1);
+
+    // A server error is a failure, and the read is asked again next time.
+    manager.responses = {{500, QByteArrayLiteral(R"({"title":"boom","status":500})"), false},
+                         {500, QByteArrayLiteral(R"({"title":"boom","status":500})"), false},
+                         {500, QByteArrayLiteral(R"({"title":"boom","status":500})"), false}};
+    service.getItemCollections(QStringLiteral("m2"), QStringLiteral("part-2"));
+    QTRY_COMPARE_WITH_TIMEOUT(partOfFailed.count(), 1, 10000);
+    QCOMPARE(partOfFailed.first().at(2).toString(), QStringLiteral("part-2"));
+
+    // A server without contains_item rejects it: an empty answer, then no
+    // more reads for this connection.
+    manager.responses = {{422, QByteArrayLiteral(R"({"title":"Unprocessable","status":422})"), false}};
+    service.getItemCollections(QStringLiteral("m3"), QStringLiteral("part-3"));
+    QTRY_COMPARE_WITH_TIMEOUT(partOfLoaded.count(), 2, 1000);
+    QVERIFY(partOfLoaded.last().at(3).toList().isEmpty());
+    QCOMPARE(partOfFailed.count(), 1);
+    const qsizetype sent = manager.requests.size();
+    service.getItemCollections(QStringLiteral("m4"), QStringLiteral("part-4"));
+    QCOMPARE(partOfLoaded.count(), 3);
+    QCOMPARE(partOfLoaded.last().at(2).toString(), QStringLiteral("part-4"));
+    QVERIFY(partOfLoaded.last().at(3).toList().isEmpty());
+    QCOMPARE(manager.requests.size(), sent);
 }
 
 void SiloCatalogServiceTest::peopleSearchFollowsTheSearchCapability()

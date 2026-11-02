@@ -464,6 +464,24 @@ private:
         case ProviderCatalogOperation::ClearResumePosition:
             return unsupported(QStringLiteral(
                 "Silo hides Continue Watching cards with Home dismissals"));
+        case ProviderCatalogOperation::LibraryCollections:
+            // The library's Collections tab, answered whole.
+            return getWithContentId(QStringLiteral("/api/v2/library/%1/collections"),
+                                    query.parentId);
+        case ProviderCatalogOperation::CollectionItems:
+            return createCollectionItemsRequest(query);
+        case ProviderCatalogOperation::ItemCollections: {
+            // Marks `contains` on the acting profile's own manual
+            // collections; curated library collections have no reverse
+            // lookup.
+            const QString itemId = query.itemId.trimmed();
+            if (itemId.isEmpty()) {
+                return unsupported(QStringLiteral("Silo item collections require a content_id"));
+            }
+            QUrlQuery parameters;
+            parameters.addQueryItem(QStringLiteral("contains_item"), itemId);
+            return get(endpointWithQuery(QStringLiteral("/api/v2/collections"), parameters));
+        }
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -609,6 +627,49 @@ public:
             response.rawItems = titleCards(section.value(QStringLiteral("items")).toArray());
             response.total = static_cast<int>(response.rawItems.size());
             response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::LibraryCollections) {
+            ProviderCatalogResponse response;
+            const QJsonObject tab = QJsonDocument::fromJson(body).object();
+            if (!tab.value(QStringLiteral("collections")).isArray()) {
+                response.error = QStringLiteral("Invalid Silo library collections response");
+                return response;
+            }
+            response.rawItems = libraryCollectionTab(tab);
+            response.total = static_cast<int>(response.rawItems.size());
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::ItemCollections) {
+            ProviderCatalogResponse response;
+            const QJsonObject page = QJsonDocument::fromJson(body).object();
+            if (!page.value(QStringLiteral("items")).isArray()) {
+                response.error = QStringLiteral("Invalid Silo collections response");
+                return response;
+            }
+            for (const QJsonValue &value : page.value(QStringLiteral("items")).toArray()) {
+                const QJsonObject collection = value.toObject();
+                if (!collection.value(QStringLiteral("contains")).toBool()) {
+                    continue;
+                }
+                const QJsonObject entry = collectionEntry(
+                    collection, QStringLiteral("name"), QStringLiteral("user"));
+                if (!entry.isEmpty()) {
+                    response.rawItems.append(entry);
+                }
+            }
+            response.total = static_cast<int>(response.rawItems.size());
+            response.valid = true;
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::CollectionItems) {
+            // A catalog page; only movie and series cards are titles here.
+            ProviderCatalogResponse response =
+                SiloModelMapper::catalogResponse(operation, body, responseHeaders);
+            if (response.valid) {
+                response.rawItems = titleCards(response.rawItems);
+            }
             return response;
         }
         if (operation == ProviderCatalogOperation::CatalogSearchCapabilities) {
@@ -762,6 +823,7 @@ private:
         case ProviderCatalogOperation::PersonItems:
         case ProviderCatalogOperation::LibrarySections:
         case ProviderCatalogOperation::LibrarySectionItems:
+        case ProviderCatalogOperation::CollectionItems:
             return true;
         default:
             return false;
@@ -887,6 +949,109 @@ private:
                 {QStringLiteral("items"), cards}});
         }
         return rows;
+    }
+
+    // One collection as the adapter's wire shape: `id`, `title`,
+    // `description`, `poster_url`, `backdrop_url`, `item_count` and `kind`
+    // (`library` for curated collections, `user` for personal ones); empty
+    // without an ID or a title.
+    static QJsonObject collectionEntry(const QJsonObject &collection,
+                                       const QString &titleKey, const QString &kind)
+    {
+        const QString id = collection.value(QStringLiteral("id")).toString();
+        const QString title = collection.value(titleKey).toString().trimmed();
+        if (id.isEmpty() || title.isEmpty()) {
+            return {};
+        }
+        return QJsonObject{
+            {QStringLiteral("id"), id},
+            {QStringLiteral("title"), title},
+            {QStringLiteral("description"), collection.value(QStringLiteral("description")).toString()},
+            {QStringLiteral("poster_url"), collection.value(QStringLiteral("poster_url")).toString()},
+            {QStringLiteral("backdrop_url"), collection.value(QStringLiteral("backdrop_url")).toString()},
+            {QStringLiteral("item_count"), collection.value(QStringLiteral("item_count")).toInt()},
+            {QStringLiteral("kind"), kind}};
+    }
+
+    // getLibraryCollections in the tab's display order: its groups, with
+    // the ungrouped block at its own sort_order among them, then any
+    // curated collection no group listed. Group cards are short; the
+    // curated list adds the description and backdrop. A card with a
+    // creator_profile_id, or in a user_collections group, is the viewer's
+    // opted-in personal collection.
+    static QJsonArray libraryCollectionTab(const QJsonObject &tab)
+    {
+        QHash<QString, QJsonObject> curated;
+        QStringList curatedOrder;
+        for (const QJsonValue &value : tab.value(QStringLiteral("collections")).toArray()) {
+            const QJsonObject collection = value.toObject();
+            const QString id = collection.value(QStringLiteral("id")).toString();
+            if (!id.isEmpty() && !curated.contains(id)) {
+                curated.insert(id, collection);
+                curatedOrder.append(id);
+            }
+        }
+
+        struct Block
+        {
+            int sortOrder = 0;
+            bool personal = false;
+            QJsonArray cards;
+        };
+        QList<Block> blocks;
+        for (const QJsonValue &value : tab.value(QStringLiteral("groups")).toArray()) {
+            const QJsonObject group = value.toObject();
+            blocks.append({group.value(QStringLiteral("sort_order")).toInt(),
+                           group.value(QStringLiteral("kind")).toString()
+                               == QStringLiteral("user_collections"),
+                           group.value(QStringLiteral("collections")).toArray()});
+        }
+        const QJsonObject ungrouped = tab.value(QStringLiteral("ungrouped")).toObject();
+        if (!ungrouped.isEmpty()) {
+            blocks.append({ungrouped.value(QStringLiteral("sort_order")).toInt(), false,
+                           ungrouped.value(QStringLiteral("collections")).toArray()});
+        }
+        std::stable_sort(blocks.begin(), blocks.end(), [](const Block &a, const Block &b) {
+            return a.sortOrder < b.sortOrder;
+        });
+
+        QJsonArray entries;
+        QSet<QString> seen;
+        const auto append = [&entries, &seen](const QJsonObject &entry) {
+            const QString id = entry.value(QStringLiteral("id")).toString();
+            if (entry.isEmpty() || seen.contains(id)) {
+                return;
+            }
+            seen.insert(id);
+            entries.append(entry);
+        };
+        for (const Block &block : std::as_const(blocks)) {
+            for (const QJsonValue &value : block.cards) {
+                const QJsonObject card = value.toObject();
+                const QString id = card.value(QStringLiteral("id")).toString();
+                const bool personal = block.personal
+                    || !card.value(QStringLiteral("creator_profile_id")).toString().isEmpty();
+                if (!personal && curated.contains(id)) {
+                    // The curated record is complete; the card's poster is
+                    // the one the tab shows.
+                    QJsonObject full = curated.value(id);
+                    if (!card.value(QStringLiteral("poster_url")).toString().isEmpty()) {
+                        full.insert(QStringLiteral("poster_url"),
+                                    card.value(QStringLiteral("poster_url")));
+                    }
+                    append(collectionEntry(full, QStringLiteral("title"), QStringLiteral("library")));
+                } else {
+                    append(collectionEntry(card, QStringLiteral("title"),
+                                           personal ? QStringLiteral("user")
+                                                    : QStringLiteral("library")));
+                }
+            }
+        }
+        for (const QString &id : std::as_const(curatedOrder)) {
+            append(collectionEntry(curated.value(id), QStringLiteral("title"),
+                                   QStringLiteral("library")));
+        }
+        return entries;
     }
 
     // queryCatalogLetters as a LetterIndex map: letters with titles and
@@ -1567,6 +1732,46 @@ private:
         parameters.addQueryItem(QStringLiteral("person_id"), personId);
         parameters.addQueryItem(QStringLiteral("type"), QStringLiteral("video"));
         parameters.addQueryItem(QStringLiteral("sort"), QStringLiteral("-year"));
+        if (!query.cursor.isEmpty()) {
+            parameters.addQueryItem(QStringLiteral("cursor"), query.cursor);
+        }
+        appendLimit(parameters, query.limit);
+        return get(endpointWithQuery(QStringLiteral("/api/v2/catalog"), parameters));
+    }
+
+    // One collection's titles: the library_collection or user_collection
+    // source of listCatalogItems, paged by cursor. Without a sort the
+    // collection keeps its own order; release date runs oldest first.
+    static ProviderCatalogRequest createCollectionItemsRequest(const ProviderCatalogQuery &query)
+    {
+        const QString collectionId = query.itemId.trimmed();
+        if (collectionId.isEmpty()) {
+            return unsupported(QStringLiteral("Silo collection items require a collection ID"));
+        }
+        QString source;
+        if (query.collectionKind == QStringLiteral("library")) {
+            source = QStringLiteral("library_collection");
+        } else if (query.collectionKind == QStringLiteral("user")) {
+            source = QStringLiteral("user_collection");
+        } else {
+            return unsupported(QStringLiteral("Silo collection items need a library or user collection"));
+        }
+        QString sort;
+        const QString canonicalSort = query.sortBy.trimmed();
+        if (canonicalSort == QStringLiteral("title")) {
+            sort = QStringLiteral("title");
+        } else if (canonicalSort == QStringLiteral("releaseDate")) {
+            sort = QStringLiteral("release_date");
+        } else if (!canonicalSort.isEmpty() && canonicalSort != QStringLiteral("collectionOrder")) {
+            return unsupported(QStringLiteral("Unsupported Silo collection sort"));
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("source"), source);
+        parameters.addQueryItem(QStringLiteral("collection_id"), collectionId);
+        parameters.addQueryItem(QStringLiteral("type"), QStringLiteral("video"));
+        if (!sort.isEmpty()) {
+            parameters.addQueryItem(QStringLiteral("sort"), sort);
+        }
         if (!query.cursor.isEmpty()) {
             parameters.addQueryItem(QStringLiteral("cursor"), query.cursor);
         }

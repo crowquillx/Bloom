@@ -82,25 +82,35 @@ FocusScope {
     signal backRequested()
     signal returnStateConsumed()
     signal personSelected(var person)
+    signal collectionSelected(var collection)
 
-    // Cast and crew open the person's page (personSelected). Coming back,
-    // focus lands on the card that opened it instead of the hero.
-    property bool returnFocusToCast: false
-    property int returnCastIndex: 0
+    // Cast and crew open the person's page (personSelected), collections
+    // the collection's page (collectionSelected). Coming back, focus lands
+    // on the card that opened it instead of the hero.
+    property string returnFocusArea: ""
+    property int returnFocusIndex: 0
 
     function openPerson(person) {
         if (!person || !person.personId)
             return
-        returnFocusToCast = true
-        returnCastIndex = Math.max(0, castList.currentIndex)
+        returnFocusArea = "cast"
+        returnFocusIndex = Math.max(0, castList.currentIndex)
         root.personSelected(person)
     }
 
-    function restoreCastFocus() {
-        if (!returnFocusToCast || !sharedModelCurrent
-                || !restoreFocusToArea("cast", returnCastIndex))
+    function openCollection(collection) {
+        if (!collection || !collection.collectionId)
+            return
+        returnFocusArea = "collections"
+        returnFocusIndex = Math.max(0, collectionsShelf.list.currentIndex)
+        root.collectionSelected(collection)
+    }
+
+    function restoreReturnFocus() {
+        if (returnFocusArea === "" || !sharedModelCurrent
+                || !restoreFocusToArea(returnFocusArea, returnFocusIndex))
             return false
-        returnFocusToCast = false
+        returnFocusArea = ""
         return true
     }
 
@@ -132,8 +142,8 @@ FocusScope {
             return
         awaitingSharedReload = false
         skipLoadedAutofocus = fromCache
-        if (!restoreCastFocus()) {
-            returnFocusToCast = false
+        if (!restoreReturnFocus()) {
+            returnFocusArea = ""
             focusTimer.start()
         }
     }
@@ -476,6 +486,9 @@ FocusScope {
         if (itemIsDescendant(activeItem, castList)) {
             return "cast"
         }
+        if (itemIsDescendant(activeItem, collectionsShelf.list)) {
+            return "collections"
+        }
         if (itemIsDescendant(activeItem, chapterList)) {
             return "chapters"
         }
@@ -503,6 +516,7 @@ FocusScope {
             return 0
         }
         if (area === "cast") return Math.max(0, castList.currentIndex)
+        if (area === "collections") return Math.max(0, collectionsShelf.list.currentIndex)
         if (area === "chapters") return Math.max(0, chapterList.currentIndex)
         if (area === "extras") return Math.max(0, extrasList.currentIndex)
         if (area === "chapterTimeline") return Math.max(0, chapterTimeline.currentIndex)
@@ -541,6 +555,7 @@ FocusScope {
             "chapters": chapterList,
             "extras": extrasList,
             "cast": castList,
+            "collections": collectionsShelf.list,
             "libraryRecommendations": libraryRecommendationsList
         }
         const list = lists[area]
@@ -639,6 +654,7 @@ FocusScope {
         if (chapterSection.visible && chapterList.count > 0) targets.push(chapterList)
         if (extrasSection.visible && extrasList.count > 0) targets.push(extrasList)
         if (castSection.visible && castList.count > 0) targets.push(castList)
+        if (collectionsShelf.visible && collectionsShelf.list.count > 0) targets.push(collectionsShelf.list)
         if (libraryRecommendationsSection.visible && libraryRecommendationsList.count > 0)
             targets.push(libraryRecommendationsList)
         if (chapterTimeline.visible && chapterTimeline.count > 0) targets.push(chapterTimeline)
@@ -784,13 +800,13 @@ FocusScope {
         if (!activeFocus) {
             return
         }
-        if (returnFocusToCast) {
-            if (restoreCastFocus())
+        if (returnFocusArea !== "") {
+            if (restoreReturnFocus())
                 return
             // The reloaded movie brings its cast; finishSharedReload focuses it.
             if (awaitingSharedReload || !sharedModelCurrent)
                 return
-            returnFocusToCast = false
+            returnFocusArea = ""
         }
         if (restoringFocusFromNavigation
                 || restoringFocusFromReturnState
@@ -807,7 +823,16 @@ FocusScope {
         })
     }
 
+    // The collections that hold this movie (the "Part of" shelf).
+    ItemCollectionsViewModel {
+        id: itemCollections
+    }
+
     onMovieIdChanged: {
+        if (movieId !== "")
+            itemCollections.load(movieId)
+        else
+            itemCollections.clear()
         if (movieId !== "") {
             MovieDetailsViewModel.loadMovieDetails(movieId)
             playbackInfoLoading = true
@@ -1312,6 +1337,22 @@ FocusScope {
                 }
             }
 
+            CollectionsShelf {
+                id: collectionsShelf
+                Layout.fillWidth: true
+                collections: itemCollections.collections
+                cardImageWidth: root.cardImageWidth
+                onCollectionActivated: (collection) => root.openCollection(collection)
+                onShelfStepRequested: (delta) => root.moveShelfFocus(collectionsShelf.list, delta)
+                Connections {
+                    target: collectionsShelf.list
+                    function onActiveFocusChanged() {
+                        if (collectionsShelf.list.activeFocus)
+                            root.scrollToSection(collectionsShelf)
+                    }
+                }
+            }
+
             ColumnLayout {
                 id: libraryRecommendationsSection
                 Layout.fillWidth: true
@@ -1663,6 +1704,7 @@ FocusScope {
 
     Component.onCompleted: {
         if (movieId) {
+            itemCollections.load(movieId)
             MovieDetailsViewModel.loadMovieDetails(movieId)
             playbackInfoLoading = true
             PlaybackService.getPlaybackInfo(movieId)

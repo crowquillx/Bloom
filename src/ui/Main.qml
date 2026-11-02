@@ -1725,9 +1725,29 @@ Window {
         updateNavigationSelection()
     }
 
-    // Detail pages (LibraryScreen) ask for person pages; connect each page
-    // once, whichever path pushed it.
+    // A collection's page, from a library's Collections view or a detail
+    // page's "Part of" shelf. The collection belongs to the page's live
+    // connection; its titles open through the same details navigation as
+    // Search.
+    function pushCollectionScreen(collection) {
+        if (!collection || !collection.collectionId)
+            return
+        playPointerSelectSound()
+        var collectionScreen = stackView.push("CollectionScreen.qml", { collectionData: collection })
+        if (collectionScreen)
+            connectDetailNavigation(collectionScreen)
+        updateNavigationSelection()
+    }
+
+    // Detail pages (LibraryScreen) ask for person and collection pages;
+    // connect each page once, whichever path pushed it.
     function connectPersonNavigation(screen) {
+        if (screen && screen["collectionNavigationConnected"] === false) {
+            screen["collectionNavigationConnected"] = true
+            screen.collectionRequested.connect(function(collection) {
+                window.pushCollectionScreen(collection)
+            })
+        }
         if (!screen || screen["personNavigationConnected"] !== false)
             return
         screen["personNavigationConnected"] = true

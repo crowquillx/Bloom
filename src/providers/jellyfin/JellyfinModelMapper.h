@@ -50,6 +50,12 @@ public:
                               const QString &connectionId);
     static QVariantList personList(const QJsonArray &wirePeople,
                                    const QString &connectionId);
+    // A BoxSet item as a canonical collection (models/MediaCollections.h);
+    // empty without an ID or a name, or for another item type.
+    static QVariantMap collection(const QJsonObject &wireBoxSet,
+                                  const QString &connectionId);
+    static QVariantList collections(const QJsonArray &wireBoxSets,
+                                    const QString &connectionId);
     static Bloom::Chapter chapter(const QJsonObject &wireChapter,
                                   const QString &connectionId,
                                   const QString &itemId,
