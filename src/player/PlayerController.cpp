@@ -45,11 +45,26 @@
 namespace {
 namespace PlayerPolicy = Bloom::PlaybackPolicy;
 
+// The episode's season, or empty when the item does not say. A Silo card
+// carries no season ID and its parentId falls back to the series, which is
+// never a season: requestPlayback finds the season by number then.
 QString episodeSeasonId(const QVariantMap &episode)
 {
     const QString seasonId = episode.value(QStringLiteral("seasonId")).toString();
-    return seasonId.isEmpty() ? episode.value(QStringLiteral("parentId")).toString() : seasonId;
+    if (!seasonId.isEmpty()) {
+        return seasonId;
+    }
+    const QString parentId = episode.value(QStringLiteral("parentId")).toString();
+    return parentId == episode.value(QStringLiteral("seriesId")).toString() ? QString() : parentId;
 }
+
+int episodeSeasonNumber(const QVariantMap &episode)
+{
+    return episode.value(QStringLiteral("parentIndexNumber"), -1).toInt();
+}
+
+const QString kSeasonLookupKeyPrefix = QStringLiteral("player-season-lookup");
+const QString kSeasonLookupEpisodeContextPrefix = QStringLiteral("player-season-lookup|");
 
 std::atomic<quint64> gPlaybackAttemptCounter{0};
 bool isLinuxEmbeddedLibmpvBackend(const IPlayerBackend *backend)
@@ -251,6 +266,16 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             this, &PlayerController::onChaptersFailed);
     connect(m_libraryService, &LibraryService::canonicalItemsLoadedForConnection,
             this, &PlayerController::onAdjacentEpisodeItemsLoaded);
+    connect(m_libraryService, &LibraryService::canonicalItemsLoadedForConnection,
+            this, &PlayerController::onSeasonLookupItemsLoaded);
+    connect(m_libraryService, &LibraryService::canonicalItemsFailedForConnection,
+            this, &PlayerController::onSeasonLookupItemsFailed);
+    connect(m_libraryService,
+            qOverload<const QString &, const QVariantMap &, const QString &>(
+                &LibraryService::canonicalItemLoaded),
+            this, &PlayerController::onSeasonLookupEpisodeLoaded);
+    connect(m_libraryService, &LibraryService::itemFailed,
+            this, &PlayerController::onSeasonLookupEpisodeFailed);
     m_shuffle = new ShuffleSession(m_libraryService, this);
     connect(m_shuffle, &ShuffleSession::currentReady,
             this, &PlayerController::onShuffleCurrentReady);
@@ -2348,13 +2373,7 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
 
     const qint64 startPositionMs = resumePositionMs(m_pendingAutoplayEpisodeData);
 
-    QString targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("seasonId")).toString();
-    if (targetSeasonId.isEmpty()) {
-        targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("parentId")).toString();
-    }
-    if (targetSeasonId.isEmpty()) {
-        targetSeasonId = m_pendingAutoplaySeasonId;
-    }
+    const QString targetSeasonId = pendingAutoplayTargetSeasonId();
 
     if (playbackInfo.mediaSources.isEmpty()) {
         fallbackToPendingAutoplayPlayback();
@@ -2953,6 +2972,11 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     pending.shuffle = request.value(QStringLiteral("shuffle")).toBool();
     const PlayerPolicy::PlaybackContentRules contentRules =
         PlayerPolicy::playbackContentRules(pending.contentKind);
+    pending.seasonNumber = request.value(QStringLiteral("seasonNumber"), -1).toInt();
+    // A series is never a season (a Silo card's parentId falls back to it).
+    if (pending.seasonId == pending.seriesId) {
+        pending.seasonId.clear();
+    }
     if (!contentRules.keepsSeriesContext) {
         pending.seriesId.clear();
         pending.seasonId.clear();
@@ -2971,6 +2995,8 @@ void PlayerController::requestPlayback(const QVariantMap &request)
 
     m_pendingPlaybackRequests.insert(pending.requestId, pending);
     maybeResolvePendingRequestLibraryId(m_pendingPlaybackRequests[pending.requestId]);
+    maybeResolvePendingRequestSeasonId(m_pendingPlaybackRequests[pending.requestId]);
+    armPendingResolutionDeadline(pending.requestId);
 
     m_playbackService->getPlaybackInfo(itemId, pending.requestId);
     m_playbackService->getAdditionalParts(itemId, pending.requestId);
@@ -2982,7 +3008,6 @@ void PlayerController::onItemLibraryResolved(const QString &itemId, const QStrin
         return;
     }
 
-    m_seriesLibraryResolutionInFlight.remove(itemId);
     m_seriesLibraryIdCache.insert(itemId, libraryId);
 
     QStringList requestIdsToFinalize;
@@ -3010,7 +3035,6 @@ void PlayerController::onItemLibraryResolutionFailed(const QString &itemId, cons
     qCWarning(lcPlayback) << "Failed to resolve library for series"
                           << "seriesId=" << itemId
                           << "error=" << error;
-    m_seriesLibraryResolutionInFlight.remove(itemId);
 
     QStringList requestIdsToFinalize;
     for (auto it = m_pendingPlaybackRequests.begin(); it != m_pendingPlaybackRequests.end(); ++it) {
@@ -3103,7 +3127,7 @@ void PlayerController::maybeFinalizePendingPlaybackRequest(const QString &reques
         return;
     }
 
-    if (it->awaitingLibraryResolution) {
+    if (it->awaitingLibraryResolution || it->awaitingSeasonResolution) {
         return;
     }
 
@@ -3478,15 +3502,8 @@ void PlayerController::onPlaybackDescriptorLoadedForRequest(
         const QString url =
             QString::fromUtf8(descriptor.stream.url.toEncoded(QUrl::FullyEncoded));
         const QString autoplaySeriesId = m_pendingAutoplaySeriesId;
-        const QString autoplaySeasonId = m_pendingAutoplaySeasonId;
         const QString autoplayLibraryId = m_pendingAutoplayLibraryId;
-        const QString episodeSeasonId = m_pendingAutoplayEpisodeData.value(
-            QStringLiteral("seasonId")).toString();
-        const QString targetSeasonId = episodeSeasonId.isEmpty()
-            ? m_pendingAutoplayEpisodeData.value(QStringLiteral("parentId")).toString()
-            : episodeSeasonId;
-        const QString resolvedSeasonId = targetSeasonId.isEmpty()
-            ? autoplaySeasonId : targetSeasonId;
+        const QString resolvedSeasonId = pendingAutoplayTargetSeasonId();
         const QString mediaSourceId = descriptor.mediaVersionId.isEmpty()
             ? m_pendingAutoplayDescriptorSource.value(QStringLiteral("id")).toString()
             : descriptor.mediaVersionId;
@@ -4063,11 +4080,11 @@ void PlayerController::playNextEpisode(const QVariantMap &episodeData, const QSt
 
     emit autoplayingNextEpisode(episodeName, seriesName);
 
-    QString targetSeasonId = episodeData.value(QStringLiteral("seasonId")).toString();
-    if (targetSeasonId.isEmpty()) {
-        targetSeasonId = episodeData.value(QStringLiteral("parentId")).toString();
-    }
-    if (targetSeasonId.isEmpty()) {
+    // An episode that names no season finds it by number (requestPlayback);
+    // the season that just played is only a guess when it has no number.
+    QString targetSeasonId = episodeSeasonId(episodeData);
+    const int targetSeasonNumber = episodeSeasonNumber(episodeData);
+    if (targetSeasonId.isEmpty() && targetSeasonNumber < 0) {
         targetSeasonId = m_pendingAutoplaySeasonId;
     }
 
@@ -4077,6 +4094,7 @@ void PlayerController::playNextEpisode(const QVariantMap &episodeData, const QSt
     request[QStringLiteral("itemId")] = episodeId;
     request[QStringLiteral("seriesId")] = seriesId;
     request[QStringLiteral("seasonId")] = targetSeasonId;
+    request[QStringLiteral("seasonNumber")] = targetSeasonNumber;
     request[QStringLiteral("libraryId")] = m_pendingAutoplayLibraryId;
     request[QStringLiteral("startPositionMs")] = startPositionMs;
     request[QStringLiteral("overlayTitle")] = seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName;
@@ -4122,10 +4140,270 @@ void PlayerController::maybeResolvePendingRequestLibraryId(PlayerController::Pen
         return;
     }
 
+    // Asked again for every request (only one is pending at a time): a reply
+    // dropped after a connection change must not block later playback.
     pending.awaitingLibraryResolution = true;
-    if (!m_seriesLibraryResolutionInFlight.contains(pending.seriesId)) {
-        m_seriesLibraryResolutionInFlight.insert(pending.seriesId);
-        m_libraryService->resolveLibraryForItem(pending.seriesId);
+    m_libraryService->resolveLibraryForItem(pending.seriesId);
+}
+
+/**
+ * @brief Find the season of an episode request that names none.
+ *
+ * Track picks are kept per season, so an episode must never be scoped to its
+ * series. A Silo card has no season ID, only the season number: the series'
+ * season list maps it to the season. Without a number the episode's own
+ * details give it first. Playback info loads meanwhile; the request starts
+ * once the season is known or the lookup gave up (then without a season
+ * scope, logged).
+ */
+void PlayerController::maybeResolvePendingRequestSeasonId(PendingPlaybackRequest &pending)
+{
+    pending.awaitingSeasonResolution = false;
+    if (pending.isMovie || pending.seriesId.isEmpty()) {
+        return;
+    }
+    if (!pending.seasonId.isEmpty()) {
+        adoptSeriesTrackPreferences(pending.seriesId, pending.seasonId);
+        return;
+    }
+    if (!m_libraryService) {
+        return;
+    }
+    pending.seasonLookupConnectionId = m_libraryService->getActiveConnectionId();
+    if (pending.seasonNumber < 0) {
+        pending.awaitingSeasonResolution = true;
+        qCInfo(lcPlayback) << "Reading the episode's season before playback"
+                           << "itemId=" << pending.itemId;
+        // Fresh details: a cached 304 would carry no item.
+        m_libraryService->clearItemCacheValidation(pending.itemId);
+        m_libraryService->getItem(pending.itemId,
+                                  kSeasonLookupEpisodeContextPrefix + pending.requestId);
+        return;
+    }
+    requestSeasonIdLookup(pending);
+}
+
+QString PlayerController::seasonIdCacheKey(const QString &connectionId, const QString &seriesId,
+                                           int seasonNumber) const
+{
+    return connectionId + QLatin1Char('\n') + seriesId + QLatin1Char('\n')
+        + QString::number(seasonNumber);
+}
+
+// True when the season is known at once (the request is then marked
+// resolved); otherwise the request waits for the series' season list. The
+// list is asked for every request that needs it (only one is pending at a
+// time): a reply dropped after a connection change must not block later ones.
+bool PlayerController::requestSeasonIdLookup(PendingPlaybackRequest &pending)
+{
+    const auto cached = m_seasonIdCache.constFind(seasonIdCacheKey(
+        pending.seasonLookupConnectionId, pending.seriesId, pending.seasonNumber));
+    if (cached != m_seasonIdCache.constEnd()) {
+        pending.seasonId = cached.value();
+        adoptSeriesTrackPreferences(pending.seriesId, pending.seasonId);
+        return true;
+    }
+    pending.awaitingSeasonResolution = true;
+    LibraryItemQuery query;
+    query.parentId = pending.seriesId;
+    query.includeHeavyFields = false;
+    query.includeItemTypes = {QStringLiteral("Season")};
+    query.requestKey = kSeasonLookupKeyPrefix + QLatin1Char('\n')
+        + pending.seasonLookupConnectionId + QLatin1Char('\n') + pending.seriesId;
+    m_libraryService->getItems(query);
+    return false;
+}
+
+void PlayerController::armPendingResolutionDeadline(const QString &requestId)
+{
+    const auto it = m_pendingPlaybackRequests.constFind(requestId);
+    if (it == m_pendingPlaybackRequests.constEnd()
+        || !(it->awaitingLibraryResolution || it->awaitingSeasonResolution)) {
+        return;
+    }
+    QTimer::singleShot(m_pendingResolutionDeadlineMs, this, [this, requestId] {
+        onPendingResolutionDeadline(requestId);
+    });
+}
+
+// LibraryService drops a reply silently after a connection, user or profile
+// change, so a request never waits on one for longer than the deadline.
+void PlayerController::onPendingResolutionDeadline(const QString &requestId)
+{
+    auto it = m_pendingPlaybackRequests.find(requestId);
+    if (it == m_pendingPlaybackRequests.end()) {
+        return;
+    }
+    if (it->awaitingLibraryResolution) {
+        qCWarning(lcPlayback) << "Series library not resolved in time; playing without it"
+                              << "seriesId=" << it->seriesId;
+        it->awaitingLibraryResolution = false;
+    }
+    if (it->awaitingSeasonResolution) {
+        finishPendingSeasonResolution(requestId, QString(), QStringLiteral("timed out"));
+        return;
+    }
+    maybeFinalizePendingPlaybackRequest(requestId);
+}
+
+void PlayerController::adoptSeriesTrackPreferences(const QString &seriesId,
+                                                   const QString &seasonId)
+{
+    if (seriesId.isEmpty() || seasonId.isEmpty() || seriesId == seasonId) {
+        return;
+    }
+    const ScopedTrackPreferences seriesScoped = m_trackPrefs->getSeasonPreferences(seriesId);
+    if (seriesScoped.isEmpty()) {
+        return;
+    }
+    // A local pick is never silently undone: the season keeps its own and
+    // takes the series' for each kind it has none of, once.
+    qCInfo(lcPlayback) << "Moving track picks saved for series" << seriesId
+                       << "to season" << seasonId;
+    updateSeasonPreference(seasonId, [&seriesScoped](ScopedTrackPreferences &preferences) {
+        if (preferences.audio.mode == TrackPreferenceMode::Unset) {
+            preferences.audio = seriesScoped.audio;
+        }
+        if (preferences.subtitle.mode == TrackPreferenceMode::Unset) {
+            preferences.subtitle = seriesScoped.subtitle;
+        }
+        if (preferences.subtitleDelayMs == 0) {
+            preferences.subtitleDelayMs = seriesScoped.subtitleDelayMs;
+        }
+        for (const SubtitleDelayOverride &entry : seriesScoped.subtitleDelayOverrides) {
+            const bool known = std::any_of(
+                preferences.subtitleDelayOverrides.cbegin(),
+                preferences.subtitleDelayOverrides.cend(),
+                [&entry](const SubtitleDelayOverride &own) { return own.syncKey == entry.syncKey; });
+            if (!known) {
+                preferences.setSubtitleDelayOverride(entry.syncKey, entry.delayMs);
+            }
+        }
+    });
+    m_trackPrefs->clearSeasonPreferences(seriesId);
+}
+
+void PlayerController::finishPendingSeasonResolution(const QString &requestId,
+                                                     const QString &seasonId,
+                                                     const QString &reason)
+{
+    auto it = m_pendingPlaybackRequests.find(requestId);
+    if (it == m_pendingPlaybackRequests.end() || !it->awaitingSeasonResolution) {
+        return;
+    }
+    it->awaitingSeasonResolution = false;
+    it->seasonId = seasonId;
+    adoptSeriesTrackPreferences(it->seriesId, seasonId);
+    if (seasonId.isEmpty()) {
+        qCWarning(lcPlayback) << "Episode season not found; its track picks keep no season"
+                              << "itemId=" << it->itemId << "seriesId=" << it->seriesId
+                              << "seasonNumber=" << it->seasonNumber << "reason=" << reason;
+    } else {
+        qCInfo(lcPlayback) << "Episode season resolved" << "itemId=" << it->itemId
+                           << "seasonId=" << seasonId;
+    }
+    maybeFinalizePendingPlaybackRequest(requestId);
+}
+
+void PlayerController::onSeasonLookupEpisodeLoaded(const QString &itemId,
+                                                   const QVariantMap &item,
+                                                   const QString &requestContext)
+{
+    if (!requestContext.startsWith(kSeasonLookupEpisodeContextPrefix)) {
+        return;
+    }
+    const QString requestId = requestContext.mid(kSeasonLookupEpisodeContextPrefix.size());
+    auto it = m_pendingPlaybackRequests.find(requestId);
+    if (it == m_pendingPlaybackRequests.end() || it->itemId != itemId
+        || !it->awaitingSeasonResolution) {
+        return;
+    }
+    const QString seasonId = episodeSeasonId(item);
+    if (!seasonId.isEmpty() && seasonId != it->seriesId) {
+        finishPendingSeasonResolution(requestId, seasonId, QString());
+        return;
+    }
+    it->seasonNumber = episodeSeasonNumber(item);
+    if (it->seasonNumber < 0) {
+        finishPendingSeasonResolution(requestId, QString(),
+                                      QStringLiteral("episode has no season number"));
+        return;
+    }
+    if (requestSeasonIdLookup(*it)) {
+        finishPendingSeasonResolution(requestId, QString(it->seasonId), QString());
+    }
+}
+
+void PlayerController::onSeasonLookupEpisodeFailed(const QString &itemId, const QString &error,
+                                                   const QString &requestContext)
+{
+    Q_UNUSED(itemId);
+    if (requestContext.startsWith(kSeasonLookupEpisodeContextPrefix)) {
+        finishPendingSeasonResolution(
+            requestContext.mid(kSeasonLookupEpisodeContextPrefix.size()), QString(), error);
+    }
+}
+
+void PlayerController::onSeasonLookupItemsLoaded(const QString &connectionId,
+                                                 const QString &parentId,
+                                                 const QString &queryKey,
+                                                 const QVariantList &items,
+                                                 int totalRecordCount)
+{
+    Q_UNUSED(parentId);
+    Q_UNUSED(totalRecordCount);
+    const QStringList parts = queryKey.split(QLatin1Char('\n'));
+    if (parts.size() != 3 || parts.at(0) != kSeasonLookupKeyPrefix
+        || parts.at(1) != connectionId) {
+        return;
+    }
+    for (const QVariant &value : items) {
+        const QVariantMap season = value.toMap();
+        const QString seasonId = season.value(QStringLiteral("itemId")).toString();
+        const int number = season.value(QStringLiteral("indexNumber"), -1).toInt();
+        if (!seasonId.isEmpty() && number >= 0) {
+            m_seasonIdCache.insert(seasonIdCacheKey(parts.at(1), parts.at(2), number), seasonId);
+        }
+    }
+    QStringList requestIds;
+    for (auto it = m_pendingPlaybackRequests.cbegin(); it != m_pendingPlaybackRequests.cend(); ++it) {
+        if (it->awaitingSeasonResolution && it->seasonNumber >= 0
+            && it->seasonLookupConnectionId == parts.at(1) && it->seriesId == parts.at(2)) {
+            requestIds.append(it.key());
+        }
+    }
+    for (const QString &requestId : std::as_const(requestIds)) {
+        const auto it = m_pendingPlaybackRequests.constFind(requestId);
+        if (it == m_pendingPlaybackRequests.constEnd()) {
+            continue;
+        }
+        finishPendingSeasonResolution(
+            requestId,
+            m_seasonIdCache.value(seasonIdCacheKey(parts.at(1), parts.at(2), it->seasonNumber)),
+            QStringLiteral("series has no season with that number"));
+    }
+}
+
+void PlayerController::onSeasonLookupItemsFailed(const QString &connectionId,
+                                                 const QString &parentId,
+                                                 const QString &requestKey,
+                                                 const QString &error)
+{
+    Q_UNUSED(parentId);
+    const QStringList parts = requestKey.split(QLatin1Char('\n'));
+    if (parts.size() != 3 || parts.at(0) != kSeasonLookupKeyPrefix
+        || parts.at(1) != connectionId) {
+        return;
+    }
+    QStringList requestIds;
+    for (auto it = m_pendingPlaybackRequests.cbegin(); it != m_pendingPlaybackRequests.cend(); ++it) {
+        if (it->awaitingSeasonResolution && it->seasonNumber >= 0
+            && it->seasonLookupConnectionId == parts.at(1) && it->seriesId == parts.at(2)) {
+            requestIds.append(it.key());
+        }
+    }
+    for (const QString &requestId : std::as_const(requestIds)) {
+        finishPendingSeasonResolution(requestId, QString(), error);
     }
 }
 
@@ -5964,11 +6242,9 @@ void PlayerController::requestAdjacentEpisodePlayback(const QVariantMap &episode
     if (episodeId.isEmpty()) {
         return;
     }
-    QString seasonId = episode.value(QStringLiteral("seasonId")).toString();
-    if (seasonId.isEmpty()) {
-        seasonId = episode.value(QStringLiteral("parentId")).toString();
-    }
-    if (seasonId.isEmpty()) {
+    QString seasonId = episodeSeasonId(episode);
+    const int seasonNumber = episodeSeasonNumber(episode);
+    if (seasonId.isEmpty() && seasonNumber < 0) {
         seasonId = m_currentSeasonId;
     }
     const QString seriesName = episode.value(QStringLiteral("seriesName")).toString();
@@ -6000,6 +6276,7 @@ void PlayerController::requestAdjacentEpisodePlayback(const QVariantMap &episode
         {QStringLiteral("itemId"), episodeId},
         {QStringLiteral("seriesId"), m_currentSeriesId},
         {QStringLiteral("seasonId"), seasonId},
+        {QStringLiteral("seasonNumber"), seasonNumber},
         {QStringLiteral("libraryId"), m_currentLibraryId},
         {QStringLiteral("startPositionMs"), resumePositionMs(episode)},
         {QStringLiteral("overlayTitle"), overlayTitle},
@@ -7902,8 +8179,31 @@ void PlayerController::releaseAfterMovieDisplayRestore(qulonglong attemptId)
     maybeStartDeferredPostPlaybackDisplayRestore();
 }
 
+QString PlayerController::pendingAutoplayTargetSeasonId() const
+{
+    const QString seasonId = episodeSeasonId(m_pendingAutoplayEpisodeData);
+    if (!seasonId.isEmpty()) {
+        return seasonId;
+    }
+    const int seasonNumber = episodeSeasonNumber(m_pendingAutoplayEpisodeData);
+    if (seasonNumber < 0) {
+        return m_pendingAutoplaySeasonId;
+    }
+    // Never the season that just played: S2E1 is not season 1's. Without a
+    // cached season list the episode plays without a season scope.
+    return m_libraryService
+        ? m_seasonIdCache.value(seasonIdCacheKey(m_libraryService->getActiveConnectionId(),
+                                                 m_pendingAutoplaySeriesId, seasonNumber))
+        : QString();
+}
+
 QString PlayerController::pendingAutoplayCarrySeasonId(const QString &targetSeasonId) const
 {
+    // An episode that names no season finds it when it plays; the carry
+    // applies only if that season turns out to be another one.
+    if (targetSeasonId.isEmpty()) {
+        return m_pendingAutoplaySeasonId;
+    }
     const ScopedTrackPreferences carried =
         seasonTrackPreferencesWithCarry(targetSeasonId, m_pendingAutoplaySeasonId);
     return carried == seasonTrackPreferencesWithCarry(targetSeasonId, QString())
@@ -7977,13 +8277,7 @@ void PlayerController::fallbackToPendingAutoplayPlayback()
 
     const qint64 startPositionMs = resumePositionMs(m_pendingAutoplayEpisodeData);
 
-    QString targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("seasonId")).toString();
-    if (targetSeasonId.isEmpty()) {
-        targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("parentId")).toString();
-    }
-    if (targetSeasonId.isEmpty()) {
-        targetSeasonId = m_pendingAutoplaySeasonId;
-    }
+    const QString targetSeasonId = pendingAutoplayTargetSeasonId();
 
     const QString seriesId = m_pendingAutoplaySeriesId;
     const QString libraryId = m_pendingAutoplayLibraryId;
@@ -9717,7 +10011,7 @@ void PlayerController::onShuffleCurrentReady(const QVariantMap &item)
         item.value(QStringLiteral("mediaType")).toString() == QStringLiteral("Episode");
     const QString seriesId = episode ? item.value(QStringLiteral("seriesId")).toString() : QString();
     // Only the episode's own season: picks never carry across a shuffle.
-    const QString seasonId = episode ? item.value(QStringLiteral("seasonId")).toString() : QString();
+    const QString seasonId = episode ? episodeSeasonId(item) : QString();
     const QString name = item.value(QStringLiteral("name")).toString();
     QString overlayTitle = episode ? item.value(QStringLiteral("seriesName")).toString() : name;
     if (overlayTitle.isEmpty()) {
@@ -9759,6 +10053,7 @@ void PlayerController::onShuffleCurrentReady(const QVariantMap &item)
         {QStringLiteral("itemId"), itemId},
         {QStringLiteral("seriesId"), seriesId},
         {QStringLiteral("seasonId"), seasonId},
+        {QStringLiteral("seasonNumber"), episode ? episodeSeasonNumber(item) : -1},
         {QStringLiteral("libraryId"),
          scope.kind == Bloom::ShuffleScope::kLibrary ? scope.id : QString()},
         // A shuffle plays each pick from its beginning, whatever its resume

@@ -670,6 +670,19 @@ private slots:
                                       const QString &queryKey,
                                       const QVariantList &items,
                                       int totalRecordCount);
+    void onSeasonLookupItemsLoaded(const QString &connectionId,
+                                   const QString &parentId,
+                                   const QString &queryKey,
+                                   const QVariantList &items,
+                                   int totalRecordCount);
+    void onSeasonLookupItemsFailed(const QString &connectionId,
+                                   const QString &parentId,
+                                   const QString &requestKey,
+                                   const QString &error);
+    void onSeasonLookupEpisodeLoaded(const QString &itemId, const QVariantMap &item,
+                                     const QString &requestContext);
+    void onSeasonLookupEpisodeFailed(const QString &itemId, const QString &error,
+                                     const QString &requestContext);
     void onRecoveryTick();
     void resumeFromRecoveryContext();
     
@@ -1034,6 +1047,17 @@ private:
     double videoFramerateForMediaSource(const QVariantMap &mediaSource) const;
     bool mediaSourceIsHdr(const QVariantMap &mediaSource) const;
     void maybeResolvePendingRequestLibraryId(PendingPlaybackRequest &pending);
+    void maybeResolvePendingRequestSeasonId(PendingPlaybackRequest &pending);
+    bool requestSeasonIdLookup(PendingPlaybackRequest &pending);
+    void finishPendingSeasonResolution(const QString &requestId, const QString &seasonId,
+                                       const QString &reason);
+    void armPendingResolutionDeadline(const QString &requestId);
+    void onPendingResolutionDeadline(const QString &requestId);
+    // Moves picks saved for the series (before episodes were scoped to their
+    // season) to the season, for each kind the season has none of.
+    void adoptSeriesTrackPreferences(const QString &seriesId, const QString &seasonId);
+    [[nodiscard]] QString seasonIdCacheKey(const QString &connectionId, const QString &seriesId,
+                                           int seasonNumber) const;
     void maybeFinalizePendingPlaybackRequest(const QString &requestId);
     void launchResolvedPlaybackRequest(const QString &requestId);
     void failPendingPlaybackRequest(const QString &requestId, const QString &message);
@@ -1105,6 +1129,9 @@ private:
     // (audio, subtitles) that has an explicit pick there and none in the
     // next season (in the same season the saved pick resolves by itself).
     [[nodiscard]] QString pendingAutoplayCarrySeasonId(const QString &targetSeasonId) const;
+    // The pending autoplay episode's season: its own, the cached one for its
+    // season number, or (without a number) the season that just played.
+    [[nodiscard]] QString pendingAutoplayTargetSeasonId() const;
     // A season's saved picks, with each kind it has none of taken from
     // `carryFromSeasonId`. The carried picks are matched by what the track
     // is, not its index, like any saved pick.
@@ -1167,6 +1194,11 @@ private:
         bool allowVersionPrompt = true;
         bool useAffinityFallback = false;
         bool awaitingLibraryResolution = false;
+        // The episode's season number ("seasonNumber"), used to find its
+        // season when the request names none (Silo cards carry no season ID).
+        int seasonNumber = -1;
+        QString seasonLookupConnectionId;
+        bool awaitingSeasonResolution = false;
         QObject *restoreFocusTarget = nullptr;
         bool additionalPartsLoaded = false;
         bool versionSelectionRequested = false;
@@ -1498,7 +1530,12 @@ private:
     QVariantMap m_pendingAutoplayEpisodeData;
     QHash<QString, PendingPlaybackRequest> m_pendingPlaybackRequests;
     QHash<QString, QString> m_seriesLibraryIdCache;
-    QSet<QString> m_seriesLibraryResolutionInFlight;
+    // connectionId \n seriesId \n season number -> season ID.
+    QHash<QString, QString> m_seasonIdCache;
+    // How long a playback request waits for its series' library or its
+    // episode's season before it starts without them. LibraryService drops a
+    // reply silently after a connection or user change.
+    int m_pendingResolutionDeadlineMs = 8000;
     QList<QVariantMap> m_playbackSegments;
     QVariantList m_nextPlaybackSegments;
     QStringList m_nextPlaylistAppendUrls;
