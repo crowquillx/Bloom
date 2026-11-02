@@ -95,6 +95,10 @@ public:
     {
         emit favoriteStatusChanged(itemId, isFavorite);
     }
+    void confirmTasteSeed(const QString &forConnection, const QStringList &itemIds)
+    {
+        emit tasteSeedSubmitted(forConnection, itemIds);
+    }
     void refuseWatchlist(const QString &itemId, bool inWatchlist)
     {
         emit watchlistStatusFailed(itemId, inWatchlist, QStringLiteral("Not Found"));
@@ -240,6 +244,7 @@ private slots:
     void homeRowsRefreshAfterWatchlistChange();
     void homeRowsRefreshAfterFavoriteChangeOnlyWithFavoritesRow();
     void homeRowsRefreshAfterFavoriteChangeDuringFirstRead();
+    void homeRowsReloadRecommendationsAfterTasteSeed();
     void homeRowsClearForMergedSpaces();
     void homeRowsReadRecommendationsFromShownMovieLibraries();
     void homeRowsReloadRecommendationsOnlyWhenAsked();
@@ -355,6 +360,65 @@ void HomeRowsAndWatchlistTest::homeRowsUpdateInPlaceWhenRowsAreUnchanged()
     });
     QCOMPARE(reset.count(), 1);
     QCOMPARE(sectionIds(model), (QStringList{QStringLiteral("b"), QStringLiteral("a")}));
+}
+
+void HomeRowsAndWatchlistTest::homeRowsReloadRecommendationsAfterTasteSeed()
+{
+    HomeSectionsViewModel model(m_service);
+    // Nothing loaded yet: Home loads its own rows.
+    m_service->confirmTasteSeed(QStringLiteral("connection-1"), {QStringLiteral("movie:a")});
+    QCOMPARE(m_service->homeRequests, 0);
+
+    model.refresh();
+    m_service->loadRows(QStringLiteral("connection-1"), {
+        row(QStringLiteral("for-you"), QStringLiteral("For You"),
+            {card(QStringLiteral("movie:a"), QStringLiteral("Movie"))})
+    });
+    QCOMPARE(m_service->homeRequests, 1);
+    QVERIFY(!m_service->lastReloadRecommendations);
+
+    // A seed for another connection changes nothing here.
+    m_service->confirmTasteSeed(QStringLiteral("connection-2"), {QStringLiteral("movie:a")});
+    QCOMPARE(m_service->homeRequests, 1);
+
+    // The live connection's seed reads the taste-driven rows again, and
+    // once more after a delay (the server may still refresh the taste).
+    model.setTasteSeedFollowUpDelay(50);
+    m_service->confirmTasteSeed(QStringLiteral("connection-1"), {QStringLiteral("movie:a")});
+    QCOMPARE(m_service->homeRequests, 2);
+    QVERIFY(m_service->lastReloadRecommendations);
+    m_service->loadRows(QStringLiteral("connection-1"), {});
+    m_service->lastReloadRecommendations = false;
+    QTRY_COMPARE_WITH_TIMEOUT(m_service->homeRequests, 3, 1000);
+    QVERIFY(m_service->lastReloadRecommendations);
+    m_service->loadRows(QStringLiteral("connection-1"), {});
+    QTest::qWait(150);
+    QCOMPARE(m_service->homeRequests, 3);
+
+    // A session change cancels the second read.
+    m_service->confirmTasteSeed(QStringLiteral("connection-1"), {QStringLiteral("movie:a")});
+    QCOMPARE(m_service->homeRequests, 4);
+    m_service->connectionId = QStringLiteral("connection-2");
+    model.refresh();
+    QCOMPARE(m_service->homeRequests, 5);
+    m_service->loadRows(QStringLiteral("connection-2"), {});
+    QTest::qWait(150);
+    QCOMPARE(m_service->homeRequests, 5);
+
+    // So does clearing Home for a merged space, and a change the timer
+    // finds when it fires.
+    m_service->confirmTasteSeed(QStringLiteral("connection-2"), {QStringLiteral("movie:a")});
+    QCOMPARE(m_service->homeRequests, 6);
+    model.clear();
+    QTest::qWait(150);
+    QCOMPARE(m_service->homeRequests, 6);
+    model.refresh();
+    m_service->loadRows(QStringLiteral("connection-2"), {});
+    m_service->confirmTasteSeed(QStringLiteral("connection-2"), {QStringLiteral("movie:a")});
+    QCOMPARE(m_service->homeRequests, 8);
+    m_service->connectionId = QStringLiteral("connection-3");
+    QTest::qWait(150);
+    QCOMPARE(m_service->homeRequests, 8);
 }
 
 void HomeRowsAndWatchlistTest::homeRowsIgnoreOtherConnectionsAndDropThemOnSwitch()

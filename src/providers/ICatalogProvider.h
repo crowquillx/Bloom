@@ -218,6 +218,17 @@ enum class ProviderCatalogOperation {
     // (IProviderAdapter::mapMediaDetail). Providers whose details need no
     // capability for them (Jellyfin) report this unsupported.
     ImageCapabilities,
+    // Taste seeding, the cold-start picker (Silo). TasteSeedFavorites asks
+    // whether the acting profile has favorited anything (one favorite is
+    // enough); capabilityMetadata carries `hasFavorites`. TasteSeedItems
+    // reads one page of candidate titles, most recognizable first, by
+    // cursor (limit at most 60); rawItems holds movie and series cards with
+    // the profile's favorite state. SubmitTasteSeed records itemIds (1 to
+    // 200) as favorites and queues a taste refresh; never replayed.
+    // capabilityMetadata carries `added`, the picks newly recorded.
+    TasteSeedFavorites,
+    TasteSeedItems,
+    SubmitTasteSeed,
 };
 
 enum class ProviderHttpMethod {

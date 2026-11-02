@@ -243,6 +243,8 @@ private slots:
     void watchHistoryAndWatchTonightRequests();
     void watchHistoryServiceReadsPagesAndRemoves();
     void homeShowsWatchTonightFirstUnlessColdOrOff();
+    void tasteSeedRequests();
+    void tasteSeedServiceReadsAndSubmits();
     void jellyfinItemExtrasPutTrailersFirstAndFlagPartialAnswers();
     void siloItemExtrasAnswerEmptyWithoutRequests();
     void personReadsMapCanonicalPeopleAndTitles();
@@ -2747,6 +2749,9 @@ void SiloCatalogServiceTest::jellyfinHasNoWatchlistOrCuratedRows()
     ExposedAuthenticationService auth(&transport, &jellyfin);
     LibraryService service(&auth);
     QVERIFY(!service.supportsWatchlist());
+    // No taste seeding either: Home and Settings hide its entry points.
+    QVERIFY(!service.supportsTasteSeed());
+    QVERIFY(service.tasteSeedScope().isEmpty());
     QSignalSpy loaded(&service, &LibraryService::canonicalHomeSectionsLoaded);
     service.getHomeSections();
     QCOMPARE(loaded.count(), 1);
@@ -4935,6 +4940,222 @@ void SiloCatalogServiceTest::watchHistoryServiceReadsPagesAndRemoves()
     QCOMPARE(removed.count(), 1);
     // A refused removal is never replayed.
     QCOMPARE(manager.requests.size(), first + 2);
+}
+
+void SiloCatalogServiceTest::tasteSeedRequests()
+{
+    SiloCatalogProvider provider;
+
+    // listFavorites, one card: profile scoped, no artwork, as Silo's own
+    // taste-seed gate asks.
+    ProviderCatalogRequest request
+        = provider.createRequest(ProviderCatalogOperation::TasteSeedFavorites, {});
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/favorites?limit=1"));
+    // Cold: no favorite.
+    ProviderCatalogResponse favorites = provider.parseResponse(
+        ProviderCatalogOperation::TasteSeedFavorites, QByteArrayLiteral(R"({"items":[]})"));
+    QVERIFY(favorites.valid);
+    QVERIFY(!favorites.capabilityMetadata.value(QStringLiteral("hasFavorites")).toBool());
+    favorites = provider.parseResponse(
+        ProviderCatalogOperation::TasteSeedFavorites,
+        QByteArrayLiteral(R"({"items":[],"page":{"has_more":false,"next_cursor":""}})"));
+    QVERIFY(favorites.valid);
+    QVERIFY(!favorites.capabilityMetadata.value(QStringLiteral("hasFavorites")).toBool());
+    // Warm: a favorite, or a hidden newest one while more follow.
+    favorites = provider.parseResponse(
+        ProviderCatalogOperation::TasteSeedFavorites,
+        QByteArrayLiteral(R"({"items":[{"content_id":"movie:heat-1995","type":"movie","title":"Heat",)"
+                          R"("genres":[],"keywords":[],"status":"matched"}]})"));
+    QVERIFY(favorites.valid);
+    QVERIFY(favorites.capabilityMetadata.value(QStringLiteral("hasFavorites")).toBool());
+    favorites = provider.parseResponse(
+        ProviderCatalogOperation::TasteSeedFavorites,
+        QByteArrayLiteral(R"({"items":[],"page":{"has_more":true,"next_cursor":"cursor-1"}})"));
+    QVERIFY(favorites.valid);
+    QVERIFY(favorites.capabilityMetadata.value(QStringLiteral("hasFavorites")).toBool());
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::TasteSeedFavorites,
+                                    QByteArrayLiteral(R"({"page":{"has_more":true}})")).valid);
+
+    // listTasteSeedItems: by cursor, at most 60 a page, with the artwork
+    // widths; only movie and series cards, each once.
+    ProviderCatalogQuery query;
+    query.limit = 100;
+    query.cursor = QStringLiteral("eyJvIjozMH0");
+    request = provider.createRequest(ProviderCatalogOperation::TasteSeedItems, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Get);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
+    QCOMPARE(request.relativeEndpoint,
+             withArtworkWidths(QStringLiteral(
+                 "/api/v2/recommendations/taste-seed/items?limit=60&cursor=eyJvIjozMH0")));
+    query = {};
+    request = provider.createRequest(ProviderCatalogOperation::TasteSeedItems, query);
+    QCOMPARE(request.relativeEndpoint,
+             withArtworkWidths(QStringLiteral("/api/v2/recommendations/taste-seed/items")));
+    query.startIndex = 30;
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::TasteSeedItems, query).supported);
+    ProviderCatalogResponse page = provider.parseResponse(
+        ProviderCatalogOperation::TasteSeedItems,
+        QByteArrayLiteral(
+            R"({"items":[)"
+            R"({"content_id":"movie:heat-1995","type":"movie","title":"Heat","genres":[],"keywords":[],"status":"matched","user_state":{"is_favorite":true}},)"
+            R"({"content_id":"audiobook:x","type":"audiobook","title":"Book","genres":[],"keywords":[],"status":"matched"},)"
+            R"({"content_id":"series:sev","type":"series","title":"Severance","genres":[],"keywords":[],"status":"matched"},)"
+            R"({"content_id":"movie:heat-1995","type":"movie","title":"Heat","genres":[],"keywords":[],"status":"matched"}],)"
+            R"("page":{"has_more":true,"next_cursor":"next-1"}})"));
+    QVERIFY(page.valid);
+    QCOMPARE(page.rawItems.size(), 2);
+    QCOMPARE(page.rawItems.at(1).toObject().value(QStringLiteral("content_id")).toString(),
+             QStringLiteral("series:sev"));
+    QVERIFY(page.hasMore);
+    QCOMPARE(page.nextCursor, QStringLiteral("next-1"));
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::TasteSeedItems,
+                                    QByteArrayLiteral(R"({"items":[],"page":{"has_more":true}})")).valid);
+
+    // createTasteSeed: non_retryable, 1 to 200 picks, blanks and repeats
+    // dropped.
+    query = {};
+    query.itemIds = {QStringLiteral("movie:heat-1995"), QStringLiteral(" "),
+                     QStringLiteral("series:sev"), QStringLiteral("movie:heat-1995")};
+    request = provider.createRequest(ProviderCatalogOperation::SubmitTasteSeed, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Never);
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/recommendations/taste-seed"));
+    QCOMPARE(request.extraHeaders.value(QByteArrayLiteral("Content-Type")),
+             QByteArrayLiteral("application/json"));
+    QCOMPARE(QJsonDocument::fromJson(request.body).object(),
+             QJsonObject({{QStringLiteral("item_ids"),
+                           QJsonArray{QStringLiteral("movie:heat-1995"),
+                                      QStringLiteral("series:sev")}}}));
+    query.itemIds = {QStringLiteral(" ")};
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::SubmitTasteSeed, query).supported);
+    query.itemIds.clear();
+    for (int i = 0; i < SiloCatalogProvider::kTasteSeedPicksMax + 1; ++i) {
+        query.itemIds.append(QStringLiteral("movie:%1").arg(i));
+    }
+    QVERIFY(!provider.createRequest(ProviderCatalogOperation::SubmitTasteSeed, query).supported);
+    query.itemIds.removeLast();
+    QVERIFY(provider.createRequest(ProviderCatalogOperation::SubmitTasteSeed, query).supported);
+    ProviderCatalogResponse result = provider.parseResponse(
+        ProviderCatalogOperation::SubmitTasteSeed, QByteArrayLiteral(R"({"added":3})"));
+    QVERIFY(result.valid);
+    QCOMPARE(result.capabilityMetadata.value(QStringLiteral("added")).toInt(), 3);
+    QVERIFY(!provider.parseResponse(ProviderCatalogOperation::SubmitTasteSeed,
+                                    QByteArrayLiteral(R"({"saved":3})")).valid);
+}
+
+void SiloCatalogServiceTest::tasteSeedServiceReadsAndSubmits()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    QVERIFY(signInToSilo(manager, auth, config));
+    const QString connectionId = auth.activeConnectionId();
+
+    LibraryService service(&auth);
+    QVERIFY(service.supportsTasteSeed());
+    QCOMPARE(service.tasteSeedScope(), connectionId + QStringLiteral("\nprofile-1"));
+
+    // Whether the profile is cold: one favorites card.
+    QSignalSpy state(&service, &LibraryService::tasteSeedStateLoaded);
+    manager.responses = {
+        { 200, QByteArrayLiteral(R"({"items":[]})"), false }
+    };
+    qsizetype first = manager.requests.size();
+    service.getTasteSeedState(QStringLiteral("state-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(state.count(), 1, 1000);
+    const QUrl stateUrl = manager.requests.at(first).request.url();
+    QCOMPARE(stateUrl.path(), QStringLiteral("/api/v2/favorites"));
+    QCOMPARE(QUrlQuery(stateUrl).queryItemValue(QStringLiteral("limit")), QStringLiteral("1"));
+    QCOMPARE(manager.requests.at(first).request.rawHeader("X-Profile-Id"),
+             QByteArrayLiteral("profile-1"));
+    QCOMPARE(state.first().at(0).toString(), connectionId);
+    QCOMPARE(state.first().at(1).toString(), QStringLiteral("state-1"));
+    QVERIFY(state.first().at(2).toBool());
+
+    // A page of candidates, as canonical maps.
+    QSignalSpy loaded(&service, &LibraryService::canonicalTasteSeedItemsLoaded);
+    manager.responses = {
+        { 200,
+            QByteArrayLiteral(
+                R"({"items":[{"content_id":"movie:heat-1995","type":"movie","title":"Heat","genres":[],"keywords":[],"status":"matched",)"
+                R"("user_state":{"is_favorite":true}}],"page":{"has_more":true,"next_cursor":"next-1"}})"),
+            false }
+    };
+    first = manager.requests.size();
+    service.getTasteSeedItems(QStringLiteral("cursor-0"), 60, QStringLiteral("page-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 1000);
+    const QUrl pageUrl = manager.requests.at(first).request.url();
+    QCOMPARE(pageUrl.path(), QStringLiteral("/api/v2/recommendations/taste-seed/items"));
+    QCOMPARE(QUrlQuery(pageUrl).queryItemValue(QStringLiteral("cursor")), QStringLiteral("cursor-0"));
+    QCOMPARE(QUrlQuery(pageUrl).queryItemValue(QStringLiteral("limit")), QStringLiteral("60"));
+    QCOMPARE(loaded.first().at(1).toString(), QStringLiteral("page-1"));
+    const QVariantList items = loaded.first().at(2).toList();
+    QCOMPARE(items.size(), 1);
+    const QVariantMap heat = items.first().toMap();
+    QCOMPARE(heat.value(QStringLiteral("mediaType")).toString(), QStringLiteral("Movie"));
+    QCOMPARE(heat.value(QStringLiteral("connectionId")).toString(), connectionId);
+    QVERIFY(heat.value(QStringLiteral("userState")).toMap().value(QStringLiteral("favorite")).toBool());
+    QVERIFY(loaded.first().at(3).toBool());
+    QCOMPARE(loaded.first().at(4).toString(), QStringLiteral("next-1"));
+
+    // Submitting: one non_retryable POST answered as a card write; each
+    // pick is a favorite now and Home hears about the seed.
+    QSignalSpy finished(&service, &LibraryService::homeCardWriteFinished);
+    QSignalSpy favorites(&service, &LibraryService::favoriteStatusChanged);
+    QSignalSpy submitted(&service, &LibraryService::tasteSeedSubmitted);
+    manager.responses = {
+        { 200, QByteArrayLiteral(R"({"added":2})"), false },
+        { 503, QByteArrayLiteral(R"({"type":"about:blank","title":"Unavailable","status":503})"), false }
+    };
+    first = manager.requests.size();
+    const QStringList picks{QStringLiteral("movie:a"), QStringLiteral("series:b")};
+    service.submitTasteSeed(picks, QStringLiteral("submit-1"));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 1000);
+    QVERIFY(finished.first().at(2).toBool());
+    const RecordedRequest submit = manager.requests.at(first);
+    QCOMPARE(submit.operation, QNetworkAccessManager::PostOperation);
+    QCOMPARE(submit.request.url().path(), QStringLiteral("/api/v2/recommendations/taste-seed"));
+    QCOMPARE(submit.request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
+    QCOMPARE(QJsonDocument::fromJson(submit.body).object().value(QStringLiteral("item_ids")).toArray(),
+             (QJsonArray{QStringLiteral("movie:a"), QStringLiteral("series:b")}));
+    QCOMPARE(favorites.count(), 2);
+    QCOMPARE(favorites.at(1).at(0).toString(), QStringLiteral("series:b"));
+    QVERIFY(favorites.at(1).at(1).toBool());
+    QCOMPARE(submitted.count(), 1);
+    QCOMPARE(submitted.first().at(0).toString(), connectionId);
+    QCOMPARE(submitted.first().at(1).toStringList(), picks);
+
+    // A refusal is reported once and never replayed, even on a 503.
+    service.submitTasteSeed(picks, QStringLiteral("submit-2"));
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 2, 10000);
+    QVERIFY(!finished.at(1).at(2).toBool());
+    QCOMPARE(finished.at(1).at(1).toString(), QStringLiteral("submit-2"));
+    QCOMPARE(manager.requests.size(), first + 2);
+    QCOMPARE(submitted.count(), 1);
+    QCOMPARE(favorites.count(), 2);
+
+    // A submission the session outlives answers as unconfirmed, then failed.
+    QSignalSpy unconfirmed(&service, &LibraryService::homeCardWriteUnconfirmed);
+    manager.responses = { { 200, QByteArrayLiteral(R"({"added":1})"), true } };
+    first = manager.requests.size();
+    service.submitTasteSeed({QStringLiteral("movie:c")}, QStringLiteral("submit-3"));
+    QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), first + 1, 1000);
+    auth.replaceAccount(QStringLiteral("account-2"), QStringLiteral("access-2"));
+    QCOMPARE(unconfirmed.count(), 1);
+    QCOMPARE(unconfirmed.first().at(1).toString(), QStringLiteral("submit-3"));
+    QCOMPARE(finished.count(), 3);
+    QVERIFY(!finished.at(2).at(2).toBool());
+    QCOMPARE(submitted.count(), 1);
 }
 
 void SiloCatalogServiceTest::homeShowsWatchTonightFirstUnlessColdOrOff()

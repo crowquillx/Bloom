@@ -90,6 +90,9 @@ qt_add_executable(Bloom
     viewmodels/UpcomingViewModel.h
     viewmodels/UpcomingViewModel.cpp
     ui/UpcomingViewModelRegistration.h
+    viewmodels/TasteSeedViewModels.h
+    viewmodels/TasteSeedViewModels.cpp
+    ui/TasteSeedViewModelRegistration.h
     viewmodels/LibrarySectionsViewModel.h
     viewmodels/LibrarySectionsViewModel.cpp
     viewmodels/SubtitleSearchViewModel.h
@@ -223,6 +226,8 @@ qt_add_qml_module(Bloom
         ui/SearchScreen.qml
         ui/PersonScreen.qml
         ui/HistoryScreen.qml
+        ui/TasteSeedScreen.qml
+        ui/TasteSeedPrompt.qml
         ui/CollectionScreen.qml
         ui/CollectionsShelf.qml
         ui/UpcomingScreen.qml

@@ -983,6 +983,7 @@
       "native.settings.subtitle-appearance",
       "native.history",
       "native.home.watch-tonight",
+      "native.recommendations.taste-seed",
       "native.artwork.refetch",
       "native.playback.capability",
       "native.playback.start-v3",
@@ -2129,6 +2130,55 @@
           "src/providers/silo/SiloCatalogProvider.h",
           "src/network/LibraryService.cpp",
           "src/viewmodels/HomeSectionsViewModel.cpp"
+        ]
+      },
+      {
+        "id": "native.recommendations.taste-seed",
+        "method": "GET/POST",
+        "path": "/api/v2/favorites and /api/v2/recommendations/taste-seed/items and /api/v2/recommendations/taste-seed",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/favorites"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/recommendations/taste-seed/items"
+          },
+          {
+            "method": "POST",
+            "path": "/api/v2/recommendations/taste-seed"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operations; no ProviderCapability bit. LibraryService::supportsTasteSeed asks the live catalog provider whether it builds listTasteSeedItems (native Silo only), and a one-card listFavorites read decides whether Home offers it, as Silo's own web client does."
+        },
+        "requestSemantics": [
+          "listFavorites is a profile-scoped read with limit=1 and no artwork widths; a card, or page.has_more on an empty page (a hidden newest favorite), means the profile has favorites.",
+          "listTasteSeedItems is profile scoped and paged by page.next_cursor only (limit 60, the maximum), with the artwork widths.",
+          "createTasteSeed sends {item_ids} with 1 to 200 non-blank picks, only those the profile has not favorited already.",
+          "createTasteSeed is non_retryable: favorites converge and a replay reports 0 added, but the separate taste refresh it queues can be lost, so Bloom never replays it."
+        ],
+        "requiredSemantics": [
+          "A profile with no favorite is cold (the rule of Silo's TasteSeedGate); Home then offers taste seeding unless the viewer finished or skipped it for that connection and profile. A warm answer is remembered per connection and profile, so later sessions skip the read; getTasteProfile is not read (its summary is empty until the engine computed one and when the engine is off).",
+          "Candidates come most recognizable first; a page may be short or empty while next_cursor says more remain, so Bloom reads up to five such pages in a row. Only movie and series cards reach the picker, and user_state.is_favorite preselects a title.",
+          "Each pick is recorded as a favorite and the taste profile refresh is queued; Bloom then reads the Home rows again with their recommendations and Watch Tonight.",
+          "Silo's own picker asks for at least three picks; Bloom asks the same, though the server takes one or more."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/apiv2/recommendations.go",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/api/handlers/taste_seed.go",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/web/src/components/TasteSeedGate.tsx",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/web/src/hooks/queries/favorites.ts",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/web/src/pages/TasteSeed.tsx"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/network/LibraryService.cpp",
+          "src/viewmodels/TasteSeedViewModels.cpp"
         ]
       },
       {

@@ -1065,6 +1065,12 @@ void ProviderCatalogTest::jellyfinWatchHistoryReadsOneLibraryByLastPlay()
     query.itemId = QStringLiteral("m1");
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::RemoveFromWatchHistory, query).supported);
     QVERIFY(!catalog->createRequest(ProviderCatalogOperation::WatchTonight, query).supported);
+    // Nor taste seeding: LibraryService::supportsTasteSeed hides the entry
+    // points.
+    query.itemIds = {QStringLiteral("m1")};
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::TasteSeedFavorites, query).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::TasteSeedItems, query).supported);
+    QVERIFY(!catalog->createRequest(ProviderCatalogOperation::SubmitTasteSeed, query).supported);
 }
 
 void ProviderCatalogTest::jellyfinUpcomingAiringsReadUpcomingEpisodes()

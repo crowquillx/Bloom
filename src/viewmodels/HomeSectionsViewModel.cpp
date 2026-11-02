@@ -19,6 +19,10 @@ HomeSectionsViewModel::HomeSectionsViewModel(LibraryService *libraryService, QOb
     : BaseViewModel(parent)
     , m_libraryService(libraryService)
 {
+    m_tasteSeedFollowUp.setSingleShot(true);
+    m_tasteSeedFollowUp.setInterval(TasteSeedFollowUpMs);
+    connect(&m_tasteSeedFollowUp, &QTimer::timeout,
+            this, &HomeSectionsViewModel::onTasteSeedFollowUp);
     connectService();
 }
 
@@ -42,6 +46,8 @@ void HomeSectionsViewModel::connectService()
     // interested once the server rebuilds them.
     connect(m_libraryService, &LibraryService::notInterestedStatusChanged,
             this, &HomeSectionsViewModel::onWatchlistStatusChanged);
+    connect(m_libraryService, &LibraryService::tasteSeedSubmitted,
+            this, &HomeSectionsViewModel::onTasteSeedSubmitted);
 }
 
 int HomeSectionsViewModel::rowCount(const QModelIndex &parent) const
@@ -85,6 +91,7 @@ void HomeSectionsViewModel::refresh(bool reloadRecommendations)
     if (connectionId != m_connectionId) {
         // Rows belong to one connection and profile; never show them under
         // another while the new ones load.
+        m_tasteSeedFollowUp.stop();
         m_connectionId.clear();
         if (!m_rows.isEmpty()) {
             emitModelReset([this]() { m_rows.clear(); });
@@ -157,6 +164,7 @@ void HomeSectionsViewModel::setLibraries(const QVariantList &views)
 
 void HomeSectionsViewModel::clear()
 {
+    m_tasteSeedFollowUp.stop();
     m_requestPending = false;
     m_pendingConnectionId.clear();
     m_connectionId.clear();
@@ -231,7 +239,29 @@ void HomeSectionsViewModel::onFavoriteStatusChanged(const QString &itemId, bool 
     }
 }
 
-void HomeSectionsViewModel::refreshLoadedRows()
+void HomeSectionsViewModel::onTasteSeedSubmitted(const QString &connectionId)
+{
+    // The picks feed the profile's taste: read the taste-driven rows again.
+    if (m_libraryService && connectionId == m_libraryService->getActiveConnectionId()) {
+        refreshLoadedRows(true);
+        // The server answers once its taste refresh is done or a few
+        // seconds have passed; a slower one finishes in the background.
+        m_tasteSeedFollowUpConnectionId = connectionId;
+        m_tasteSeedFollowUpScope = m_libraryService->tasteSeedScope();
+        m_tasteSeedFollowUp.start();
+    }
+}
+
+void HomeSectionsViewModel::onTasteSeedFollowUp()
+{
+    if (m_libraryService
+        && m_libraryService->getActiveConnectionId() == m_tasteSeedFollowUpConnectionId
+        && m_libraryService->tasteSeedScope() == m_tasteSeedFollowUpScope) {
+        refreshLoadedRows(true);
+    }
+}
+
+void HomeSectionsViewModel::refreshLoadedRows(bool reloadRecommendations)
 {
     // Only rows loaded or loading for the live connection are refreshed;
     // Home loads fresh rows itself otherwise. A read in flight may predate
@@ -245,7 +275,7 @@ void HomeSectionsViewModel::refreshLoadedRows()
     }
     if (m_connectionId == activeConnectionId
         || (m_requestPending && m_pendingConnectionId == activeConnectionId)) {
-        refresh();
+        refresh(reloadRecommendations);
     }
 }
 

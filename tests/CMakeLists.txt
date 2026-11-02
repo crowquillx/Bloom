@@ -1321,6 +1321,30 @@ target_link_libraries(UpcomingViewModelTest
 
 add_test(NAME UpcomingViewModelTest COMMAND UpcomingViewModelTest)
 
+# No production target holds view models, so the view models' own sources
+# are compiled here; the services come from Bloom::Network.
+add_executable(TasteSeedViewModelTest
+    TasteSeedViewModelTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/TasteSeedViewModels.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
+)
+
+target_include_directories(TasteSeedViewModelTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(TasteSeedViewModelTest
+    PRIVATE
+        Bloom::Network
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME TasteSeedViewModelTest COMMAND TasteSeedViewModelTest)
+
 add_executable(LibrarySectionsViewModelTest
     LibrarySectionsViewModelTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/LibrarySectionsViewModel.cpp
@@ -1488,6 +1512,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     WatchHistoryViewModelTest
     CollectionViewModelsTest
     UpcomingViewModelTest
+    TasteSeedViewModelTest
     LibrarySectionsViewModelTest
     ContinueWatchingViewModelTest
     MediaRequestServiceTest

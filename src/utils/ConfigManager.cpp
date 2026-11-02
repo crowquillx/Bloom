@@ -3147,6 +3147,36 @@ bool ConfigManager::getHomeWatchTonightEnabled() const
     return readHomeObject().value(QStringLiteral("watch_tonight_enabled")).toBool(true);
 }
 
+bool ConfigManager::isTasteSeedDone(const QString &scope) const
+{
+    return !scope.isEmpty()
+        && readHomeObject().value(QStringLiteral("taste_seed_done")).toArray()
+               .contains(QJsonValue(scope));
+}
+
+void ConfigManager::setTasteSeedDone(const QString &scope, bool done)
+{
+    if (scope.isEmpty() || done == isTasteSeedDone(scope)) return;
+    QJsonObject home = readHomeObject();
+    QJsonArray scopes = home.value(QStringLiteral("taste_seed_done")).toArray();
+    if (done) {
+        scopes.append(scope);
+    } else {
+        for (qsizetype i = scopes.size() - 1; i >= 0; --i) {
+            if (scopes.at(i).toString() == scope) {
+                scopes.removeAt(i);
+            }
+        }
+    }
+    if (scopes.isEmpty()) {
+        home.remove(QStringLiteral("taste_seed_done"));
+    } else {
+        home[QStringLiteral("taste_seed_done")] = scopes;
+    }
+    writeHomeObject(home);
+    emit tasteSeedDoneChanged(scope);
+}
+
 void ConfigManager::setHeroBannerEnabled(bool enabled)
 {
     if (enabled == getHeroBannerEnabled()) return;

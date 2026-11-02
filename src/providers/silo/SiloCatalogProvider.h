@@ -25,6 +25,10 @@ public:
     // Days after the first one that an upcoming airings read covers; Silo
     // accepts at most 31.
     static constexpr int kAiringWindowDays = 30;
+    // listTasteSeedItems answers at most 60 cards a page; createTasteSeed
+    // takes 1 to 200 picks.
+    static constexpr int kTasteSeedPageMax = 60;
+    static constexpr int kTasteSeedPicksMax = 200;
 
     using ICatalogProvider::parseResponse;
     ProviderCatalogRequest createRequest(
@@ -645,6 +649,24 @@ private:
             // Profile scoped when a profile is selected (the request factory
             // adds it).
             return get(QStringLiteral("/api/v2/images/capabilities"));
+        case ProviderCatalogOperation::TasteSeedFavorites:
+            // One favorite is enough to know the profile has some, as
+            // Silo's own taste-seed gate asks.
+            return get(QStringLiteral("/api/v2/favorites?limit=1"));
+        case ProviderCatalogOperation::TasteSeedItems: {
+            if (query.limit < 0 || query.startIndex != 0) {
+                return unsupported(QStringLiteral("Silo's taste seed picks page by cursor"));
+            }
+            QUrlQuery parameters;
+            appendLimit(parameters, query.limit > 0 ? qMin(query.limit, kTasteSeedPageMax) : 0);
+            if (!query.cursor.isEmpty()) {
+                parameters.addQueryItem(QStringLiteral("cursor"), query.cursor);
+            }
+            return get(endpointWithQuery(
+                QStringLiteral("/api/v2/recommendations/taste-seed/items"), parameters));
+        }
+        case ProviderCatalogOperation::SubmitTasteSeed:
+            return submitTasteSeedRequest(query);
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -928,6 +950,31 @@ public:
             }
             return response;
         }
+        if (operation == ProviderCatalogOperation::TasteSeedFavorites) {
+            return tasteSeedFavoritesResponse(body);
+        }
+        if (operation == ProviderCatalogOperation::TasteSeedItems) {
+            // A catalog page; only movie and series cards are titles here.
+            ProviderCatalogResponse response =
+                SiloModelMapper::catalogResponse(operation, body, responseHeaders);
+            if (response.valid) {
+                response.rawItems = titleCards(response.rawItems);
+                response.total = static_cast<int>(response.rawItems.size());
+            }
+            return response;
+        }
+        if (operation == ProviderCatalogOperation::SubmitTasteSeed) {
+            ProviderCatalogResponse response;
+            const QJsonValue added = QJsonDocument::fromJson(body).object()
+                .value(QStringLiteral("added"));
+            if (!added.isDouble() || added.toDouble() < 0) {
+                response.error = QStringLiteral("Invalid Silo taste seed response");
+                return response;
+            }
+            response.capabilityMetadata.insert(QStringLiteral("added"), added.toInt());
+            response.valid = true;
+            return response;
+        }
         if (operation == ProviderCatalogOperation::WatchTonight) {
             ProviderCatalogResponse response;
             const QJsonObject page = QJsonDocument::fromJson(body).object();
@@ -1061,6 +1108,7 @@ private:
         case ProviderCatalogOperation::AdvanceShuffle:
         case ProviderCatalogOperation::SkipShuffleItem:
         case ProviderCatalogOperation::CollectionItems:
+        case ProviderCatalogOperation::TasteSeedItems:
             return true;
         default:
             return false;
@@ -1100,6 +1148,57 @@ private:
             return Scope::capabilityKey(Scope::kCollection, Scope::kUserCollection);
         }
         return {};
+    }
+
+    // createTasteSeed is non_retryable: favorites converge and a replay
+    // reports 0 added, but the server may lose the taste refresh it queues
+    // after a crash, so Bloom never replays it. Blank and repeated picks are
+    // dropped first; the server refuses a blank identifier.
+    static ProviderCatalogRequest submitTasteSeedRequest(const ProviderCatalogQuery &query)
+    {
+        QJsonArray picks;
+        QSet<QString> seen;
+        for (const QString &value : query.itemIds) {
+            const QString itemId = value.trimmed();
+            if (itemId.isEmpty() || seen.contains(itemId)) {
+                continue;
+            }
+            seen.insert(itemId);
+            picks.append(itemId);
+        }
+        if (picks.isEmpty() || picks.size() > kTasteSeedPicksMax) {
+            return unsupported(QStringLiteral("A Silo taste seed takes 1 to 200 picks"));
+        }
+        ProviderCatalogRequest request;
+        request.method = ProviderHttpMethod::Post;
+        request.retrySafety = ProviderCatalogRetrySafety::Never;
+        request.relativeEndpoint = QStringLiteral("/api/v2/recommendations/taste-seed");
+        request.body = QJsonDocument(QJsonObject{{QStringLiteral("item_ids"), picks}})
+                           .toJson(QJsonDocument::Compact);
+        request.extraHeaders.insert(QByteArrayLiteral("Content-Type"),
+                                    QByteArrayLiteral("application/json"));
+        request.supported = true;
+        return request;
+    }
+
+    // A favorites page of one: the profile has favorites when it holds a
+    // card, or when a hidden newest favorite leaves the page empty while
+    // has_more says more follow (Silo's own gate reads it the same way).
+    static ProviderCatalogResponse tasteSeedFavoritesResponse(const QByteArray &body)
+    {
+        ProviderCatalogResponse response;
+        const QJsonObject object = QJsonDocument::fromJson(body).object();
+        const QJsonValue items = object.value(QStringLiteral("items"));
+        if (!items.isArray()) {
+            response.error = QStringLiteral("Invalid Silo favorites response");
+            return response;
+        }
+        const bool hasFavorites = !items.toArray().isEmpty()
+            || object.value(QStringLiteral("page")).toObject()
+                   .value(QStringLiteral("has_more")).toBool();
+        response.capabilityMetadata.insert(QStringLiteral("hasFavorites"), hasFavorites);
+        response.valid = true;
+        return response;
     }
 
     // createShuffle is non_retryable: a replay after a lost response would

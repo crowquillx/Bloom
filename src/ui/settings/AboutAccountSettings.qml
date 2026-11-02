@@ -10,6 +10,21 @@ FocusScope {
     signal signOutRequested()
     signal sessionsRequested()
     signal historyRequested()
+    signal tasteSeedRequested()
+
+    // Taste seeding follows the live provider, which a merged space can
+    // switch without signing out (connectionActivated).
+    property int _liveConnectionRevision: 0
+    readonly property bool tasteSeedSupported: _liveConnectionRevision >= 0
+                                               && typeof AuthenticationService !== "undefined"
+                                               && AuthenticationService.authenticated
+                                               && LibraryService.supportsTasteSeed()
+
+    Connections {
+        target: typeof AuthenticationService !== "undefined" ? AuthenticationService : null
+        ignoreUnknownSignals: true
+        function onConnectionActivated(connectionId) { root._liveConnectionRevision++ }
+    }
 
     readonly property Item preferredEntryItem: autoUpdateCheckToggle
     property Item _lastFocusedItem: null
@@ -599,7 +614,7 @@ FocusScope {
                         event.accepted = true
                     }
                     Keys.onDownPressed: function(event) {
-                        signOutBtn.forceActiveFocus()
+                        (tasteSeedBtn.visible ? tasteSeedBtn : signOutBtn).forceActiveFocus()
                         event.accepted = true
                     }
 
@@ -608,6 +623,40 @@ FocusScope {
                         font.family: Theme.fontIcon
                         font.pixelSize: Theme.iconSizeLarge
                         color: historyBtn.highlighted ? Theme.textPrimary : Theme.textSecondary
+                        Accessible.ignored: true
+                    }
+                }
+
+                // Pick a few titles you like (TasteSeedScreen); Silo only.
+                SettingsRow {
+                    id: tasteSeedBtn
+                    visible: root.tasteSeedSupported
+                    label: qsTr("Personalize Recommendations")
+                    description: qsTr("Pick a few titles you like so recommendations start from your taste")
+                    Accessible.role: Accessible.Button
+                    onActivated: root.tasteSeedRequested()
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            root._lastFocusedItem = this
+                            flickable.ensureFocusVisible(this)
+                        }
+                    }
+                    Keys.onUpPressed: function(event) {
+                        (historyBtn.enabled ? historyBtn
+                            : activeSessionsBtn.enabled ? activeSessionsBtn
+                            : logLevelCombo).forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onDownPressed: function(event) {
+                        signOutBtn.forceActiveFocus()
+                        event.accepted = true
+                    }
+
+                    Text {
+                        text: Icons.chevronRight
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Theme.iconSizeLarge
+                        color: tasteSeedBtn.highlighted ? Theme.textPrimary : Theme.textSecondary
                         Accessible.ignored: true
                     }
                 }
@@ -630,7 +679,8 @@ FocusScope {
                         }
                     }
                     Keys.onUpPressed: function(event) {
-                        (historyBtn.enabled ? historyBtn
+                        (tasteSeedBtn.visible ? tasteSeedBtn
+                            : historyBtn.enabled ? historyBtn
                             : activeSessionsBtn.enabled ? activeSessionsBtn
                             : logLevelCombo).forceActiveFocus()
                         event.accepted = true

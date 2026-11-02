@@ -315,6 +315,12 @@ public:
     bool getHomeRecommendationsEnabled() const;
     void setHomeWatchTonightEnabled(bool enabled);
     bool getHomeWatchTonightEnabled() const;
+    // Whether the viewer finished or skipped taste seeding for a scope
+    // ("<connection>\n<profile>", LibraryService::tasteSeedScope), so Home
+    // stops offering it there. Kept at settings.ui.home.taste_seed_done;
+    // an empty scope is never done.
+    Q_INVOKABLE bool isTasteSeedDone(const QString &scope) const;
+    Q_INVOKABLE void setTasteSeedDone(const QString &scope, bool done);
     void setAutoplayCountdownSeconds(int seconds);
     int getAutoplayCountdownSeconds() const;
     void setAutoSkipIntro(bool enabled);
@@ -664,6 +670,7 @@ signals:
     void homeFavoritesRowEnabledChanged();
     void homeRecommendationsEnabledChanged();
     void homeWatchTonightEnabledChanged();
+    void tasteSeedDoneChanged(const QString &scope);
     void autoplayCountdownSecondsChanged();
     void autoSkipIntroChanged();
     void autoSkipOutroChanged();

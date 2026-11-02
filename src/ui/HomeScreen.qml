@@ -63,6 +63,13 @@ FocusScope {
     SourceRouter {
         id: sourceRouter
     }
+
+    // Whether to offer taste seeding to a cold Silo profile; never in a
+    // merged space (C++ decides the rest).
+    TasteSeedPromptViewModel {
+        id: tasteSeedPromptModel
+        merged: root.mergedMode
+    }
     // Shelf card sizes come from the Theme tokens (fixed design units), so
     // cards cover the same fraction of the screen at any resolution.
     readonly property int homeCardWidth: Theme.landscapeCardWidth
@@ -114,6 +121,8 @@ FocusScope {
     signal navigateToEpisode(var episodeData, var seriesId, var libraryId, var libraryName)
     signal navigateToSeason(var seasonId, var seasonNumber, var seriesId, var libraryId, var libraryName)
     signal navigateToSeries(var seriesId, var libraryId, var libraryName)
+    // The taste seeding picker (Main pushes it).
+    signal tasteSeedRequested()
     
     /// Refresh dynamic content (Next Up, Recently Added) without reloading libraries
     /// Call this after playback ends to update watch progress indicators
@@ -139,6 +148,8 @@ FocusScope {
         // The profile's own Silo rows, or Jellyfin's Favorites and
         // recommendation rows.
         HomeSectionsViewModel.refresh(reloadRecommendations === true)
+        // Playback may have warmed a cold profile up.
+        tasteSeedPromptModel.check(reloadRecommendations === true)
     }
 
     /// Reload Continue Watching and Next Up only (a Next Up option changed).
@@ -332,6 +343,8 @@ FocusScope {
         } else if (nextUpList.activeFocus) {
             section = "nextUp"
             index = nextUpList.currentIndex
+        } else if (tasteSeedPrompt.activeFocus) {
+            section = "tasteSeed"
         } else {
             // Check recentlyAdded lists
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
@@ -375,6 +388,10 @@ FocusScope {
                 heroBanner.resetToCarousel()
                 heroBanner.forceActiveFocus()
             })
+            return
+        } else if (lastFocusedSection === "tasteSeed" && tasteSeedPrompt.visible) {
+            mainFlickable.contentY = lastContentY
+            Qt.callLater(function() { tasteSeedPrompt.forceActiveFocus() })
             return
         } else if (lastFocusedSection === "continueWatching") {
             targetList = continueWatchingList
@@ -1099,6 +1116,8 @@ FocusScope {
             if (meta.item && meta.item.visible && meta.recentlyAddedListRef)
                 lists.push(meta.recentlyAddedListRef)
         }
+        if (tasteSeedPrompt.visible)
+            lists.push(tasteSeedPrompt)
         for (var j = 0; j < serverRowsRepeater.count; j++) {
             var row = serverRowMeta(serverRowsRepeater.itemAt(j))
             if (row.list && row.item.visible)
@@ -1140,7 +1159,8 @@ FocusScope {
             return
         var first = firstShelfList()
         var y
-        if (heroBanner.visible && first && first.parent === section)
+        // A shelf list sits in its section; the taste seed prompt is both.
+        if (heroBanner.visible && first && (first === section || first.parent === section))
             y = 0
         else
             y = section.mapToItem(mainFlickable.contentItem, 0, 0).y - root.shelfScrollOffset
@@ -1372,6 +1392,41 @@ FocusScope {
                             }
                         }
                     }
+                }
+            }
+
+            // A cold Silo profile is offered taste seeding above the rows
+            // its taste drives.
+            TasteSeedPrompt {
+                id: tasteSeedPrompt
+                opacity: root.shelfOpacity
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                visible: tasteSeedPromptModel.shown
+                moveHandler: function(delta) { return root.moveShelfFocus(tasteSeedPrompt, delta) }
+                onPickRequested: {
+                    root.saveFocusState()
+                    root.tasteSeedRequested()
+                }
+                onDismissRequested: {
+                    // The next shelf down (or up) takes focus once it is gone.
+                    var lists = root.shelfLists()
+                    var at = lists.indexOf(tasteSeedPrompt)
+                    var next = at + 1 < lists.length ? lists[at + 1] : (at > 0 ? lists[at - 1] : null)
+                    tasteSeedPromptModel.dismiss()
+                    cardToast.show(qsTr("You can pick titles any time in Settings > About & Account."))
+                    Qt.callLater(function() {
+                        if (next && next.visible)
+                            next.forceActiveFocus()
+                        else if (heroBanner.visible)
+                            heroBanner.forceActiveFocus()
+                    })
+                }
+                onActiveFocusChanged: {
+                    if (activeFocus)
+                        root.scrollToSection(tasteSeedPrompt)
+                    else
+                        root.cancelInitialFocus()
                 }
             }
 

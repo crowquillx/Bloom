@@ -63,7 +63,7 @@ the shell's `NavigationBar` floating above it.
 | Archetype | Pages | Stage | Header | Body |
 |-----------|-------|-------|--------|------|
 | **Hero** | Home, movie/series/season/episode details, Up Next and its movie counterpart (the after-movie screen) | `mode: "hero"`, the subject's backdrop | Hero block | Shelves below the hero |
-| **Browse** | Library grids, Search, Discover and its Browse pages, collections, person pages, Watch History, Upcoming | `mode: "ambient"`, optionally the focused item's backdrop | `PageHeader` + toolbar | Poster grid or shelves |
+| **Browse** | Library grids, Search, Discover and its Browse pages, collections, person pages, Watch History, Upcoming, the taste seeding picker | `mode: "ambient"`, optionally the focused item's backdrop | `PageHeader` + toolbar | Poster grid or shelves |
 | **Panel** | Settings, Active Sessions, account pages | `mode: "ambient"`, no art | `PageHeader` | Category list + content column of rows |
 
 Only hero pages carry a hero. Browse and panel pages do not invent one; they
@@ -76,8 +76,8 @@ get their warmth from the stage.
 calendar, Discover when requests have a backend, Search),
 and a utility cluster (update when available, Settings, space avatar, power). Keep the tab row short: a new destination
 earns a tab only if it is a top-level way to browse, and libraries never get
-their own tabs. Account pages (Manage Sessions, Watch History) open from
-Settings > About & Account instead.
+their own tabs. Account pages (Manage Sessions, Watch History, Personalize
+Recommendations) open from Settings > About & Account instead.
 
 - **Movies and Series** stand for every library of that kind (Bloom supports
   only movie and series libraries). With one library the tab opens it. With
@@ -359,6 +359,61 @@ the server has no picks for the profile or only a generic fallback, in merged
 spaces, on Jellyfin, and when Settings > Home > Watch Tonight row is off. The
 other rows never wait for it: when it lands later it is inserted above them
 without moving focus off the focused shelf.
+
+## Taste seeding
+
+A Silo profile with no favorites yet (the rule Silo's own web client
+uses) gets a quiet offer to pick a few titles it likes, so Watch Tonight and
+the recommendation rows start from its taste. It is never a modal on
+startup.
+
+- **Home prompt** (`TasteSeedPrompt.qml`): a shelf-shaped block after
+  Bloom's own shelves and before the Watch Tonight and curated rows: the
+  section header "Personalize Home", one line of `textSecondary` copy, then
+  "Pick titles" (primary, `Icons.favorite`) and "Not now" (secondary). It sits
+  on the stage like any shelf, with no glass panel, and joins Home's shelf
+  focus order: Up and Down move to the neighbouring shelves, Left and Right
+  between the two buttons. When it is the first shelf, Down from the hero
+  reaches it and the page scrolls to the top like for any first shelf. "Not now" removes it for that connection and
+  profile for good (a toast points to Settings) and focus moves to the next
+  shelf. It is absent on Jellyfin, in merged spaces, once the profile has a
+  favorite, and after the picker was finished or skipped there.
+- **Settings**: About & Account > Personalize Recommendations (below Watch
+  History, Silo only) always opens the picker, also after "Not now".
+- **Picker page** (`TasteSeedScreen.qml`): a browse page with no hero. Below
+  `pageMarginTop`, a `PageHeader` with the eyebrow "Personalize", the title
+  "Pick a few you like", the counter as its detail line ("Pick at least 3
+  titles you like", "2 picked — pick at least 3", "5 picked"), and the
+  trailing actions Skip (Cancel when opened from Settings) and Done. Below it,
+  a poster grid of candidates, most recognizable first, that reads the next
+  page as focus nears its end. The candidates carry posters only, so the
+  stage stays ambient with no art. Titles the profile already favorited
+  start picked, read "Already a favorite" as their caption, and stay
+  picked: Enter on one shows a toast instead (they count toward the
+  minimum).
+- **Selected state**: a picked poster gets a `selectionBackground` tint over
+  its art, a `selectionIndicator` bar along the art's lower edge and a round
+  `selectionIndicator` check badge in the top-right corner, all lifted with
+  the card. Focus stays the card's own lift, `FocusRing` and shadow, so a
+  card can be focused, picked, or both, and the two never look alike.
+- **Keys**: Enter (or a click) picks or unpicks the focused poster. Up from
+  the first row reaches Done (Skip while Done is unavailable), Up again the
+  navigation bar; Down from the actions returns to the grid, and Down from
+  the navigation bar returns to the grid's last focused poster, not to
+  Done. Done with too few picks shows a toast with the minimum. Back leaves
+  without saving and without marking anything, except while "Saving…" shows:
+  Back then waits for the answer. Skip also stops the Home prompt.
+- **States**: `StateMessage` for loading, error (with Try again, which takes
+  focus) and empty ("Nothing to pick from yet"; "Not available on this
+  server" off Silo). When the first pages held only titles Bloom doesn't
+  show but more follow, the empty state says so and offers "Look further"
+  (it takes focus; Up reaches the header actions). Done shows "Saving…" with a busy icon while the picks
+  are sent; a failure keeps the picks and shows a toast. On success the page
+  closes and Main's toast says the recommendations will update shortly;
+  Home's rows are read again at once and once more about 18 seconds later.
+  If the server or profile changed since the titles loaded, Done sends
+  nothing, the page loads the new session's titles and a toast asks to pick
+  again.
 
 ## Collections
 
