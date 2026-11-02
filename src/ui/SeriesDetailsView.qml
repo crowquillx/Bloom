@@ -1355,6 +1355,7 @@ FocusScope {
         id: userRatingDialog
         ratingState: SeriesDetailsViewModel.userRating
         itemTitle: root.seriesName
+        onRatingFailed: (message) => watchlistToast.show(message)
     }
 
     Connections {

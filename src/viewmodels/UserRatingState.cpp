@@ -23,10 +23,14 @@ QString UserRatingState::scale() const
     return m_libraryService ? m_libraryService->userRatingScale() : QString();
 }
 
-void UserRatingState::setItem(const QString &itemId)
+void UserRatingState::setItem(const QString &itemId, const QString &connectionId)
 {
-    if (itemId != m_itemId) {
+    const QString owner = !connectionId.isEmpty() || !m_libraryService
+        ? connectionId
+        : m_libraryService->getActiveConnectionId();
+    if (itemId != m_itemId || owner != m_connectionId) {
         m_itemId = itemId;
+        m_connectionId = itemId.isEmpty() ? QString() : owner;
         m_item.clear();
         setPending(false);
         setValue(0);
@@ -34,14 +38,16 @@ void UserRatingState::setItem(const QString &itemId)
     }
     // The scale may differ on the connection this item belongs to.
     emit scaleChanged();
-    if (m_libraryService && !itemId.isEmpty()) {
-        m_libraryService->loadUserRatingCapability();
-    }
 }
 
 void UserRatingState::updateFromItem(const QVariantMap &item)
 {
     if (m_itemId.isEmpty()) {
+        return;
+    }
+    const QString itemConnectionId = item.value(QStringLiteral("connectionId")).toString();
+    if (!itemConnectionId.isEmpty() && !m_connectionId.isEmpty()
+        && itemConnectionId != m_connectionId) {
         return;
     }
     m_item = item;
@@ -54,6 +60,7 @@ void UserRatingState::clear()
 {
     const bool hadItem = !m_itemId.isEmpty();
     m_itemId.clear();
+    m_connectionId.clear();
     m_item.clear();
     setPending(false);
     setValue(0);
@@ -68,6 +75,10 @@ void UserRatingState::rate(int value)
     const QString currentScale = scale();
     if (!m_libraryService || m_itemId.isEmpty() || m_pending || currentScale.isEmpty()
         || value == 0 || !isValidValue(currentScale, value)) {
+        return;
+    }
+    if (!m_connectionId.isEmpty() && m_connectionId != m_libraryService->getActiveConnectionId()) {
+        qCWarning(lcViewModels) << "UserRatingState: the item's connection is not live; not rating";
         return;
     }
     // Optimistic: the control follows the press; a refusal restores it.
@@ -139,9 +150,15 @@ void UserRatingState::setPending(bool pending)
     emit pendingChanged();
 }
 
-void UserRatingState::onRatingChanged(const QString &itemId, int value)
+bool UserRatingState::matches(const QString &connectionId, const QString &itemId) const
 {
-    if (itemId.isEmpty() || itemId != m_itemId) {
+    return !itemId.isEmpty() && itemId == m_itemId
+        && (m_connectionId.isEmpty() || connectionId == m_connectionId);
+}
+
+void UserRatingState::onRatingChanged(const QString &connectionId, const QString &itemId, int value)
+{
+    if (!matches(connectionId, itemId)) {
         return;
     }
     // Also a rating set for the same item on another page.
@@ -154,9 +171,10 @@ void UserRatingState::onRatingChanged(const QString &itemId, int value)
     emit confirmed(itemId, scale(), value);
 }
 
-void UserRatingState::onRatingFailed(const QString &itemId, int value, const QString &error)
+void UserRatingState::onRatingFailed(const QString &connectionId, const QString &itemId, int value,
+                                     const QString &error)
 {
-    if (itemId != m_itemId || !m_pending || value != m_value) {
+    if (!matches(connectionId, itemId) || !m_pending || value != m_value) {
         return;
     }
     qCWarning(lcViewModels) << "UserRatingState: rating change failed:" << error;

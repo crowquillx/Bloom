@@ -2028,8 +2028,9 @@ Window {
         // returns there. The screen releases the parked display restore
         // whichever way it is left.
         function onNavigateToAfterMovie(movieData) {
+            const attemptId = movieData ? (movieData.attemptId || 0) : 0
             if (!movieData || !movieData.itemId) {
-                PlayerController.releaseDeferredPostPlaybackDisplayRestore()
+                PlayerController.releaseAfterMovieDisplayRestore(attemptId)
                 return
             }
             var afterMovieScreen = stackView.push("AfterMovieScreen.qml", {
@@ -2037,23 +2038,25 @@ Window {
             }, StackView.Immediate)
             if (!afterMovieScreen) {
                 console.warn("[Main] Failed to create the after-movie screen")
-                PlayerController.releaseDeferredPostPlaybackDisplayRestore()
+                PlayerController.releaseAfterMovieDisplayRestore(attemptId)
                 return
             }
             Qt.callLater(function() {
                 if (afterMovieScreen && afterMovieScreen.focusPrimaryAction)
                     afterMovieScreen.focusPrimaryAction()
             })
+            // Only the screen itself comes off, back to the page playback
+            // started from.
             afterMovieScreen.doneRequested.connect(function() {
                 if (stackView.currentItem === afterMovieScreen)
-                    stackView.pop(null, StackView.Immediate)
+                    stackView.popCurrentItem(StackView.Immediate)
             })
             // A recommended title replaces the screen, so Back from its
             // page also returns where playback started.
             afterMovieScreen.recommendationSelected.connect(function(itemData) {
                 if (stackView.currentItem !== afterMovieScreen)
                     return
-                stackView.pop(null, StackView.Immediate)
+                stackView.popCurrentItem(StackView.Immediate)
                 if (itemData.mediaType === "Series")
                     window.pushSeriesDetails(itemData.itemId, StackView.Immediate)
                 else

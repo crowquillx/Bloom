@@ -130,8 +130,6 @@ public:
         case ProviderCatalogOperation::BecauseWatched:
             return unsupported(QStringLiteral(
                 "Jellyfin has no because-watched read; similar items stand in"));
-        case ProviderCatalogOperation::UserRatingCapability:
-            return unsupported(QStringLiteral("Jellyfin likes need no capability read"));
         case ProviderCatalogOperation::SetUserRating:
             return userRatingRequest(query);
         }
@@ -1352,7 +1350,6 @@ private:
         case ProviderCatalogOperation::SubtitleAppearance: return QStringLiteral("subtitle appearance");
         case ProviderCatalogOperation::SetSubtitleAppearance: return QStringLiteral("subtitle appearance override");
         case ProviderCatalogOperation::BecauseWatched: return QStringLiteral("because watched");
-        case ProviderCatalogOperation::UserRatingCapability: return QStringLiteral("rating capability");
         case ProviderCatalogOperation::SetUserRating: return QStringLiteral("rating");
         }
         return QStringLiteral("catalog");

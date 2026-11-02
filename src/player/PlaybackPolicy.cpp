@@ -1128,7 +1128,8 @@ bool meetsCompletionThreshold(const CompletionInput &input)
 
 PostPlaybackScreen postPlaybackScreen(const PostPlaybackInput &input)
 {
-    if (input.endedWithError || !playbackContentRules(input.contentKind).allowsUpNext) {
+    if (input.endedWithError || input.endedBySleepTimer
+        || !playbackContentRules(input.contentKind).allowsUpNext) {
         return PostPlaybackScreen::None;
     }
     // A movie has no series; completion is judged the same way.
@@ -1144,8 +1145,12 @@ PostPlaybackScreen postPlaybackScreen(const PostPlaybackInput &input)
     if (!completed) {
         return PostPlaybackScreen::None;
     }
-    return input.seriesId.isEmpty() ? PostPlaybackScreen::AfterMovie
-                                    : PostPlaybackScreen::UpNext;
+    if (!input.seriesId.isEmpty()) {
+        return PostPlaybackScreen::UpNext;
+    }
+    // An item without a series is not necessarily a movie (a home video,
+    // an item played from a folder).
+    return input.isMovie ? PostPlaybackScreen::AfterMovie : PostPlaybackScreen::None;
 }
 
 bool shouldPrefetchNextEpisode(const PrefetchInput &input)

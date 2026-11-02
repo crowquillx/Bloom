@@ -53,7 +53,6 @@ public:
         notInterestedWrites.append({itemId, notInterested});
     }
     QString userRatingScale() const override { return ratingScale; }
-    void loadUserRatingCapability() override { ++ratingCapabilityReads; }
     void setUserRating(const QString &itemId, int value) override
     {
         ratingWrites.append({itemId, value});
@@ -120,11 +119,15 @@ public:
     }
     void confirmRating(const QString &itemId, int value)
     {
-        emit userRatingChanged(itemId, value);
+        emit userRatingChanged(connectionId, itemId, value);
+    }
+    void confirmRatingOn(const QString &forConnection, const QString &itemId, int value)
+    {
+        emit userRatingChanged(forConnection, itemId, value);
     }
     void refuseRating(const QString &itemId, int value)
     {
-        emit userRatingFailed(itemId, value, QStringLiteral("Unprocessable"));
+        emit userRatingFailed(connectionId, itemId, value, QStringLiteral("Unprocessable"));
     }
     void loadAiring(const QString &seriesId, const QVariantMap &airing)
     {
@@ -160,7 +163,6 @@ public:
     int notInterestedCapabilityReads = 0;
     QList<WatchlistWrite> notInterestedWrites;
     QString ratingScale;
-    int ratingCapabilityReads = 0;
     QList<std::pair<QString, int>> ratingWrites;
     bool airingCalendar = true;
     bool answerAiringAtOnce = false;
@@ -943,8 +945,8 @@ void HomeRowsAndWatchlistTest::movieStarRatingWaitsForCapabilityAndRollsBack()
     UserRatingState *rating = vm.userRating();
     QVERIFY(rating);
     vm.loadMovieDetails(QStringLiteral("movie-1"));
-    // The page asks for the capability; no control until it answers.
-    QCOMPARE(m_service->ratingCapabilityReads, 1);
+    // No control while the live provider has no rating scale.
+    QCOMPARE(rating->connectionId(), QStringLiteral("connection-1"));
     QVERIFY(!rating->supported());
     QVariantMap data = detail(QStringLiteral("movie-1"), QStringLiteral("Movie"), false);
     data.insert(QStringLiteral("userRating"), 3);
@@ -992,9 +994,19 @@ void HomeRowsAndWatchlistTest::movieStarRatingWaitsForCapabilityAndRollsBack()
     m_service->confirmRating(QStringLiteral("movie-1"), 4);
     QCOMPARE(rating->value(), 4);
     QCOMPARE(failed.count(), 1);
-    // Another item's answer changes nothing.
+    // Another item's answer changes nothing, nor the same id on another
+    // connection of a merged space.
     m_service->confirmRating(QStringLiteral("movie-2"), 1);
     QCOMPARE(rating->value(), 4);
+    m_service->confirmRatingOn(QStringLiteral("connection-2"), QStringLiteral("movie-1"), 1);
+    QCOMPARE(rating->value(), 4);
+    // While another connection is live nothing is sent to it.
+    const qsizetype writesBefore = m_service->ratingWrites.size();
+    m_service->connectionId = QStringLiteral("connection-2");
+    rating->rate(2);
+    QCOMPARE(m_service->ratingWrites.size(), writesBefore);
+    QVERIFY(!rating->pending());
+    m_service->connectionId = QStringLiteral("connection-1");
 
     // The confirmed rating reaches the details cache for the next visit.
     vm.clear();
