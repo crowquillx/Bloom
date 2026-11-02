@@ -117,6 +117,7 @@ stdenv.mkDerivation {
       JellyfinQuickConnectTest \
       ContinueWatchingTest \
       HomeRecommendationsTest \
+      HeroBackdropsTest \
       UpdateServiceTest
     runHook postBuild
   '';

@@ -49,6 +49,9 @@ QString artworkKindName(ArtworkKind kind)
     case ArtworkKind::Logo: return QStringLiteral("logo");
     case ArtworkKind::Chapter: return QStringLiteral("chapter");
     case ArtworkKind::Person: return QStringLiteral("person");
+    case ArtworkKind::Banner: return QStringLiteral("banner");
+    case ArtworkKind::ClearArt: return QStringLiteral("clearArt");
+    case ArtworkKind::Disc: return QStringLiteral("disc");
     case ArtworkKind::Unknown: return QStringLiteral("unknown");
     }
     return QStringLiteral("unknown");
@@ -63,6 +66,9 @@ ArtworkKind artworkKindFromName(const QString &name)
     if (normalized == QStringLiteral("logo")) return ArtworkKind::Logo;
     if (normalized == QStringLiteral("chapter")) return ArtworkKind::Chapter;
     if (normalized == QStringLiteral("person")) return ArtworkKind::Person;
+    if (normalized == QStringLiteral("banner")) return ArtworkKind::Banner;
+    if (normalized == QStringLiteral("clearart")) return ArtworkKind::ClearArt;
+    if (normalized == QStringLiteral("disc")) return ArtworkKind::Disc;
     return ArtworkKind::Unknown;
 }
 

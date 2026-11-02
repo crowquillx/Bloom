@@ -264,9 +264,10 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         ++m_themeRequestGeneration;
         m_lastModified.clear();
         m_inFlightChapterRequests.clear();
-        // The search capability document is profile scoped; reads in
-        // flight were cancelled and their waiters belong to the old session.
-        m_searchCapabilities.clear();
+        // Capability documents are profile scoped; reads in flight were
+        // cancelled and their waiters belong to the old session.
+        m_capabilityDocuments.clear();
+        m_detailRemaps.clear();
         // Cancelled reads answer nothing; a later page asks again.
         m_notInterestedCapabilityReads.clear();
         m_shuffleCapabilityReads.clear();
@@ -1114,8 +1115,8 @@ void LibraryService::getItem(const QString &itemId, const QString &requestContex
         query,
         [this, itemId, requestContext, connectionId](
             const ProviderCatalogResponse &response) {
-            const QVariantMap item =
-                m_authService->mapMediaItem(response.rawItem, connectionId);
+            const QVariantMap item = mapDetail(
+                response.rawItem, connectionId, itemId, QStringLiteral("item"));
             emit canonicalItemLoaded(itemId, item, requestContext);
             emit canonicalItemLoaded(itemId, item);
         },
@@ -1224,7 +1225,7 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
             emit canonicalSeriesDetailsLoaded(
                 connectionId,
                 seriesId,
-                m_authService->mapMediaItem(response.rawItem, connectionId));
+                mapDetail(response.rawItem, connectionId, seriesId, QStringLiteral("series")));
         },
         [this, connectionId, seriesId](const NetworkError &error) {
             emit canonicalSeriesDetailsFailed(
@@ -3458,12 +3459,13 @@ void LibraryService::getLibraryLetters(const LibraryItemQuery &query)
         return;
     }
     withSearchCapabilities(
-        [this, connectionId, providerQuery, requestKey](const SearchCapabilities &capabilities,
+        [this, connectionId, providerQuery, requestKey](const CapabilityDocument &capabilities,
                                                         const NetworkError *error) {
             if (activeConnectionId(m_authService) != connectionId) {
                 return;
             }
-            if (capabilities.known && capabilities.letterIndex) {
+            if (capabilities.known
+                && capabilities.values.value(QStringLiteral("letterIndex")).toBool()) {
                 readLibraryLetters(connectionId, providerQuery, requestKey);
             } else if (error) {
                 emit libraryLettersFailed(connectionId, requestKey, error->userMessage);
@@ -3476,18 +3478,90 @@ void LibraryService::getLibraryLetters(const LibraryItemQuery &query)
         });
 }
 
-QString LibraryService::searchCapabilitiesKey() const
+void LibraryService::withSearchCapabilities(CapabilityDocumentHandler handler)
 {
-    return activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
+    withCapabilityDocument(ProviderCatalogOperation::CatalogSearchCapabilities,
+                           QStringLiteral("getCatalogSearchCapabilities"), std::move(handler));
 }
 
-void LibraryService::withSearchCapabilities(SearchCapabilitiesHandler handler)
+QVariantMap LibraryService::mapDetail(const QJsonObject &rawItem,
+                                      const QString &connectionId,
+                                      const QString &itemId,
+                                      const QString &readKind)
 {
-    const QString key = searchCapabilitiesKey();
-    SearchCapabilities &entry = m_searchCapabilities[key];
+    // Providers without an image capability document (Jellyfin) map their
+    // details whole.
+    const ICatalogProvider *provider = m_authService && m_authService->isAuthenticated()
+        ? m_authService->catalogProvider() : nullptr;
+    if (!provider
+        || !provider->createRequest(ProviderCatalogOperation::ImageCapabilities,
+                                    baseCatalogQuery()).supported) {
+        return m_authService
+            ? m_authService->mapMediaDetail(rawItem, connectionId, {.extendedArtwork = true})
+            : QVariantMap{};
+    }
+    // A detail is never held back for the capability: while it is unknown
+    // the detail maps without the extended artwork, and a movie or series
+    // detail is mapped again once the answer allows it.
+    const CapabilityDocument document = m_capabilityDocuments.value(
+        capabilityDocumentKey(ProviderCatalogOperation::ImageCapabilities));
+    const QVariantMap item = m_authService->mapMediaDetail(
+        rawItem, connectionId,
+        {.extendedArtwork =
+             document.values.value(QStringLiteral("extendedItemArtwork")).toBool()});
+    // A newer read of the same detail replaces one still waiting.
+    const QString remapKey = readKind + QLatin1Char('\n') + connectionId + QLatin1Char('\n') + itemId;
+    m_detailRemaps.remove(remapKey);
+    const QString type = item.value(QStringLiteral("mediaType")).toString();
+    if (document.known || (type != QStringLiteral("Movie") && type != QStringLiteral("Series"))) {
+        return item;
+    }
+    const quint64 sequence = ++m_detailRemapSequence;
+    const quint64 generation = m_requestGeneration;
+    m_detailRemaps.insert(remapKey, sequence);
+    // One short attempt: a slow or failing document only costs the extra
+    // artwork, and a failure is not asked again until its back-off ends.
+    RetryPolicy once = m_retryPolicy;
+    once.maxAttempts = 1;
+    withCapabilityDocument(
+        ProviderCatalogOperation::ImageCapabilities, QStringLiteral("getImageCapabilities"),
+        [this, rawItem, connectionId, itemId, remapKey, sequence, generation](
+            const CapabilityDocument &answered, const NetworkError *) {
+            if (m_detailRemaps.value(remapKey) != sequence) {
+                return;
+            }
+            m_detailRemaps.remove(remapKey);
+            if (generation != m_requestGeneration
+                || activeConnectionId(m_authService) != connectionId
+                || !answered.values.value(QStringLiteral("extendedItemArtwork")).toBool()) {
+                return;
+            }
+            emit canonicalDetailArtworkLoaded(
+                connectionId, itemId,
+                m_authService->mapMediaDetail(rawItem, connectionId, {.extendedArtwork = true}));
+        },
+        once, ImageCapabilityAttemptTimeoutMs);
+    return item;
+}
+
+QString LibraryService::capabilityDocumentKey(ProviderCatalogOperation operation) const
+{
+    return QString::number(static_cast<int>(operation)) + QLatin1Char('\n')
+        + activeConnectionId(m_authService) + QLatin1Char('\n')
+        + activeProfileId(m_authService);
+}
+
+void LibraryService::withCapabilityDocument(ProviderCatalogOperation operation,
+                                            const QString &operationName,
+                                            CapabilityDocumentHandler handler,
+                                            std::optional<RetryPolicy> retryPolicy,
+                                            int attemptTimeoutMs)
+{
+    const QString key = capabilityDocumentKey(operation);
+    CapabilityDocument &entry = m_capabilityDocuments[key];
     if (entry.known || (entry.failed && !entry.retryAfter.hasExpired())) {
         // A copy: the handler may read other entries and grow the hash.
-        const SearchCapabilities answered = entry;
+        const CapabilityDocument answered = entry;
         handler(answered, nullptr);
         return;
     }
@@ -3502,47 +3576,46 @@ void LibraryService::withSearchCapabilities(SearchCapabilitiesHandler handler)
     entry.readGeneration = generation;
     entry.failed = false;
     const auto finish = [this, key, generation](auto &&update, const NetworkError *error) {
-        const auto found = m_searchCapabilities.find(key);
-        if (found == m_searchCapabilities.end() || !found->reading
+        const auto found = m_capabilityDocuments.find(key);
+        if (found == m_capabilityDocuments.end() || !found->reading
             || found->readGeneration != generation) {
             return;
         }
         update(*found);
         found->reading = false;
         const auto waiters = std::exchange(found->waiters, {});
-        const SearchCapabilities answered = *found;
-        for (const SearchCapabilitiesHandler &waiter : waiters) {
+        const CapabilityDocument answered = *found;
+        for (const CapabilityDocumentHandler &waiter : waiters) {
             waiter(answered, error);
         }
     };
     sendCatalogRequest(
-        QStringLiteral("getCatalogSearchCapabilities"),
-        ProviderCatalogOperation::CatalogSearchCapabilities,
+        operationName,
+        operation,
         baseCatalogQuery(),
         [finish](const ProviderCatalogResponse &response) {
-            finish([&response](SearchCapabilities &capabilities) {
-                capabilities.known = true;
-                capabilities.peopleMediaScope =
-                    response.capabilityMetadata.value(QStringLiteral("peopleMediaScope")).toBool();
-                capabilities.letterIndex =
-                    response.capabilityMetadata.value(QStringLiteral("letterIndex")).toBool();
+            finish([&response](CapabilityDocument &document) {
+                document.known = true;
+                document.values = response.capabilityMetadata;
             }, nullptr);
         },
         [finish](const NetworkError &error) {
-            finish([&error](SearchCapabilities &capabilities) {
-                // A server without the route has neither feature; that is
-                // remembered. Other failures are not repeated for a while.
+            finish([&error](CapabilityDocument &document) {
+                // A server without the route has none of its features; that
+                // is remembered. Other failures are not repeated for a while.
                 if (error.httpStatus == 404 || error.httpStatus == 405
                     || error.httpStatus == 501) {
-                    capabilities.known = true;
-                    capabilities.peopleMediaScope = false;
-                    capabilities.letterIndex = false;
+                    document.known = true;
+                    document.values.clear();
                 } else {
-                    capabilities.failed = true;
-                    capabilities.retryAfter = QDeadlineTimer(SearchCapabilityRetryMs);
+                    document.failed = true;
+                    document.retryAfter = QDeadlineTimer(CapabilityDocumentRetryMs);
                 }
             }, &error);
-        });
+        },
+        CatalogNotModifiedHandler(),
+        retryPolicy,
+        attemptTimeoutMs);
 }
 
 void LibraryService::readLibraryLetters(const QString &connectionId,
@@ -4354,11 +4427,12 @@ void LibraryService::searchPeople(const QString &searchTerm, int limit)
     }
     withSearchCapabilities(
         [this, connectionId, term, generation, runSearch, emitFailure](
-            const SearchCapabilities &capabilities, const NetworkError *error) {
+            const CapabilityDocument &capabilities, const NetworkError *error) {
             if (generation != m_peopleSearchGeneration) {
                 return;
             }
-            if (capabilities.known && capabilities.peopleMediaScope) {
+            if (capabilities.known
+                && capabilities.values.value(QStringLiteral("peopleMediaScope")).toBool()) {
                 runSearch();
             } else if (error) {
                 emitFailure(*error);

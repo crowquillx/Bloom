@@ -15,6 +15,7 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <tuple>
 #include <utility>
 
 namespace {
@@ -164,6 +165,55 @@ void appendArtwork(QVariantList &all,
         owner.insert(urlProperty, url);
     }
     all.append(ref);
+}
+
+// Silo's extended item artwork on a movie or series detail (see
+// getImageCapabilities extended_item_artwork). backdrop_urls lists every
+// backdrop in display order with backdrop_url first; each one is a backdrop
+// reference at its position, so the hero can cycle through them and a
+// refresh finds it again (SiloArtworkProvider). backdrop_url keeps its place
+// as backdropArtwork.
+void appendExtendedArtwork(QVariantMap &result,
+                           const QJsonObject &wireItem,
+                           const QString &connectionId)
+{
+    const QString itemId = result.value(QStringLiteral("itemId")).toString();
+    QVariantList artwork = result.value(QStringLiteral("artwork")).toList();
+    const QString mainBackdropTag =
+        result.value(QStringLiteral("backdropArtwork")).toMap().value(QStringLiteral("tag")).toString();
+    const QJsonArray backdrops = wireItem.value(QStringLiteral("backdrop_urls")).toArray();
+    for (qsizetype position = 0; position < backdrops.size(); ++position) {
+        const QString url = backdrops.at(position).toString();
+        if (url.isEmpty() || artworkSourceTag(url) == mainBackdropTag) {
+            continue;
+        }
+        appendArtwork(artwork, result, QStringLiteral("backdropArtwork"),
+                      QStringLiteral("backdropArtworkUrl"), connectionId, itemId,
+                      Bloom::ArtworkKind::Backdrop, url, static_cast<int>(position));
+    }
+    for (const auto &[property, kind, field] : {
+             std::tuple{QStringLiteral("thumbArtwork"), Bloom::ArtworkKind::Thumb,
+                        QStringLiteral("thumb_url")},
+             std::tuple{QStringLiteral("bannerArtwork"), Bloom::ArtworkKind::Banner,
+                        QStringLiteral("banner_url")},
+             std::tuple{QStringLiteral("clearArtArtwork"), Bloom::ArtworkKind::ClearArt,
+                        QStringLiteral("clearart_url")},
+             std::tuple{QStringLiteral("discArtwork"), Bloom::ArtworkKind::Disc,
+                        QStringLiteral("disc_url")}}) {
+        appendArtwork(artwork, result, property, property + QStringLiteral("Url"),
+                      connectionId, itemId, kind, wireItem.value(field).toString());
+    }
+    result[QStringLiteral("artwork")] = artwork;
+    QVariantMap thumbhashes = result.value(QStringLiteral("artworkThumbhashes")).toMap();
+    for (const auto &[kind, field] : {
+             std::pair{QStringLiteral("thumb"), QStringLiteral("thumb_thumbhash")},
+             std::pair{QStringLiteral("banner"), QStringLiteral("banner_thumbhash")}}) {
+        const QString thumbhash = wireItem.value(field).toString();
+        if (!thumbhash.isEmpty()) {
+            thumbhashes.insert(kind, thumbhash);
+        }
+    }
+    result[QStringLiteral("artworkThumbhashes")] = thumbhashes;
 }
 
 QVariantList people(const QJsonObject &wireItem, const QString &connectionId)
@@ -1716,11 +1766,17 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
 }
 
 QVariantMap SiloModelMapper::mediaDetail(const QJsonObject &wireItem,
-                                         const QString &connectionId)
+                                         const QString &connectionId,
+                                         bool extendedArtwork)
 {
     QVariantMap result = mediaItem(wireItem, connectionId);
     if (!result.contains(QStringLiteral("extras"))) {
         result.insert(QStringLiteral("extras"), QVariantList{});
+    }
+    const QString type = result.value(QStringLiteral("mediaType")).toString();
+    if (extendedArtwork
+        && (type == QStringLiteral("Movie") || type == QStringLiteral("Series"))) {
+        appendExtendedArtwork(result, wireItem, connectionId);
     }
     return result;
 }

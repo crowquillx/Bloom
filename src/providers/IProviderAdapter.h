@@ -51,6 +51,15 @@ struct ProviderRouteContext {
     QString sessionId;
 };
 
+// How one item detail is mapped. Silo gates artwork beyond the poster,
+// backdrop and logo on its image capability document (`extended_item_artwork`),
+// which LibraryService reads once per connection and profile.
+struct ProviderDetailMapping {
+    // Map every backdrop and the thumb, banner, clear art and disc images.
+    // Providers that need no capability for them ignore it.
+    bool extendedArtwork = false;
+};
+
 class IProviderAdapter
 {
 public:
@@ -77,6 +86,15 @@ public:
     virtual QStringList mapNamedItems(const QJsonObject &wireItems) const = 0;
     virtual QVariantMap mapMediaItem(const QJsonObject &wireItem,
                                      const QString &connectionId) const = 0;
+    /// One item detail read for a detail page; mapMediaItem() unless the
+    /// provider gates part of the detail on @p mapping.
+    virtual QVariantMap mapMediaDetail(const QJsonObject &wireItem,
+                                       const QString &connectionId,
+                                       const ProviderDetailMapping &mapping) const
+    {
+        Q_UNUSED(mapping)
+        return mapMediaItem(wireItem, connectionId);
+    }
     virtual QVariantList mapMediaItems(const QJsonArray &wireItems,
                                        const QString &connectionId) const = 0;
     virtual QVariantList mapChaptersFromItem(const QJsonObject &wireItem,

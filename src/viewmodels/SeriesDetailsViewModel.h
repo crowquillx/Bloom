@@ -152,6 +152,9 @@ class SeriesDetailsViewModel : public BaseViewModel
     Q_PROPERTY(QString logoUrl READ logoUrl NOTIFY logoUrlChanged)
     Q_PROPERTY(QString posterUrl READ posterUrl NOTIFY posterUrlChanged)
     Q_PROPERTY(QString backdropUrl READ backdropUrl NOTIFY backdropUrlChanged)
+    /// Every backdrop the hero cycles through, backdropUrl first; empty when
+    /// the series has no backdrop of its own (docs/style-guide.md, Stage).
+    Q_PROPERTY(QStringList backdropUrls READ backdropUrls NOTIFY backdropUrlChanged)
     Q_PROPERTY(int productionYear READ productionYear NOTIFY productionYearChanged)
     Q_PROPERTY(bool isWatched READ isWatched NOTIFY isWatchedChanged)
     Q_PROPERTY(bool isFavorite READ isFavorite NOTIFY isFavoriteChanged)
@@ -233,6 +236,7 @@ public:
     QString logoUrl() const { return m_logoUrl; }
     QString posterUrl() const { return m_posterUrl; }
     QString backdropUrl() const { return m_backdropUrl; }
+    QStringList backdropUrls() const { return m_backdropUrls; }
     int productionYear() const { return m_productionYear; }
     bool isWatched() const { return m_isWatched; }
     bool isFavorite() const { return m_isFavorite; }
@@ -448,6 +452,8 @@ signals:
     void loadError(const QString &error);
 
 private slots:
+    void onSeriesArtworkLoaded(const QString &connectionId, const QString &seriesId,
+                               const QVariantMap &data);
     void onSeriesDetailsLoaded(const QString &connectionId,
                                const QString &seriesId,
                                const QVariantMap &seriesData);
@@ -504,6 +510,7 @@ private:
     void updateSeriesMetadata(const QVariantMap &data);
     void updateNextEpisode(const QVariantMap &episodeData);
     QString buildArtworkUrl(const QVariantMap &artwork, int width) const;
+    void updateBackdropUrls(const QVariantMap &data);
     void applyFocusedEpisodeDetails(const QString &episodeId, const QVariantMap &data);
     QString startEpisodeDetailsRequest(const QString &episodeId);
     bool matchesEpisodeDetailsRequest(const QString &itemId, const QString &requestContext) const;
@@ -523,6 +530,7 @@ private:
     QString m_logoUrl;
     QString m_posterUrl;
     QString m_backdropUrl;
+    QStringList m_backdropUrls;
     int m_productionYear = 0;
     bool m_isWatched = false;
     bool m_isFavorite = false;

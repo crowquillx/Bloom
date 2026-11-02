@@ -110,6 +110,17 @@ Settings > About & Account instead.
 Never draw page backgrounds by hand. If a page needs a new scrim, add it to
 `StageBackdrop` so every page gets it.
 
+The movie and series detail pages cycle through the title's backdrops with
+`BackdropCycle` (the view model's `backdropUrls`, main backdrop first). The
+stage stays on each one for the Backdrop Rotation setting and cross-fades
+slowly (`Theme.durationBackdropCycle`) to the next once it has loaded, so a
+slow or failed image never blanks the stage. Cycling pauses while the page is
+hidden, during playback and under the screensaver, and Reduce Motion (also
+when turned on mid-cycle) returns to and keeps the main backdrop. A title with
+one backdrop looks as before. Season and episode views keep the series' main
+backdrop: they are for browsing episodes, so their stage stays put. The
+library page's own stage, which every detail view covers, never rotates.
+
 ## Hero
 
 The hero block is left-aligned at the gutter and never wider than
@@ -141,7 +152,8 @@ screens don't stretch the reading measure). Top to bottom:
 
 Detail pages (movie, series, season, episode) build this block with
 `DetailHero`; Home's carousel, Up Next and the after-movie screen lay it out
-themselves.
+themselves. Movie and series heroes sit on a stage that cycles through the
+title's backdrops (see [Stage](#stage)).
 
 ### After-movie screen
 

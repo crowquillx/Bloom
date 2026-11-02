@@ -6,6 +6,7 @@ Components
 - `Main.qml` hosts the overlay inline under `Overlay.overlay` for normal app idle states. During Windows embedded playback, it hosts the same overlay in a dedicated top-level `Window` synced to the app window so the native mpv child window cannot occlude it while playback is paused.
 - Modes (ConfigManager `screensaverMode`): `libraryBackdrops` (cycling backdrops with metadata/logo placement), `bouncingLogo` (bouncing logo over artwork), `black` (no artwork; just a black screen).
 - Artwork mode consumes UI-ready items from `LibraryService.getScreensaverItems(limit)`. The service owns auth/session guarding, stale-reply suppression, backdrop filtering, and image URL derivation before emitting `screensaverItemsLoaded`.
+- Each candidate shows its main backdrop only. Candidates are catalog cards, and Silo lists a title's other backdrops (`backdrop_urls`) only on its detail, so rotating through them would cost a detail read per title; the screensaver already moves to another title each cycle. Detail pages cycle a title's own backdrops instead ([style guide](style-guide.md#stage)).
 - Debug env vars: `BLOOM_SCREENSAVER_DEBUG=1` forces the screensaver enabled regardless of config; `BLOOM_SCREENSAVER_DEBUG_TIMEOUT_MS=<ms>` overrides the timeout (clamped to 250..60000, default 3000). Intended for manual smoke testing.
 
 Arming contract

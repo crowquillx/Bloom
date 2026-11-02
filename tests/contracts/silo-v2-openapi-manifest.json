@@ -6507,6 +6507,174 @@
     },
     {
       "method": "GET",
+      "path": "/api/v2/images/capabilities",
+      "operationId": "getImageCapabilities",
+      "parameters": [
+        {
+          "in": "header",
+          "name": "If-Match",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Id",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "X-Profile-Token",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageCapabilities"
+              }
+            }
+          },
+          "headers": {
+            "Cache-Control": {
+              "schema": {
+                "type": "string"
+              }
+            },
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "304": {
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "401": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "403": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "404": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "412": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          },
+          "headers": {
+            "ETag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "429": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": true,
+      "class": "profile_scoped",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
       "path": "/api/v2/library/{id}/collections",
       "operationId": "getLibraryCollections",
       "parameters": [
@@ -23449,6 +23617,117 @@
           "type": "string"
         }
       },
+      "type": "object"
+    },
+    "ImageCapabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "delivery": {
+          "enum": [
+            "server",
+            "direct"
+          ],
+          "type": "string"
+        },
+        "episode_parent_artwork": {
+          "type": "boolean"
+        },
+        "episode_still_provenance": {
+          "type": "boolean"
+        },
+        "extended_item_artwork": {
+          "type": "boolean"
+        },
+        "original_max_width_px": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "param": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "season_list_artwork_param": {
+          "type": "string"
+        },
+        "sizes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "slot_width_params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "state": {
+          "enum": [
+            "available",
+            "disabled",
+            "not_configured",
+            "unsupported"
+          ],
+          "type": "string"
+        },
+        "storage_backend": {
+          "enum": [
+            "local",
+            "s3"
+          ],
+          "type": "string"
+        },
+        "widths": {
+          "additionalProperties": {
+            "$ref": "#/components/schemas/ImageSizeWidths"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "episode_still_provenance",
+        "episode_parent_artwork",
+        "extended_item_artwork",
+        "season_list_artwork_param",
+        "param",
+        "slot_width_params",
+        "sizes",
+        "widths",
+        "original_max_width_px",
+        "storage_backend",
+        "delivery",
+        "revision",
+        "state",
+        "allowed"
+      ],
+      "type": "object"
+    },
+    "ImageSizeWidths": {
+      "additionalProperties": false,
+      "properties": {
+        "large": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "medium": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "small": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "small",
+        "medium",
+        "large"
+      ],
       "type": "object"
     },
     "Impersonation": {

@@ -590,6 +590,12 @@ signals:
                                          const QVariantList &items);
     void canonicalScreensaverItemsFailed(const QString &connectionId,
                                          const QString &error);
+    /// A movie or series detail sent without the extended artwork (its
+    /// image capability was not yet known), mapped again with it. Views take
+    /// only the artwork from it: the rest is the same read.
+    void canonicalDetailArtworkLoaded(const QString &connectionId,
+                                      const QString &itemId,
+                                      const QVariantMap &item);
     void canonicalSeriesDetailsLoaded(const QString &connectionId,
                                       const QString &seriesId,
                                       const QVariantMap &seriesData);
@@ -1064,14 +1070,16 @@ private:
     void finishAiringCalendarRead(const QString &key, quint64 generation,
                                   const QVariantList &airings, bool cache);
     quint64 m_librarySectionsGeneration = 0;
-    /// The catalog search capability document of one connection and
-    /// profile (Silo), read once for scoped people search and the letter
-    /// index. Reads asked for while one is in flight wait for it; a failed
-    /// read is not repeated until retryAfter. Cleared with the session.
-    struct SearchCapabilities {
+    /// One capability document of one connection and profile (Silo's
+    /// catalog search capabilities, its image capabilities), read once for
+    /// every feature it gates. `values` holds the response's
+    /// capabilityMetadata; a server without the route is known with no
+    /// values, so every flag reads false. Reads asked for while one is in
+    /// flight wait for it; a failed read is not repeated until retryAfter.
+    /// Cleared with the session.
+    struct CapabilityDocument {
         bool known = false;
-        bool peopleMediaScope = false;
-        bool letterIndex = false;
+        QVariantMap values;
         bool failed = false;
         QDeadlineTimer retryAfter;
         /// A read is in flight, sent in request generation readGeneration.
@@ -1079,20 +1087,39 @@ private:
         quint64 readGeneration = 0;
         /// Called with the entry once the read in flight answers, and with
         /// the failure when it fails (null otherwise).
-        QList<std::function<void(const SearchCapabilities &, const NetworkError *)>> waiters;
+        QList<std::function<void(const CapabilityDocument &, const NetworkError *)>> waiters;
     };
-    using SearchCapabilitiesHandler =
-        std::function<void(const SearchCapabilities &, const NetworkError *)>;
-    QHash<QString, SearchCapabilities> m_searchCapabilities;
-    static constexpr int SearchCapabilityRetryMs = 5 * 60 * 1000;
+    using CapabilityDocumentHandler =
+        std::function<void(const CapabilityDocument &, const NetworkError *)>;
+    QHash<QString, CapabilityDocument> m_capabilityDocuments;
+    static constexpr int CapabilityDocumentRetryMs = 5 * 60 * 1000;
     // A refused rating write (503 during a restart, 404 for a removed
     // title) hides ratings only for a while.
     static constexpr int UserRatingRetryMs = 10 * 60 * 1000;
-    /// Answers @p handler with the active connection's search capabilities:
-    /// at once when known or a failed read is still backed off, else after
-    /// one shared read.
-    void withSearchCapabilities(SearchCapabilitiesHandler handler);
-    QString searchCapabilitiesKey() const;
+    /// Answers @p handler with the active connection's capability document
+    /// read by @p operation: at once when known or a failed read is still
+    /// backed off, else after one shared read.
+    void withCapabilityDocument(ProviderCatalogOperation operation,
+                                const QString &operationName,
+                                CapabilityDocumentHandler handler,
+                                std::optional<RetryPolicy> retryPolicy = std::nullopt,
+                                int attemptTimeoutMs = 0);
+    QString capabilityDocumentKey(ProviderCatalogOperation operation) const;
+    void withSearchCapabilities(CapabilityDocumentHandler handler);
+    /// Maps one detail read (@p readKind names the read: item or series) at
+    /// once. On a provider with an image capability document (Silo
+    /// getImageCapabilities) the extended artwork is mapped only once it is
+    /// known to be allowed; a movie or series detail mapped while it is
+    /// unknown asks for it (one short attempt) and, when allowed and the
+    /// detail is still the latest read of that item in this session, is
+    /// mapped again and sent as canonicalDetailArtworkLoaded.
+    QVariantMap mapDetail(const QJsonObject &rawItem, const QString &connectionId,
+                          const QString &itemId, const QString &readKind);
+    /// The latest detail read per read kind, connection and item that waits
+    /// for the image capability document; cleared with the session.
+    QHash<QString, quint64> m_detailRemaps;
+    quint64 m_detailRemapSequence = 0;
+    static constexpr int ImageCapabilityAttemptTimeoutMs = 5000;
     /// Above this many titles a provider that builds the letter index from
     /// the whole list (Jellyfin) gets no index; the rail shows the loaded
     /// letters instead.

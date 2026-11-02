@@ -1665,6 +1665,7 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/Icons.qml
     ${CMAKE_SOURCE_DIR}/src/ui/NavigationBar.qml
     ${CMAKE_SOURCE_DIR}/src/ui/StageBackdrop.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/BackdropCycle.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MediaCard.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ShelfList.qml
     ${CMAKE_SOURCE_DIR}/src/ui/PageHeader.qml
@@ -1801,6 +1802,10 @@ add_test(NAME SessionServiceTest COMMAND SessionServiceTest)
 add_executable(ContinueWatchingTest ContinueWatchingTest.cpp)
 target_link_libraries(ContinueWatchingTest PRIVATE Bloom::Models Qt6::Test)
 add_test(NAME ContinueWatchingTest COMMAND ContinueWatchingTest)
+
+add_executable(HeroBackdropsTest HeroBackdropsTest.cpp)
+target_link_libraries(HeroBackdropsTest PRIVATE Bloom::Models Qt6::Test)
+add_test(NAME HeroBackdropsTest COMMAND HeroBackdropsTest)
 
 add_executable(HomeRecommendationsTest HomeRecommendationsTest.cpp)
 target_link_libraries(HomeRecommendationsTest PRIVATE Bloom::Models Qt6::Test)

@@ -29,6 +29,9 @@ Item {
     property real dim: 0.0
     /// Show the accent glow under the art (and alone when there is no art).
     property bool glow: true
+    /// How long the art takes to cross-fade to a new source. A detail hero
+    /// cycling through a title's backdrops fades slower (BackdropCycle).
+    property int fadeDuration: Theme.durationFade
 
     readonly property bool hero: mode === "hero"
     readonly property bool hasArtwork: (showA ? imageA : imageB).status === Image.Ready
@@ -112,7 +115,7 @@ Item {
             opacity: root.showA && status === Image.Ready ? 1.0 : 0.0
             Behavior on opacity {
                 enabled: Theme.uiAnimationsEnabled
-                NumberAnimation { duration: Theme.durationFade }
+                NumberAnimation { duration: root.fadeDuration }
             }
             onStatusChanged: root.checkStatus(imageA)
         }
@@ -126,7 +129,7 @@ Item {
             opacity: !root.showA && status === Image.Ready ? 1.0 : 0.0
             Behavior on opacity {
                 enabled: Theme.uiAnimationsEnabled
-                NumberAnimation { duration: Theme.durationFade }
+                NumberAnimation { duration: root.fadeDuration }
             }
             onStatusChanged: root.checkStatus(imageB)
         }

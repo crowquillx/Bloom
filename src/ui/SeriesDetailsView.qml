@@ -704,12 +704,22 @@ FocusScope {
 
     // Stage: the series backdrop, sharp behind the hero copy. A poster
     // fallback is low resolution, so it is shown softened instead.
+    // The title's other backdrops, cycled slowly behind the hero.
+    BackdropCycle {
+        id: backdropCycle
+        sources: SeriesDetailsViewModel.backdropUrls
+        active: root.visible && !PlayerController.isPlaybackActive
+                && !ScreensaverController.active
+    }
+
     StageBackdrop {
         id: stage
         anchors.fill: parent
         z: -1
         mode: backdropUrl !== "" ? "hero" : "ambient"
-        source: backdropUrl !== "" ? backdropUrl : posterUrl
+        source: backdropCycle.currentSource !== "" ? backdropCycle.currentSource
+                : (backdropUrl !== "" ? backdropUrl : posterUrl)
+        fadeDuration: backdropCycle.fadeDuration
         // Quiet the artwork as the page scrolls into the shelves.
         dim: Math.min(0.72, contentFlickable.contentY / Math.max(1, heroArea.height) * 0.72)
     }

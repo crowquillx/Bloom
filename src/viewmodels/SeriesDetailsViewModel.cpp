@@ -1,6 +1,7 @@
 #include "SeriesDetailsViewModel.h"
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
+#include "../models/HeroBackdrops.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/DetailViewCache.h"
 #include "../utils/ExternalRatingsHelper.h"
@@ -627,6 +628,8 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
     if (m_libraryService) {
         connect(m_libraryService, &LibraryService::canonicalSeriesDetailsLoaded,
                 this, &SeriesDetailsViewModel::onSeriesDetailsLoaded);
+        connect(m_libraryService, &LibraryService::canonicalDetailArtworkLoaded,
+                this, &SeriesDetailsViewModel::onSeriesArtworkLoaded);
         connect(m_libraryService, &LibraryService::canonicalSeriesDetailsNotModified,
                 this, &SeriesDetailsViewModel::onSeriesDetailsNotModified);
         connect(m_libraryService, &LibraryService::canonicalItemExtrasLoaded,
@@ -1296,6 +1299,7 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
         m_logoUrl.clear();
         m_posterUrl.clear();
         m_backdropUrl.clear();
+        m_backdropUrls.clear();
     }
     m_productionYear = 0;
     m_isWatched = false;
@@ -1545,6 +1549,34 @@ void SeriesDetailsViewModel::onSeriesDetailsLoaded(const QString &connectionId,
     if (!m_loadingSeries && !m_loadingSeasons) {
         setLoading(false);
         emit seriesLoaded();
+    }
+}
+
+void SeriesDetailsViewModel::onSeriesArtworkLoaded(const QString &connectionId,
+                                                   const QString &seriesId,
+                                                   const QVariantMap &data)
+{
+    if (connectionId != m_connectionId || seriesId != m_seriesId || m_seriesData.isEmpty()) {
+        return;
+    }
+    // Only the artwork changes: the rest of the read is already shown, and
+    // the page keeps its focus and its backdrop (BackdropCycle).
+    const QVariantMap merged =
+        Bloom::HeroBackdrops::withArtworkOf(m_seriesData.toVariantMap(), data);
+    m_seriesData = QJsonObject::fromVariantMap(merged);
+    storeSeriesCache(seriesId, m_seriesData);
+    updateBackdropUrls(merged);
+    emit backdropUrlChanged();
+}
+
+void SeriesDetailsViewModel::updateBackdropUrls(const QVariantMap &data)
+{
+    m_backdropUrls.clear();
+    for (const QVariant &ref : Bloom::HeroBackdrops::refs(data)) {
+        const QString url = buildArtworkUrl(ref.toMap(), 1920);
+        if (!url.isEmpty() && !m_backdropUrls.contains(url)) {
+            m_backdropUrls.append(url);
+        }
     }
 }
 
@@ -2110,6 +2142,7 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QVariantMap &data)
     if (m_backdropUrl.isEmpty()) {
         m_backdropUrl = m_posterUrl;
     }
+    updateBackdropUrls(data);
 
     m_people = canonicalPeople(data.value(QStringLiteral("people")));
     m_genres = canonicalStringList(data.value(QStringLiteral("genres")));

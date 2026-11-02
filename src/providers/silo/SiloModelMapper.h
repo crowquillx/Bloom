@@ -46,8 +46,12 @@ public:
     /// A catalog item detail: mediaItem() plus an `extras` list that is
     /// always present. Silo omits `extras` when the item has none, so an
     /// empty list here replaces extras cached from an earlier detail.
+    /// With @p extendedArtwork (getImageCapabilities extended_item_artwork)
+    /// a movie or series detail also maps every backdrop in backdrop_urls
+    /// and its thumb, banner, clear art and disc images.
     static QVariantMap mediaDetail(const QJsonObject &wireItem,
-                                   const QString &connectionId);
+                                   const QString &connectionId,
+                                   bool extendedArtwork = false);
     static QVariantList mediaItems(const QJsonArray &wireItems,
                                    const QString &connectionId);
     /// A catalog Person (getPerson, listPeople) as a canonical person; empty

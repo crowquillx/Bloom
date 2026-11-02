@@ -352,7 +352,7 @@ FocusScope {
                 SettingsSliderRow {
                     id: backdropSlider
                     label: qsTr("Backdrop Rotation")
-                    description: qsTr("How often the home screen backdrop changes")
+                    description: qsTr("How often the backdrop changes on Home and detail pages")
                     value: ConfigManager.backdropRotationInterval / 1000
                     from: 10
                     to: 120

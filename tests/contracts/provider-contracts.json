@@ -967,6 +967,7 @@
       "native.catalog.letters",
       "native.catalog.detail",
       "native.catalog.people",
+      "native.catalog.extended-artwork",
       "native.catalog.hierarchy",
       "native.state.watched",
       "native.state.favorite",
@@ -1523,6 +1524,46 @@
           "src/providers/silo/SiloModelMapper.cpp",
           "src/network/LibraryService.cpp",
           "src/viewmodels/PersonViewModel.cpp"
+        ]
+      },
+      {
+        "id": "native.catalog.extended-artwork",
+        "method": "GET",
+        "path": "/api/v2/images/capabilities and /api/v2/catalog/items/{id}",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/images/capabilities"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/catalog/items/{id}"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "conditional",
+          "discovery": "getImageCapabilities for the selected profile reports extended_item_artwork, read once per connection and profile after the first movie or series detail read, in one attempt with a five-second deadline; details are never held back for it (sent at once without the extended artwork, then their artwork is sent again once it is allowed), a missing route (404, 405, 501) means no extended artwork, and another failed read maps details without it for five minutes. No ProviderCapability bit."
+        },
+        "requestSemantics": [
+          "Detail pages read getCatalogItem with the declared slot widths; backdrop_width sizes backdrop_url and every backdrop_urls entry. Thumb, banner, clear art and disc have no slot width and resolve at the detail's default size.",
+          "An expired extended artwork URL is refetched from the item's detail: a backdrop by its path among backdrop_urls, else by its position."
+        ],
+        "requiredSemantics": [
+          "With extended_item_artwork true, movie and series detail may carry backdrop_urls (every backdrop in display order, backdrop_url first), thumb_url, banner_url, clearart_url and disc_url (movies only), with thumb_thumbhash and banner_thumbhash. Each field is absent when the item has no such image; season and episode details and cards carry none.",
+          "Bloom maps each backdrop as a Backdrop artwork reference at its position and the others as Thumb, Banner, ClearArt and Disc references; detail heroes cycle through the backdrops."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/docs/images-api.md",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/docs/catalog-api.md"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/providers/silo/SiloModelMapper.cpp",
+          "src/providers/silo/SiloArtworkProvider.cpp",
+          "src/network/LibraryService.cpp",
+          "src/models/HeroBackdrops.cpp"
         ]
       },
       {

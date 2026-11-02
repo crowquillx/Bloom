@@ -1,6 +1,7 @@
 #include "MovieDetailsViewModel.h"
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
+#include "../models/HeroBackdrops.h"
 #include "../models/MediaModels.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/DetailViewCache.h"
@@ -141,6 +142,8 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
         connect(m_libraryService,
                 qOverload<const QString &, const QVariantMap &>(&LibraryService::canonicalItemLoaded),
                 this, &MovieDetailsViewModel::onMovieDetailsLoaded);
+        connect(m_libraryService, &LibraryService::canonicalDetailArtworkLoaded,
+                this, &MovieDetailsViewModel::onMovieArtworkLoaded);
         connect(m_libraryService,
                 qOverload<const QString &>(&LibraryService::itemNotModified),
                 this, &MovieDetailsViewModel::onMovieDetailsNotModified);
@@ -480,6 +483,7 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
         m_logoUrl.clear();
         m_posterUrl.clear();
         m_backdropUrl.clear();
+        m_backdropUrls.clear();
     }
     m_productionYear = 0;
     m_isWatched = false;
@@ -605,6 +609,33 @@ void MovieDetailsViewModel::onMovieDetailsLoaded(const QString &itemId, const QV
     requestSimilarItems(itemId);
     
     emit movieLoaded();
+}
+
+void MovieDetailsViewModel::onMovieArtworkLoaded(const QString &connectionId,
+                                                 const QString &itemId,
+                                                 const QVariantMap &data)
+{
+    if (itemId != m_movieId || m_movieData.isEmpty() || connectionId != activeCacheScope()) {
+        return;
+    }
+    // Only the artwork changes: the rest of the read is already shown, and
+    // the page keeps its focus and its backdrop (BackdropCycle).
+    const QVariantMap merged = Bloom::HeroBackdrops::withArtworkOf(m_movieData.toVariantMap(), data);
+    m_movieData = QJsonObject::fromVariantMap(merged);
+    storeMovieCache(itemId, m_movieData);
+    updateBackdropUrls(merged);
+    emit backdropUrlChanged();
+}
+
+void MovieDetailsViewModel::updateBackdropUrls(const QVariantMap &data)
+{
+    m_backdropUrls.clear();
+    for (const QVariant &ref : Bloom::HeroBackdrops::refs(data)) {
+        const QString url = cachedArtworkUrl(ref.toMap(), 1920);
+        if (!url.isEmpty() && !m_backdropUrls.contains(url)) {
+            m_backdropUrls.append(url);
+        }
+    }
 }
 
 void MovieDetailsViewModel::onMovieDetailsNotModified(const QString &itemId)
@@ -882,6 +913,7 @@ void MovieDetailsViewModel::updateMovieMetadata(const QVariantMap &data)
     if (m_backdropUrl.isEmpty()) {
         m_backdropUrl = m_posterUrl;
     }
+    updateBackdropUrls(data);
 
     emit titleChanged();
     emit overviewChanged();

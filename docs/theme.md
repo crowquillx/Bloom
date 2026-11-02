@@ -34,6 +34,10 @@ scaling table, and the migration note for the removed breakpoints.
 ### Animation Control
 - `Theme.uiAnimationsEnabled`: Boolean flag controlling all UI animations.
 - Respects user preference ("Reduce Motion").
+- Durations: `durationShort` (150 ms), `durationNormal` (200), `durationLong`
+  (300), `durationFade` (500) and `durationBackdropCycle` (2400, a detail
+  hero's slow cross-fade between a title's backdrops); all collapse to 0 with
+  Reduce Motion.
 - **Best Practice**: Bind animation `enabled` or `duration` properties to this flag.
   ```qml
   Behavior on x { 
@@ -125,7 +129,8 @@ Shared building blocks live in `src/ui/` and are registered in the `BloomUI` mod
 | `ActionButton` | Every text/icon button. `variant`: `primary`, `secondary`, `ghost`, `destructive`; `selected` for toggles; `busy` swaps the icon for a spinner while keeping the label; includes its own `FocusRing`. Callers wire Enter/Return. |
 | `FocusRing` | Focus indicator; place it inside a focusable item's background. |
 | `NavigationBar` | The shell's top navigation (owned by `Main.qml`). |
-| `StageBackdrop` | Full-bleed page background: artwork in `hero` or `ambient` mode with the standard scrims, or the ambient accent glow without art. |
+| `StageBackdrop` | Full-bleed page background: artwork in `hero` or `ambient` mode with the standard scrims, or the ambient accent glow without art. `fadeDuration` sets its cross-fade. |
+| `BackdropCycle` | Steps a detail page's stage through the title's backdrops (`sources`, main backdrop first): it preloads the next one, then hands it over as `currentSource` with a slow `fadeDuration`. Paused while `active` is false; Reduce Motion returns it to the main backdrop. |
 | `MediaCard` | The one media card: `poster` (caption below) or `landscape` (title on the art, progress), with focus lift, badges and hybrid rounded artwork. `menuEnabled` makes right-click and press-and-hold emit `menuRequested` (an actions menu); without it a long press still clicks. |
 | `ShelfList` | Horizontal shelf `ListView` aligned to the gutter with focus room and displacement transitions (no fade-in: ListView can leave an interrupted fade at opacity 0). |
 | `PageHeader` | Eyebrow, display title and detail line for non-hero pages, with a trailing slot for toolbars. |

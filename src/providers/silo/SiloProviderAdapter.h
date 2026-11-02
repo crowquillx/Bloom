@@ -75,6 +75,13 @@ public:
         return SiloModelMapper::mediaDetail(wireItem, connectionId);
     }
 
+    QVariantMap mapMediaDetail(const QJsonObject &wireItem,
+                               const QString &connectionId,
+                               const ProviderDetailMapping &mapping) const override
+    {
+        return SiloModelMapper::mediaDetail(wireItem, connectionId, mapping.extendedArtwork);
+    }
+
     QVariantList mapMediaItems(const QJsonArray &wireItems,
                                const QString &connectionId) const override
     {

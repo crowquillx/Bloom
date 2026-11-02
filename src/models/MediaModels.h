@@ -18,6 +18,12 @@ enum class ArtworkKind {
     Logo,
     Chapter,
     Person,
+    // A wide banner strip, transparent cut-out art with the title, and
+    // transparent disc art (Jellyfin Banner, Art and Disc; Silo's extended
+    // item artwork).
+    Banner,
+    ClearArt,
+    Disc,
     Unknown
 };
 
