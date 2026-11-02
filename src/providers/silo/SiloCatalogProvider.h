@@ -482,6 +482,8 @@ private:
             // Both are natural_idempotent: the override is one value per
             // device, so a replay after a lost response leaves the same state.
             request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
+            return request;
+        }
         case ProviderCatalogOperation::BecauseWatched: {
             ProviderCatalogRequest request = getWithContentId(
                 QStringLiteral("/api/v2/recommendations/because-watched/%1"), query.itemId);
