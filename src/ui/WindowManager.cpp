@@ -23,6 +23,7 @@
 #include "viewmodels/SubtitleSearchViewModel.h"
 #include "network/AuthenticationService.h"
 #include "network/SessionService.h"
+#include "network/discovery/ServerDiscoveryService.h"
 #include "network/MediaRequestService.h"
 #include "providers/ActiveArtworkProvider.h"
 #include "network/LibraryService.h"
@@ -180,6 +181,7 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("SystemPowerController", ServiceLocator::get<SystemPowerController>());
     context->setContextProperty("AuthenticationService", ServiceLocator::get<AuthenticationService>());
     context->setContextProperty("SessionService", ServiceLocator::get<SessionService>());
+    context->setContextProperty("ServerDiscovery", ServiceLocator::get<ServerDiscoveryService>());
     context->setContextProperty("LibraryService", ServiceLocator::get<LibraryService>());
     context->setContextProperty("PlaybackService", ServiceLocator::get<PlaybackService>());
     context->setContextProperty("MediaRequests", ServiceLocator::get<MediaRequestService>());

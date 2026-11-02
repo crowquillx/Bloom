@@ -2,6 +2,7 @@
 
 #include "models/PosterBadges.h"
 #include "network/Types.h"
+#include "providers/LanServerAdvert.h"
 #include "providers/ServerConnection.h"
 
 #include <QJsonArray>
@@ -40,7 +41,11 @@ enum class ProviderRoute {
     Health,
     Ready,
     SystemInfo,
-    CallerLogout
+    CallerLogout,
+    // Public reads that confirm a server found on the local network
+    // (docs/server-discovery.md): its identity, then optionally its name.
+    ServerIdentity,
+    ServerBranding
 };
 
 struct ProviderRouteContext {
@@ -178,6 +183,19 @@ public:
     {
         Q_UNUSED(wireResult)
         return std::nullopt;
+    }
+    /// The ServerIdentity route's answer; nullopt when it names no server.
+    virtual std::optional<ProviderServerIdentity> mapServerIdentity(
+        const QJsonObject &wireIdentity) const
+    {
+        Q_UNUSED(wireIdentity)
+        return std::nullopt;
+    }
+    /// The server name from the ServerBranding route's answer, or empty.
+    virtual QString mapServerBrandingName(const QJsonObject &wireBranding) const
+    {
+        Q_UNUSED(wireBranding)
+        return {};
     }
     virtual std::optional<QList<ProviderProfile>> mapProfiles(
         const QJsonArray &wireProfiles) const

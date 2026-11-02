@@ -117,7 +117,8 @@
     "optional.audiobooks",
     "optional.ebooks",
     "catalog.people",
-    "catalog.collections"
+    "catalog.collections",
+    "discovery.lan"
   ],
   "contracts": [
     {
@@ -909,6 +910,19 @@
         "jellyfin-supported": {"outcome": "partial", "evidence": "GetPublicSystemInfo, and GetItems with BoxSet, ParentId, Ids and CollapseBoxSetItems, are current in the pinned Jellyfin 12 OpenAPI document. The 10.11.10 control's ItemsController.GetItems sets parentId to null when includeItemTypes is exactly BoxSet, so there Bloom scopes a library's collections by scanning its titles, which works only when the server groups titles into collections; otherwise it shows the server's list and says so. GetItemCollections is new in API 12 and absent from the 10.11.10 control, so the \"Part of\" shelf appears only on Jellyfin 12."},
         "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Not verified on the 8044eb8 compatibility build, so Bloom makes no claim there; native Silo serves collections through its v2 library and catalog routes (native.library.collections)."}
       }
+    },
+    {
+      "id": "discovery.lan",
+      "journey": "authentication",
+      "bloomCaller": "ServerDiscoveryService (the login screen's Found on your network list)",
+      "method": "GET",
+      "path": "/System/Info/Public",
+      "requestSemantics": ["\"Who is JellyfinServer?\" is broadcast to UDP 7359 (limited and per-interface directed broadcast) from an ephemeral port while the add-server screen is visible", "Each reply's Address (a bare host gets http and port 8096), EndpointAddress and the reply's source address on the advertised or default port are candidates", "GetPublicSystemInfo is read once per candidate with no Token, no redirect followed and a 3 s deadline"],
+      "requiredSemantics": ["The reply is ServerDiscoveryInfo JSON with a non-empty Id; GetPublicSystemInfo must answer the same Id, and its ServerName labels the entry", "Candidates of one Id are one entry at the address that confirmed first; the others and failed addresses are dropped"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Jellyfin.Networking AutoDiscoveryHost answers the probe on UDP 7359 when AutoDiscovery is enabled (the default); GetPublicSystemInfo is current in the pinned Jellyfin 12 OpenAPI document."},
+        "silo-8044eb8-compat": {"outcome": "not-applicable", "evidence": "Silo does not answer the Jellyfin UDP probe (its compatibility Id is one fixed value on every install); native Silo is found through DNS-SD (native.discovery.lan)."}
+      }
     }
   ],
   "nativeSiloContract": {
@@ -1000,7 +1014,8 @@
       "native.poster-badges",
       "native.requests",
       "native.subtitles.search",
-      "native.playback.shuffle"
+      "native.playback.shuffle",
+      "native.discovery.lan"
     ],
     "requirements": [
       {
@@ -2907,6 +2922,47 @@
           "src/network/LibraryService.cpp",
           "src/player/ShuffleSession.cpp",
           "src/player/PlayerController.cpp"
+        ]
+      },
+      {
+        "id": "native.discovery.lan",
+        "method": "GET",
+        "path": "/api/v2/system/identity and /api/v2/theme/branding",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/system/identity"
+          },
+          {
+            "method": "GET",
+            "path": "/api/v2/theme/branding"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned public v2 operations; no ProviderCapability bit. The add-server screen browses DNS-SD _silo._tcp over multicast DNS (TXT v=1 and id=<server_id>) and lists a found address only after getServerIdentity there answers the advertised id."
+        },
+        "requestSemantics": [
+          "A candidate is http://<address>:<SRV port> for each A and AAAA record of the advertised host, IPv4 first; link-local IPv6 is never used.",
+          "getServerIdentity and then getBranding are public reads with no bearer, profile or device headers, one attempt each with a 3 s deadline, no redirect followed and at most 64 KiB buffered."
+        ],
+        "requiredSemantics": [
+          "getServerIdentity answers a non-empty server_id string; a candidate whose server_id differs from the advert's TXT id is dropped.",
+          "Adverts sharing one server_id are one entry, labelled with getBranding server_name (the advertised instance name when that read fails), at the address that confirmed first.",
+          "Choosing an entry is the same as typing its address: sign-in rules are unchanged and the id authorizes nothing."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/docs/architecture/server-discovery.md",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/docs/architecture/server-identity.md",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/internal/landiscovery/responder.go"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloLanDiscovery.cpp",
+          "src/network/discovery/MdnsServerBrowser.cpp",
+          "src/network/discovery/ServerCandidateValidator.cpp",
+          "tests/ServerDiscoveryTest.cpp"
         ]
       }
     ],

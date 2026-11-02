@@ -13402,6 +13402,79 @@
     },
     {
       "method": "GET",
+      "path": "/api/v2/system/identity",
+      "operationId": "getServerIdentity",
+      "parameters": [],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerIdentity"
+              }
+            }
+          },
+          "headers": {
+            "Cache-Control": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "public",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
       "path": "/api/v2/system/info",
       "operationId": "getSystemInfo",
       "parameters": [],
@@ -13451,6 +13524,72 @@
           }
         },
         "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        }
+      },
+      "conditional": false,
+      "class": "public",
+      "deprecated": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/theme/branding",
+      "operationId": "getBranding",
+      "parameters": [],
+      "requestBody": {},
+      "responses": {
+        "200": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrandingConfiguration"
+              }
+            }
+          }
+        },
+        "400": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "406": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "422": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "500": {
+          "content": {
+            "application/problem+json": {
+              "schema": {
+                "$ref": "#/components/schemas/Problem"
+              }
+            }
+          }
+        },
+        "503": {
           "content": {
             "application/problem+json": {
               "schema": {
@@ -20558,6 +20697,45 @@
       ],
       "type": "object"
     },
+    "BrandingConfiguration": {
+      "additionalProperties": false,
+      "properties": {
+        "accent_color": {
+          "type": "string"
+        },
+        "favicon_url": {
+          "format": "uri-reference",
+          "type": "string"
+        },
+        "login_bg_url": {
+          "format": "uri-reference",
+          "type": "string"
+        },
+        "login_subtitle": {
+          "type": "string"
+        },
+        "mark_url": {
+          "format": "uri-reference",
+          "type": "string"
+        },
+        "server_name": {
+          "type": "string"
+        },
+        "storage_available": {
+          "type": "boolean"
+        },
+        "wordmark_url": {
+          "format": "uri-reference",
+          "type": "string"
+        }
+      },
+      "required": [
+        "server_name",
+        "login_subtitle",
+        "storage_available"
+      ],
+      "type": "object"
+    },
     "Calendar": {
       "additionalProperties": false,
       "properties": {
@@ -27144,6 +27322,18 @@
           "$ref": "#/components/schemas/TrackIdentityV3"
         }
       },
+      "type": "object"
+    },
+    "ServerIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "server_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "server_id"
+      ],
       "type": "object"
     },
     "SettingConstraint": {

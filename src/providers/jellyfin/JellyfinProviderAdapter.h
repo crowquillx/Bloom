@@ -3,6 +3,7 @@
 #include "providers/IProviderAdapter.h"
 #include "providers/jellyfin/JellyfinCatalogProvider.h"
 #include "providers/jellyfin/JellyfinAuthenticator.h"
+#include "providers/jellyfin/JellyfinLanDiscovery.h"
 #include "providers/jellyfin/JellyfinModelMapper.h"
 #include "providers/jellyfin/JellyfinPlaybackProvider.h"
 #include "providers/jellyfin/JellyfinRequestFactory.h"
@@ -40,12 +41,18 @@ public:
         Q_UNUSED(context)
         switch (route) {
         case ProviderRoute::Health:
+        case ProviderRoute::ServerIdentity:
             return QStringLiteral("/System/Info/Public");
         case ProviderRoute::CallerLogout:
             return QStringLiteral("/Sessions/Logout");
         default:
             return std::nullopt;
         }
+    }
+    std::optional<ProviderServerIdentity> mapServerIdentity(
+        const QJsonObject &wireIdentity) const override
+    {
+        return JellyfinLanDiscovery::publicSystemInfoIdentity(wireIdentity);
     }
     PlaybackInfoResponse mapPlaybackInfo(
         const QJsonObject &wirePlaybackInfo) const override

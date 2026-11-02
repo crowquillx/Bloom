@@ -60,6 +60,7 @@ QString defaultQtRules(Level level)
         "bloom.library.debug=false\n"
         "bloom.library.info=false\n"
         "bloom.auth.debug=false\n"
+        "bloom.discovery.debug=false\n"
         "bloom.config.debug=false\n"
         "bloom.ui.debug=false\n"
         "bloom.playback.debug=false\n"

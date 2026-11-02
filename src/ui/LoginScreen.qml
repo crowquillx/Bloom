@@ -48,6 +48,77 @@ FocusScope {
     property string lastDeviceState: "idle"
     property bool returnFocusToDeviceButton: false
 
+    // Servers found on the local network (docs/server-discovery.md). The
+    // search runs only while the address form is on screen.
+    readonly property bool discoveryAvailable: typeof ServerDiscovery !== "undefined"
+                                               && ServerDiscovery.available
+    readonly property bool discoverySearching: typeof ServerDiscovery !== "undefined"
+                                               && ServerDiscovery.searching
+    readonly property bool discoveryWanted: root.visible && credentialsStep.visible
+    // Up from the address field reaches the found servers, or the search
+    // again action when none were found; the form's bottom wraps there too.
+    readonly property Item discoveryFocusTarget: !discoverySection.visible ? null
+                                                 : discoveredList.count > 0 ? discoveredList
+                                                 : !root.discoverySearching ? discoveryState
+                                                 : null
+    readonly property Item formTop: discoveryFocusTarget ? discoveryFocusTarget : serverField
+    readonly property Item formBottom: showSpaceAction ? spaceActionButton
+                                       : offerDeviceSignIn ? deviceSignInButton : connectButton
+
+    function syncDiscoveryActive() {
+        if (typeof ServerDiscovery !== "undefined")
+            ServerDiscovery.active = discoveryWanted
+    }
+
+    // Appends to the shown list while the service only adds servers, so the
+    // focused card keeps its place; a new search rebuilds it.
+    function syncDiscoveredServers() {
+        const servers = typeof ServerDiscovery !== "undefined" ? (ServerDiscovery.servers || []) : []
+        let keep = discoveredServers.count <= servers.length
+        for (let i = 0; keep && i < discoveredServers.count; ++i)
+            keep = discoveredServers.get(i).key === servers[i].key
+        const hadFocus = discoveredList.activeFocus
+        if (!keep)
+            discoveredServers.clear()
+        for (let i = discoveredServers.count; i < servers.length; ++i) {
+            const server = servers[i]
+            discoveredServers.append({
+                key: String(server.key),
+                name: String(server.name),
+                url: String(server.url),
+                address: String(server.address),
+                provider: String(server.provider),
+                saved: server.saved === true
+            })
+        }
+        if (discoveredList.currentIndex < 0 && discoveredServers.count > 0)
+            discoveredList.currentIndex = 0
+        if (hadFocus && discoveredServers.count === 0) {
+            Qt.callLater(function() {
+                if (root.visible && credentialsStep.visible)
+                    serverField.forceActiveFocus()
+            })
+        }
+    }
+
+    function providerLabel(provider) {
+        return provider === "silo" ? qsTr("Silo") : qsTr("Jellyfin")
+    }
+
+    // Choosing a found server is the same as typing its address.
+    function chooseDiscoveredServer(index) {
+        if (index < 0 || index >= discoveredServers.count)
+            return
+        const url = discoveredServers.get(index).url
+        clearStatus()
+        serverField.text = url
+        AuthenticationService.checkSignInOptions(url)
+        if (root.passwordSignInAvailable)
+            userField.forceActiveFocus()
+        else
+            deviceSignInButton.forceActiveFocus()
+    }
+
     function startDeviceSignIn() {
         clearStatus()
         AuthenticationService.startDeviceSignIn(serverField.text.trim())
@@ -378,342 +449,635 @@ FocusScope {
     // Form
     // ========================================
 
-    // Left-aligned at the gutter like every page's copy, centred vertically
-    // in the space below the brand.
-    ColumnLayout {
-        id: formColumn
-        x: Theme.pageMarginX
-        // Centre on the form without the status line, so a status appearing
-        // below the buttons doesn't shift the fields.
-        y: Math.max(Theme.pageMarginTop,
-                    Math.round((root.height - implicitHeight
-                                + (statusBox.visible ? statusBox.height + statusBox.Layout.topMargin : 0)) / 2))
-        width: Math.min(root.width - Theme.pageMarginX * 2, Math.round(880 * Theme.layoutScale))
-        spacing: 0
-
-        Text {
-            Layout.fillWidth: true
-            text: authenticationStep === "profiles" ? qsTr("Silo profiles")
-                  : authenticationStep === "pin" ? qsTr("Profile locked")
-                  : root.showDeviceSignIn ? (root.quickConnectFlow ? qsTr("Sign in with Quick Connect")
-                                                                   : qsTr("Sign in with a code"))
-                  : root.addingConnection ? qsTr("Add a server")
-                  : qsTr("Welcome to Bloom")
-            font.family: Theme.fontPrimary
-            font.pixelSize: Theme.fontSizeCaption
-            font.weight: Theme.fontWeightHeavy
-            font.capitalization: Font.AllUppercase
-            font.letterSpacing: Theme.eyebrowLetterSpacing
-            color: Theme.accentPrimary
-            Accessible.ignored: true
+    // The form scrolls below the brand when it is taller than the window (a
+    // short window, a layout scale above 1, the discovery row): focus moving
+    // to a control outside the view scrolls it in, as SettingsScrollView does,
+    // so every action stays reachable by keyboard and gamepad. Up to the
+    // discovery row scrolls back to the top. The row keeps one height whether
+    // it is searching, empty or listing servers, so results never move the
+    // form.
+    Flickable {
+        id: formFlick
+        readonly property real focusMargin: Theme.spacingXLarge
+        y: Theme.pageMarginTop
+        width: root.width
+        height: Math.max(0, root.height - y)
+        contentWidth: width
+        contentHeight: formColumn.y + formColumn.height + Theme.pageMarginBottom
+        interactive: contentHeight > height
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+        clip: true
+        onMovementStarted: formScrollAnimation.stop()
+        // A shorter step (profiles, a PIN, a code) never leaves the view
+        // scrolled past its end.
+        onContentHeightChanged: {
+            const maxY = Math.max(0, contentHeight - height)
+            if (contentY > maxY) {
+                formScrollAnimation.stop()
+                contentY = maxY
+            }
         }
 
-        Text {
-            Layout.fillWidth: true
-            Layout.topMargin: Theme.spacingSmall
-            text: authenticationStep === "profiles" ? qsTr("Who’s watching?")
-                  : authenticationStep === "pin" ? qsTr("Enter profile PIN")
-                  : root.showDeviceSignIn ? root.deviceHeading()
-                  : qsTr("Connect your media server")
-            color: Theme.textPrimary
-            font.family: Theme.fontDisplay
-            font.pixelSize: Theme.fontSizeDisplay
-            font.weight: Theme.fontWeightHeavy
-            font.letterSpacing: Theme.displayLetterSpacing
-            wrapMode: Text.Wrap
-            maximumLineCount: 2
-            Accessible.role: Accessible.Heading
-            Accessible.name: text
+        function inForm(item) {
+            for (let it = item; it; it = it.parent) {
+                if (it === formColumn)
+                    return true
+            }
+            return false
         }
 
-        Text {
-            Layout.fillWidth: true
-            Layout.topMargin: Theme.spacingMedium
-            text: authenticationStep === "profiles"
-                  ? qsTr("Choose a Silo profile to continue.")
-                  : authenticationStep === "pin"
-                    ? (selectedProfileName.length > 0
-                       ? qsTr("Unlock %1 to continue.").arg(selectedProfileName)
-                       : qsTr("Unlock this profile to continue."))
-                    : root.showDeviceSignIn ? root.deviceDescription()
-                    : !root.passwordSignInAvailable
-                      ? qsTr("This server signs in through your browser or phone. Sign in with a code to continue.")
-                    : qsTr("Bloom will detect whether this server uses Jellyfin or Silo.")
-            color: Theme.textSecondary
-            font.family: Theme.fontPrimary
-            font.pixelSize: Theme.fontSizeBody
-            lineHeight: 1.15
-            wrapMode: Text.Wrap
+        function scrollTo(target) {
+            target = Math.max(0, Math.min(Math.max(0, contentHeight - height), target))
+            if (Math.abs(target - contentY) < 1)
+                return
+            formScrollAnimation.stop()
+            formScrollAnimation.from = contentY
+            formScrollAnimation.to = target
+            formScrollAnimation.start()
         }
 
-        // ---------- Credentials ----------
+        function ensureFocusVisible(item) {
+            if (!item || !item.visible || !inForm(item))
+                return
+            const mapped = item.mapToItem(contentItem, 0, 0)
+            const top = mapped.y
+            const bottom = mapped.y + item.height
+            const current = formScrollAnimation.running ? formScrollAnimation.to : contentY
+            // Controls near the top bring the form back to its start, so the
+            // heading and the discovery row's label come back into view.
+            if (top - focusMargin < current)
+                scrollTo(top < height / 2 ? 0 : top - focusMargin)
+            else if (bottom + focusMargin > current + height)
+                scrollTo(bottom + focusMargin - height)
+        }
+
+        // A status line appearing below the buttons scrolls into view as far
+        // as the focused control allows.
+        function revealStatus() {
+            if (!statusBox.visible)
+                return
+            const window = root.Window.window
+            const focused = window ? window.activeFocusItem : null
+            let target = statusBox.mapToItem(contentItem, 0, 0).y + statusBox.height + focusMargin - height
+            if (focused && focused.visible && inForm(focused))
+                target = Math.min(target, focused.mapToItem(contentItem, 0, 0).y - focusMargin)
+            const current = formScrollAnimation.running ? formScrollAnimation.to : contentY
+            if (target > current)
+                scrollTo(target)
+        }
+
+        NumberAnimation {
+            id: formScrollAnimation
+            target: formFlick
+            property: "contentY"
+            duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0
+            easing.type: Theme.easingStandard
+        }
+
+        Connections {
+            target: root.Window.window
+            function onActiveFocusItemChanged() {
+                formFlick.ensureFocusVisible(root.Window.window.activeFocusItem)
+            }
+        }
+
+        Connections {
+            target: root
+            function onStatusMessageChanged() { Qt.callLater(formFlick.revealStatus) }
+        }
+
+        // Left-aligned at the gutter like every page's copy, centred vertically
+        // in the space below the brand.
         ColumnLayout {
-            id: credentialsStep
-            Layout.fillWidth: true
-            Layout.topMargin: Theme.spacingXLarge
-            spacing: Theme.spacingSmall
-            visible: authenticationStep !== "profiles" && authenticationStep !== "pin"
-                     && !root.showDeviceSignIn
+            id: formColumn
+            x: Theme.pageMarginX
+            // Centre on the form without the status line, so a status appearing
+            // below the buttons doesn't shift the fields. Content y 0 is
+            // Theme.pageMarginTop on screen.
+            y: Math.max(0, Math.round((root.height - implicitHeight
+                                       + (statusBox.visible ? statusBox.height + statusBox.Layout.topMargin : 0)) / 2)
+                           - formFlick.y)
+            width: Math.min(root.width - Theme.pageMarginX * 2, Math.round(880 * Theme.layoutScale))
+            spacing: 0
 
             Text {
-                text: qsTr("Server")
-                color: Theme.textSecondary
+                Layout.fillWidth: true
+                text: authenticationStep === "profiles" ? qsTr("Silo profiles")
+                      : authenticationStep === "pin" ? qsTr("Profile locked")
+                      : root.showDeviceSignIn ? (root.quickConnectFlow ? qsTr("Sign in with Quick Connect")
+                                                                       : qsTr("Sign in with a code"))
+                      : root.addingConnection ? qsTr("Add a server")
+                      : qsTr("Welcome to Bloom")
                 font.family: Theme.fontPrimary
-                font.pixelSize: Theme.fontSizeSmall
-                font.weight: Theme.fontWeightStrong
+                font.pixelSize: Theme.fontSizeCaption
+                font.weight: Theme.fontWeightHeavy
+                font.capitalization: Font.AllUppercase
+                font.letterSpacing: Theme.eyebrowLetterSpacing
+                color: Theme.accentPrimary
                 Accessible.ignored: true
             }
 
-            TextField {
-                id: serverField
-                placeholderText: qsTr("media.example.com")
-                placeholderTextColor: Theme.textTertiary
+            Text {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Theme.buttonHeightLarge
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
+                Layout.topMargin: Theme.spacingSmall
+                text: authenticationStep === "profiles" ? qsTr("Who’s watching?")
+                      : authenticationStep === "pin" ? qsTr("Enter profile PIN")
+                      : root.showDeviceSignIn ? root.deviceHeading()
+                      : qsTr("Connect your media server")
                 color: Theme.textPrimary
-                verticalAlignment: TextInput.AlignVCenter
-                inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
-                Accessible.name: qsTr("Server address")
-                KeyNavigation.up: root.showSpaceAction ? spaceActionButton
-                                  : root.offerDeviceSignIn ? deviceSignInButton : connectButton
-                KeyNavigation.down: root.passwordSignInAvailable ? userField : deviceSignInButton
-                KeyNavigation.tab: root.passwordSignInAvailable ? userField : deviceSignInButton
-                KeyNavigation.backtab: root.showSpaceAction ? spaceActionButton
-                                       : root.offerDeviceSignIn ? deviceSignInButton : credentialCancelButton
-                // Entering an address checks what the server offers, so a
-                // code option appears before anyone reaches the password.
-                onEditingFinished: AuthenticationService.checkSignInOptions(text)
-                onAccepted: {
-                    if (root.passwordSignInAvailable)
-                        userField.forceActiveFocus()
-                    else
-                        deviceSignInButton.forceActiveFocus()
-                }
-                leftPadding: Theme.spacingLarge
-                rightPadding: Theme.spacingLarge
-                background: FieldBackground { control: serverField }
+                font.family: Theme.fontDisplay
+                font.pixelSize: Theme.fontSizeDisplay
+                font.weight: Theme.fontWeightHeavy
+                font.letterSpacing: Theme.displayLetterSpacing
+                wrapMode: Text.Wrap
+                maximumLineCount: 2
+                Accessible.role: Accessible.Heading
+                Accessible.name: text
             }
 
             Text {
-                text: qsTr("Enter your server address. Bloom tries HTTPS, then HTTP; a custom port is optional.")
-                color: Theme.textTertiary
-                font.family: Theme.fontPrimary
-                font.pixelSize: Theme.fontSizeSmall
                 Layout.fillWidth: true
+                Layout.topMargin: Theme.spacingMedium
+                text: authenticationStep === "profiles"
+                      ? qsTr("Choose a Silo profile to continue.")
+                      : authenticationStep === "pin"
+                        ? (selectedProfileName.length > 0
+                           ? qsTr("Unlock %1 to continue.").arg(selectedProfileName)
+                           : qsTr("Unlock this profile to continue."))
+                        : root.showDeviceSignIn ? root.deviceDescription()
+                        : !root.passwordSignInAvailable
+                          ? qsTr("This server signs in through your browser or phone. Sign in with a code to continue.")
+                        : qsTr("Bloom will detect whether this server uses Jellyfin or Silo.")
+                color: Theme.textSecondary
+                font.family: Theme.fontPrimary
+                font.pixelSize: Theme.fontSizeBody
+                lineHeight: 1.15
                 wrapMode: Text.Wrap
             }
 
-            Text {
-                visible: root.passwordSignInAvailable
-                Layout.topMargin: Theme.spacingMedium
-                text: qsTr("Username")
-                color: Theme.textSecondary
-                font.family: Theme.fontPrimary
-                font.pixelSize: Theme.fontSizeSmall
-                font.weight: Theme.fontWeightStrong
-                Accessible.ignored: true
-            }
-
-            TextField {
-                id: userField
-                visible: root.passwordSignInAvailable
-                placeholderText: qsTr("Username")
-                placeholderTextColor: Theme.textTertiary
+            // ---------- Credentials ----------
+            ColumnLayout {
+                id: credentialsStep
                 Layout.fillWidth: true
-                Layout.preferredHeight: Theme.buttonHeightLarge
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                verticalAlignment: TextInput.AlignVCenter
-                inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
-                Accessible.name: qsTr("Username")
-                KeyNavigation.up: serverField
-                KeyNavigation.down: passField
-                KeyNavigation.tab: passField
-                KeyNavigation.backtab: serverField
-                onAccepted: passField.forceActiveFocus()
-                leftPadding: Theme.spacingLarge
-                rightPadding: Theme.spacingLarge
-                background: FieldBackground { control: userField }
-            }
+                Layout.topMargin: Theme.spacingXLarge
+                spacing: Theme.spacingSmall
+                visible: authenticationStep !== "profiles" && authenticationStep !== "pin"
+                         && !root.showDeviceSignIn
 
-            Text {
-                visible: root.passwordSignInAvailable
-                Layout.topMargin: Theme.spacingMedium
-                text: qsTr("Password")
-                color: Theme.textSecondary
-                font.family: Theme.fontPrimary
-                font.pixelSize: Theme.fontSizeSmall
-                font.weight: Theme.fontWeightStrong
-                Accessible.ignored: true
-            }
-
-            TextField {
-                id: passField
-                visible: root.passwordSignInAvailable
-                placeholderText: qsTr("Password")
-                placeholderTextColor: Theme.textTertiary
-                echoMode: TextInput.Password
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.buttonHeightLarge
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                verticalAlignment: TextInput.AlignVCenter
-                Accessible.name: qsTr("Password")
-                KeyNavigation.up: userField
-                KeyNavigation.down: connectButton
-                KeyNavigation.tab: connectButton
-                KeyNavigation.backtab: userField
-                onAccepted: root.submitCredentials()
-                leftPadding: Theme.spacingLarge
-                rightPadding: Theme.spacingLarge
-                background: FieldBackground { control: passField }
-            }
-
-            RowLayout {
-                visible: root.passwordSignInAvailable
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.spacingLarge
-                spacing: Theme.controlSpacing
-
-                ActionButton {
-                    id: connectButton
-                    variant: "primary"
-                    text: qsTr("Sign in")
-                    iconGlyph: Icons.login
-                    enabled: serverField.text.trim().length > 0
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.buttonHeightLarge
-                    focusPolicy: Qt.StrongFocus
-                    KeyNavigation.up: passField
-                    KeyNavigation.down: root.offerDeviceSignIn ? deviceSignInButton
-                                        : root.showSpaceAction ? spaceActionButton : serverField
-                    KeyNavigation.left: credentialCancelButton
-                    KeyNavigation.right: credentialCancelButton
-                    KeyNavigation.tab: credentialCancelButton
-                    KeyNavigation.backtab: passField
-                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                    onClicked: root.submitCredentials()
-                }
-
-                ActionButton {
-                    id: credentialCancelButton
-                    variant: "secondary"
-                    text: qsTr("Reset")
-                    Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
-                    Layout.preferredHeight: Theme.buttonHeightLarge
-                    focusPolicy: Qt.StrongFocus
-                    KeyNavigation.up: passField
-                    KeyNavigation.down: root.offerDeviceSignIn ? deviceSignInButton
-                                        : root.showSpaceAction ? spaceActionButton : serverField
-                    KeyNavigation.left: connectButton
-                    KeyNavigation.right: connectButton
-                    KeyNavigation.tab: root.offerDeviceSignIn ? deviceSignInButton
-                                       : root.showSpaceAction ? spaceActionButton : serverField
-                    KeyNavigation.backtab: connectButton
-                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                    onClicked: {
-                        serverField.clear()
-                        userField.clear()
-                        passField.clear()
-                        root.cancelAuthentication()
-                    }
-                }
-            }
-
-            // Offered once the typed server is known to be Silo with device
-            // sign-in or Jellyfin with Quick Connect; on a Silo server without
-            // passwords it is the only way in.
-            ActionButton {
-                id: deviceSignInButton
-                visible: root.offerDeviceSignIn
-                variant: root.passwordSignInAvailable ? "secondary" : "primary"
-                iconGlyph: Icons.smartphone
-                text: root.offerQuickConnect ? qsTr("Sign in with Quick Connect") : qsTr("Sign in with a code")
-                accessibleLabel: root.offerQuickConnect
-                                 ? qsTr("Sign in with Quick Connect from another Jellyfin app")
-                                 : qsTr("Sign in with a code from your phone")
-                Layout.fillWidth: !root.passwordSignInAvailable
-                Layout.topMargin: root.passwordSignInAvailable ? Theme.spacingSmall : Theme.spacingLarge
-                Layout.preferredHeight: Theme.buttonHeightLarge
-                focusPolicy: Qt.StrongFocus
-                KeyNavigation.up: root.passwordSignInAvailable ? connectButton : serverField
-                KeyNavigation.down: root.showSpaceAction ? spaceActionButton : serverField
-                KeyNavigation.tab: root.showSpaceAction ? spaceActionButton : serverField
-                KeyNavigation.backtab: root.passwordSignInAvailable ? credentialCancelButton : serverField
-                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                onClicked: root.startDeviceSignIn()
-            }
-
-            ActionButton {
-                id: spaceActionButton
-                visible: root.showSpaceAction
-                variant: "ghost"
-                iconGlyph: root.addingConnection ? Icons.arrowBack : Icons.group
-                text: root.addingConnection ? qsTr("Cancel and go back") : qsTr("Open a saved space")
-                Layout.topMargin: Theme.spacingSmall
-                Layout.preferredHeight: Theme.buttonHeightMedium
-                focusPolicy: Qt.StrongFocus
-                KeyNavigation.up: root.offerDeviceSignIn ? deviceSignInButton : connectButton
-                KeyNavigation.down: serverField
-                KeyNavigation.tab: serverField
-                KeyNavigation.backtab: root.offerDeviceSignIn ? deviceSignInButton : credentialCancelButton
-                Keys.onReturnPressed: clicked()
-                Keys.onEnterPressed: clicked()
-                onClicked: {
-                    if (root.addingConnection) {
-                        root.clearStatus()
-                        Workspaces.cancelAddConnection()
-                    } else {
-                        loginSpacePicker.open()
-                    }
-                }
-            }
-        }
-
-        // ---------- Sign in with a code (Silo device sign-in, Jellyfin Quick Connect) ----------
-        ColumnLayout {
-            id: deviceStep
-            Layout.fillWidth: true
-            Layout.topMargin: Theme.spacingXLarge
-            spacing: Theme.spacingLarge
-            visible: root.showDeviceSignIn
-
-            StateMessage {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.buttonHeightHero
-                visible: root.deviceState === "starting" || root.deviceState === "signingIn"
-                kind: "loading"
-                compact: true
-                message: root.deviceState === "starting" ? qsTr("Getting a code…") : qsTr("Signing in…")
-            }
-
-            // The code, large enough to read across a room.
-            Rectangle {
-                id: codePanel
-                visible: root.deviceCodeLive
-                Layout.preferredWidth: codeColumn.implicitWidth + Theme.spacingXLarge * 2
-                Layout.preferredHeight: codeColumn.implicitHeight + Theme.spacingLarge * 2
-                radius: Theme.radiusLarge
-                color: Theme.surfaceInteractive
-                border.width: Theme.borderWidth
-                border.color: Theme.surfaceBorderStrong
-                Accessible.role: Accessible.StaticText
-                Accessible.name: qsTr("Code %1").arg(root.spokenCode(root.deviceSignIn.userCode))
-
+                // ---------- Found on your network ----------
                 ColumnLayout {
-                    id: codeColumn
-                    anchors.centerIn: parent
+                    id: discoverySection
+                    visible: root.discoveryAvailable
+                    Layout.fillWidth: true
+                    Layout.bottomMargin: Theme.spacingMedium
                     spacing: Theme.spacingSmall
 
                     Text {
-                        text: qsTr("Your code")
+                        text: qsTr("Found on your network")
+                        color: Theme.textSecondary
+                        font.family: Theme.fontPrimary
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Theme.fontWeightStrong
+                        Accessible.ignored: true
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: discoveredList.rowHeight
+
+                        ListView {
+                            id: discoveredList
+                            readonly property int rowHeight: Math.round(96 * Theme.layoutScale)
+                            anchors.fill: parent
+                            visible: count > 0
+                            orientation: ListView.Horizontal
+                            spacing: Theme.spacingSmall
+                            clip: true
+                            model: discoveredServers
+                            boundsBehavior: Flickable.StopAtBounds
+                            highlightMoveDuration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0
+                            Accessible.role: Accessible.List
+                            Accessible.name: qsTr("Servers found on your network")
+                            KeyNavigation.up: root.formBottom
+                            KeyNavigation.backtab: root.formBottom
+                            KeyNavigation.down: serverField
+                            KeyNavigation.tab: serverField
+                            Keys.onReturnPressed: function(event) {
+                                if (!event.isAutoRepeat)
+                                    root.chooseDiscoveredServer(currentIndex)
+                                event.accepted = true
+                            }
+                            Keys.onEnterPressed: function(event) {
+                                if (!event.isAutoRepeat)
+                                    root.chooseDiscoveredServer(currentIndex)
+                                event.accepted = true
+                            }
+                            onCurrentIndexChanged: {
+                                if (currentIndex >= 0)
+                                    positionViewAtIndex(currentIndex, ListView.Contain)
+                            }
+
+                            delegate: Rectangle {
+                                id: serverCard
+                                required property int index
+                                required property string name
+                                required property string address
+                                required property string provider
+                                required property bool saved
+                                readonly property string detail: root.providerLabel(provider) + " · " + address
+                                                                 + (saved ? " · " + qsTr("Saved") : "")
+                                readonly property bool highlighted: discoveredList.activeFocus
+                                                                    && discoveredList.currentIndex === index
+                                width: Math.round(400 * Theme.layoutScale)
+                                height: discoveredList.height
+                                radius: Theme.radiusMedium
+                                color: highlighted || serverCardMouse.containsMouse ? Theme.surfaceInteractiveHover
+                                                                                   : Theme.surfaceInteractive
+                                border.width: Theme.borderWidth
+                                border.color: Theme.surfaceBorder
+                                Accessible.role: Accessible.ListItem
+                                Accessible.name: name
+                                Accessible.description: root.providerLabel(provider) + ", " + address
+                                                        + (saved ? ", " + qsTr("saved") : "")
+
+                                FocusRing {
+                                    inset: true
+                                    active: serverCard.highlighted
+                                    radius: parent.radius
+                                }
+
+                                MouseArea {
+                                    id: serverCardMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onEntered: {
+                                        if (typeof InputModeManager === "undefined" || InputModeManager.pointerActive)
+                                            discoveredList.currentIndex = serverCard.index
+                                    }
+                                    onClicked: {
+                                        discoveredList.currentIndex = serverCard.index
+                                        root.chooseDiscoveredServer(serverCard.index)
+                                    }
+                                }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.spacingLarge
+                                    anchors.rightMargin: Theme.spacingLarge
+                                    spacing: Theme.spacingMedium
+
+                                    Text {
+                                        text: Icons.server
+                                        color: serverCard.highlighted ? Theme.textPrimary : Theme.textSecondary
+                                        font.family: Theme.fontIcon
+                                        font.pixelSize: Theme.iconSizeNav
+                                        Accessible.ignored: true
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: Math.round(4 * Theme.layoutScale)
+
+                                        Text {
+                                            text: serverCard.name
+                                            textFormat: Text.PlainText
+                                            color: Theme.textPrimary
+                                            font.family: Theme.fontPrimary
+                                            font.pixelSize: Theme.fontSizeBody
+                                            font.weight: Theme.fontWeightStrong
+                                            elide: Text.ElideRight
+                                            Layout.fillWidth: true
+                                            Accessible.ignored: true
+                                        }
+
+                                        Text {
+                                            text: serverCard.detail
+                                            textFormat: Text.PlainText
+                                            color: Theme.textSecondary
+                                            font.family: Theme.fontPrimary
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            elide: Text.ElideRight
+                                            Layout.fillWidth: true
+                                            Accessible.ignored: true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        StateMessage {
+                            id: discoveryState
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: implicitWidth
+                            visible: discoveredList.count === 0
+                            compact: true
+                            kind: root.discoverySearching ? "loading" : "empty"
+                            iconGlyph: ""
+                            message: root.discoverySearching ? qsTr("Looking for servers on your network…")
+                                                             : qsTr("No servers found. Enter the address below.")
+                            actionText: root.discoverySearching ? "" : qsTr("Search again")
+                            KeyNavigation.up: root.formBottom
+                            KeyNavigation.backtab: root.formBottom
+                            KeyNavigation.down: serverField
+                            KeyNavigation.tab: serverField
+                            onActionTriggered: {
+                                // The action hides while searching; keep focus on the form.
+                                serverField.forceActiveFocus()
+                                ServerDiscovery.refresh()
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: qsTr("Server")
+                    color: Theme.textSecondary
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.weight: Theme.fontWeightStrong
+                    Accessible.ignored: true
+                }
+
+                TextField {
+                    id: serverField
+                    placeholderText: qsTr("media.example.com")
+                    placeholderTextColor: Theme.textTertiary
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.buttonHeightLarge
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
+                    verticalAlignment: TextInput.AlignVCenter
+                    inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+                    Accessible.name: qsTr("Server address")
+                    KeyNavigation.up: root.discoveryFocusTarget ? root.discoveryFocusTarget : root.formBottom
+                    KeyNavigation.down: root.passwordSignInAvailable ? userField : deviceSignInButton
+                    KeyNavigation.tab: root.passwordSignInAvailable ? userField : deviceSignInButton
+                    KeyNavigation.backtab: root.discoveryFocusTarget ? root.discoveryFocusTarget
+                                           : root.showSpaceAction ? spaceActionButton
+                                           : root.offerDeviceSignIn ? deviceSignInButton : credentialCancelButton
+                    // Entering an address checks what the server offers, so a
+                    // code option appears before anyone reaches the password.
+                    onEditingFinished: AuthenticationService.checkSignInOptions(text)
+                    onAccepted: {
+                        if (root.passwordSignInAvailable)
+                            userField.forceActiveFocus()
+                        else
+                            deviceSignInButton.forceActiveFocus()
+                    }
+                    leftPadding: Theme.spacingLarge
+                    rightPadding: Theme.spacingLarge
+                    background: FieldBackground { control: serverField }
+                }
+
+                Text {
+                    text: qsTr("Enter your server address. Bloom tries HTTPS, then HTTP; a custom port is optional.")
+                    color: Theme.textTertiary
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeSmall
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                }
+
+                Text {
+                    visible: root.passwordSignInAvailable
+                    Layout.topMargin: Theme.spacingMedium
+                    text: qsTr("Username")
+                    color: Theme.textSecondary
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.weight: Theme.fontWeightStrong
+                    Accessible.ignored: true
+                }
+
+                TextField {
+                    id: userField
+                    visible: root.passwordSignInAvailable
+                    placeholderText: qsTr("Username")
+                    placeholderTextColor: Theme.textTertiary
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.buttonHeightLarge
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
+                    verticalAlignment: TextInput.AlignVCenter
+                    inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+                    Accessible.name: qsTr("Username")
+                    KeyNavigation.up: serverField
+                    KeyNavigation.down: passField
+                    KeyNavigation.tab: passField
+                    KeyNavigation.backtab: serverField
+                    onAccepted: passField.forceActiveFocus()
+                    leftPadding: Theme.spacingLarge
+                    rightPadding: Theme.spacingLarge
+                    background: FieldBackground { control: userField }
+                }
+
+                Text {
+                    visible: root.passwordSignInAvailable
+                    Layout.topMargin: Theme.spacingMedium
+                    text: qsTr("Password")
+                    color: Theme.textSecondary
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.weight: Theme.fontWeightStrong
+                    Accessible.ignored: true
+                }
+
+                TextField {
+                    id: passField
+                    visible: root.passwordSignInAvailable
+                    placeholderText: qsTr("Password")
+                    placeholderTextColor: Theme.textTertiary
+                    echoMode: TextInput.Password
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.buttonHeightLarge
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
+                    verticalAlignment: TextInput.AlignVCenter
+                    Accessible.name: qsTr("Password")
+                    KeyNavigation.up: userField
+                    KeyNavigation.down: connectButton
+                    KeyNavigation.tab: connectButton
+                    KeyNavigation.backtab: userField
+                    onAccepted: root.submitCredentials()
+                    leftPadding: Theme.spacingLarge
+                    rightPadding: Theme.spacingLarge
+                    background: FieldBackground { control: passField }
+                }
+
+                RowLayout {
+                    visible: root.passwordSignInAvailable
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                    spacing: Theme.controlSpacing
+
+                    ActionButton {
+                        id: connectButton
+                        variant: "primary"
+                        text: qsTr("Sign in")
+                        iconGlyph: Icons.login
+                        enabled: serverField.text.trim().length > 0
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.buttonHeightLarge
+                        focusPolicy: Qt.StrongFocus
+                        KeyNavigation.up: passField
+                        KeyNavigation.down: root.offerDeviceSignIn ? deviceSignInButton
+                                            : root.showSpaceAction ? spaceActionButton : root.formTop
+                        KeyNavigation.left: credentialCancelButton
+                        KeyNavigation.right: credentialCancelButton
+                        KeyNavigation.tab: credentialCancelButton
+                        KeyNavigation.backtab: passField
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        onClicked: root.submitCredentials()
+                    }
+
+                    ActionButton {
+                        id: credentialCancelButton
+                        variant: "secondary"
+                        text: qsTr("Reset")
+                        Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
+                        Layout.preferredHeight: Theme.buttonHeightLarge
+                        focusPolicy: Qt.StrongFocus
+                        KeyNavigation.up: passField
+                        KeyNavigation.down: root.offerDeviceSignIn ? deviceSignInButton
+                                            : root.showSpaceAction ? spaceActionButton : root.formTop
+                        KeyNavigation.left: connectButton
+                        KeyNavigation.right: connectButton
+                        KeyNavigation.tab: root.offerDeviceSignIn ? deviceSignInButton
+                                           : root.showSpaceAction ? spaceActionButton : root.formTop
+                        KeyNavigation.backtab: connectButton
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        onClicked: {
+                            serverField.clear()
+                            userField.clear()
+                            passField.clear()
+                            root.cancelAuthentication()
+                        }
+                    }
+                }
+
+                // Offered once the typed server is known to be Silo with device
+                // sign-in or Jellyfin with Quick Connect; on a Silo server without
+                // passwords it is the only way in.
+                ActionButton {
+                    id: deviceSignInButton
+                    visible: root.offerDeviceSignIn
+                    variant: root.passwordSignInAvailable ? "secondary" : "primary"
+                    iconGlyph: Icons.smartphone
+                    text: root.offerQuickConnect ? qsTr("Sign in with Quick Connect") : qsTr("Sign in with a code")
+                    accessibleLabel: root.offerQuickConnect
+                                     ? qsTr("Sign in with Quick Connect from another Jellyfin app")
+                                     : qsTr("Sign in with a code from your phone")
+                    Layout.fillWidth: !root.passwordSignInAvailable
+                    Layout.topMargin: root.passwordSignInAvailable ? Theme.spacingSmall : Theme.spacingLarge
+                    Layout.preferredHeight: Theme.buttonHeightLarge
+                    focusPolicy: Qt.StrongFocus
+                    KeyNavigation.up: root.passwordSignInAvailable ? connectButton : serverField
+                    KeyNavigation.down: root.showSpaceAction ? spaceActionButton : root.formTop
+                    KeyNavigation.tab: root.showSpaceAction ? spaceActionButton : root.formTop
+                    KeyNavigation.backtab: root.passwordSignInAvailable ? credentialCancelButton : serverField
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                    onClicked: root.startDeviceSignIn()
+                }
+
+                ActionButton {
+                    id: spaceActionButton
+                    visible: root.showSpaceAction
+                    variant: "ghost"
+                    iconGlyph: root.addingConnection ? Icons.arrowBack : Icons.group
+                    text: root.addingConnection ? qsTr("Cancel and go back") : qsTr("Open a saved space")
+                    Layout.topMargin: Theme.spacingSmall
+                    Layout.preferredHeight: Theme.buttonHeightMedium
+                    focusPolicy: Qt.StrongFocus
+                    KeyNavigation.up: root.offerDeviceSignIn ? deviceSignInButton : connectButton
+                    KeyNavigation.down: root.formTop
+                    KeyNavigation.tab: root.formTop
+                    KeyNavigation.backtab: root.offerDeviceSignIn ? deviceSignInButton : credentialCancelButton
+                    Keys.onReturnPressed: clicked()
+                    Keys.onEnterPressed: clicked()
+                    onClicked: {
+                        if (root.addingConnection) {
+                            root.clearStatus()
+                            Workspaces.cancelAddConnection()
+                        } else {
+                            loginSpacePicker.open()
+                        }
+                    }
+                }
+            }
+
+            // ---------- Sign in with a code (Silo device sign-in, Jellyfin Quick Connect) ----------
+            ColumnLayout {
+                id: deviceStep
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacingXLarge
+                spacing: Theme.spacingLarge
+                visible: root.showDeviceSignIn
+
+                StateMessage {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.buttonHeightHero
+                    visible: root.deviceState === "starting" || root.deviceState === "signingIn"
+                    kind: "loading"
+                    compact: true
+                    message: root.deviceState === "starting" ? qsTr("Getting a code…") : qsTr("Signing in…")
+                }
+
+                // The code, large enough to read across a room.
+                Rectangle {
+                    id: codePanel
+                    visible: root.deviceCodeLive
+                    Layout.preferredWidth: codeColumn.implicitWidth + Theme.spacingXLarge * 2
+                    Layout.preferredHeight: codeColumn.implicitHeight + Theme.spacingLarge * 2
+                    radius: Theme.radiusLarge
+                    color: Theme.surfaceInteractive
+                    border.width: Theme.borderWidth
+                    border.color: Theme.surfaceBorderStrong
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: qsTr("Code %1").arg(root.spokenCode(root.deviceSignIn.userCode))
+
+                    ColumnLayout {
+                        id: codeColumn
+                        anchors.centerIn: parent
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            text: qsTr("Your code")
+                            color: Theme.textSecondary
+                            font.family: Theme.fontPrimary
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Theme.fontWeightStrong
+                            Accessible.ignored: true
+                        }
+
+                        Text {
+                            text: root.deviceSignIn.userCode || ""
+                            color: Theme.textPrimary
+                            font.family: Theme.fontDisplay
+                            font.pixelSize: Theme.fontSizeHero
+                            font.weight: Theme.fontWeightHeavy
+                            font.letterSpacing: Math.round(6 * Theme.layoutScale)
+                            Accessible.ignored: true
+                        }
+                    }
+                }
+
+                // Quick Connect has no link; the code is typed into a Jellyfin app.
+                ColumnLayout {
+                    visible: root.deviceCodeLive && (root.deviceSignIn.verificationUrl || "").length > 0
+                    Layout.fillWidth: true
+                    spacing: Math.round(4 * Theme.layoutScale)
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Open this link")
                         color: Theme.textSecondary
                         font.family: Theme.fontPrimary
                         font.pixelSize: Theme.fontSizeSmall
@@ -722,501 +1086,474 @@ FocusScope {
                     }
 
                     Text {
-                        text: root.deviceSignIn.userCode || ""
-                        color: Theme.textPrimary
-                        font.family: Theme.fontDisplay
-                        font.pixelSize: Theme.fontSizeHero
-                        font.weight: Theme.fontWeightHeavy
-                        font.letterSpacing: Math.round(6 * Theme.layoutScale)
-                        Accessible.ignored: true
+                        Layout.fillWidth: true
+                        text: root.deviceSignIn.verificationUrl || ""
+                        color: Theme.accentPrimary
+                        font.family: Theme.fontPrimary
+                        font.pixelSize: Theme.fontSizeMedium
+                        font.weight: Theme.fontWeightStrong
+                        wrapMode: Text.WrapAnywhere
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: qsTr("Open %1").arg(text)
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: (root.deviceSignIn.verificationPage || "").length > 0
+                                 && root.deviceSignIn.verificationPage !== root.deviceSignIn.verificationUrl
+                        text: qsTr("Or go to %1 and type the code.").arg(root.deviceSignIn.verificationPage || "")
+                        color: Theme.textTertiary
+                        font.family: Theme.fontPrimary
+                        font.pixelSize: Theme.fontSizeSmall
+                        wrapMode: Text.WrapAnywhere
                     }
                 }
-            }
-
-            // Quick Connect has no link; the code is typed into a Jellyfin app.
-            ColumnLayout {
-                visible: root.deviceCodeLive && (root.deviceSignIn.verificationUrl || "").length > 0
-                Layout.fillWidth: true
-                spacing: Math.round(4 * Theme.layoutScale)
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Open this link")
+                    visible: root.deviceCodeLive
+                    text: root.deviceSignIn.opened
+                          ? qsTr("Waiting for approval · code expires in %1")
+                                .arg(root.formatCountdown(root.deviceSignIn.secondsRemaining))
+                          : qsTr("Code expires in %1").arg(root.formatCountdown(root.deviceSignIn.secondsRemaining))
                     color: Theme.textSecondary
                     font.family: Theme.fontPrimary
                     font.pixelSize: Theme.fontSizeSmall
-                    font.weight: Theme.fontWeightStrong
+                    font.features: ({ "tnum": 1 })
+                    // Announcing every second would drown out everything else.
                     Accessible.ignored: true
                 }
 
-                Text {
+                StateMessage {
                     Layout.fillWidth: true
-                    text: root.deviceSignIn.verificationUrl || ""
-                    color: Theme.accentPrimary
-                    font.family: Theme.fontPrimary
-                    font.pixelSize: Theme.fontSizeMedium
-                    font.weight: Theme.fontWeightStrong
-                    wrapMode: Text.WrapAnywhere
-                    Accessible.role: Accessible.StaticText
-                    Accessible.name: qsTr("Open %1").arg(text)
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    visible: (root.deviceSignIn.verificationPage || "").length > 0
-                             && root.deviceSignIn.verificationPage !== root.deviceSignIn.verificationUrl
-                    text: qsTr("Or go to %1 and type the code.").arg(root.deviceSignIn.verificationPage || "")
-                    color: Theme.textTertiary
-                    font.family: Theme.fontPrimary
-                    font.pixelSize: Theme.fontSizeSmall
-                    wrapMode: Text.WrapAnywhere
-                }
-            }
-
-            Text {
-                Layout.fillWidth: true
-                visible: root.deviceCodeLive
-                text: root.deviceSignIn.opened
-                      ? qsTr("Waiting for approval · code expires in %1")
-                            .arg(root.formatCountdown(root.deviceSignIn.secondsRemaining))
-                      : qsTr("Code expires in %1").arg(root.formatCountdown(root.deviceSignIn.secondsRemaining))
-                color: Theme.textSecondary
-                font.family: Theme.fontPrimary
-                font.pixelSize: Theme.fontSizeSmall
-                font.features: ({ "tnum": 1 })
-                // Announcing every second would drown out everything else.
-                Accessible.ignored: true
-            }
-
-            StateMessage {
-                Layout.fillWidth: true
-                visible: root.deviceCodeEnded
-                kind: root.deviceState === "expired" ? "empty" : "error"
-                iconGlyph: root.deviceState === "expired" ? Icons.schedule : Icons.error
-                compact: true
-                message: root.deviceState === "expired"
-                         ? qsTr("The code is no longer valid.")
-                         : root.deviceState === "denied"
-                           ? qsTr("This device wasn’t approved.")
-                           : (root.deviceSignIn.errorMessage
-                              || (root.quickConnectFlow ? qsTr("Sign-in with Quick Connect failed.")
-                                                        : qsTr("Sign-in with a code failed.")))
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.controlSpacing
-
-                ActionButton {
-                    id: newCodeButton
                     visible: root.deviceCodeEnded
-                    variant: "primary"
-                    iconGlyph: Icons.refresh
-                    text: qsTr("Get a new code")
-                    Layout.preferredHeight: Theme.buttonHeightLarge
-                    focusPolicy: Qt.StrongFocus
-                    KeyNavigation.right: deviceBackButton
-                    KeyNavigation.down: deviceBackButton
-                    KeyNavigation.tab: deviceBackButton
-                    KeyNavigation.backtab: deviceBackButton
-                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                    onClicked: root.startDeviceSignIn()
+                    kind: root.deviceState === "expired" ? "empty" : "error"
+                    iconGlyph: root.deviceState === "expired" ? Icons.schedule : Icons.error
+                    compact: true
+                    message: root.deviceState === "expired"
+                             ? qsTr("The code is no longer valid.")
+                             : root.deviceState === "denied"
+                               ? qsTr("This device wasn’t approved.")
+                               : (root.deviceSignIn.errorMessage
+                                  || (root.quickConnectFlow ? qsTr("Sign-in with Quick Connect failed.")
+                                                            : qsTr("Sign-in with a code failed.")))
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.controlSpacing
+
+                    ActionButton {
+                        id: newCodeButton
+                        visible: root.deviceCodeEnded
+                        variant: "primary"
+                        iconGlyph: Icons.refresh
+                        text: qsTr("Get a new code")
+                        Layout.preferredHeight: Theme.buttonHeightLarge
+                        focusPolicy: Qt.StrongFocus
+                        KeyNavigation.right: deviceBackButton
+                        KeyNavigation.down: deviceBackButton
+                        KeyNavigation.tab: deviceBackButton
+                        KeyNavigation.backtab: deviceBackButton
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        onClicked: root.startDeviceSignIn()
+                    }
+
+                    ActionButton {
+                        id: deviceBackButton
+                        variant: "secondary"
+                        iconGlyph: Icons.arrowBack
+                        text: root.passwordSignInAvailable ? qsTr("Use a password instead") : qsTr("Back")
+                        Layout.preferredHeight: Theme.buttonHeightLarge
+                        focusPolicy: Qt.StrongFocus
+                        KeyNavigation.left: newCodeButton.visible ? newCodeButton : null
+                        KeyNavigation.up: newCodeButton.visible ? newCodeButton : null
+                        KeyNavigation.tab: newCodeButton.visible ? newCodeButton : null
+                        KeyNavigation.backtab: newCodeButton.visible ? newCodeButton : null
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        onClicked: root.leaveDeviceSignIn()
+                    }
+                }
+            }
+
+            // ---------- Profile selection (Silo) ----------
+            ColumnLayout {
+                id: profilesStep
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacingXLarge
+                spacing: Theme.spacingLarge
+                visible: authenticationStep === "profiles"
+
+                ListView {
+                    id: profileList
+                    readonly property int rowHeight: Math.round(104 * Theme.layoutScale)
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(1, Math.min(count, 5)) * (rowHeight + spacing) - spacing
+                    clip: true
+                    spacing: Theme.spacingSmall
+                    model: root.availableProfiles
+                    currentIndex: root.availableProfiles.length > 0 ? 0 : -1
+                    activeFocusOnTab: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    highlightMoveDuration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0
+                    Accessible.role: Accessible.List
+                    Accessible.name: qsTr("Profiles")
+                    KeyNavigation.up: profilesBackButton
+                    KeyNavigation.down: profilesBackButton
+                    KeyNavigation.tab: profilesBackButton
+                    KeyNavigation.backtab: profilesBackButton
+
+                    Keys.onUpPressed: function(event) {
+                        if (count > 0) {
+                            if (currentIndex > 0) {
+                                currentIndex = currentIndex - 1
+                            } else {
+                                profilesBackButton.forceActiveFocus()
+                            }
+                        } else {
+                            profilesBackButton.forceActiveFocus()
+                        }
+                        event.accepted = true
+                    }
+                    Keys.onDownPressed: function(event) {
+                        if (count > 0) {
+                            if (currentIndex < count - 1) {
+                                currentIndex = currentIndex + 1
+                            } else {
+                                profilesBackButton.forceActiveFocus()
+                            }
+                        } else {
+                            profilesBackButton.forceActiveFocus()
+                        }
+                        event.accepted = true
+                    }
+                    Keys.onReturnPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
+                            root.chooseProfile(root.availableProfiles[currentIndex])
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
+                            root.chooseProfile(root.availableProfiles[currentIndex])
+                        event.accepted = true
+                    }
+
+                    delegate: Rectangle {
+                        id: profileRow
+                        required property int index
+                        required property var modelData
+                        readonly property bool highlighted: profileList.activeFocus && profileList.currentIndex === index
+                        width: profileList.width
+                        height: profileList.rowHeight
+                        radius: Theme.radiusMedium
+                        color: highlighted || profileRowMouse.containsMouse ? Theme.surfaceInteractiveHover
+                                                                           : Theme.surfaceInteractive
+                        border.width: Theme.borderWidth
+                        border.color: Theme.surfaceBorder
+                        Accessible.role: Accessible.ListItem
+                        Accessible.name: root.profileName(modelData)
+                        Accessible.description: root.profileHasPin(modelData) ? qsTr("PIN required") : qsTr("No PIN required")
+
+                        FocusRing {
+                            inset: true
+                            active: profileRow.highlighted
+                            radius: parent.radius
+                        }
+
+                        MouseArea {
+                            id: profileRowMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onEntered: {
+                                if (typeof InputModeManager === "undefined" || InputModeManager.pointerActive) {
+                                    profileList.currentIndex = index
+                                }
+                            }
+                            onClicked: {
+                                profileList.currentIndex = index
+                                profileList.forceActiveFocus()
+                                root.chooseProfile(modelData)
+                            }
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.spacingMedium
+                            anchors.rightMargin: Theme.spacingLarge
+                            spacing: Theme.spacingMedium
+
+                            Rectangle {
+                                Layout.preferredWidth: Math.round(72 * Theme.layoutScale)
+                                Layout.preferredHeight: Layout.preferredWidth
+                                radius: width / 2
+                                color: Theme.selectionBackground
+                                clip: true
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: root.profileName(modelData).charAt(0).toUpperCase()
+                                    color: Theme.textPrimary
+                                    font.family: Theme.fontDisplay
+                                    font.pixelSize: Theme.fontSizeTitle
+                                    font.weight: Theme.fontWeightHeavy
+                                    visible: root.profileAvatar(modelData).length === 0
+                                }
+
+                                Image {
+                                    anchors.fill: parent
+                                    source: root.profileAvatar(modelData)
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    cache: true
+                                    visible: source.toString().length > 0
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Math.round(4 * Theme.layoutScale)
+
+                                Text {
+                                    text: root.profileName(modelData)
+                                    color: Theme.textPrimary
+                                    font.family: Theme.fontPrimary
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.weight: Theme.fontWeightStrong
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+
+                                Text {
+                                    text: root.profileHasPin(modelData) ? qsTr("PIN required") : qsTr("No PIN required")
+                                    color: Theme.textSecondary
+                                    font.family: Theme.fontPrimary
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    Layout.fillWidth: true
+                                }
+                            }
+
+                            Text {
+                                text: root.profileHasPin(modelData) ? "lock" : Icons.arrowForward
+                                color: profileRow.highlighted ? Theme.textPrimary : Theme.textSecondary
+                                font.family: Theme.fontIcon
+                                font.pixelSize: Theme.iconSizeNav
+                            }
+                        }
+                    }
+
+                    StateMessage {
+                        parent: profileList
+                        anchors.fill: parent
+                        visible: profileList.count === 0
+                        kind: "loading"
+                        compact: true
+                        message: qsTr("Loading profiles…")
+                    }
                 }
 
                 ActionButton {
-                    id: deviceBackButton
+                    id: profilesBackButton
                     variant: "secondary"
                     iconGlyph: Icons.arrowBack
-                    text: root.passwordSignInAvailable ? qsTr("Use a password instead") : qsTr("Back")
+                    text: qsTr("Back to sign in")
                     Layout.preferredHeight: Theme.buttonHeightLarge
                     focusPolicy: Qt.StrongFocus
-                    KeyNavigation.left: newCodeButton.visible ? newCodeButton : null
-                    KeyNavigation.up: newCodeButton.visible ? newCodeButton : null
-                    KeyNavigation.tab: newCodeButton.visible ? newCodeButton : null
-                    KeyNavigation.backtab: newCodeButton.visible ? newCodeButton : null
-                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                    onClicked: root.leaveDeviceSignIn()
-                }
-            }
-        }
-
-        // ---------- Profile selection (Silo) ----------
-        ColumnLayout {
-            id: profilesStep
-            Layout.fillWidth: true
-            Layout.topMargin: Theme.spacingXLarge
-            spacing: Theme.spacingLarge
-            visible: authenticationStep === "profiles"
-
-            ListView {
-                id: profileList
-                readonly property int rowHeight: Math.round(104 * Theme.layoutScale)
-                Layout.fillWidth: true
-                Layout.preferredHeight: Math.max(1, Math.min(count, 5)) * (rowHeight + spacing) - spacing
-                clip: true
-                spacing: Theme.spacingSmall
-                model: root.availableProfiles
-                currentIndex: root.availableProfiles.length > 0 ? 0 : -1
-                activeFocusOnTab: true
-                boundsBehavior: Flickable.StopAtBounds
-                highlightMoveDuration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0
-                Accessible.role: Accessible.List
-                Accessible.name: qsTr("Profiles")
-                KeyNavigation.up: profilesBackButton
-                KeyNavigation.down: profilesBackButton
-                KeyNavigation.tab: profilesBackButton
-                KeyNavigation.backtab: profilesBackButton
-
-                Keys.onUpPressed: function(event) {
-                    if (count > 0) {
-                        if (currentIndex > 0) {
-                            currentIndex = currentIndex - 1
-                        } else {
-                            profilesBackButton.forceActiveFocus()
-                        }
-                    } else {
-                        profilesBackButton.forceActiveFocus()
-                    }
-                    event.accepted = true
-                }
-                Keys.onDownPressed: function(event) {
-                    if (count > 0) {
-                        if (currentIndex < count - 1) {
-                            currentIndex = currentIndex + 1
-                        } else {
-                            profilesBackButton.forceActiveFocus()
-                        }
-                    } else {
-                        profilesBackButton.forceActiveFocus()
-                    }
-                    event.accepted = true
-                }
-                Keys.onReturnPressed: function(event) {
-                    if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
-                        root.chooseProfile(root.availableProfiles[currentIndex])
-                    event.accepted = true
-                }
-                Keys.onEnterPressed: function(event) {
-                    if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
-                        root.chooseProfile(root.availableProfiles[currentIndex])
-                    event.accepted = true
-                }
-
-                delegate: Rectangle {
-                    id: profileRow
-                    required property int index
-                    required property var modelData
-                    readonly property bool highlighted: profileList.activeFocus && profileList.currentIndex === index
-                    width: profileList.width
-                    height: profileList.rowHeight
-                    radius: Theme.radiusMedium
-                    color: highlighted || profileRowMouse.containsMouse ? Theme.surfaceInteractiveHover
-                                                                       : Theme.surfaceInteractive
-                    border.width: Theme.borderWidth
-                    border.color: Theme.surfaceBorder
-                    Accessible.role: Accessible.ListItem
-                    Accessible.name: root.profileName(modelData)
-                    Accessible.description: root.profileHasPin(modelData) ? qsTr("PIN required") : qsTr("No PIN required")
-
-                    FocusRing {
-                        inset: true
-                        active: profileRow.highlighted
-                        radius: parent.radius
-                    }
-
-                    MouseArea {
-                        id: profileRowMouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        onEntered: {
-                            if (typeof InputModeManager === "undefined" || InputModeManager.pointerActive) {
-                                profileList.currentIndex = index
-                            }
-                        }
-                        onClicked: {
-                            profileList.currentIndex = index
+                    KeyNavigation.up: profileList
+                    KeyNavigation.down: profileList
+                    KeyNavigation.tab: profileList
+                    KeyNavigation.backtab: profileList
+                    Keys.onUpPressed: function(event) {
+                        if (profileList.count > 0) {
+                            profileList.currentIndex = profileList.count - 1
                             profileList.forceActiveFocus()
-                            root.chooseProfile(modelData)
                         }
+                        event.accepted = true
                     }
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.spacingMedium
-                        anchors.rightMargin: Theme.spacingLarge
-                        spacing: Theme.spacingMedium
-
-                        Rectangle {
-                            Layout.preferredWidth: Math.round(72 * Theme.layoutScale)
-                            Layout.preferredHeight: Layout.preferredWidth
-                            radius: width / 2
-                            color: Theme.selectionBackground
-                            clip: true
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: root.profileName(modelData).charAt(0).toUpperCase()
-                                color: Theme.textPrimary
-                                font.family: Theme.fontDisplay
-                                font.pixelSize: Theme.fontSizeTitle
-                                font.weight: Theme.fontWeightHeavy
-                                visible: root.profileAvatar(modelData).length === 0
-                            }
-
-                            Image {
-                                anchors.fill: parent
-                                source: root.profileAvatar(modelData)
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                cache: true
-                                visible: source.toString().length > 0
-                            }
+                    Keys.onDownPressed: function(event) {
+                        if (profileList.count > 0) {
+                            profileList.currentIndex = 0
+                            profileList.forceActiveFocus()
                         }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Math.round(4 * Theme.layoutScale)
-
-                            Text {
-                                text: root.profileName(modelData)
-                                color: Theme.textPrimary
-                                font.family: Theme.fontPrimary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.weight: Theme.fontWeightStrong
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-
-                            Text {
-                                text: root.profileHasPin(modelData) ? qsTr("PIN required") : qsTr("No PIN required")
-                                color: Theme.textSecondary
-                                font.family: Theme.fontPrimary
-                                font.pixelSize: Theme.fontSizeSmall
-                                Layout.fillWidth: true
-                            }
-                        }
-
-                        Text {
-                            text: root.profileHasPin(modelData) ? "lock" : Icons.arrowForward
-                            color: profileRow.highlighted ? Theme.textPrimary : Theme.textSecondary
-                            font.family: Theme.fontIcon
-                            font.pixelSize: Theme.iconSizeNav
-                        }
+                        event.accepted = true
                     }
-                }
-
-                StateMessage {
-                    parent: profileList
-                    anchors.fill: parent
-                    visible: profileList.count === 0
-                    kind: "loading"
-                    compact: true
-                    message: qsTr("Loading profiles…")
-                }
-            }
-
-            ActionButton {
-                id: profilesBackButton
-                variant: "secondary"
-                iconGlyph: Icons.arrowBack
-                text: qsTr("Back to sign in")
-                Layout.preferredHeight: Theme.buttonHeightLarge
-                focusPolicy: Qt.StrongFocus
-                KeyNavigation.up: profileList
-                KeyNavigation.down: profileList
-                KeyNavigation.tab: profileList
-                KeyNavigation.backtab: profileList
-                Keys.onUpPressed: function(event) {
-                    if (profileList.count > 0) {
-                        profileList.currentIndex = profileList.count - 1
-                        profileList.forceActiveFocus()
-                    }
-                    event.accepted = true
-                }
-                Keys.onDownPressed: function(event) {
-                    if (profileList.count > 0) {
-                        profileList.currentIndex = 0
-                        profileList.forceActiveFocus()
-                    }
-                    event.accepted = true
-                }
-                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                onClicked: root.cancelAuthentication()
-            }
-        }
-
-        // ---------- Profile PIN ----------
-        ColumnLayout {
-            id: pinStep
-            Layout.fillWidth: true
-            Layout.topMargin: Theme.spacingXLarge
-            spacing: Theme.controlSpacing
-            visible: authenticationStep === "pin"
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.bottomMargin: Theme.spacingSmall
-                spacing: Theme.spacingMedium
-
-                Rectangle {
-                    Layout.preferredWidth: Math.round(104 * Theme.layoutScale)
-                    Layout.preferredHeight: Layout.preferredWidth
-                    radius: width / 2
-                    color: Theme.selectionBackground
-                    clip: true
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: root.selectedProfileName.length > 0
-                              ? root.selectedProfileName.charAt(0).toUpperCase() : "lock"
-                        color: Theme.textPrimary
-                        font.family: root.selectedProfileName.length > 0
-                                     ? Theme.fontDisplay : Theme.fontIcon
-                        font.pixelSize: Theme.fontSizeHeader
-                        font.weight: Theme.fontWeightHeavy
-                        visible: root.selectedProfileAvatar.length === 0
-                    }
-
-                    Image {
-                        anchors.fill: parent
-                        source: root.selectedProfileAvatar
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: true
-                        visible: source.toString().length > 0
-                    }
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: root.selectedProfileName
-                    visible: text.length > 0
-                    color: Theme.textPrimary
-                    font.family: Theme.fontPrimary
-                    font.pixelSize: Theme.fontSizeTitle
-                    font.weight: Theme.fontWeightStrong
-                    elide: Text.ElideRight
-                }
-            }
-
-            TextField {
-                id: pinField
-                placeholderText: qsTr("Profile PIN")
-                placeholderTextColor: Theme.textTertiary
-                echoMode: TextInput.Password
-                inputMethodHints: Qt.ImhDigitsOnly | Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.buttonHeightHero
-                font.pixelSize: Theme.fontSizeTitle
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                verticalAlignment: TextInput.AlignVCenter
-                Accessible.name: qsTr("Profile PIN")
-                KeyNavigation.up: pinCancelButton
-                KeyNavigation.down: verifyPinButton
-                KeyNavigation.tab: verifyPinButton
-                KeyNavigation.backtab: pinCancelButton
-                onAccepted: root.submitPin()
-                leftPadding: Theme.spacingLarge
-                rightPadding: Theme.spacingLarge
-                background: FieldBackground { control: pinField }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.spacingMedium
-                spacing: Theme.controlSpacing
-
-                ActionButton {
-                    id: verifyPinButton
-                    variant: "primary"
-                    text: qsTr("Unlock profile")
-                    enabled: pinField.text.length > 0
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.buttonHeightLarge
-                    focusPolicy: Qt.StrongFocus
-                    KeyNavigation.up: pinField
-                    KeyNavigation.down: pinCancelButton
-                    KeyNavigation.right: pinCancelButton
-                    KeyNavigation.tab: pinCancelButton
-                    KeyNavigation.backtab: pinField
-                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
-                    onClicked: root.submitPin()
-                }
-
-                ActionButton {
-                    id: pinCancelButton
-                    variant: "secondary"
-                    text: qsTr("Cancel and return to sign in")
-                    Layout.preferredHeight: Theme.buttonHeightLarge
-                    focusPolicy: Qt.StrongFocus
-                    KeyNavigation.up: pinField
-                    KeyNavigation.down: pinField
-                    KeyNavigation.left: verifyPinButton
-                    KeyNavigation.tab: pinField
-                    KeyNavigation.backtab: verifyPinButton
                     Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
                     Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
                     onClicked: root.cancelAuthentication()
                 }
             }
-        }
 
-        // ---------- Status ----------
-        Rectangle {
-            id: statusBox
-            Layout.fillWidth: true
-            Layout.topMargin: Theme.spacingLarge
-            Layout.preferredHeight: Math.max(Theme.buttonHeightMedium,
-                                             statusRow.implicitHeight + Theme.spacingMedium * 2)
-            visible: statusMessage.length > 0 && !root.showDeviceSignIn
-            radius: Theme.radiusControl
-            color: statusIsError ? Theme.actionDestructiveBackground : Theme.surfaceInteractive
-            border.color: statusIsError ? Theme.errorColor : Theme.surfaceBorder
-            border.width: Theme.borderWidth
-            Accessible.role: Accessible.AlertMessage
-            Accessible.name: root.statusMessage
+            // ---------- Profile PIN ----------
+            ColumnLayout {
+                id: pinStep
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacingXLarge
+                spacing: Theme.controlSpacing
+                visible: authenticationStep === "pin"
 
-            RowLayout {
-                id: statusRow
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Theme.spacingMedium
-                anchors.rightMargin: Theme.spacingMedium
-                spacing: Theme.spacingMedium
-
-                Text {
-                    visible: root.statusIsError
-                    text: Icons.error
-                    font.family: Theme.fontIcon
-                    font.pixelSize: Theme.fontSizeIcon
-                    color: Theme.errorColor
-                    Layout.alignment: Qt.AlignVCenter
-                }
-
-                BusyIndicator {
-                    visible: !root.statusIsError
-                    running: visible && root.statusMessage.length > 0
-                    Layout.preferredWidth: Math.round(36 * Theme.layoutScale)
-                    Layout.preferredHeight: Layout.preferredWidth
-                    Layout.alignment: Qt.AlignVCenter
-                }
-
-                Text {
-                    id: statusLabel
+                RowLayout {
                     Layout.fillWidth: true
-                    text: root.statusMessage
-                    color: root.statusIsError ? Theme.errorColor : Theme.textPrimary
-                    font.pixelSize: Theme.fontSizeSmall
+                    Layout.bottomMargin: Theme.spacingSmall
+                    spacing: Theme.spacingMedium
+
+                    Rectangle {
+                        Layout.preferredWidth: Math.round(104 * Theme.layoutScale)
+                        Layout.preferredHeight: Layout.preferredWidth
+                        radius: width / 2
+                        color: Theme.selectionBackground
+                        clip: true
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: root.selectedProfileName.length > 0
+                                  ? root.selectedProfileName.charAt(0).toUpperCase() : "lock"
+                            color: Theme.textPrimary
+                            font.family: root.selectedProfileName.length > 0
+                                         ? Theme.fontDisplay : Theme.fontIcon
+                            font.pixelSize: Theme.fontSizeHeader
+                            font.weight: Theme.fontWeightHeavy
+                            visible: root.selectedProfileAvatar.length === 0
+                        }
+
+                        Image {
+                            anchors.fill: parent
+                            source: root.selectedProfileAvatar
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: true
+                            visible: source.toString().length > 0
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.selectedProfileName
+                        visible: text.length > 0
+                        color: Theme.textPrimary
+                        font.family: Theme.fontPrimary
+                        font.pixelSize: Theme.fontSizeTitle
+                        font.weight: Theme.fontWeightStrong
+                        elide: Text.ElideRight
+                    }
+                }
+
+                TextField {
+                    id: pinField
+                    placeholderText: qsTr("Profile PIN")
+                    placeholderTextColor: Theme.textTertiary
+                    echoMode: TextInput.Password
+                    inputMethodHints: Qt.ImhDigitsOnly | Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.buttonHeightHero
+                    font.pixelSize: Theme.fontSizeTitle
                     font.family: Theme.fontPrimary
-                    font.weight: Theme.fontWeightMedium
-                    verticalAlignment: Text.AlignVCenter
-                    wrapMode: Text.Wrap
+                    color: Theme.textPrimary
+                    verticalAlignment: TextInput.AlignVCenter
+                    Accessible.name: qsTr("Profile PIN")
+                    KeyNavigation.up: pinCancelButton
+                    KeyNavigation.down: verifyPinButton
+                    KeyNavigation.tab: verifyPinButton
+                    KeyNavigation.backtab: pinCancelButton
+                    onAccepted: root.submitPin()
+                    leftPadding: Theme.spacingLarge
+                    rightPadding: Theme.spacingLarge
+                    background: FieldBackground { control: pinField }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingMedium
+                    spacing: Theme.controlSpacing
+
+                    ActionButton {
+                        id: verifyPinButton
+                        variant: "primary"
+                        text: qsTr("Unlock profile")
+                        enabled: pinField.text.length > 0
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.buttonHeightLarge
+                        focusPolicy: Qt.StrongFocus
+                        KeyNavigation.up: pinField
+                        KeyNavigation.down: pinCancelButton
+                        KeyNavigation.right: pinCancelButton
+                        KeyNavigation.tab: pinCancelButton
+                        KeyNavigation.backtab: pinField
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        onClicked: root.submitPin()
+                    }
+
+                    ActionButton {
+                        id: pinCancelButton
+                        variant: "secondary"
+                        text: qsTr("Cancel and return to sign in")
+                        Layout.preferredHeight: Theme.buttonHeightLarge
+                        focusPolicy: Qt.StrongFocus
+                        KeyNavigation.up: pinField
+                        KeyNavigation.down: pinField
+                        KeyNavigation.left: verifyPinButton
+                        KeyNavigation.tab: pinField
+                        KeyNavigation.backtab: verifyPinButton
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) clicked(); event.accepted = true }
+                        onClicked: root.cancelAuthentication()
+                    }
+                }
+            }
+
+            // ---------- Status ----------
+            Rectangle {
+                id: statusBox
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacingLarge
+                Layout.preferredHeight: Math.max(Theme.buttonHeightMedium,
+                                                 statusRow.implicitHeight + Theme.spacingMedium * 2)
+                visible: statusMessage.length > 0 && !root.showDeviceSignIn
+                radius: Theme.radiusControl
+                color: statusIsError ? Theme.actionDestructiveBackground : Theme.surfaceInteractive
+                border.color: statusIsError ? Theme.errorColor : Theme.surfaceBorder
+                border.width: Theme.borderWidth
+                Accessible.role: Accessible.AlertMessage
+                Accessible.name: root.statusMessage
+
+                RowLayout {
+                    id: statusRow
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: Theme.spacingMedium
+                    anchors.rightMargin: Theme.spacingMedium
+                    spacing: Theme.spacingMedium
+
+                    Text {
+                        visible: root.statusIsError
+                        text: Icons.error
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Theme.fontSizeIcon
+                        color: Theme.errorColor
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    BusyIndicator {
+                        visible: !root.statusIsError
+                        running: visible && root.statusMessage.length > 0
+                        Layout.preferredWidth: Math.round(36 * Theme.layoutScale)
+                        Layout.preferredHeight: Layout.preferredWidth
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    Text {
+                        id: statusLabel
+                        Layout.fillWidth: true
+                        text: root.statusMessage
+                        color: root.statusIsError ? Theme.errorColor : Theme.textPrimary
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        font.weight: Theme.fontWeightMedium
+                        verticalAlignment: Text.AlignVCenter
+                        wrapMode: Text.Wrap
+                    }
                 }
             }
         }
@@ -1231,7 +1568,31 @@ FocusScope {
         onClosed: root.restoreStepFocus()
     }
 
-    Component.onCompleted: restoreStepFocus()
+    ListModel {
+        id: discoveredServers
+    }
+
+    Component.onCompleted: {
+        restoreStepFocus()
+        syncDiscoveryActive()
+        syncDiscoveredServers()
+    }
+
+    Component.onDestruction: {
+        if (typeof ServerDiscovery !== "undefined")
+            ServerDiscovery.active = false
+    }
+
+    onDiscoveryWantedChanged: syncDiscoveryActive()
+
+    Connections {
+        target: typeof ServerDiscovery !== "undefined" ? ServerDiscovery : null
+        ignoreUnknownSignals: true
+
+        function onServersChanged() {
+            root.syncDiscoveredServers()
+        }
+    }
 
     onVisibleChanged: {
         if (visible)

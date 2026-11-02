@@ -138,6 +138,8 @@ move/clip across show/hide, resize, minimize/restore, maximize, and fullscreen.
 - Server connections, credentials, adapters → `docs/provider-architecture.md`;
   Jellyfin/Silo contract pins → `docs/provider-compatibility.md`
 - Canonical media/artwork/playback models → `docs/canonical-models.md`
+- Finding servers on the local network (mDNS, Jellyfin broadcast) →
+  `docs/server-discovery.md`
 - Bloom profiles (spaces), merged reads, routing → `docs/profiles.md`
 - View models and loading/error state → `docs/viewmodels.md`
 - Page anatomy, heroes, shelves, cards, adding a screen → `docs/style-guide.md`

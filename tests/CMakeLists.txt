@@ -99,7 +99,8 @@ function(bloom_use_production_libraries test_target)
     get_target_property(test_sources ${test_target} SOURCES)
     set(application_initializer_source ${CMAKE_SOURCE_DIR}/src/core/ApplicationInitializer.cpp)
     if(application_initializer_source IN_LIST test_sources)
-        target_link_libraries(${test_target} PRIVATE Bloom::Updater Bloom::Workspace)
+        target_link_libraries(${test_target} PRIVATE
+            Bloom::ServerDiscovery Bloom::Updater Bloom::Workspace)
     endif()
     set(image_cache_provider_source ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp)
     set(image_cache_store_source ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheStore.cpp)
@@ -1819,6 +1820,12 @@ endif()
 add_executable(CombinedLibraryTest CombinedLibraryTest.cpp)
 target_link_libraries(CombinedLibraryTest PRIVATE Bloom::Models Qt6::Test)
 add_test(NAME CombinedLibraryTest COMMAND CombinedLibraryTest)
+
+# Bloom::ServerDiscovery alone: DNS-SD, Jellyfin broadcast replies,
+# validation and the discovery lifetime.
+add_executable(ServerDiscoveryTest ServerDiscoveryTest.cpp)
+target_link_libraries(ServerDiscoveryTest PRIVATE Bloom::ServerDiscovery Qt6::Test)
+add_test(NAME ServerDiscoveryTest COMMAND ServerDiscoveryTest)
 
 add_executable(SessionServiceTest SessionServiceTest.cpp)
 target_link_libraries(SessionServiceTest PRIVATE Bloom::Network Qt6::Test)

@@ -129,6 +129,7 @@ At the default `info` level, Bloom applies filter rules in `src/utils/LoggingCon
 | `bloom.cache` | Detail-view JSON cache files | debug, info |
 | `bloom.library` | Jellyfin library API requests | debug, info |
 | `bloom.auth` | Login, session, keychain | debug |
+| `bloom.discovery` | Local-network server discovery (mDNS, Jellyfin broadcast) | debug |
 | `bloom.config` | Config load/save | debug |
 | `bloom.app` | Application startup / service wiring | debug |
 | `bloom.ui` | Fonts, responsive layout | debug |

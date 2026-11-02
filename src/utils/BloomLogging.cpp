@@ -22,6 +22,7 @@ Q_LOGGING_CATEGORY(lcDisplayTrace, "bloom.playback.displaytrace")
 Q_LOGGING_CATEGORY(lcGpuTrim, "bloom.gpu.trim")
 
 Q_LOGGING_CATEGORY(lcAuth, "bloom.auth")
+Q_LOGGING_CATEGORY(lcDiscovery, "bloom.discovery")
 Q_LOGGING_CATEGORY(lcConfig, "bloom.config")
 Q_LOGGING_CATEGORY(lcApp, "bloom.app")
 Q_LOGGING_CATEGORY(lcUi, "bloom.ui")

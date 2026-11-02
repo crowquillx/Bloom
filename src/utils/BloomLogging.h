@@ -27,6 +27,7 @@ Q_DECLARE_LOGGING_CATEGORY(lcGpuTrim)          // bloom.gpu.trim
 
 // App / UI / auth
 Q_DECLARE_LOGGING_CATEGORY(lcAuth)             // bloom.auth
+Q_DECLARE_LOGGING_CATEGORY(lcDiscovery)        // bloom.discovery
 Q_DECLARE_LOGGING_CATEGORY(lcConfig)           // bloom.config
 Q_DECLARE_LOGGING_CATEGORY(lcApp)              // bloom.app
 Q_DECLARE_LOGGING_CATEGORY(lcUi)               // bloom.ui
