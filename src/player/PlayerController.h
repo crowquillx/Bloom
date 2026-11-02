@@ -1051,6 +1051,13 @@ private:
     bool requestSeasonIdLookup(PendingPlaybackRequest &pending);
     void finishPendingSeasonResolution(const QString &requestId, const QString &seasonId,
                                        const QString &reason);
+    void armPendingResolutionDeadline(const QString &requestId);
+    void onPendingResolutionDeadline(const QString &requestId);
+    // Moves picks saved for the series (before episodes were scoped to their
+    // season) to the season, for each kind the season has none of.
+    void adoptSeriesTrackPreferences(const QString &seriesId, const QString &seasonId);
+    [[nodiscard]] QString seasonIdCacheKey(const QString &connectionId, const QString &seriesId,
+                                           int seasonNumber) const;
     void maybeFinalizePendingPlaybackRequest(const QString &requestId);
     void launchResolvedPlaybackRequest(const QString &requestId);
     void failPendingPlaybackRequest(const QString &requestId, const QString &message);
@@ -1122,6 +1129,9 @@ private:
     // (audio, subtitles) that has an explicit pick there and none in the
     // next season (in the same season the saved pick resolves by itself).
     [[nodiscard]] QString pendingAutoplayCarrySeasonId(const QString &targetSeasonId) const;
+    // The pending autoplay episode's season: its own, the cached one for its
+    // season number, or (without a number) the season that just played.
+    [[nodiscard]] QString pendingAutoplayTargetSeasonId() const;
     // A season's saved picks, with each kind it has none of taken from
     // `carryFromSeasonId`. The carried picks are matched by what the track
     // is, not its index, like any saved pick.
@@ -1520,11 +1530,12 @@ private:
     QVariantMap m_pendingAutoplayEpisodeData;
     QHash<QString, PendingPlaybackRequest> m_pendingPlaybackRequests;
     QHash<QString, QString> m_seriesLibraryIdCache;
-    QSet<QString> m_seriesLibraryResolutionInFlight;
-    // connectionId \n seriesId \n season number -> season ID, and the series
-    // whose season list is being read (connectionId \n seriesId).
+    // connectionId \n seriesId \n season number -> season ID.
     QHash<QString, QString> m_seasonIdCache;
-    QSet<QString> m_seasonLookupsInFlight;
+    // How long a playback request waits for its series' library or its
+    // episode's season before it starts without them. LibraryService drops a
+    // reply silently after a connection or user change.
+    int m_pendingResolutionDeadlineMs = 8000;
     QList<QVariantMap> m_playbackSegments;
     QVariantList m_nextPlaybackSegments;
     QStringList m_nextPlaylistAppendUrls;

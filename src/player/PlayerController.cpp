@@ -2373,10 +2373,7 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
 
     const qint64 startPositionMs = resumePositionMs(m_pendingAutoplayEpisodeData);
 
-    QString targetSeasonId = episodeSeasonId(m_pendingAutoplayEpisodeData);
-    if (targetSeasonId.isEmpty()) {
-        targetSeasonId = m_pendingAutoplaySeasonId;
-    }
+    const QString targetSeasonId = pendingAutoplayTargetSeasonId();
 
     if (playbackInfo.mediaSources.isEmpty()) {
         fallbackToPendingAutoplayPlayback();
@@ -2999,6 +2996,7 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     m_pendingPlaybackRequests.insert(pending.requestId, pending);
     maybeResolvePendingRequestLibraryId(m_pendingPlaybackRequests[pending.requestId]);
     maybeResolvePendingRequestSeasonId(m_pendingPlaybackRequests[pending.requestId]);
+    armPendingResolutionDeadline(pending.requestId);
 
     m_playbackService->getPlaybackInfo(itemId, pending.requestId);
     m_playbackService->getAdditionalParts(itemId, pending.requestId);
@@ -3010,7 +3008,6 @@ void PlayerController::onItemLibraryResolved(const QString &itemId, const QStrin
         return;
     }
 
-    m_seriesLibraryResolutionInFlight.remove(itemId);
     m_seriesLibraryIdCache.insert(itemId, libraryId);
 
     QStringList requestIdsToFinalize;
@@ -3038,7 +3035,6 @@ void PlayerController::onItemLibraryResolutionFailed(const QString &itemId, cons
     qCWarning(lcPlayback) << "Failed to resolve library for series"
                           << "seriesId=" << itemId
                           << "error=" << error;
-    m_seriesLibraryResolutionInFlight.remove(itemId);
 
     QStringList requestIdsToFinalize;
     for (auto it = m_pendingPlaybackRequests.begin(); it != m_pendingPlaybackRequests.end(); ++it) {
@@ -3506,11 +3502,8 @@ void PlayerController::onPlaybackDescriptorLoadedForRequest(
         const QString url =
             QString::fromUtf8(descriptor.stream.url.toEncoded(QUrl::FullyEncoded));
         const QString autoplaySeriesId = m_pendingAutoplaySeriesId;
-        const QString autoplaySeasonId = m_pendingAutoplaySeasonId;
         const QString autoplayLibraryId = m_pendingAutoplayLibraryId;
-        const QString targetSeasonId = episodeSeasonId(m_pendingAutoplayEpisodeData);
-        const QString resolvedSeasonId = targetSeasonId.isEmpty()
-            ? autoplaySeasonId : targetSeasonId;
+        const QString resolvedSeasonId = pendingAutoplayTargetSeasonId();
         const QString mediaSourceId = descriptor.mediaVersionId.isEmpty()
             ? m_pendingAutoplayDescriptorSource.value(QStringLiteral("id")).toString()
             : descriptor.mediaVersionId;
@@ -4147,11 +4140,10 @@ void PlayerController::maybeResolvePendingRequestLibraryId(PlayerController::Pen
         return;
     }
 
+    // Asked again for every request (only one is pending at a time): a reply
+    // dropped after a connection change must not block later playback.
     pending.awaitingLibraryResolution = true;
-    if (!m_seriesLibraryResolutionInFlight.contains(pending.seriesId)) {
-        m_seriesLibraryResolutionInFlight.insert(pending.seriesId);
-        m_libraryService->resolveLibraryForItem(pending.seriesId);
-    }
+    m_libraryService->resolveLibraryForItem(pending.seriesId);
 }
 
 /**
@@ -4167,8 +4159,14 @@ void PlayerController::maybeResolvePendingRequestLibraryId(PlayerController::Pen
 void PlayerController::maybeResolvePendingRequestSeasonId(PendingPlaybackRequest &pending)
 {
     pending.awaitingSeasonResolution = false;
-    if (pending.isMovie || pending.seriesId.isEmpty() || !pending.seasonId.isEmpty()
-        || !m_libraryService) {
+    if (pending.isMovie || pending.seriesId.isEmpty()) {
+        return;
+    }
+    if (!pending.seasonId.isEmpty()) {
+        adoptSeriesTrackPreferences(pending.seriesId, pending.seasonId);
+        return;
+    }
+    if (!m_libraryService) {
         return;
     }
     pending.seasonLookupConnectionId = m_libraryService->getActiveConnectionId();
@@ -4185,30 +4183,104 @@ void PlayerController::maybeResolvePendingRequestSeasonId(PendingPlaybackRequest
     requestSeasonIdLookup(pending);
 }
 
-// True when the season is known at once; otherwise the request waits for the
-// series' season list.
+QString PlayerController::seasonIdCacheKey(const QString &connectionId, const QString &seriesId,
+                                           int seasonNumber) const
+{
+    return connectionId + QLatin1Char('\n') + seriesId + QLatin1Char('\n')
+        + QString::number(seasonNumber);
+}
+
+// True when the season is known at once (the request is then marked
+// resolved); otherwise the request waits for the series' season list. The
+// list is asked for every request that needs it (only one is pending at a
+// time): a reply dropped after a connection change must not block later ones.
 bool PlayerController::requestSeasonIdLookup(PendingPlaybackRequest &pending)
 {
-    const QString seriesKey = pending.seasonLookupConnectionId + QLatin1Char('\n')
-        + pending.seriesId;
-    const auto cached = m_seasonIdCache.constFind(
-        seriesKey + QLatin1Char('\n') + QString::number(pending.seasonNumber));
+    const auto cached = m_seasonIdCache.constFind(seasonIdCacheKey(
+        pending.seasonLookupConnectionId, pending.seriesId, pending.seasonNumber));
     if (cached != m_seasonIdCache.constEnd()) {
         pending.seasonId = cached.value();
+        adoptSeriesTrackPreferences(pending.seriesId, pending.seasonId);
         return true;
     }
     pending.awaitingSeasonResolution = true;
-    if (m_seasonLookupsInFlight.contains(seriesKey)) {
-        return false;
-    }
-    m_seasonLookupsInFlight.insert(seriesKey);
     LibraryItemQuery query;
     query.parentId = pending.seriesId;
     query.includeHeavyFields = false;
     query.includeItemTypes = {QStringLiteral("Season")};
-    query.requestKey = kSeasonLookupKeyPrefix + QLatin1Char('\n') + seriesKey;
+    query.requestKey = kSeasonLookupKeyPrefix + QLatin1Char('\n')
+        + pending.seasonLookupConnectionId + QLatin1Char('\n') + pending.seriesId;
     m_libraryService->getItems(query);
     return false;
+}
+
+void PlayerController::armPendingResolutionDeadline(const QString &requestId)
+{
+    const auto it = m_pendingPlaybackRequests.constFind(requestId);
+    if (it == m_pendingPlaybackRequests.constEnd()
+        || !(it->awaitingLibraryResolution || it->awaitingSeasonResolution)) {
+        return;
+    }
+    QTimer::singleShot(m_pendingResolutionDeadlineMs, this, [this, requestId] {
+        onPendingResolutionDeadline(requestId);
+    });
+}
+
+// LibraryService drops a reply silently after a connection, user or profile
+// change, so a request never waits on one for longer than the deadline.
+void PlayerController::onPendingResolutionDeadline(const QString &requestId)
+{
+    auto it = m_pendingPlaybackRequests.find(requestId);
+    if (it == m_pendingPlaybackRequests.end()) {
+        return;
+    }
+    if (it->awaitingLibraryResolution) {
+        qCWarning(lcPlayback) << "Series library not resolved in time; playing without it"
+                              << "seriesId=" << it->seriesId;
+        it->awaitingLibraryResolution = false;
+    }
+    if (it->awaitingSeasonResolution) {
+        finishPendingSeasonResolution(requestId, QString(), QStringLiteral("timed out"));
+        return;
+    }
+    maybeFinalizePendingPlaybackRequest(requestId);
+}
+
+void PlayerController::adoptSeriesTrackPreferences(const QString &seriesId,
+                                                   const QString &seasonId)
+{
+    if (seriesId.isEmpty() || seasonId.isEmpty() || seriesId == seasonId) {
+        return;
+    }
+    const ScopedTrackPreferences seriesScoped = m_trackPrefs->getSeasonPreferences(seriesId);
+    if (seriesScoped.isEmpty()) {
+        return;
+    }
+    // A local pick is never silently undone: the season keeps its own and
+    // takes the series' for each kind it has none of, once.
+    qCInfo(lcPlayback) << "Moving track picks saved for series" << seriesId
+                       << "to season" << seasonId;
+    updateSeasonPreference(seasonId, [&seriesScoped](ScopedTrackPreferences &preferences) {
+        if (preferences.audio.mode == TrackPreferenceMode::Unset) {
+            preferences.audio = seriesScoped.audio;
+        }
+        if (preferences.subtitle.mode == TrackPreferenceMode::Unset) {
+            preferences.subtitle = seriesScoped.subtitle;
+        }
+        if (preferences.subtitleDelayMs == 0) {
+            preferences.subtitleDelayMs = seriesScoped.subtitleDelayMs;
+        }
+        for (const SubtitleDelayOverride &entry : seriesScoped.subtitleDelayOverrides) {
+            const bool known = std::any_of(
+                preferences.subtitleDelayOverrides.cbegin(),
+                preferences.subtitleDelayOverrides.cend(),
+                [&entry](const SubtitleDelayOverride &own) { return own.syncKey == entry.syncKey; });
+            if (!known) {
+                preferences.setSubtitleDelayOverride(entry.syncKey, entry.delayMs);
+            }
+        }
+    });
+    m_trackPrefs->clearSeasonPreferences(seriesId);
 }
 
 void PlayerController::finishPendingSeasonResolution(const QString &requestId,
@@ -4221,6 +4293,7 @@ void PlayerController::finishPendingSeasonResolution(const QString &requestId,
     }
     it->awaitingSeasonResolution = false;
     it->seasonId = seasonId;
+    adoptSeriesTrackPreferences(it->seriesId, seasonId);
     if (seasonId.isEmpty()) {
         qCWarning(lcPlayback) << "Episode season not found; its track picks keep no season"
                               << "itemId=" << it->itemId << "seriesId=" << it->seriesId
@@ -4284,15 +4357,12 @@ void PlayerController::onSeasonLookupItemsLoaded(const QString &connectionId,
         || parts.at(1) != connectionId) {
         return;
     }
-    const QString seriesKey = parts.at(1) + QLatin1Char('\n') + parts.at(2);
-    m_seasonLookupsInFlight.remove(seriesKey);
     for (const QVariant &value : items) {
         const QVariantMap season = value.toMap();
         const QString seasonId = season.value(QStringLiteral("itemId")).toString();
         const int number = season.value(QStringLiteral("indexNumber"), -1).toInt();
         if (!seasonId.isEmpty() && number >= 0) {
-            m_seasonIdCache.insert(seriesKey + QLatin1Char('\n') + QString::number(number),
-                                   seasonId);
+            m_seasonIdCache.insert(seasonIdCacheKey(parts.at(1), parts.at(2), number), seasonId);
         }
     }
     QStringList requestIds;
@@ -4309,8 +4379,7 @@ void PlayerController::onSeasonLookupItemsLoaded(const QString &connectionId,
         }
         finishPendingSeasonResolution(
             requestId,
-            m_seasonIdCache.value(seriesKey + QLatin1Char('\n')
-                                  + QString::number(it->seasonNumber)),
+            m_seasonIdCache.value(seasonIdCacheKey(parts.at(1), parts.at(2), it->seasonNumber)),
             QStringLiteral("series has no season with that number"));
     }
 }
@@ -4326,7 +4395,6 @@ void PlayerController::onSeasonLookupItemsFailed(const QString &connectionId,
         || parts.at(1) != connectionId) {
         return;
     }
-    m_seasonLookupsInFlight.remove(parts.at(1) + QLatin1Char('\n') + parts.at(2));
     QStringList requestIds;
     for (auto it = m_pendingPlaybackRequests.cbegin(); it != m_pendingPlaybackRequests.cend(); ++it) {
         if (it->awaitingSeasonResolution && it->seasonNumber >= 0
@@ -8111,6 +8179,24 @@ void PlayerController::releaseAfterMovieDisplayRestore(qulonglong attemptId)
     maybeStartDeferredPostPlaybackDisplayRestore();
 }
 
+QString PlayerController::pendingAutoplayTargetSeasonId() const
+{
+    const QString seasonId = episodeSeasonId(m_pendingAutoplayEpisodeData);
+    if (!seasonId.isEmpty()) {
+        return seasonId;
+    }
+    const int seasonNumber = episodeSeasonNumber(m_pendingAutoplayEpisodeData);
+    if (seasonNumber < 0) {
+        return m_pendingAutoplaySeasonId;
+    }
+    // Never the season that just played: S2E1 is not season 1's. Without a
+    // cached season list the episode plays without a season scope.
+    return m_libraryService
+        ? m_seasonIdCache.value(seasonIdCacheKey(m_libraryService->getActiveConnectionId(),
+                                                 m_pendingAutoplaySeriesId, seasonNumber))
+        : QString();
+}
+
 QString PlayerController::pendingAutoplayCarrySeasonId(const QString &targetSeasonId) const
 {
     // An episode that names no season finds it when it plays; the carry
@@ -8191,10 +8277,7 @@ void PlayerController::fallbackToPendingAutoplayPlayback()
 
     const qint64 startPositionMs = resumePositionMs(m_pendingAutoplayEpisodeData);
 
-    QString targetSeasonId = episodeSeasonId(m_pendingAutoplayEpisodeData);
-    if (targetSeasonId.isEmpty()) {
-        targetSeasonId = m_pendingAutoplaySeasonId;
-    }
+    const QString targetSeasonId = pendingAutoplayTargetSeasonId();
 
     const QString seriesId = m_pendingAutoplaySeriesId;
     const QString libraryId = m_pendingAutoplayLibraryId;
