@@ -1585,6 +1585,79 @@ int ConfigManager::getSleepTimerDefault() const
         playbackSettingsObject(m_config).value(QStringLiteral("sleep_timer_default")).toInt(0));
 }
 
+namespace {
+constexpr auto kSubtitleAppearanceKey = "subtitle_appearance";
+constexpr auto kSubtitleAppearanceUserModifiedKey = "user_modified";
+} // namespace
+
+Bloom::SubtitleAppearance ConfigManager::getSubtitleAppearance() const
+{
+    return Bloom::SubtitleAppearance::fromJson(
+        playbackSettingsObject(m_config)
+            .value(QLatin1String(kSubtitleAppearanceKey)).toObject());
+}
+
+QVariantMap ConfigManager::getSubtitleAppearanceMap() const
+{
+    return getSubtitleAppearance().toVariantMap();
+}
+
+bool ConfigManager::isSubtitleAppearanceUserModified() const
+{
+    return playbackSettingsObject(m_config)
+        .value(QLatin1String(kSubtitleAppearanceKey)).toObject()
+        .value(QLatin1String(kSubtitleAppearanceUserModifiedKey)).toBool(false);
+}
+
+void ConfigManager::setSubtitleAppearanceValue(const QString &key, const QVariant &value)
+{
+    const Bloom::SubtitleAppearance current = getSubtitleAppearance();
+    const Bloom::SubtitleAppearance next = current.withValues({{key, value}});
+    if (next == current) {
+        return;
+    }
+    QJsonObject stored = next.toJson();
+    stored[QLatin1String(kSubtitleAppearanceUserModifiedKey)] = true;
+    setPlaybackSetting(m_config, QLatin1String(kSubtitleAppearanceKey), stored);
+    // Steppers change it in quick succession.
+    scheduleSave();
+    emit subtitleAppearanceChanged();
+    emit subtitleAppearanceEdited();
+}
+
+void ConfigManager::resetSubtitleAppearance()
+{
+    const bool changed = getSubtitleAppearance() != Bloom::SubtitleAppearance{}
+        || isSubtitleAppearanceUserModified();
+    if (changed) {
+        QJsonObject stored = Bloom::SubtitleAppearance{}.toJson();
+        stored[QLatin1String(kSubtitleAppearanceUserModifiedKey)] = false;
+        setPlaybackSetting(m_config, QLatin1String(kSubtitleAppearanceKey), stored);
+        save();
+        emit subtitleAppearanceChanged();
+    }
+    emit subtitleAppearanceReset();
+}
+
+bool ConfigManager::adoptSubtitleAppearance(const Bloom::SubtitleAppearance &appearance)
+{
+    if (isSubtitleAppearanceUserModified()) {
+        return false;
+    }
+    // Normalized like a stored value, so an unknown value cannot be kept.
+    const Bloom::SubtitleAppearance adopted =
+        Bloom::SubtitleAppearance::fromJson(appearance.toJson());
+    if (adopted == getSubtitleAppearance()) {
+        return true;
+    }
+    QJsonObject stored = adopted.toJson();
+    stored[QLatin1String(kSubtitleAppearanceUserModifiedKey)] = false;
+    setPlaybackSetting(m_config, QLatin1String(kSubtitleAppearanceKey), stored);
+    scheduleSave();
+    emit subtitleAppearanceChanged();
+    return true;
+}
+
 void ConfigManager::setServerTrickplayEnabled(bool enabled)
 {
     if (enabled == getServerTrickplayEnabled()) {

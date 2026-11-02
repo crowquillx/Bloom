@@ -4,6 +4,7 @@
 #include "providers/silo/SiloArtworkSizes.h"
 #include "providers/silo/SiloMediaRequestMapper.h"
 #include "providers/silo/SiloModelMapper.h"
+#include "providers/silo/SiloSubtitleAppearanceMapper.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -464,6 +465,25 @@ private:
         case ProviderCatalogOperation::ClearResumePosition:
             return unsupported(QStringLiteral(
                 "Silo hides Continue Watching cards with Home dismissals"));
+        case ProviderCatalogOperation::SubtitleAppearance:
+            // Profile scoped; X-Silo-Device-Id picks this device's override.
+            return get(QStringLiteral("/api/v2/settings/subtitle-appearance/effective"));
+        case ProviderCatalogOperation::SetSubtitleAppearance: {
+            ProviderCatalogRequest request =
+                get(QStringLiteral("/api/v2/settings/device/subtitle-appearance"));
+            if (query.stateValue) {
+                request.method = ProviderHttpMethod::Put;
+                request.body = SiloSubtitleAppearanceMapper::requestBody(
+                    Bloom::SubtitleAppearance{}.withValues(query.subtitleAppearance),
+                    query.subtitleAppearanceDocument);
+            } else {
+                request.method = ProviderHttpMethod::Delete;
+            }
+            // Both are natural_idempotent: the override is one value per
+            // device, so a replay after a lost response leaves the same state.
+            request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
+            return request;
+        }
         }
         return unsupported(QStringLiteral("Unsupported Silo catalog operation"));
     }
@@ -474,6 +494,10 @@ public:
         const QByteArray &body,
         const QHash<QByteArray, QByteArray> &responseHeaders) const override
     {
+        if (operation == ProviderCatalogOperation::SubtitleAppearance
+            || operation == ProviderCatalogOperation::SetSubtitleAppearance) {
+            return SiloSubtitleAppearanceMapper::parseResponse(operation, body);
+        }
         if (operation == ProviderCatalogOperation::PosterBadgeSettings
             || operation == ProviderCatalogOperation::PosterBadgeDefaults) {
             ProviderCatalogResponse response;

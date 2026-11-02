@@ -20,6 +20,7 @@
 #include <optional>
 #include "backend/IPlayerBackend.h"
 #include "PlaybackPolicy.h"
+#include "SubtitleAppearancePolicy.h"
 #include "TrickplayProcessor.h"
 #include "LocalSeekPreview.h"
 #include "../network/Types.h"
@@ -117,6 +118,10 @@ class PlayerController : public QObject
     Q_PROPERTY(int selectedSubtitleTrack READ selectedSubtitleTrack WRITE setSelectedSubtitleTrack NOTIFY selectedSubtitleTrackChanged)
     Q_PROPERTY(int subtitleDelayMs READ subtitleDelayMs WRITE setSubtitleDelayMs NOTIFY subtitleDelayChanged)
     Q_PROPERTY(int subtitleDelayStepMs READ subtitleDelayStepMs NOTIFY subtitleDelayStepChanged)
+    // Text subtitle size in percent (ConfigManager.subtitleAppearance), for
+    // the playback settings pop-out.
+    Q_PROPERTY(int subtitleSizePercent READ subtitleSizePercent NOTIFY subtitleSizeChanged)
+    Q_PROPERTY(int subtitleSizeStepPercent READ subtitleSizeStepPercent CONSTANT)
     Q_PROPERTY(QString mediaSourceId READ mediaSourceId NOTIFY mediaSourceIdChanged)
     Q_PROPERTY(QString playSessionId READ playSessionId NOTIFY playSessionIdChanged)
     Q_PROPERTY(QVariantList availableAudioTracks READ availableAudioTracks NOTIFY availableTracksChanged)
@@ -220,6 +225,8 @@ public:
     int selectedSubtitleTrack() const { return m_selectedSubtitleTrack; }
     int subtitleDelayMs() const { return m_subtitleDelayMs; }
     int subtitleDelayStepMs() const;
+    int subtitleSizePercent() const;
+    int subtitleSizeStepPercent() const { return Bloom::SubtitleAppearance::kSizeStepPercent; }
     QString mediaSourceId() const { return m_mediaSourceId; }
     QString playSessionId() const { return m_playSessionId; }
     QVariantList availableAudioTracks() const { return m_availableAudioTracks; }
@@ -361,6 +368,9 @@ public:
     Q_INVOKABLE void setSubtitleDelayMs(int delayMs);
     Q_INVOKABLE void adjustSubtitleDelayMs(int deltaMs);
     Q_INVOKABLE void resetSubtitleDelay();
+    // Steps the saved subtitle size; it applies to the running mpv at once.
+    Q_INVOKABLE void adjustSubtitleSize(int steps);
+    Q_INVOKABLE void resetSubtitleSize();
     Q_INVOKABLE void addExternalSubtitleTrack(const QString &subtitleUrl,
                                               const QString &displayTitle = QString(),
                                               const QString &language = QString(),
@@ -463,6 +473,7 @@ signals:
     void selectedSubtitleTrackChanged();
     void subtitleDelayChanged();
     void subtitleDelayStepChanged();
+    void subtitleSizeChanged();
     void mediaSourceIdChanged();
     void playSessionIdChanged();
     void availableTracksChanged();
@@ -605,7 +616,7 @@ private:
     /// Sleep-timer bookkeeping for a terminal transition; true when the
     /// timer ended this playback and Up Next must not open.
     bool applySleepTimerAtTerminal(TerminalReason reason);
-    void showSleepTimerOsd(const QString &text, int durationMs);
+    void showExternalMpvOsd(const QString &text, int durationMs);
 
     struct PendingPlaybackRequest;
     using HdrPlaybackPolicy = Bloom::PlaybackPolicy::HdrPlaybackPolicy;
@@ -838,6 +849,9 @@ private:
     void reportAudioOutputNotice(const QString &message);
     QString audioDeviceLabel(const QString &device) const;
     void applySubtitleDelay();
+    // Sets the subtitle appearance properties that differ from the ones mpv
+    // has, so a field returning to its default gets the profile's value back.
+    void applySubtitleAppearance();
     void persistSubtitleDelayForCurrentScope(int delayMs);
     int subtitleDelayForScope(const QString &seasonId, const QString &itemId, bool isMovie) const;
     // How a track saved for the current season or movie came about, which
@@ -1218,6 +1232,10 @@ private:
     // Track selection state
     int m_selectedAudioTrack = -1;      // Jellyfin audio stream index (for API reporting)
     int m_selectedSubtitleTrack = -1;   // Jellyfin subtitle stream index (-1 = none)
+    // Arguments mpv started with before the subtitle appearance, and the
+    // appearance properties it has now.
+    QStringList m_subtitleAppearanceBaseArgs;
+    Bloom::SubtitleAppearancePolicy::MpvProperties m_appliedSubtitleProperties;
     int m_subtitleDelayMs = 0;          // mpv sub-delay in milliseconds, scoped like subtitle preferences
     int m_mpvAudioTrack = -1;           // mpv audio track number (1-based, -1 = auto)
     int m_mpvSubtitleTrack = -1;        // mpv subtitle track number (1-based, -1 = disabled)

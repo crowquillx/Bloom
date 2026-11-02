@@ -181,6 +181,26 @@ Native Silo exposes `ProviderCapability::MediaRequests`. Every request route is 
 
 The native client implements theme and trickplay capability flags. A flag does not override server permission or establish live validation. The available server fixture validated theme grants/audio but had no published trickplay version in 100 episode and 100 movie checks. The operator confirmed that no previews exist and accepted unit-test coverage for this migration. Live preview delivery remains unverified.
 
+### Subtitle appearance
+
+Silo keeps one subtitle appearance per profile, with an optional override per device (`ProviderCapability::SubtitleAppearance`, native Silo only; see [playback](playback.md#subtitle-appearance)). When a Silo connection or profile becomes live, `SubtitleAppearanceSync` reads `GET /api/v2/settings/subtitle-appearance/effective` (`getEffectiveSubtitleAppearance`, `ProviderCatalogOperation::SubtitleAppearance`), which `SiloRequestFactory` sends with the profile and `X-Silo-Device-Id` headers, so the answer is the value that applies on this device. While the user has not changed the appearance in Bloom, a non-empty `effective_value` becomes the local appearance. A change the user makes in Bloom is written 1.5 s after the last one with `PUT /api/v2/settings/device/subtitle-appearance` (`updateSubtitleAppearanceDeviceOverride`, `ProviderCatalogOperation::SetSubtitleAppearance`), whose `SubtitleAppearanceDeviceOverride` body carries the appearance as a JSON document in the `value` string. Reset in Bloom sends `DELETE` on the same route (`deleteSubtitleAppearanceDeviceOverride`, answered `204`) and then reads and adopts the profile-wide value again. Both override routes are `natural_idempotent`, so the transport may replay them after a lost response. Writes are best effort: a failure (including `403` for demo-restricted accounts) is logged, and the local appearance stays as the user set it. A change made on one connection or profile is never written to another. Jellyfin has no subtitle appearance setting Bloom can apply; it keeps the appearance local.
+
+The server validates only that the value is JSON. Its shape is the one Silo's web player writes (`web/src/lib/subtitleAppearance.ts` at the pin). `SiloSubtitleAppearanceMapper` maps the fields both sides share:
+
+| Silo field | Bloom field |
+| --- | --- |
+| `fontSize` `small` / `medium` / `large` / `xlarge` / `xxlarge` | size 75 / 80 / 100 / 125 / 150 %; written back as the nearest size |
+| `fontFamily` `serif`, `monospace`, `sans-serif` | serif, monospace, Default; every other Bloom font is written as `sans-serif` |
+| `fontColor` | text colour |
+| `backgroundStyle` `box` with `backgroundColor`, `backgroundOpacity` | background box with its colour and opacity (opacity snaps into 25–100 %) |
+| `backgroundStyle` `outline`, or `textOutline: true` | outline medium; Bloom writes `outline` when the outline is on and there is no box or shadow, and `textOutline` for an outline beside a box or shadow |
+| `backgroundStyle` `shadow` | shadow medium |
+| `backgroundStyle` `none` | outline and shadow off |
+| `textOutlineColor` | outline colour |
+| `position` `bottom` / `lower-third` | raise 0 / 5 %; written back as `lower-third` from 5 % up |
+
+Not mapped: `textOpacity`, `position: top` (read as no change; a write sends `bottom` or `lower-third`), and Bloom's font names, outline and shadow sizes, and Apply to Styled Subtitles. A write starts from the last document read and replaces only the mapped fields, so `textOpacity` and fields a newer server adds keep their values. Bloom's own fields stay in `app.json`.
+
 ## Validation and exclusions
 
 Use `./scripts/dev-build.sh --tests` during development, then `nix flake check` and `nix build`. The live runner is separate because it needs a disposable account, server, and media. Its JSON report contains no credentials or grant URLs. Skipped live gates are inconclusive and do not pass.

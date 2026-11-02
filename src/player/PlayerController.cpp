@@ -342,6 +342,11 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     connect(m_recoveryTimer, &QTimer::timeout,
             this, &PlayerController::onRecoveryTick);
 
+    connect(m_config, &ConfigManager::subtitleAppearanceChanged, this, [this]() {
+        emit subtitleSizeChanged();
+        applySubtitleAppearance();
+    });
+
     // Connect to ConfigManager audio delay signal
     connect(m_config, &ConfigManager::audioDelayChanged,
             this, [this]() {
@@ -5401,6 +5406,47 @@ void PlayerController::toggleSubtitleAssOverride()
     }
 }
 
+int PlayerController::subtitleSizePercent() const
+{
+    return m_config->getSubtitleAppearance().sizePercent;
+}
+
+void PlayerController::adjustSubtitleSize(int steps)
+{
+    const int current = subtitleSizePercent();
+    m_config->setSubtitleAppearanceValue(
+        QStringLiteral("sizePercent"),
+        Bloom::SubtitleAppearance::normalizedSizePercent(
+            current + steps * Bloom::SubtitleAppearance::kSizeStepPercent));
+    if (subtitleSizePercent() != current) {
+        showExternalMpvOsd(tr("Subtitle size %1%").arg(subtitleSizePercent()), 1500);
+    }
+}
+
+void PlayerController::resetSubtitleSize()
+{
+    const int current = subtitleSizePercent();
+    m_config->setSubtitleAppearanceValue(QStringLiteral("sizePercent"),
+                                         Bloom::SubtitleAppearance{}.sizePercent);
+    if (subtitleSizePercent() != current) {
+        showExternalMpvOsd(tr("Subtitle size %1%").arg(subtitleSizePercent()), 1500);
+    }
+}
+
+void PlayerController::applySubtitleAppearance()
+{
+    if (!m_playerBackend || !m_playerBackend->isRunning()) {
+        return;
+    }
+    const auto properties = Bloom::SubtitleAppearancePolicy::mpvProperties(
+        m_config->getSubtitleAppearance(), m_subtitleAppearanceBaseArgs);
+    for (const auto &[name, value] :
+         Bloom::SubtitleAppearancePolicy::changedProperties(m_appliedSubtitleProperties, properties)) {
+        m_playerBackend->sendVariantCommand({QStringLiteral("set_property"), name, value});
+    }
+    m_appliedSubtitleProperties = properties;
+}
+
 void PlayerController::toggleDeband()
 {
     if (m_playbackState == Loading || m_playbackState == Buffering
@@ -7563,6 +7609,13 @@ void PlayerController::initiateMpvStart()
         finalArgs << QStringLiteral("--curl-enabled=no");
     }
     finalArgs << profileArgs;                        // Profile-specific args
+    // The appearance goes after the profile so its fields win; the fields it
+    // leaves at their default keep the profile's styling.
+    const Bloom::SubtitleAppearance subtitleAppearance = m_config->getSubtitleAppearance();
+    m_subtitleAppearanceBaseArgs = finalArgs;
+    m_appliedSubtitleProperties = Bloom::SubtitleAppearancePolicy::mpvProperties(
+        subtitleAppearance, m_subtitleAppearanceBaseArgs);
+    finalArgs << Bloom::SubtitleAppearancePolicy::mpvArguments(subtitleAppearance);
 
     const bool remoteMountStartupBuffering =
         m_config->resolveStartupBufferingModeForItem(m_currentLibraryId) == QStringLiteral("remote-mount");
@@ -7888,6 +7941,18 @@ void PlayerController::onScriptMessage(const QString &messageName, const QString
             } else {
                 qCWarning(lcPlayback) << "Ignoring bloom-sleep-timer with an unknown choice" << argument;
             }
+        }
+    } else if (messageName == "bloom-subtitle-size") {
+        // "+" or no argument grows, "-" shrinks, "reset" restores 100 %.
+        const QString argument = args.isEmpty() ? QString() : args.first().trimmed().toLower();
+        if (argument.isEmpty() || argument == QStringLiteral("+")) {
+            adjustSubtitleSize(1);
+        } else if (argument == QStringLiteral("-")) {
+            adjustSubtitleSize(-1);
+        } else if (argument == QStringLiteral("reset")) {
+            resetSubtitleSize();
+        } else {
+            qCWarning(lcPlayback) << "Ignoring bloom-subtitle-size with an unknown argument" << argument;
         }
     }
     // Script-driven trickplay handlers were retired with the native overlay migration.
@@ -8556,7 +8621,7 @@ void PlayerController::setSleepTimer(int choice)
         text = tr("Sleep timer: %1").arg(sleepTimerEndOfItemLabel());
         break;
     }
-    showSleepTimerOsd(text, 2000);
+    showExternalMpvOsd(text, 2000);
 }
 
 QString PlayerController::sleepTimerEndOfItemLabel() const
@@ -8625,7 +8690,7 @@ void PlayerController::onSleepTimerTick()
             finishSleepTimerGrace();
             return;
         }
-        showSleepTimerOsd(tr("Sleep timer: playback stops in %1 s. Resume to keep watching.")
+        showExternalMpvOsd(tr("Sleep timer: playback stops in %1 s. Resume to keep watching.")
                               .arg(m_sleepTimerGraceRemainingSeconds),
                           1500);
         return;
@@ -8659,7 +8724,7 @@ void PlayerController::fireSleepTimer()
     }
     updateSleepTimerTickTimer();
     emit sleepTimerChanged();
-    showSleepTimerOsd(tr("Sleep timer: playback stops in %1 s. Resume to keep watching.")
+    showExternalMpvOsd(tr("Sleep timer: playback stops in %1 s. Resume to keep watching.")
                           .arg(m_sleepTimerGraceRemainingSeconds),
                       1500);
 }
@@ -8671,7 +8736,7 @@ void PlayerController::cancelSleepTimerGrace()
     }
     qCInfo(lcPlayback) << "Sleep timer grace cancelled by user input";
     clearSleepTimer();
-    showSleepTimerOsd(tr("Sleep timer cancelled"), 2000);
+    showExternalMpvOsd(tr("Sleep timer cancelled"), 2000);
 }
 
 void PlayerController::finishSleepTimerGrace()
@@ -8710,10 +8775,11 @@ bool PlayerController::applySleepTimerAtTerminal(TerminalReason reason)
     return stoppedByTimer || firesNow;
 }
 
-void PlayerController::showSleepTimerOsd(const QString &text, int durationMs)
+void PlayerController::showExternalMpvOsd(const QString &text, int durationMs)
 {
-    // External mpv covers Bloom's window, so the timer speaks through mpv's
-    // OSD there; embedded backends show EmbeddedPlaybackOverlay instead.
+    // External mpv covers Bloom's window, so the sleep timer and subtitle
+    // size speak through mpv's OSD there; embedded backends show
+    // EmbeddedPlaybackOverlay instead.
     if (!m_playerBackend || m_playerBackend->supportsEmbeddedVideo() || !m_playerBackend->isRunning()) {
         return;
     }

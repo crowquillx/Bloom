@@ -111,6 +111,180 @@ FocusScope {
         { label: qsTr("Remote Mount"), value: "remote-mount" }
     ]
 
+    // ---- Subtitle appearance ----
+    readonly property var subtitleAppearance: ConfigManager.subtitleAppearance
+    readonly property bool subtitleBoxOn: subtitleAppearance.background === "box"
+    readonly property var subtitleFontOptions: [
+        { label: qsTr("Default (MPV profile)"), value: "default" },
+        { label: "Gandhi Sans", value: "gandhi-sans" },
+        { label: "Gandhi Sans Bold", value: "gandhi-sans-bold" },
+        { label: qsTr("Sans-serif"), value: "sans-serif" },
+        { label: qsTr("Serif"), value: "serif" },
+        { label: qsTr("Monospace"), value: "monospace" },
+        { label: "Arial", value: "arial" },
+        { label: "Verdana", value: "verdana" }
+    ]
+    // Colours match Silo's web player palette so a synced choice keeps its name.
+    readonly property var subtitleTextColorOptions: [
+        { label: qsTr("White"), value: "#FFFFFF" },
+        { label: qsTr("Yellow"), value: "#FACC15" },
+        { label: qsTr("Green"), value: "#22C55E" },
+        { label: qsTr("Cyan"), value: "#06B6D4" },
+        { label: qsTr("Magenta"), value: "#D946EF" },
+        { label: qsTr("Red"), value: "#EF4444" },
+        { label: qsTr("Blue"), value: "#3B82F6" },
+        { label: qsTr("Gray"), value: "#9CA3AF" },
+        { label: qsTr("Black"), value: "#000000" }
+    ]
+    readonly property var subtitleOutlineColorOptions: [
+        { label: qsTr("Black"), value: "#000000" },
+        { label: qsTr("Dark Gray"), value: "#374151" },
+        { label: qsTr("Navy"), value: "#1E3A5F" },
+        { label: qsTr("Gray"), value: "#9CA3AF" },
+        { label: qsTr("White"), value: "#FFFFFF" }
+    ]
+    readonly property var subtitleBoxColorOptions: [
+        { label: qsTr("Black"), value: "#000000" },
+        { label: qsTr("Dark Gray"), value: "#374151" },
+        { label: qsTr("Navy"), value: "#1E3A5F" },
+        { label: qsTr("Dark Red"), value: "#7F1D1D" },
+        { label: qsTr("Dark Green"), value: "#14532D" }
+    ]
+    readonly property var subtitleOutlineOptions: [
+        { label: qsTr("Default (MPV profile)"), value: "default" },
+        { label: qsTr("Off"), value: "off" },
+        { label: qsTr("Thin"), value: "thin" },
+        { label: qsTr("Medium"), value: "medium" },
+        { label: qsTr("Thick"), value: "thick" }
+    ]
+    readonly property var subtitleShadowOptions: [
+        { label: qsTr("Default (MPV profile)"), value: "default" },
+        { label: qsTr("Off"), value: "off" },
+        { label: qsTr("Soft"), value: "soft" },
+        { label: qsTr("Medium"), value: "medium" },
+        { label: qsTr("Strong"), value: "strong" }
+    ]
+    readonly property var subtitleBackgroundOptions: [
+        { label: qsTr("Off"), value: "off" },
+        { label: qsTr("Box"), value: "box" }
+    ]
+
+    // A colour that came from a server and is not in the palette stays
+    // selectable under its hex value.
+    function withCurrentColor(options, value) {
+        for (var i = 0; i < options.length; ++i) {
+            if (options[i].value === value) return options
+        }
+        return options.concat([{ label: value, value: value }])
+    }
+
+    // Focus order of the subtitle appearance rows; the box and the outline
+    // rows replace each other.
+    function subtitleFocusChain() {
+        var chain = [subtitleSizeSlider, subtitleFontRow.focusItem, subtitleTextColorRow.focusItem,
+                     subtitleBackgroundRow.focusItem]
+        if (subtitleBoxOn) {
+            chain.push(subtitleBoxColorRow.focusItem, subtitleBoxOpacitySlider)
+        } else {
+            chain.push(subtitleOutlineRow.focusItem, subtitleOutlineColorRow.focusItem,
+                       subtitleShadowRow.focusItem)
+        }
+        chain.push(subtitlePositionSlider, subtitleStyledToggle, subtitleResetButton)
+        return chain
+    }
+
+    function subtitleNeighbor(item, delta) {
+        var chain = subtitleFocusChain()
+        var index = chain.indexOf(item)
+        if (index < 0) return null
+        index += delta
+        if (index < 0) return serverTrackPreferencesToggle
+        if (index >= chain.length) return skipPopupDurationSlider
+        return chain[index]
+    }
+
+    function setSubtitleAppearance(key, value) {
+        ConfigManager.setSubtitleAppearanceValue(key, value)
+    }
+
+    // Sliders keep their own value once moved; follow resets and changes
+    // made during playback.
+    Connections {
+        target: ConfigManager
+        function onSubtitleAppearanceChanged() {
+            var appearance = ConfigManager.subtitleAppearance
+            subtitleSizeSlider.value = appearance.sizePercent
+            subtitleBoxOpacitySlider.value = appearance.backgroundOpacity
+            subtitlePositionSlider.value = appearance.positionPercent
+        }
+    }
+
+    // Choice row for subtitle appearance fields. Only an accepted pick
+    // writes, so a model rebuilt around a server's colour never does.
+    component AppearanceChoiceRow: SettingsRow {
+        id: appearanceRow
+
+        property var options: []
+        property string selectedValue: ""
+        property Item upTarget: null
+        property Item downTarget: null
+        property alias focusItem: appearanceCombo
+        signal selected(string value)
+
+        highlighted: appearanceCombo.activeFocus || appearanceCombo.popup.visible
+        focusTarget: appearanceCombo
+        onActivated: appearanceCombo.popup.open()
+
+        function syncSelection() {
+            appearanceCombo.currentIndex = root.optionIndexForValue(options, selectedValue)
+        }
+        onSelectedValueChanged: syncSelection()
+        onOptionsChanged: syncSelection()
+
+        SettingsComboBox {
+            id: appearanceCombo
+            model: appearanceRow.options
+            textRole: "label"
+            valueRole: "value"
+            focusPolicy: Qt.StrongFocus
+            Component.onCompleted: appearanceRow.syncSelection()
+
+            onActiveFocusChanged: {
+                if (activeFocus) {
+                    root._lastFocusedItem = this
+                    flickable.ensureFocusVisible(this)
+                    InputModeManager.setNavigationMode("keyboard")
+                    InputModeManager.hideCursor(true)
+                } else if (!popup.visible) {
+                    InputModeManager.setNavigationMode("pointer")
+                    InputModeManager.hideCursor(false)
+                }
+            }
+
+            onSelectionAccepted: function(index) {
+                if (index < 0 || index >= appearanceRow.options.length) return
+                appearanceRow.selected(appearanceRow.options[index].value)
+                // A refused value leaves the setting unchanged; show it again.
+                Qt.callLater(appearanceRow.syncSelection)
+            }
+
+            Keys.onUpPressed: function(event) {
+                if (!popup.visible && appearanceRow.upTarget) {
+                    appearanceRow.upTarget.forceActiveFocus()
+                    event.accepted = true
+                }
+            }
+            Keys.onDownPressed: function(event) {
+                if (!popup.visible && appearanceRow.downTarget) {
+                    appearanceRow.downTarget.forceActiveFocus()
+                    event.accepted = true
+                }
+            }
+            Keys.onReturnPressed: function(event) { popup.open(); event.accepted = true }
+            Keys.onEnterPressed: function(event) { popup.open(); event.accepted = true }
+        }
+    }
+
     component ChoiceComboRow: SettingsRow {
         id: choiceRow
 
@@ -880,8 +1054,205 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
                     KeyNavigation.up: defaultSubtitleTrackCombo
-                    KeyNavigation.down: skipPopupDurationSlider
+                    KeyNavigation.down: subtitleSizeSlider
                     onToggled: function(value) { ConfigManager.useServerTrackPreferences = value }
+                }
+
+                SectionHeader {
+                    level: "group"
+                    text: qsTr("Subtitle Appearance")
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingLarge
+                }
+
+                SubtitleAppearancePreview {
+                    appearance: root.subtitleAppearance
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: Math.round(720 * Theme.layoutScale)
+                    Layout.preferredHeight: implicitHeight
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.bottomMargin: Theme.spacingSmall
+                }
+
+                SettingsSliderRow {
+                    id: subtitleSizeSlider
+                    label: qsTr("Size")
+                    description: qsTr("Text subtitle size; also changeable during playback in Playback Settings")
+                    value: root.subtitleAppearance.sizePercent
+                    from: 75
+                    to: 200
+                    stepSize: 5
+                    unit: "%"
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+
+                    KeyNavigation.up: root.subtitleNeighbor(subtitleSizeSlider, -1)
+                    KeyNavigation.down: root.subtitleNeighbor(subtitleSizeSlider, 1)
+
+                    onSliderValueChanged: function(newValue) {
+                        root.setSubtitleAppearance("sizePercent", newValue)
+                    }
+                }
+
+                AppearanceChoiceRow {
+                    id: subtitleFontRow
+                    label: qsTr("Font")
+                    description: qsTr("Default keeps the font of the MPV profile")
+                    options: root.subtitleFontOptions
+                    selectedValue: root.subtitleAppearance.font
+                    upTarget: root.subtitleNeighbor(focusItem, -1)
+                    downTarget: root.subtitleNeighbor(focusItem, 1)
+                    onSelected: function(value) { root.setSubtitleAppearance("font", value) }
+                }
+
+                AppearanceChoiceRow {
+                    id: subtitleTextColorRow
+                    label: qsTr("Text Color")
+                    options: root.withCurrentColor(root.subtitleTextColorOptions, root.subtitleAppearance.textColor)
+                    selectedValue: root.subtitleAppearance.textColor
+                    upTarget: root.subtitleNeighbor(focusItem, -1)
+                    downTarget: root.subtitleNeighbor(focusItem, 1)
+                    onSelected: function(value) { root.setSubtitleAppearance("textColor", value) }
+                }
+
+                AppearanceChoiceRow {
+                    id: subtitleBackgroundRow
+                    label: qsTr("Background")
+                    description: qsTr("A translucent box behind each line instead of an outline")
+                    options: root.subtitleBackgroundOptions
+                    selectedValue: root.subtitleAppearance.background
+                    upTarget: root.subtitleNeighbor(focusItem, -1)
+                    downTarget: root.subtitleNeighbor(focusItem, 1)
+                    onSelected: function(value) { root.setSubtitleAppearance("background", value) }
+                }
+
+                AppearanceChoiceRow {
+                    id: subtitleBoxColorRow
+                    visible: root.subtitleBoxOn
+                    label: qsTr("Box Color")
+                    options: root.withCurrentColor(root.subtitleBoxColorOptions, root.subtitleAppearance.backgroundColor)
+                    selectedValue: root.subtitleAppearance.backgroundColor
+                    upTarget: root.subtitleNeighbor(focusItem, -1)
+                    downTarget: root.subtitleNeighbor(focusItem, 1)
+                    onSelected: function(value) { root.setSubtitleAppearance("backgroundColor", value) }
+                }
+
+                SettingsSliderRow {
+                    id: subtitleBoxOpacitySlider
+                    visible: root.subtitleBoxOn
+                    label: qsTr("Box Opacity")
+                    value: root.subtitleAppearance.backgroundOpacity
+                    from: 25
+                    to: 100
+                    stepSize: 5
+                    unit: "%"
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+
+                    KeyNavigation.up: root.subtitleNeighbor(subtitleBoxOpacitySlider, -1)
+                    KeyNavigation.down: root.subtitleNeighbor(subtitleBoxOpacitySlider, 1)
+
+                    onSliderValueChanged: function(newValue) {
+                        root.setSubtitleAppearance("backgroundOpacity", newValue)
+                    }
+                }
+
+                AppearanceChoiceRow {
+                    id: subtitleOutlineRow
+                    visible: !root.subtitleBoxOn
+                    label: qsTr("Outline")
+                    options: root.subtitleOutlineOptions
+                    selectedValue: root.subtitleAppearance.outline
+                    upTarget: root.subtitleNeighbor(focusItem, -1)
+                    downTarget: root.subtitleNeighbor(focusItem, 1)
+                    onSelected: function(value) { root.setSubtitleAppearance("outline", value) }
+                }
+
+                AppearanceChoiceRow {
+                    id: subtitleOutlineColorRow
+                    visible: !root.subtitleBoxOn
+                    label: qsTr("Outline Color")
+                    options: root.withCurrentColor(root.subtitleOutlineColorOptions, root.subtitleAppearance.outlineColor)
+                    selectedValue: root.subtitleAppearance.outlineColor
+                    upTarget: root.subtitleNeighbor(focusItem, -1)
+                    downTarget: root.subtitleNeighbor(focusItem, 1)
+                    onSelected: function(value) { root.setSubtitleAppearance("outlineColor", value) }
+                }
+
+                AppearanceChoiceRow {
+                    id: subtitleShadowRow
+                    visible: !root.subtitleBoxOn
+                    label: qsTr("Shadow")
+                    options: root.subtitleShadowOptions
+                    selectedValue: root.subtitleAppearance.shadow
+                    upTarget: root.subtitleNeighbor(focusItem, -1)
+                    downTarget: root.subtitleNeighbor(focusItem, 1)
+                    onSelected: function(value) { root.setSubtitleAppearance("shadow", value) }
+                }
+
+                SettingsSliderRow {
+                    id: subtitlePositionSlider
+                    label: qsTr("Raise Subtitles")
+                    description: qsTr("Moves text and image subtitles up from the bottom, in % of the screen height")
+                    value: root.subtitleAppearance.positionPercent
+                    from: 0
+                    to: 40
+                    stepSize: 5
+                    unit: "%"
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+
+                    KeyNavigation.up: root.subtitleNeighbor(subtitlePositionSlider, -1)
+                    KeyNavigation.down: root.subtitleNeighbor(subtitlePositionSlider, 1)
+
+                    onSliderValueChanged: function(newValue) {
+                        root.setSubtitleAppearance("positionPercent", newValue)
+                    }
+                }
+
+                SettingsToggleRow {
+                    id: subtitleStyledToggle
+                    label: qsTr("Apply to Styled Subtitles")
+                    description: qsTr("Also restyle ASS/SSA subtitles. This can break their signs and typesetting, common in anime")
+                    checked: root.subtitleAppearance.applyToStyled
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+
+                    KeyNavigation.up: root.subtitleNeighbor(subtitleStyledToggle, -1)
+                    KeyNavigation.down: root.subtitleNeighbor(subtitleStyledToggle, 1)
+
+                    onToggled: function(value) { root.setSubtitleAppearance("applyToStyled", value) }
+                }
+
+                SettingsRow {
+                    id: subtitleResetRow
+                    label: qsTr("Reset Subtitle Appearance")
+                    description: qsTr("Back to the MPV profile's styling; on a Silo server, the profile's own subtitle style applies again")
+                    highlighted: subtitleResetButton.activeFocus
+                    focusTarget: subtitleResetButton
+                    onActivated: subtitleResetButton.clicked()
+
+                    ActionButton {
+                        id: subtitleResetButton
+                        variant: "secondary"
+                        text: qsTr("Reset")
+                        implicitHeight: Theme.buttonHeightSmall
+                        sidePadding: Theme.spacingMedium + Theme.spacingXSmall
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                            }
+                        }
+                        onClicked: ConfigManager.resetSubtitleAppearance()
+
+                        KeyNavigation.up: root.subtitleNeighbor(subtitleResetButton, -1)
+                        KeyNavigation.down: root.subtitleNeighbor(subtitleResetButton, 1)
+                    }
                 }
 
                 SectionHeader {
@@ -904,7 +1275,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
-                    KeyNavigation.up: serverTrackPreferencesToggle
+                    KeyNavigation.up: subtitleResetButton
                     KeyNavigation.down: autoSkipIntroToggle
 
                     onSliderValueChanged: function(newValue) {

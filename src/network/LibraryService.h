@@ -236,6 +236,22 @@ public:
                                   const QString &itemId,
                                   bool value);
 
+    // Subtitle appearance on the live connection, for providers with
+    // ProviderCapability::SubtitleAppearance (Silo). The scope the setting
+    // belongs to is "<connection>\n<profile>", empty when the live
+    // connection keeps none. The handler answers once with the response's
+    // capabilityMetadata (SubtitleAppearance operation) unless the session
+    // changes first, which drops the request without an answer.
+    using SubtitleAppearanceHandler = std::function<void(bool ok, const QVariantMap &result)>;
+    virtual QString subtitleAppearanceScope() const;
+    virtual void getSubtitleAppearance(SubtitleAppearanceHandler handler);
+    // Writes this device's override; `document` is the last read's.
+    virtual void setSubtitleAppearance(const QVariantMap &appearance,
+                                       const QString &document,
+                                       SubtitleAppearanceHandler handler);
+    // Removes this device's override, so the profile-wide value applies.
+    virtual void resetSubtitleAppearance(SubtitleAppearanceHandler handler);
+
     // Server-side media requests, for providers with
     // ProviderCapability::MediaRequests (Silo). The handler receives the
     // provider's Bloom-shaped result (capabilityMetadata, documented on

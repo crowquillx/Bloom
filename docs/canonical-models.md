@@ -79,6 +79,10 @@ Items may carry `serverRatings`: the ratings the media server shows on a title p
 
 An airing map describes the next episode to air: `type`, `airDate` (`YYYY-MM-DD`), `airAt` (a UTC instant, only when the network's time and zone are known), `seasonNumber` and `episodeNumber` (-1 when absent), `episodeTitle`, and `badges`. Items may carry one as `nextAiring` (Silo's card `upcoming_event`; its `airDate` is the source date and it has no instant). `LibraryService::getNextAiring` answers one from the provider's calendar (`supportsNextAiring`), where `airDate` is the viewer's local day. See [provider compatibility](provider-compatibility.md#catalog-and-conditional-requests).
 
+## Subtitle appearance
+
+`Bloom::SubtitleAppearance` (`src/models/SubtitleAppearance.*`) is the canonical subtitle look, with camelCase map keys (`sizePercent`, `font`, `textColor`, `outlineColor`, `outline`, `shadow`, `background`, `backgroundColor`, `backgroundOpacity`, `positionPercent`, `applyToStyled`). `withValues` validates every key, so a provider answer can only set fields it maps. Silo's `SubtitleAppearance` read answers a partial map in `capabilityMetadata.appearance` and keeps its wire document opaque (`document`), which a write hands back; see [provider compatibility](provider-compatibility.md#subtitle-appearance).
+
 ## Migrated surfaces
 
 - **Movie Details**: `MovieDetailsViewModel` and `MovieDetailsView.qml` consume only canonical item, connection-scoped similar-item, and chapter payloads. Cached movie and similar JSON is canonical (`*_details_canonical.json` / `*_similar_items_canonical.json`); wire-shaped disk caches are rejected. Similar-item request state is owned by connection and item, so a stale completion settles only its old request and cannot leave loading stuck or invalidate a replacement. Artwork resolves through `ArtworkRef` maps and `LibraryService::getCachedArtworkUrl`. Display, chapter, and playback request timing use milliseconds.

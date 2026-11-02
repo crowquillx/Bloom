@@ -189,6 +189,7 @@ qt_add_qml_module(Bloom
         ui/settings/SettingsRow.qml
         ui/settings/SettingsScrollView.qml
         ui/settings/PlaybackSettings.qml
+        ui/settings/SubtitleAppearancePreview.qml
         ui/settings/DisplaySettings.qml
         ui/settings/HomeSettings.qml
         ui/settings/VideoSettings.qml

@@ -495,6 +495,10 @@ QtObject {
     property color playbackTimePrimary: Qt.rgba(1, 1, 1, 0.92)
     property color playbackTimeSecondary: Qt.rgba(1, 1, 1, 0.70)
     property color playbackIconColor: "#ffffff"
+    // Stand-in video frame behind the Settings subtitle preview; subtitles
+    // are drawn over video, so it stays dark in every theme.
+    property color subtitlePreviewBackdropTop: "#3a4a5c"
+    property color subtitlePreviewBackdropBottom: "#0d1117"
     // Unified control bar: an outer glass panel holding the scrub row, an
     // inner transport tray, and the settings pop-out. Light themes lift the
     // accent so it still reads as a light tint over video.

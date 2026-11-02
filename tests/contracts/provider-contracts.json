@@ -881,6 +881,7 @@
       "native.home.calendar",
       "native.library.sections",
       "native.home.dismissals",
+      "native.settings.subtitle-appearance",
       "native.artwork.refetch",
       "native.playback.capability",
       "native.playback.start-v3",
@@ -1745,6 +1746,51 @@
           "src/providers/silo/SiloCatalogProvider.h",
           "src/network/LibraryService.cpp",
           "src/viewmodels/ContinueWatchingViewModel.cpp"
+        ]
+      },
+      {
+        "id": "native.settings.subtitle-appearance",
+        "method": "GET/PUT/DELETE",
+        "path": "/api/v2/settings/subtitle-appearance/effective and /api/v2/settings/device/subtitle-appearance",
+        "operations": [
+          {
+            "method": "GET",
+            "path": "/api/v2/settings/subtitle-appearance/effective"
+          },
+          {
+            "method": "PUT",
+            "path": "/api/v2/settings/device/subtitle-appearance"
+          },
+          {
+            "method": "DELETE",
+            "path": "/api/v2/settings/device/subtitle-appearance"
+          }
+        ],
+        "outcome": "supported",
+        "capability": {
+          "state": "available",
+          "discovery": "Pinned v2 operations; Bloom exposes them as ProviderCapability::SubtitleAppearance on native Silo only."
+        },
+        "requestSemantics": [
+          "getEffectiveSubtitleAppearance is a profile-scoped read with X-Silo-Device-Id, made when a Silo connection or profile becomes live.",
+          "updateSubtitleAppearanceDeviceOverride sends SubtitleAppearanceDeviceOverride {value}, the appearance as a JSON document in a string, debounced after a change the user makes in Bloom. It is merged into the last document read, so fields Bloom does not map survive.",
+          "deleteSubtitleAppearanceDeviceOverride sends no body, when the user resets the appearance in Bloom.",
+          "The override routes are natural_idempotent, so a lost response may be replayed. A failure is logged and never reverts the local appearance."
+        ],
+        "requiredSemantics": [
+          "EffectiveSubtitleAppearance carries effective_value (empty when nothing is set) and has_device_override; the read and the write both answer it, and the delete answers 204.",
+          "Bloom adopts the effective value only while the user has not changed the appearance in Bloom, and writes only on a user change.",
+          "Only fontSize, fontFamily, fontColor, backgroundStyle, backgroundColor, backgroundOpacity, textOutline, textOutlineColor and position map; textOpacity and unknown fields are kept as the server sent them; position top has no Bloom field."
+        ],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/contracts/api/v2/openapi.json",
+          "https://github.com/Silo-Server/silo-server/blob/a103c2c885f20ea1b11160c233d04994a0884014/web/src/lib/subtitleAppearance.ts"
+        ],
+        "implementationEvidence": [
+          "src/providers/silo/SiloCatalogProvider.h",
+          "src/providers/silo/SiloSubtitleAppearanceMapper.cpp",
+          "src/network/LibraryService.cpp",
+          "src/network/SubtitleAppearanceSync.cpp"
         ]
       },
       {

@@ -1833,6 +1833,59 @@ void LibraryService::setHomeItemDismissed(const QString &requestKey,
         query, {}, {});
 }
 
+QString LibraryService::subtitleAppearanceScope() const
+{
+    if (!m_authService || !m_authService->isAuthenticated()
+        || !m_authService->supportsCapability(ProviderCapability::SubtitleAppearance)) {
+        return {};
+    }
+    return activeConnectionId(m_authService) + QLatin1Char('\n') + activeProfileId(m_authService);
+}
+
+void LibraryService::getSubtitleAppearance(SubtitleAppearanceHandler handler)
+{
+    sendCatalogRequest(
+        QStringLiteral("getSubtitleAppearance"),
+        ProviderCatalogOperation::SubtitleAppearance,
+        baseCatalogQuery(),
+        [handler](const ProviderCatalogResponse &response) {
+            handler(true, response.capabilityMetadata);
+        },
+        [handler](const NetworkError &) { handler(false, {}); });
+}
+
+void LibraryService::setSubtitleAppearance(const QVariantMap &appearance,
+                                           const QString &document,
+                                           SubtitleAppearanceHandler handler)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.stateValue = true;
+    query.subtitleAppearance = appearance;
+    query.subtitleAppearanceDocument = document;
+    sendCatalogRequest(
+        QStringLiteral("setSubtitleAppearance"),
+        ProviderCatalogOperation::SetSubtitleAppearance,
+        query,
+        [handler](const ProviderCatalogResponse &response) {
+            handler(true, response.capabilityMetadata);
+        },
+        [handler](const NetworkError &) { handler(false, {}); });
+}
+
+void LibraryService::resetSubtitleAppearance(SubtitleAppearanceHandler handler)
+{
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.stateValue = false;
+    sendCatalogRequest(
+        QStringLiteral("resetSubtitleAppearance"),
+        ProviderCatalogOperation::SetSubtitleAppearance,
+        query,
+        [handler](const ProviderCatalogResponse &response) {
+            handler(true, response.capabilityMetadata);
+        },
+        [handler](const NetworkError &) { handler(false, {}); });
+}
+
 void LibraryService::clearResumePosition(const QString &requestKey, const QString &itemId)
 {
     const QString connectionId = activeConnectionId(m_authService);

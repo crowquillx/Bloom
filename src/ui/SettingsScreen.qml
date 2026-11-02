@@ -102,6 +102,8 @@ FocusScope {
         function onAutoplayCountdownSecondsChanged() { root.scheduleSettingsSavedToast() }
         function onStillWatchingEpisodeThresholdChanged() { root.scheduleSettingsSavedToast() }
         function onSleepTimerDefaultChanged() { root.scheduleSettingsSavedToast() }
+        function onSubtitleAppearanceEdited() { root.scheduleSettingsSavedToast() }
+        function onSubtitleAppearanceReset() { root.scheduleSettingsSavedToast() }
         function onAutoSkipIntroChanged() { root.scheduleSettingsSavedToast() }
         function onAutoSkipOutroChanged() { root.scheduleSettingsSavedToast() }
         function onBackdropRotationIntervalChanged() { root.scheduleSettingsSavedToast() }

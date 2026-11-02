@@ -633,6 +633,7 @@ private slots:
     void playUrlWithTracksKeepsNewSessionMetadataWhenReplacingPlayback();
     void embeddedVideoShrinkToggleEmitsAndPersists();
     void playbackTogglesSendMpvCycleValuesCommands();
+    void subtitleAppearanceAppliesAtStartAndLive();
     void requestPlaybackAppliesVersionPreference_data();
     void requestPlaybackAppliesVersionPreference();
     void switchPlaybackVersionRestartsAtCurrentPosition();
@@ -3567,6 +3568,92 @@ void PlayerControllerAutoplayContextTest::playbackTogglesSendMpvCycleValuesComma
                           QStringLiteral("deband"),
                           QStringLiteral("no"),
                           QStringLiteral("yes")}));
+}
+
+void PlayerControllerAutoplayContextTest::subtitleAppearanceAppliesAtStartAndLive()
+{
+    ConfigManager config;
+    config.setSubtitleAppearanceValue(QStringLiteral("sizePercent"), 150);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    // Not running: a change waits for the next start.
+    config.setSubtitleAppearanceValue(QStringLiteral("textColor"), QStringLiteral("#FACC15"));
+    QVERIFY(backend.variantCommands.isEmpty());
+
+    controller.playUrl(QStringLiteral("https://example.invalid/video.mkv"),
+                       QStringLiteral("episode-1"),
+                       0,
+                       QStringLiteral("series-1"),
+                       QStringLiteral("season-1"),
+                       QStringLiteral("library-1"));
+    QTRY_VERIFY(backend.startCallCount > 0);
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--sub-scale=1.50")));
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--sub-color=#FACC15")));
+    // Styled subtitles stay as the profile has them unless asked.
+    QVERIFY(!backend.lastStartArgs.contains(QStringLiteral("--sub-ass-override=force")));
+    // The appearance follows the profile's arguments so its fields win.
+    const qsizetype scaleIndex = backend.lastStartArgs.indexOf(QStringLiteral("--sub-scale=1.50"));
+    for (qsizetype i = scaleIndex + 1; i < backend.lastStartArgs.size(); ++i) {
+        QVERIFY(!backend.lastStartArgs.at(i).startsWith(QStringLiteral("--sub-scale=")));
+    }
+
+    const auto setProperties = [&backend]() {
+        QList<QStringList> sets;
+        for (const QVariantList &command : std::as_const(backend.variantCommands)) {
+            if (command.value(0).toString() == QStringLiteral("set_property")
+                && command.value(1).toString().startsWith(QStringLiteral("sub-"))
+                && command.value(1).toString() != QStringLiteral("sub-delay")) {
+                sets.append({command.value(1).toString(), command.value(2).toString()});
+            }
+        }
+        return sets;
+    };
+
+    backend.variantCommands.clear();
+    config.setSubtitleAppearanceValue(QStringLiteral("sizePercent"), 120);
+    QCOMPARE(setProperties(), (QList<QStringList>{{"sub-scale", "1.20"}}));
+
+    backend.variantCommands.clear();
+    controller.adjustSubtitleSize(1);
+    QCOMPARE(controller.subtitleSizePercent(), 125);
+    QCOMPARE(setProperties(), (QList<QStringList>{{"sub-scale", "1.25"}}));
+
+    // External mpv sends the size steps as script messages from input.conf.
+    backend.variantCommands.clear();
+    controller.onScriptMessage(QStringLiteral("bloom-subtitle-size"), {QStringLiteral("-")});
+    QCOMPARE(controller.subtitleSizePercent(), 120);
+    QVERIFY(setProperties().contains(QStringList({"sub-scale", "1.20"})));
+
+    backend.variantCommands.clear();
+    config.setSubtitleAppearanceValue(QStringLiteral("background"), QStringLiteral("box"));
+    // The shadow offset is 0 already, so it is not sent again.
+    QCOMPARE(setProperties(),
+             (QList<QStringList>{{"sub-border-style", "opaque-box"},
+                                 {"sub-border-color", "#BF000000"},
+                                 {"sub-border-size", "4"}}));
+
+    // Back to the defaults: mpv gets its (or the profile's) values back.
+    backend.variantCommands.clear();
+    controller.resetSubtitleSize();
+    config.resetSubtitleAppearance();
+    const QList<QStringList> restored = setProperties();
+    QVERIFY(restored.contains(QStringList({"sub-scale", "1"})));
+    QVERIFY(restored.contains(QStringList({"sub-border-style", "outline-and-shadow"})));
+    QVERIFY(restored.contains(QStringList({"sub-color", "#FFFFFFFF"})));
+    QCOMPARE(controller.subtitleSizePercent(), 100);
 }
 
 void PlayerControllerAutoplayContextTest::requestPlaybackAppliesVersionPreference_data()

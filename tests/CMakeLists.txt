@@ -1588,6 +1588,10 @@ add_executable(PosterBadgesTest PosterBadgesTest.cpp)
 target_link_libraries(PosterBadgesTest PRIVATE Bloom::Providers Qt6::Test)
 add_test(NAME PosterBadgesTest COMMAND PosterBadgesTest)
 
+add_executable(SubtitleAppearanceTest SubtitleAppearanceTest.cpp)
+target_link_libraries(SubtitleAppearanceTest PRIVATE Bloom::Network Qt6::Test)
+add_test(NAME SubtitleAppearanceTest COMMAND SubtitleAppearanceTest)
+
 add_executable(AudioPolicyTest AudioPolicyTest.cpp)
 target_link_libraries(AudioPolicyTest PRIVATE Bloom::PlayerPolicy Qt6::Test)
 add_test(NAME AudioPolicyTest COMMAND AudioPolicyTest)
